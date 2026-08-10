@@ -301,7 +301,7 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
       <Row title="显示建议提示词" description="在新任务页显示与编程相关的快捷提示词。"><Switch label="显示建议提示词" checked={form.suggestedPrompts} onChange={(value) => update("suggestedPrompts", value)} /></Row>
     </Card>
     <Card title="应用">
-      <Row title="重新连接上次工作区" description="启动时恢复上一次打开的本地工作区。"><Switch label="重新连接上次工作区" checked={form.autoConnect} onChange={(value) => update("autoConnect", value)} /></Row>
+      <Row title="恢复上次任务" description="启动时重新打开上一次任务及其 Pi 会话；前端刷新时会直接接回仍在运行的任务。"><Switch label="恢复上次任务" checked={form.autoConnect} onChange={(value) => update("autoConnect", value)} /></Row>
       <Row title="运行时防止休眠" description="执行长时间本地任务时保持电脑唤醒。"><Switch label="运行时防止休眠" checked={form.preventSleep} onChange={(value) => update("preventSleep", value)} /></Row>
       <Row title="默认文件打开方式"><select value={form.defaultFileOpener} onChange={(event) => update("defaultFileOpener", event.target.value as AppSettings["defaultFileOpener"])}><option value="system">系统默认</option><option value="cursor">Cursor</option><option value="vscode">Visual Studio Code</option></select></Row>
       <Row title="界面语言"><select value="zh-CN" disabled><option value="zh-CN">简体中文</option></select></Row>

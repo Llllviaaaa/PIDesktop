@@ -187,6 +187,8 @@ struct RuntimeInfo {
     runtime_id: String,
     cwd: String,
     session_file: Option<String>,
+    is_streaming: bool,
+    pending_extension: Option<serde_json::Value>,
 }
 
 struct AppState {
@@ -414,6 +416,8 @@ fn list_pi_runtimes(state: State<'_, AppState>) -> Result<Vec<RuntimeInfo>, Stri
             runtime_id: runtime_id.clone(),
             cwd: runtime.cwd.clone(),
             session_file: runtime.session_file.clone(),
+            is_streaming: runtime.client.is_streaming(),
+            pending_extension: runtime.client.pending_extension(),
         })
         .collect())
 }

@@ -37,6 +37,27 @@ const STARTERS = [
 
 type HubView = "pull-requests" | "sites" | "scheduled" | "plugins";
 
+const ACTIVE_RUNTIME_KEY = "pid-desktop:active-runtime";
+const LAST_TASK_KEY = "pid-desktop:last-task";
+
+interface PersistedTask {
+  cwd: string;
+  sessionFile: string;
+}
+
+function readPersistedTask(): PersistedTask | null {
+  try {
+    const raw = window.localStorage.getItem(LAST_TASK_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<PersistedTask>;
+    return typeof value.cwd === "string" && typeof value.sessionFile === "string"
+      ? { cwd: value.cwd, sessionFile: value.sessionFile }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   const store = usePiStore();
   const {
@@ -64,6 +85,7 @@ export default function App() {
     extensionStatuses,
     extensionWidgets,
     composerPrefill,
+    runtimeId,
     runtimes,
     toasts,
   } = store;
@@ -82,6 +104,7 @@ export default function App() {
   const [goalStartedAt, setGoalStartedAt] = useState<number | null>(null);
   const [goalElapsed, setGoalElapsed] = useState(0);
   const [goalEditPrefill, setGoalEditPrefill] = useState<string | null>(null);
+  const [runtimeRecoveryDone, setRuntimeRecoveryDone] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const autoConnectedRef = useRef(false);
   const isTauri = "__TAURI_INTERNALS__" in window;
@@ -89,23 +112,52 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri) return;
-    const cleanup = subscribeToPi({
-      onEvent: store.handleEvent,
-      onStatus: store.handleStatus,
-      onLog: store.handleLog,
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+    void (async () => {
+      cleanup = await subscribeToPi({
+        onEvent: store.handleEvent,
+        onStatus: store.handleStatus,
+        onLog: store.handleLog,
+      });
+      if (disposed) {
+        cleanup();
+        return;
+      }
+      await Promise.all([store.loadSettings(), store.refreshSessions()]);
+      const preferredRuntimeId = window.localStorage.getItem(ACTIVE_RUNTIME_KEY);
+      await store.restoreRuntimes(preferredRuntimeId);
+      if (!disposed) setRuntimeRecoveryDone(true);
+    })().catch((error) => {
+      store.appendLog(`初始化失败：${error instanceof Error ? error.message : String(error)}`);
+      if (!disposed) setRuntimeRecoveryDone(true);
     });
-    void store.loadSettings();
-    void store.refreshSessions();
-    return () => { void cleanup.then((unlisten) => unlisten()); };
-  }, [isTauri, store.handleEvent, store.handleStatus, store.handleLog, store.loadSettings, store.refreshSessions]);
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
+  }, [isTauri, store.appendLog, store.handleEvent, store.handleStatus, store.handleLog, store.loadSettings, store.refreshSessions, store.restoreRuntimes]);
 
   useEffect(() => {
-    if (!settings?.autoConnect || autoConnectedRef.current || connection !== "disconnected") return;
-    const lastWorkspace = window.localStorage.getItem("pid-desktop:last-workspace");
+    if (!runtimeRecoveryDone || !settings?.autoConnect || autoConnectedRef.current || connection !== "disconnected") return;
+    const lastTask = readPersistedTask();
+    const lastWorkspace = lastTask?.cwd || window.localStorage.getItem("pid-desktop:last-workspace");
     if (!lastWorkspace) return;
+    const sessionFile = lastTask?.sessionFile && sessions.some((session) => session.file === lastTask.sessionFile)
+      ? lastTask.sessionFile
+      : undefined;
     autoConnectedRef.current = true;
-    void store.connect(lastWorkspace);
-  }, [connection, settings?.autoConnect, store.connect]);
+    void store.connect(lastWorkspace, sessionFile);
+  }, [connection, runtimeRecoveryDone, sessions, settings?.autoConnect, store.connect]);
+
+  useEffect(() => {
+    if (!runtimeId || !cwd) return;
+    window.localStorage.setItem(ACTIVE_RUNTIME_KEY, runtimeId);
+    window.localStorage.setItem("pid-desktop:last-workspace", cwd);
+    if (sessionFile) {
+      window.localStorage.setItem(LAST_TASK_KEY, JSON.stringify({ cwd, sessionFile } satisfies PersistedTask));
+    }
+  }, [cwd, runtimeId, sessionFile]);
 
   useEffect(() => {
     if (!settings) return;

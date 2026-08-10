@@ -211,6 +211,7 @@ interface PiState {
   toasts: Toast[];
 
   connect: (cwd: string, sessionFile?: string) => Promise<void>;
+  restoreRuntimes: (preferredRuntimeId?: string | null) => Promise<boolean>;
   switchSession: (cwd: string, sessionFile: string) => Promise<void>;
   disconnect: () => Promise<void>;
   handleEvent: (runtimeId: string, event: PiEvent) => void;
@@ -411,6 +412,47 @@ export const usePiStore = create<PiState>((set, get) => {
         set({ connection: "exited", lastError: message });
         get().appendLog(message);
         toast(message, "error");
+      }
+    },
+
+    restoreRuntimes: async (preferredRuntimeId) => {
+      try {
+        const discovered = await pi.listRuntimes();
+        const runtimes = Object.fromEntries(discovered.map((runtime) => [
+          runtime.runtimeId,
+          {
+            runtimeId: runtime.runtimeId,
+            cwd: runtime.cwd,
+            sessionFile: runtime.sessionFile ?? null,
+            isStreaming: runtime.isStreaming,
+            status: "running" as ConnectionState,
+            extensionRequest: runtime.pendingExtension ?? null,
+            updatedAt: Date.now(),
+          } satisfies RuntimeState,
+        ]));
+        set({ runtimes });
+
+        const active = preferredRuntimeId
+          ? discovered.find((runtime) => runtime.runtimeId === preferredRuntimeId)
+          : undefined;
+        if (!active) return false;
+
+        set({
+          runtimeId: active.runtimeId,
+          connection: "running",
+          cwd: active.cwd,
+          sessionFile: active.sessionFile ?? null,
+          isStreaming: active.isStreaming,
+          extensionRequest: active.pendingExtension ?? null,
+          lastError: null,
+        });
+        await syncSession();
+        await get().refreshGit();
+        return true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        get().appendLog(`恢复 Pi runtime 失败：${message}`);
+        return false;
       }
     },
 

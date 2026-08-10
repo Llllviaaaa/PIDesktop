@@ -41,6 +41,8 @@ export interface PiRuntimeInfo {
   runtimeId: string;
   cwd: string;
   sessionFile?: string | null;
+  isStreaming: boolean;
+  pendingExtension?: ExtensionUIRequest | null;
 }
 
 export interface PiRuntimeStatus {

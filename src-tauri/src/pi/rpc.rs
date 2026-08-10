@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter};
@@ -13,6 +14,8 @@ use tauri::{AppHandle, Emitter};
 pub struct PiRpcClient {
     child: Arc<Mutex<Child>>,
     stdin: Mutex<ChildStdin>,
+    is_streaming: Arc<AtomicBool>,
+    pending_extension: Arc<Mutex<Option<serde_json::Value>>>,
 }
 
 impl PiRpcClient {
@@ -50,6 +53,8 @@ impl PiRpcClient {
             .ok_or_else(|| "failed to open pi stderr".to_string())?;
 
         let child = Arc::new(Mutex::new(child));
+        let is_streaming = Arc::new(AtomicBool::new(false));
+        let pending_extension = Arc::new(Mutex::new(None));
 
         // stdout reader: strict LF framing per the RPC protocol. When stdout
         // closes we wait on the child to report the real exit code.
@@ -58,6 +63,8 @@ impl PiRpcClient {
             let app = app.clone();
             let status_cwd = cwd.to_string();
             let runtime_id = runtime_id.to_string();
+            let runtime_streaming = Arc::clone(&is_streaming);
+            let runtime_extension = Arc::clone(&pending_extension);
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stdout);
                 let mut line = Vec::new();
@@ -75,6 +82,11 @@ impl PiRpcClient {
                             }
                             match serde_json::from_str::<serde_json::Value>(&text) {
                                 Ok(value) => {
+                                    update_runtime_snapshot(
+                                        &value,
+                                        &runtime_streaming,
+                                        &runtime_extension,
+                                    );
                                     let _ = app.emit(
                                         "pi-event",
                                         serde_json::json!({ "runtimeId": runtime_id, "event": value }),
@@ -103,6 +115,10 @@ impl PiRpcClient {
                     .ok()
                     .and_then(|mut guarded| guarded.wait().ok())
                     .and_then(|status| status.code());
+                runtime_streaming.store(false, Ordering::Relaxed);
+                if let Ok(mut pending) = runtime_extension.lock() {
+                    pending.take();
+                }
                 let _ = app.emit(
                     "pi-status",
                     serde_json::json!({ "runtimeId": runtime_id, "status": "exited", "code": exit_code, "cwd": status_cwd }),
@@ -144,6 +160,8 @@ impl PiRpcClient {
         Ok(PiRpcClient {
             child,
             stdin: Mutex::new(stdin),
+            is_streaming,
+            pending_extension,
         })
     }
 
@@ -158,10 +176,27 @@ impl PiRpcClient {
         } else {
             format!("{line}\n")
         };
-        stdin
+        let result = stdin
             .write_all(payload.as_bytes())
             .and_then(|_| stdin.flush())
-            .map_err(|err| format!("failed to write to pi stdin: {err}"))
+            .map_err(|err| format!("failed to write to pi stdin: {err}"));
+        if result.is_ok()
+            && serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("type")
+                        .and_then(|kind| kind.as_str())
+                        .map(str::to_owned)
+                })
+                .as_deref()
+                == Some("extension_ui_response")
+        {
+            if let Ok(mut pending) = self.pending_extension.lock() {
+                pending.take();
+            }
+        }
+        result
     }
 
     pub fn is_running(&self) -> bool {
@@ -170,6 +205,17 @@ impl PiRpcClient {
             .ok()
             .and_then(|mut child| child.try_wait().ok())
             .is_some_and(|status| status.is_none())
+    }
+
+    pub fn is_streaming(&self) -> bool {
+        self.is_streaming.load(Ordering::Relaxed)
+    }
+
+    pub fn pending_extension(&self) -> Option<serde_json::Value> {
+        self.pending_extension
+            .lock()
+            .ok()
+            .and_then(|pending| pending.clone())
     }
 
     /// Terminate the pi process tree (cmd wrapper + node + any child shells).
@@ -181,6 +227,43 @@ impl PiRpcClient {
             let _ = guarded.wait();
         }
     }
+}
+
+fn update_runtime_snapshot(
+    event: &serde_json::Value,
+    is_streaming: &AtomicBool,
+    pending_extension: &Mutex<Option<serde_json::Value>>,
+) {
+    match event.get("type").and_then(|value| value.as_str()) {
+        Some("agent_start") => is_streaming.store(true, Ordering::Relaxed),
+        Some("agent_end")
+            if event.get("willRetry").and_then(|value| value.as_bool()) != Some(true) =>
+        {
+            is_streaming.store(false, Ordering::Relaxed);
+            if let Ok(mut pending) = pending_extension.lock() {
+                pending.take();
+            }
+        }
+        Some("agent_settled") => {
+            is_streaming.store(false, Ordering::Relaxed);
+            if let Ok(mut pending) = pending_extension.lock() {
+                pending.take();
+            }
+        }
+        Some("extension_ui_request") if is_actionable_extension(event) => {
+            if let Ok(mut pending) = pending_extension.lock() {
+                pending.replace(event.clone());
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_actionable_extension(event: &serde_json::Value) -> bool {
+    !matches!(
+        event.get("method").and_then(|value| value.as_str()),
+        Some("notify" | "setStatus" | "setWidget" | "setTitle" | "set_editor_text")
+    )
 }
 
 /// Build the OS-level command that launches pi in RPC mode.
@@ -233,6 +316,73 @@ fn quote_cmd_arg(arg: &str) -> String {
 impl Drop for PiRpcClient {
     fn drop(&mut self) {
         self.kill();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_snapshot_tracks_streaming_and_actionable_approval() {
+        let streaming = AtomicBool::new(false);
+        let pending = Mutex::new(None);
+
+        update_runtime_snapshot(
+            &serde_json::json!({ "type": "agent_start" }),
+            &streaming,
+            &pending,
+        );
+        assert!(streaming.load(Ordering::Relaxed));
+
+        update_runtime_snapshot(
+            &serde_json::json!({
+                "type": "extension_ui_request",
+                "id": "approval-1",
+                "method": "confirm",
+                "title": "Allow command?",
+                "message": "Run tests"
+            }),
+            &streaming,
+            &pending,
+        );
+        assert_eq!(
+            pending
+                .lock()
+                .expect("pending extension lock")
+                .as_ref()
+                .and_then(|value| value.get("id"))
+                .and_then(|value| value.as_str()),
+            Some("approval-1")
+        );
+
+        update_runtime_snapshot(
+            &serde_json::json!({ "type": "agent_end", "willRetry": false }),
+            &streaming,
+            &pending,
+        );
+        assert!(!streaming.load(Ordering::Relaxed));
+        assert!(pending.lock().expect("pending extension lock").is_none());
+    }
+
+    #[test]
+    fn runtime_snapshot_ignores_non_actionable_extension_updates() {
+        let streaming = AtomicBool::new(false);
+        let pending = Mutex::new(None);
+
+        update_runtime_snapshot(
+            &serde_json::json!({
+                "type": "extension_ui_request",
+                "id": "status-1",
+                "method": "setStatus",
+                "statusKey": "build",
+                "statusText": "Running"
+            }),
+            &streaming,
+            &pending,
+        );
+
+        assert!(pending.lock().expect("pending extension lock").is_none());
     }
 }
 
