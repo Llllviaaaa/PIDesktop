@@ -561,3 +561,202 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .usage-hero { grid-template-columns: 1fr 1fr; }
   .package-toolbar { grid-template-columns: 1fr; }
 }
+
+/* Codex-style shell polish: the window chrome floats above the workspace instead of
+   consuming a dedicated title row. */
+.app-shell { position: relative; }
+.topbar {
+  position: absolute;
+  z-index: 70;
+  inset: 0 0 auto 0;
+  height: 38px;
+  min-height: 38px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--app) 96%, transparent), transparent);
+  pointer-events: none;
+}
+.topbar-left { flex: 1; height: 38px; pointer-events: none; }
+.topbar-left > .workspace-title,
+.topbar-left > .topbar-separator,
+.topbar-left > .chat-title,
+.topbar-left > .title-input { display: none; }
+.topbar-left > .icon-button { margin-left: 7px; pointer-events: auto; }
+.topbar-right { height: 38px; padding-right: 120px; gap: 2px; pointer-events: none; }
+.topbar-right > button,
+.topbar-right > div { pointer-events: auto; }
+.topbar-button { height: 27px; padding: 0 8px; font-size: 10px; background: color-mix(in srgb, var(--app) 82%, transparent); }
+.topbar-button:hover, .topbar-button.active { background: var(--hover); }
+.topbar-right > .icon-button, .topbar-menu-wrap > .icon-button { width: 27px; height: 27px; }
+.window-controls { height: 38px; border-left: 0; }
+.window-control { width: 40px; height: 38px; }
+.topbar-menu { top: 31px; background: var(--panel-strong); }
+.workspace-shell { height: 100%; }
+.main-stage, .inspector-panel { padding-top: 38px; }
+.sidebar { padding-top: 0; }
+.sidebar-heading { height: 43px; padding: 6px 8px 3px 11px; }
+.brand { gap: 8px; padding: 3px; font-size: 12px; }
+.brand-mark { width: 23px; height: 23px; border-radius: 6px; font-size: 16px; }
+
+/* Sidebar navigation and quick chat */
+.sidebar-actions { gap: 5px; padding: 2px 9px 9px; }
+.new-task-action-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 31px; gap: 5px; }
+.primary-sidebar-action { height: 33px; border-color: transparent; background: color-mix(in srgb, var(--panel-strong) 88%, var(--text) 3%); }
+.quick-chat-action {
+  width: 31px;
+  height: 33px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--panel-strong) 88%, var(--text) 3%);
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.quick-chat-action:hover, .primary-sidebar-action:hover { background: var(--hover); border-color: var(--border); }
+.sidebar-navigation { display: grid; gap: 1px; padding: 3px 0 5px; }
+.sidebar-navigation button {
+  width: 100%;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 9px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 11px;
+}
+.sidebar-navigation button:hover { background: var(--hover); color: var(--text); }
+.session-search { height: 29px; background: color-mix(in srgb, var(--app) 58%, transparent); }
+.sidebar-scroll { padding-top: 1px; }
+.workspace-group { margin-bottom: 9px; }
+.workspace-row, .session-row { border-radius: 6px; }
+
+/* New task composition */
+.welcome-mark { display: none; }
+.new-task-screen { justify-content: center; padding: 66px 32px 52px; }
+.new-task-screen h1 { margin-bottom: 22px; font-size: clamp(23px, 2.25vw, 29px); font-weight: 570; }
+.starter-grid { width: min(660px, 100%); grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.starter-grid button { min-height: 66px; padding: 12px 13px; border-radius: 10px; background: color-mix(in srgb, var(--panel) 80%, var(--app)); }
+.task-start-composer { width: min(720px, 100%); margin-top: 25px; }
+.composer-context-row { min-height: 35px; background: color-mix(in srgb, var(--panel) 86%, var(--app)); }
+.composer-card { background: color-mix(in srgb, var(--panel-strong) 92%, var(--app)); box-shadow: 0 10px 34px rgba(0,0,0,.16); }
+.composer-card:focus-within { border-color: color-mix(in srgb, var(--text) 32%, var(--border)); }
+.composer-input { font-size: 13px; }
+.composer-input::placeholder { color: var(--text-3); }
+.composer-meta { color: var(--text-3); opacity: .78; }
+.follow-up-composer .composer-meta { min-height: 15px; font-size: 8.5px; }
+.compact-select select option, .command-menu, .workspace-context-menu { background: var(--panel-strong); color: var(--text); }
+.attachment-chip { background: var(--panel); }
+
+/* Composer plus menu and voice state */
+.composer-actions-wrap { position: relative; }
+.composer-actions-menu {
+  position: absolute;
+  z-index: 45;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 225px;
+  padding: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--panel-strong);
+  box-shadow: 0 16px 48px rgba(0,0,0,.34);
+}
+.composer-actions-menu button {
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 10.5px;
+}
+.composer-actions-menu button:hover { background: var(--hover); color: var(--text); }
+.composer-actions-menu button span { grid-column: 2; }
+.composer-actions-menu button > svg:last-child { grid-column: 3; }
+.voice-button.listening { background: var(--text); color: var(--app); animation: voice-pulse 1.25s ease-in-out infinite; }
+@keyframes voice-pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--text) 14%, transparent); } }
+
+/* Running goal strip */
+.active-goal-card, .task-context-row {
+  width: calc(100% - 36px);
+  max-width: 804px;
+  margin: 0 auto 6px;
+}
+.active-goal-card {
+  min-height: 49px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--app));
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px 7px 10px;
+  box-shadow: 0 7px 22px rgba(0,0,0,.1);
+}
+.active-goal-status { width: 27px; height: 27px; border-radius: 8px; background: var(--text); color: var(--app); display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.active-goal-copy { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.active-goal-copy strong { font-size: 9px; color: var(--text-3); font-weight: 570; }
+.active-goal-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text); }
+.active-goal-meta { flex: 0 0 auto; color: var(--text-3); font-size: 9px; }
+.active-goal-card > button { width: 27px; height: 27px; border: 0; border-radius: 7px; background: transparent; color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.active-goal-card > button:hover { background: var(--hover); color: var(--text); }
+.active-goal-card > button.danger:hover { background: color-mix(in srgb, var(--red) 17%, transparent); color: var(--red); }
+.task-context-row { min-height: 21px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: var(--text-3); font-size: 9px; }
+.task-context-row .context-meter { margin-left: auto; }
+
+/* Secondary work centers */
+.feature-hub { flex: 1; min-height: 0; overflow-y: auto; padding: 76px clamp(24px, 6vw, 74px) 60px; }
+.feature-hub-heading, .feature-hub-card { width: min(720px, 100%); margin-inline: auto; }
+.feature-hub-heading { display: flex; align-items: flex-start; gap: 15px; margin-bottom: 25px; }
+.feature-hub-icon { width: 42px; height: 42px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.feature-hub-heading h1 { margin: 1px 0 5px; font-size: 25px; letter-spacing: -.025em; }
+.feature-hub-heading p { margin: 0; color: var(--text-3); font-size: 11px; line-height: 1.55; }
+.feature-hub-card { min-height: 150px; border: 1px solid var(--border); border-radius: 13px; background: color-mix(in srgb, var(--panel) 78%, var(--app)); padding: 18px; }
+.feature-hub-stat { min-height: 71px; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+.feature-hub-stat strong { font-size: 16px; }
+.feature-hub-stat span { color: var(--text-3); font-size: 10px; }
+.feature-hub-actions { display: flex; gap: 7px; padding-top: 13px; border-top: 1px solid var(--border); }
+.feature-hub-empty { min-height: 115px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: var(--text-3); text-align: center; }
+.feature-hub-empty strong { color: var(--text-2); font-size: 12px; }
+.feature-hub-empty span { max-width: 460px; font-size: 10px; line-height: 1.5; }
+
+/* Black and white surface consistency */
+.inspector-panel { background: var(--panel); }
+.permission-dialog, .settings-modal { background: var(--panel-strong); }
+.permission-message, .terminal-output, .diff-view { background: color-mix(in srgb, var(--app) 92%, black 8%); }
+
+@media (max-width: 980px) {
+  .topbar-button { padding-inline: 6px; }
+  .active-goal-card, .task-context-row { max-width: calc(100% - 18px); }
+  .active-goal-meta { display: none; }
+}
+
+@media (max-width: 760px) {
+  .topbar-right { padding-right: 108px; }
+  .window-control { width: 36px; }
+  .main-stage, .inspector-panel { padding-top: 36px; }
+  .sidebar { top: 0; padding-top: 38px; }
+  .inspector-panel { top: 0; }
+  .starter-grid { grid-template-columns: 1fr; }
+  .new-task-screen { justify-content: flex-start; padding-top: 82px; }
+  .composer-toolbar { align-items: flex-end; }
+  .model-select select { max-width: 105px; }
+  .compact-select:not(.model-select):not(.queue-mode) { display: none; }
+  .active-goal-copy strong { display: none; }
+  .active-goal-card > button.danger { display: none; }
+}

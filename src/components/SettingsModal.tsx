@@ -144,12 +144,17 @@ export function SettingsModal({
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [loadingData, setLoadingData] = useState(true);
+  const isTauri = "__TAURI_INTERNALS__" in window;
   const original = useMemo(() => JSON.stringify({ ...DEFAULTS, ...settings, language: "zh-CN" }), [settings]);
   const dirty = JSON.stringify(form) !== original;
 
   useEffect(() => setForm({ ...DEFAULTS, ...settings, language: "zh-CN" }), [settings]);
   useEffect(() => setActive(initialPage), [initialPage]);
   useEffect(() => {
+    if (!isTauri) {
+      setLoadingData(false);
+      return;
+    }
     let cancelled = false;
     setLoadingData(true);
     void Promise.all([
@@ -166,7 +171,7 @@ export function SettingsModal({
     });
     void pi.usageSummary().then((summary) => { if (!cancelled) setUsage(summary); });
     return () => { cancelled = true; };
-  }, [cwd]);
+  }, [cwd, isTauri]);
 
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) =>
     setForm((current) => ({ ...current, [key]: value }));

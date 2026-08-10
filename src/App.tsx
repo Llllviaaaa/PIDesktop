@@ -83,9 +83,11 @@ export default function App() {
   const [goalEditPrefill, setGoalEditPrefill] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const autoConnectedRef = useRef(false);
-  const appWindow = getCurrentWindow();
+  const isTauri = "__TAURI_INTERNALS__" in window;
+  const appWindow = isTauri ? getCurrentWindow() : null;
 
   useEffect(() => {
+    if (!isTauri) return;
     const cleanup = subscribeToPi({
       onEvent: store.handleEvent,
       onStatus: store.handleStatus,
@@ -94,7 +96,7 @@ export default function App() {
     void store.loadSettings();
     void store.refreshSessions();
     return () => { void cleanup.then((unlisten) => unlisten()); };
-  }, [store.handleEvent, store.handleStatus, store.appendLog, store.loadSettings, store.refreshSessions]);
+  }, [isTauri, store.handleEvent, store.handleStatus, store.appendLog, store.loadSettings, store.refreshSessions]);
 
   useEffect(() => {
     if (!settings?.autoConnect || autoConnectedRef.current || connection !== "disconnected") return;
@@ -123,6 +125,11 @@ export default function App() {
       appRoot.style.height = `${100 / scale}%`;
     }
   }, [settings]);
+
+  useEffect(() => {
+    if (isTauri) return;
+    document.documentElement.dataset.theme = new URLSearchParams(window.location.search).get("theme") === "light" ? "light" : "dark";
+  }, [isTauri]);
 
   useEffect(() => {
     if (!settings) return;
@@ -361,7 +368,7 @@ export default function App() {
       onPickWorkspace={() => void pickFolder()}
       onQuickChat={() => { setQuickChat(true); setTaskEnvironment("local"); }}
       onEnvironmentChange={setTaskEnvironment}
-      onPermissionClick={() => setSettingsOpen(true)}
+      onPermissionClick={() => openSettingsPage("permissions")}
       onPrefillConsumed={() => {
         setGoalEditPrefill(null);
         store.clearComposerPrefill();
@@ -439,13 +446,13 @@ export default function App() {
             )}
           </div>
           <div className="window-controls">
-            <button className="window-control" onClick={() => void appWindow.minimize()} title="最小化" aria-label="最小化窗口">
+            <button className="window-control" onClick={() => void appWindow?.minimize()} title="最小化" aria-label="最小化窗口">
               <Minus size={15} strokeWidth={1.6} />
             </button>
-            <button className="window-control" onClick={() => void appWindow.toggleMaximize()} title="最大化或还原" aria-label="最大化或还原窗口">
+            <button className="window-control" onClick={() => void appWindow?.toggleMaximize()} title="最大化或还原" aria-label="最大化或还原窗口">
               <Square size={12} strokeWidth={1.5} />
             </button>
-            <button className="window-control close" onClick={() => void appWindow.close()} title="关闭" aria-label="关闭窗口">
+            <button className="window-control close" onClick={() => void appWindow?.close()} title="关闭" aria-label="关闭窗口">
               <X size={16} strokeWidth={1.6} />
             </button>
           </div>
