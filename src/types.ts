@@ -250,6 +250,10 @@ export interface AppSettings {
   customInstructions: string;
   suggestedPrompts: boolean;
   memoryEnabled: boolean;
+  browserEnabled: boolean;
+  browserHeadless: boolean;
+  browserConfirmActions: boolean;
+  browserExecutable: string;
   reviewDelivery: "inline" | "detached";
   branchPrefix: string;
   allowForcePush: boolean;
@@ -333,10 +337,19 @@ export interface UiToolCall {
   name: string;
   args: Record<string, unknown>;
   result?: string;
+  images?: ImageContent[];
+  details?: Record<string, unknown>;
   isError?: boolean;
   running: boolean;
   startedAt?: number;
   finishedAt?: number;
+}
+
+export interface BrowserState {
+  url: string;
+  title: string;
+  screenshot?: ImageContent;
+  updatedAt: number;
 }
 
 export interface UiMessage {

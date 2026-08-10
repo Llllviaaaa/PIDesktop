@@ -9,6 +9,7 @@ Pi Desktop is a Codex-style Windows desktop client for the local [Pi coding agen
 - Runtime model and thinking-level selection
 - Image inputs and local file references
 - Pi slash commands, skills, prompt templates, and extension commands discovered through RPC
+- Isolated Edge/Chrome browser automation for page inspection, interaction, and screenshots
 - Extension UI requests: confirmation, selection, text input, editor input, notifications, status, and widgets
 - Codex-style permission modes backed by a Pi tool-interception extension
 - Git working-tree summary, unified diff review pane, inline/new-chat review delivery, and configurable Git instructions
@@ -18,7 +19,7 @@ Pi Desktop is a Codex-style Windows desktop client for the local [Pi coding agen
 - Full-screen settings center for appearance, notifications, personalization, shortcuts, archives, usage, models, Pi resources/packages, permissions, terminal, Git, worktrees, and advanced configuration
 - Persisted process, appearance, behavior, provider, permission, Git, notification, and session settings
 
-See [CODEX_PARITY.md](CODEX_PARITY.md) for the feature-by-feature boundary. UI parity does not turn Pi into OpenAI's hosted Codex platform: cloud environments, first-class MCP, browser/computer-use, automations, and OS sandboxing need additional runtimes rather than settings-page placeholders.
+See [CODEX_PARITY.md](CODEX_PARITY.md) for the feature-by-feature boundary. UI parity does not turn Pi into OpenAI's hosted Codex platform: cloud environments, first-class MCP, OS-wide computer-use, automations, and OS sandboxing need additional runtimes rather than settings-page placeholders.
 
 ## Architecture
 
@@ -84,4 +85,4 @@ These approval gates are not an isolation boundary. Run untrusted or unattended 
 
 ## Known platform boundary
 
-The implemented scope covers the core local Codex-style coding workflow, including managed worktrees. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, scheduled automations, browser/computer-use, and first-class MCP/plugin management require separate platform backends rather than UI-only emulation.
+The implemented scope covers the core local Codex-style coding workflow, including managed worktrees and isolated browser automation. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, scheduled automations, OS-wide computer-use, and first-class MCP hosting require separate platform backends rather than UI-only emulation.

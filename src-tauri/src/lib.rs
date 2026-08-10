@@ -20,6 +20,7 @@ use pi::sessions::{
 };
 
 const GUARD_EXTENSION: &str = include_str!("../resources/pidesktop-guard.ts");
+const BROWSER_EXTENSION: &str = include_str!("../resources/pidesktop-browser.ts");
 
 #[cfg(windows)]
 static KEEP_AWAKE: AtomicBool = AtomicBool::new(false);
@@ -69,6 +70,10 @@ struct AppSettings {
     custom_instructions: String,
     suggested_prompts: bool,
     memory_enabled: bool,
+    browser_enabled: bool,
+    browser_headless: bool,
+    browser_confirm_actions: bool,
+    browser_executable: String,
     review_delivery: String,
     branch_prefix: String,
     allow_force_push: bool,
@@ -116,6 +121,10 @@ impl Default for AppSettings {
             custom_instructions: String::new(),
             suggested_prompts: true,
             memory_enabled: true,
+            browser_enabled: true,
+            browser_headless: true,
+            browser_confirm_actions: true,
+            browser_executable: String::new(),
             review_delivery: "inline".to_string(),
             branch_prefix: "pi/".to_string(),
             allow_force_push: false,
@@ -133,11 +142,21 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
-    fn rpc_extra_args(&self, guard_extension: &Path) -> Vec<String> {
+    fn rpc_extra_args(
+        &self,
+        guard_extension: &Path,
+        browser_extension: Option<&Path>,
+    ) -> Vec<String> {
         let mut args = vec![
             "-e".to_string(),
             guard_extension.to_string_lossy().to_string(),
         ];
+        if let Some(browser_extension) = browser_extension {
+            args.extend([
+                "-e".to_string(),
+                browser_extension.to_string_lossy().to_string(),
+            ]);
+        }
         if !self.provider.is_empty() {
             args.extend(["--provider".to_string(), self.provider.clone()]);
         }
@@ -233,19 +252,29 @@ fn save_settings(settings: &AppSettings) -> Result<(), String> {
 }
 
 fn ensure_guard_extension() -> Result<PathBuf, String> {
-    let path = app_config_dir()
-        .join("extensions")
-        .join("pidesktop-guard.ts");
+    ensure_bundled_extension("pidesktop-guard.ts", GUARD_EXTENSION, "guard")
+}
+
+fn ensure_browser_extension() -> Result<PathBuf, String> {
+    ensure_bundled_extension("pidesktop-browser.ts", BROWSER_EXTENSION, "browser")
+}
+
+fn ensure_bundled_extension(
+    file_name: &str,
+    contents: &str,
+    label: &str,
+) -> Result<PathBuf, String> {
+    let path = app_config_dir().join("extensions").join(file_name);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create extension directory: {err}"))?;
     }
     let should_write = fs::read_to_string(&path)
-        .map(|current| current != GUARD_EXTENSION)
+        .map(|current| current != contents)
         .unwrap_or(true);
     if should_write {
-        fs::write(&path, GUARD_EXTENSION)
-            .map_err(|err| format!("failed to install Pi Desktop guard extension: {err}"))?;
+        fs::write(&path, contents)
+            .map_err(|err| format!("failed to install Pi Desktop {label} extension: {err}"))?;
     }
     Ok(path)
 }
@@ -295,7 +324,11 @@ fn pi_start(
     #[cfg(windows)]
     KEEP_AWAKE.store(settings.prevent_sleep, Ordering::Relaxed);
     let guard_extension = ensure_guard_extension()?;
-    let extra_args = settings.rpc_extra_args(&guard_extension);
+    let browser_extension = settings
+        .browser_enabled
+        .then(ensure_browser_extension)
+        .transpose()?;
+    let extra_args = settings.rpc_extra_args(&guard_extension, browser_extension.as_deref());
     let quick_root = app_config_dir().join("quick-chat");
     let is_quick_chat = cwd_path
         .canonicalize()
@@ -311,6 +344,23 @@ fn pi_start(
         (
             "PIDESKTOP_QUICK_CHAT".to_string(),
             if is_quick_chat { "1" } else { "0" }.to_string(),
+        ),
+        (
+            "PIDESKTOP_BROWSER_HEADLESS".to_string(),
+            if settings.browser_headless { "1" } else { "0" }.to_string(),
+        ),
+        (
+            "PIDESKTOP_BROWSER_CONFIRM".to_string(),
+            if settings.browser_confirm_actions {
+                "1"
+            } else {
+                "0"
+            }
+            .to_string(),
+        ),
+        (
+            "PIDESKTOP_BROWSER_EXECUTABLE".to_string(),
+            settings.browser_executable.clone(),
         ),
     ];
     let runtime_id = format!(

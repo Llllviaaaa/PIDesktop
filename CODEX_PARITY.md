@@ -16,6 +16,7 @@ This file is the product contract for Pi Desktop. A feature is only marked **Imp
 | Local instructions and memory control | Implemented | Personality, custom system instructions, suggested prompts, and Pi context-file enable/disable |
 | Git changes and review | Implemented | Status, unified diff, inline/new-chat review delivery, and configurable review/Git instructions |
 | Git worktrees | Implemented | List, create, open, and start worktree-scoped chats |
+| Browser automation | Implemented | Bundled Pi browser tool drives an isolated local Edge/Chrome session through CDP for page inspection, clicks, typing, and screenshots with approval gates |
 | Notifications and wake lock | Implemented | Native completion/approval notifications and Windows prevent-sleep behavior |
 | Usage | Implemented | Local Pi session aggregation for message count, tokens, and recorded cost |
 | Settings | Implemented | Searchable multi-page center covering personal, integration, coding, and advanced areas |
@@ -23,7 +24,7 @@ This file is the product contract for Pi Desktop. A feature is only marked **Imp
 | Terminal | Partial | Integrated streaming shell exists; Codex's full terminal profile and policy integration is not reproduced |
 | Handoff | Partial | Chats can be cloned/forked and worktrees can be opened, but there is no cross-device or cloud handoff service |
 | MCP | Platform gap | Pi has no first-class MCP host; implementing this requires a separate protocol host and tool bridge |
-| Browser and computer-use | Platform gap | Requires a browser automation/computer-control runtime and permission layer |
+| OS computer-use | Platform gap | Browser interaction is implemented; arbitrary desktop mouse, keyboard, window, and accessibility control still requires a separate OS automation runtime |
 | Cloud environments | Platform gap | Requires remote workers, secrets, repositories, images, logs, and lifecycle APIs |
 | Scheduled automations | Platform gap | Requires a durable scheduler and unattended execution service |
 | OS sandbox | Platform gap | Approval gates are implemented; process/filesystem/network isolation requires Windows Sandbox, a VM, or containers |

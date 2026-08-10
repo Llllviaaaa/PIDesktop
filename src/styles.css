@@ -177,6 +177,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .tool-drawer { margin-left: 21px; border-left: 1px solid var(--border); padding: 7px 10px 10px 13px; background: transparent; }
 .tool-section-label { color: var(--text-3); font-size: 9px; text-transform: uppercase; letter-spacing: .07em; margin: 5px 0 3px; }
 .tool-drawer pre { margin: 0; max-height: 280px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: #b9bac0; font: 10.5px/1.55 "JetBrains Mono", Consolas, monospace; }
+.tool-result-images { display: grid; gap: 8px; margin-top: 8px; }
+.tool-result-images img { display: block; width: 100%; max-height: 420px; object-fit: contain; object-position: top; border: 1px solid var(--border); border-radius: 7px; background: #fff; }
+.browser-panel { padding: 10px; }
+.browser-panel-heading { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.browser-panel-heading > span { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.browser-panel-heading strong, .browser-panel-heading small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-panel-heading strong { font-size: 11px; }
+.browser-panel-heading small { color: var(--text-3); font-size: 9px; }
+.browser-panel > img { width: 100%; margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.browser-empty { min-height: 220px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 9px; text-align: center; }
 .stream-caret { display: inline-block; width: 7px; height: 15px; background: #bfc0c4; animation: blink 1s step-end infinite; }
 
 .markdown-body { min-width: 0; }

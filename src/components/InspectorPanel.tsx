@@ -1,14 +1,15 @@
 import { useState } from "react";
-import { FileDiff, LoaderCircle, RefreshCw, SearchCheck, Square, Terminal, X } from "lucide-react";
-import type { GitSnapshot } from "../types";
+import { FileDiff, Globe2, LoaderCircle, RefreshCw, SearchCheck, Square, Terminal, X } from "lucide-react";
+import type { BrowserState, GitSnapshot } from "../types";
 
-export type InspectorTab = "changes" | "terminal" | "logs";
+export type InspectorTab = "changes" | "terminal" | "browser" | "logs";
 
 export function InspectorPanel({
   initialTab,
   git,
   cwd,
   terminal,
+  browser,
   logs,
   onClose,
   onRefreshGit,
@@ -20,6 +21,7 @@ export function InspectorPanel({
   git: GitSnapshot | null;
   cwd: string;
   terminal: { running: boolean; command: string; output: string; exitCode?: number };
+  browser: BrowserState | null;
   logs: string[];
   onClose: () => void;
   onRefreshGit: () => void;
@@ -39,6 +41,7 @@ export function InspectorPanel({
             更改 {git?.files.length ? <span>{git.files.length}</span> : null}
           </button>
           <button className={tab === "terminal" ? "active" : ""} onClick={() => setTab("terminal")}>终端</button>
+          <button className={tab === "browser" ? "active" : ""} onClick={() => setTab("browser")}>浏览器</button>
           <button className={tab === "logs" ? "active" : ""} onClick={() => setTab("logs")}>日志</button>
         </nav>
         <button className="icon-button" onClick={onClose}><X size={16} /></button>
@@ -122,6 +125,21 @@ export function InspectorPanel({
             <input type="checkbox" checked={exclude} onChange={(event) => setExclude(event.target.checked)} />
             不把命令输出加入下一条 Pi 提示词
           </label>
+        </div>
+      )}
+
+      {tab === "browser" && (
+        <div className="inspector-content browser-panel">
+          {browser ? <>
+            <div className="browser-panel-heading">
+              <Globe2 size={15} />
+              <span><strong>{browser.title}</strong><small title={browser.url}>{browser.url}</small></span>
+              <button className="secondary-button compact" onClick={() => void navigator.clipboard.writeText(browser.url)}>复制地址</button>
+            </div>
+            {browser.screenshot
+              ? <img src={`data:${browser.screenshot.mimeType};base64,${browser.screenshot.data}`} alt={browser.title} />
+              : <div className="panel-empty">页面已经连接。让 Pi 调用 browser 的 screenshot 操作即可在这里查看截图。</div>}
+          </> : <div className="panel-empty browser-empty"><Globe2 size={24} />让 Pi 使用 browser 工具打开或检查网页，最新页面和截图会显示在这里。</div>}
         </div>
       )}
 

@@ -10,6 +10,7 @@ import {
   FileCode2,
   FolderGit2,
   GitBranch,
+  Globe2,
   Keyboard,
   MonitorCog,
   Palette,
@@ -39,6 +40,7 @@ export type SettingsPage =
   | "usage"
   | "models"
   | "resources"
+  | "browser"
   | "permissions"
   | "terminal"
   | "git"
@@ -76,6 +78,10 @@ const DEFAULTS: AppSettings = {
   customInstructions: "",
   suggestedPrompts: true,
   memoryEnabled: true,
+  browserEnabled: true,
+  browserHeadless: true,
+  browserConfirmActions: true,
+  browserExecutable: "",
   reviewDelivery: "inline",
   branchPrefix: "pi/",
   allowForcePush: false,
@@ -108,6 +114,7 @@ const NAVIGATION: Array<{ label: string; items: Array<{ id: SettingsPage; label:
     items: [
       { id: "models", label: "模型与提供商", icon: Bot, keywords: "pi 模型 提供商 推理 model provider" },
       { id: "resources", label: "扩展与技能", icon: Blocks, keywords: "软件包 插件 技能 提示词 resources plugins" },
+      { id: "browser", label: "浏览器", icon: Globe2, keywords: "edge chrome chromium 网页 自动化 截图 browser web automation screenshot" },
     ],
   },
   {
@@ -261,6 +268,7 @@ export function SettingsModal({
             {active === "usage" && <UsagePage usage={usage} />}
             {active === "models" && <ModelsPage form={form} update={update} />}
             {active === "resources" && <ResourcesPage cwd={cwd} resources={resources} loading={loadingData} onReload={async () => setResources(await pi.listResources(cwd))} />}
+            {active === "browser" && <BrowserPage form={form} update={update} />}
             {active === "permissions" && <PermissionsPage form={form} update={update} />}
             {active === "terminal" && <TerminalPage form={form} update={update} />}
             {active === "git" && <GitPage form={form} update={update} />}
@@ -422,6 +430,19 @@ function ResourcesPage({ cwd, resources, loading, onReload }: { cwd: string; res
     {result && <pre className="package-result">{result}</pre>}
     <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在发现资源…</div> : resources.length === 0 ? <div className="settings-empty"><Blocks size={22} />未发现资源</div> : <div className="resource-list">{resources.map((item) => <button key={`${item.kind}-${item.path}`} onClick={() => item.path.includes(":") && void openPath(item.path).catch(() => undefined)}><span className={`resource-kind ${item.kind}`}>{kindLabels[item.kind] || item.kind}</span><span><strong>{item.name}</strong><small>{item.path}</small></span><em>{scopeLabels[item.scope] || item.scope}</em>{item.kind === "package" ? <span role="button" className="resource-remove" title="移除软件包" onClick={(event) => { event.stopPropagation(); void action("remove", item.path); }}><Trash2 size={13} /></span> : <ChevronRight size={14} />}</button>)}</div>}</Card>
     <div className="settings-info"><Blocks size={17} /><span>软件包操作使用 Pi 自身的安装、移除和更新命令；重新连接工作区后资源即可使用。</span></div>
+  </>;
+}
+
+function BrowserPage({ form, update }: { form: AppSettings; update: Update }) {
+  return <>
+    <PageHeading title="浏览器" description="让 Pi 通过本机 Edge、Chrome 或 Chromium 检查和操作网页。" />
+    <Card title="浏览器工具">
+      <Row title="启用浏览器工具" description="为新启动的 Pi 任务注册 browser 工具。"><Switch label="启用浏览器工具" checked={form.browserEnabled} onChange={(value) => update("browserEnabled", value)} /></Row>
+      <Row title="后台运行" description="使用无头浏览器并在 Pi Desktop 中显示页面结果和截图。"><Switch label="后台运行浏览器" checked={form.browserHeadless} onChange={(value) => update("browserHeadless", value)} /></Row>
+      <Row title="操作前审批" description="打开页面、点击或输入内容前请求确认；检查和截图保持只读。"><Switch label="浏览器操作前审批" checked={form.browserConfirmActions} onChange={(value) => update("browserConfirmActions", value)} /></Row>
+      <Row title="浏览器程序" description="留空时依次查找 Edge、Chrome 和 Chromium。"><input value={form.browserExecutable} onChange={(event) => update("browserExecutable", event.target.value)} placeholder="自动检测" /></Row>
+    </Card>
+    <div className="settings-info"><Globe2 size={17} /><span>浏览器使用独立临时配置目录，不读取你的日常浏览器登录状态。设置修改将在新任务中生效。</span></div>
   </>;
 }
 

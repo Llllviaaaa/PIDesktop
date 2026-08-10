@@ -5,6 +5,7 @@ import type {
   AppSettings,
   AssistantMessage,
   AttachmentPayload,
+  BrowserState,
   ConnectionState,
   ExtensionUIRequest,
   GitSnapshot,
@@ -136,11 +137,53 @@ function attachToolResult(messages: UiMessage[], result: ToolResultMessage) {
     const call = message.toolCalls?.find((candidate) => candidate.id === result.toolCallId);
     if (call) {
       call.result = stringifyResult(result.content);
+      call.images = imagesFromContent(result.content);
+      call.details = isRecord(result.details) ? result.details : undefined;
       call.isError = result.isError;
       call.running = false;
       return;
     }
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function resultContent(result: unknown): unknown[] {
+  return isRecord(result) && Array.isArray(result.content) ? result.content : [];
+}
+
+function resultDetails(result: unknown): Record<string, unknown> | undefined {
+  return isRecord(result) && isRecord(result.details) ? result.details : undefined;
+}
+
+function browserFromResult(result: unknown, previous: BrowserState | null): BrowserState | null {
+  const details = resultDetails(result);
+  const images = imagesFromContent(resultContent(result));
+  const url = typeof details?.url === "string" ? details.url : previous?.url;
+  const title = typeof details?.title === "string" ? details.title : previous?.title;
+  if (!url && !title && !images?.[0]) return previous;
+  return {
+    url: url || "about:blank",
+    title: title || url || "浏览器",
+    screenshot: images?.[0] ?? previous?.screenshot,
+    updatedAt: Date.now(),
+  };
+}
+
+function browserFromMessages(messages: UiMessage[]): BrowserState | null {
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const calls = messages[messageIndex].toolCalls ?? [];
+    for (let callIndex = calls.length - 1; callIndex >= 0; callIndex -= 1) {
+      const call = calls[callIndex];
+      if (call.name.toLowerCase() !== "browser") continue;
+      const url = typeof call.details?.url === "string" ? call.details.url : "about:blank";
+      const title = typeof call.details?.title === "string" ? call.details.title : url;
+      return { url, title, screenshot: call.images?.[0], updatedAt: call.finishedAt ?? Date.now() };
+    }
+  }
+  return null;
 }
 
 function stringifyResult(result: unknown): string | undefined {
@@ -203,6 +246,7 @@ interface PiState {
   sessions: SessionInfo[];
   settings: AppSettings | null;
   git: GitSnapshot | null;
+  browser: BrowserState | null;
   terminal: TerminalState;
   extensionRequest: ExtensionUIRequest | null;
   extensionStatuses: Record<string, string>;
@@ -305,10 +349,12 @@ export const usePiStore = create<PiState>((set, get) => {
       sendCommand(runtimeId, "get_commands"),
     ]);
     if (get().runtimeId !== runtimeId) return;
+    const restoredMessages = messagesToUi(history.data?.messages ?? []);
     set({
       availableModels: models.data?.models ?? [],
       availableThinkingLevels: levels.data?.levels ?? ["off"],
-      messages: messagesToUi(history.data?.messages ?? []),
+      messages: restoredMessages,
+      browser: browserFromMessages(restoredMessages),
       commands: commands.data?.commands ?? [],
     });
     const sessionFile = data?.sessionFile;
@@ -361,6 +407,7 @@ export const usePiStore = create<PiState>((set, get) => {
     sessions: [],
     settings: null,
     git: null,
+    browser: null,
     terminal: { running: false, command: "", output: "" },
     extensionRequest: null,
     extensionStatuses: {},
@@ -379,6 +426,7 @@ export const usePiStore = create<PiState>((set, get) => {
         isStreaming: false,
         isCompacting: false,
         extensionRequest: null,
+        browser: null,
         lastError: null,
       });
       try {
@@ -484,6 +532,7 @@ export const usePiStore = create<PiState>((set, get) => {
       isCompacting: false,
       retryStatus: null,
       extensionRequest: null,
+      browser: null,
       extensionStatuses: {},
       extensionWidgets: {},
       steeringQueue: [],
@@ -616,19 +665,31 @@ export const usePiStore = create<PiState>((set, get) => {
               ...call,
               running: true,
               result: stringifyResult(event.partialResult),
+              images: imagesFromContent(resultContent(event.partialResult)),
+              details: resultDetails(event.partialResult),
             }), event.toolName, event.args),
           }));
           return;
         case "tool_execution_end":
-          set((state) => ({
-            messages: updateToolCall(state.messages, event.toolCallId, (call) => ({
+          set((state) => {
+            const messages = updateToolCall(state.messages, event.toolCallId, (call) => ({
               ...call,
               running: false,
               result: stringifyResult(event.result),
+              images: imagesFromContent(resultContent(event.result)),
+              details: resultDetails(event.result),
               isError: event.isError,
               finishedAt: Date.now(),
-            }), event.toolName),
-          }));
+            }), event.toolName);
+            return {
+              messages,
+              browser: event.toolName.toLowerCase() === "browser"
+                ? resultDetails(event.result)?.action === "close"
+                  ? null
+                  : browserFromResult(event.result, state.browser)
+                : state.browser,
+            };
+          });
           return;
         case "bash_execution_update":
           set((state) => ({

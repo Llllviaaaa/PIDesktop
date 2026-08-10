@@ -6,6 +6,7 @@ import {
   CircleAlert,
   FilePenLine,
   FileSearch,
+  Globe2,
   LoaderCircle,
   Terminal,
   Wrench,
@@ -23,6 +24,11 @@ function summary(call: UiToolCall): string {
   if (name === "grep" || name === "find" || name === "search") {
     return "搜索文件";
   }
+  if (name === "browser") {
+    const action = typeof call.args.action === "string" ? call.args.action : "inspect";
+    const labels: Record<string, string> = { open: "打开网页", inspect: "检查网页", click: "点击网页元素", type: "在网页中输入", screenshot: "截取网页", close: "关闭浏览器" };
+    return labels[action] || "操作浏览器";
+  }
   return call.name;
 }
 
@@ -31,6 +37,7 @@ function ToolIcon({ call }: { call: UiToolCall }) {
   if (name === "bash" || name === "exec" || name === "shell") return <Terminal size={14} />;
   if (name === "write" || name === "edit") return <FilePenLine size={14} />;
   if (name === "read" || name === "grep" || name === "find") return <FileSearch size={14} />;
+  if (name === "browser") return <Globe2 size={14} />;
   return <Wrench size={14} />;
 }
 
@@ -53,7 +60,7 @@ export function ToolCall({ call }: { call: UiToolCall }) {
         ) : (
           <Check size={13} />
         )}
-        {call.result !== undefined && (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
+        {(call.result !== undefined || call.images?.length) && (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
       </button>
       {expanded && (
         <div className="tool-drawer">
@@ -64,6 +71,11 @@ export function ToolCall({ call }: { call: UiToolCall }) {
               <div className="tool-section-label">输出</div>
               <pre>{call.result}</pre>
             </>
+          )}
+          {call.images && call.images.length > 0 && (
+            <div className="tool-result-images">
+              {call.images.map((image, index) => <img key={index} src={`data:${image.mimeType};base64,${image.data}`} alt={`浏览器截图 ${index + 1}`} />)}
+            </div>
           )}
         </div>
       )}
