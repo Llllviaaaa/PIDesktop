@@ -256,6 +256,9 @@ export interface AppSettings {
   browserExecutable: string;
   computerEnabled: boolean;
   computerConfirmActions: boolean;
+  mcpEnabled: boolean;
+  mcpConfirmTools: boolean;
+  mcpServers: McpServerConfig[];
   reviewDelivery: "inline" | "detached";
   branchPrefix: string;
   allowForcePush: boolean;
@@ -268,6 +271,21 @@ export interface AppSettings {
   shortcutChanges: string;
   shortcutToggleSidebar: string;
   archivedSessions: string[];
+}
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  transport: "stdio" | "http";
+  command: string;
+  args: string[];
+  cwd: string;
+  env: Record<string, string>;
+  inheritEnvironment: boolean;
+  url: string;
+  headers: Record<string, string>;
+  trustedReadOnly: boolean;
 }
 
 export interface SessionInfo {

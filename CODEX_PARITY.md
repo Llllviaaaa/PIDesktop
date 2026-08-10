@@ -18,13 +18,14 @@ This file is the product contract for Pi Desktop. A feature is only marked **Imp
 | Git worktrees | Implemented | List, create, open, and start worktree-scoped chats |
 | Browser automation | Implemented | Bundled Pi browser tool drives an isolated local Edge/Chrome session through CDP for page inspection, clicks, typing, and screenshots with approval gates |
 | OS computer-use | Implemented | Native Windows helper captures the virtual desktop, lists/focuses visible windows, and sends approval-gated mouse, text, and key input; read-only mode blocks interactive actions and Windows UIPI remains enforced |
+| MCP tools | Implemented | MCP 2025-11-25 lifecycle with local STDIO and remote Streamable HTTP transports, dynamic tool registration, pagination, images/embedded resource results, cancellation, environment filtering, and approval gates |
 | Notifications and wake lock | Implemented | Native completion/approval notifications and Windows prevent-sleep behavior |
 | Usage | Implemented | Local Pi session aggregation for message count, tokens, and recorded cost |
 | Settings | Implemented | Searchable multi-page center covering personal, integration, coding, and advanced areas |
 | Permissions | Partial | Pi tool interception provides read-only/ask/workspace-write/full-access modes, but is not an OS isolation boundary |
 | Terminal | Partial | Integrated streaming shell exists; Codex's full terminal profile and policy integration is not reproduced |
 | Handoff | Partial | Chats can be cloned/forked and worktrees can be opened, but there is no cross-device or cloud handoff service |
-| MCP | Platform gap | Pi has no first-class MCP host; implementing this requires a separate protocol host and tool bridge |
+| MCP resources, prompts, OAuth, and tasks | Partial | Tool hosting is implemented; automatic OAuth discovery, server prompt commands, resource browsing/subscriptions, list-change refresh, and experimental task flows remain |
 | Cloud environments | Platform gap | Requires remote workers, secrets, repositories, images, logs, and lifecycle APIs |
 | Scheduled automations | Platform gap | Requires a durable scheduler and unattended execution service |
 | OS sandbox | Platform gap | Approval gates are implemented; process/filesystem/network isolation requires Windows Sandbox, a VM, or containers |

@@ -24,6 +24,7 @@ use pi::sessions::{
 const GUARD_EXTENSION: &str = include_str!("../resources/pidesktop-guard.ts");
 const BROWSER_EXTENSION: &str = include_str!("../resources/pidesktop-browser.ts");
 const COMPUTER_EXTENSION: &str = include_str!("../resources/pidesktop-computer.ts");
+const MCP_EXTENSION: &str = include_str!("../resources/pidesktop-mcp.ts");
 
 #[cfg(windows)]
 static KEEP_AWAKE: AtomicBool = AtomicBool::new(false);
@@ -79,6 +80,9 @@ struct AppSettings {
     browser_executable: String,
     computer_enabled: bool,
     computer_confirm_actions: bool,
+    mcp_enabled: bool,
+    mcp_confirm_tools: bool,
+    mcp_servers: Vec<McpServerConfig>,
     review_delivery: String,
     branch_prefix: String,
     allow_force_push: bool,
@@ -91,6 +95,42 @@ struct AppSettings {
     shortcut_changes: String,
     shortcut_toggle_sidebar: String,
     archived_sessions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct McpServerConfig {
+    id: String,
+    name: String,
+    enabled: bool,
+    transport: String,
+    command: String,
+    args: Vec<String>,
+    cwd: String,
+    env: HashMap<String, String>,
+    inherit_environment: bool,
+    url: String,
+    headers: HashMap<String, String>,
+    trusted_read_only: bool,
+}
+
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            enabled: true,
+            transport: "stdio".to_string(),
+            command: String::new(),
+            args: Vec::new(),
+            cwd: String::new(),
+            env: HashMap::new(),
+            inherit_environment: false,
+            url: String::new(),
+            headers: HashMap::new(),
+            trusted_read_only: false,
+        }
+    }
 }
 
 impl Default for AppSettings {
@@ -132,6 +172,9 @@ impl Default for AppSettings {
             browser_executable: String::new(),
             computer_enabled: true,
             computer_confirm_actions: true,
+            mcp_enabled: true,
+            mcp_confirm_tools: true,
+            mcp_servers: Vec::new(),
             review_delivery: "inline".to_string(),
             branch_prefix: "pi/".to_string(),
             allow_force_push: false,
@@ -154,6 +197,7 @@ impl AppSettings {
         guard_extension: &Path,
         browser_extension: Option<&Path>,
         computer_extension: Option<&Path>,
+        mcp_extension: Option<&Path>,
     ) -> Vec<String> {
         let mut args = vec![
             "-e".to_string(),
@@ -169,6 +213,12 @@ impl AppSettings {
             args.extend([
                 "-e".to_string(),
                 computer_extension.to_string_lossy().to_string(),
+            ]);
+        }
+        if let Some(mcp_extension) = mcp_extension {
+            args.extend([
+                "-e".to_string(),
+                mcp_extension.to_string_lossy().to_string(),
             ]);
         }
         if !self.provider.is_empty() {
@@ -277,6 +327,22 @@ fn ensure_computer_extension() -> Result<PathBuf, String> {
     ensure_bundled_extension("pidesktop-computer.ts", COMPUTER_EXTENSION, "computer")
 }
 
+fn ensure_mcp_extension() -> Result<PathBuf, String> {
+    ensure_bundled_extension("pidesktop-mcp.ts", MCP_EXTENSION, "MCP")
+}
+
+fn ensure_mcp_config(servers: &[McpServerConfig]) -> Result<PathBuf, String> {
+    let path = app_config_dir().join("mcp-servers.json");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create MCP config directory: {err}"))?;
+    }
+    let raw = serde_json::to_string_pretty(servers)
+        .map_err(|err| format!("failed to serialize MCP servers: {err}"))?;
+    fs::write(&path, raw).map_err(|err| format!("failed to write MCP config: {err}"))?;
+    Ok(path)
+}
+
 fn ensure_bundled_extension(
     file_name: &str,
     contents: &str,
@@ -350,10 +416,19 @@ fn pi_start(
         .computer_enabled
         .then(ensure_computer_extension)
         .transpose()?;
+    let mcp_extension = settings
+        .mcp_enabled
+        .then(ensure_mcp_extension)
+        .transpose()?;
+    let mcp_config = settings
+        .mcp_enabled
+        .then(|| ensure_mcp_config(&settings.mcp_servers))
+        .transpose()?;
     let extra_args = settings.rpc_extra_args(
         &guard_extension,
         browser_extension.as_deref(),
         computer_extension.as_deref(),
+        mcp_extension.as_deref(),
     );
     let quick_root = app_config_dir().join("quick-chat");
     let is_quick_chat = cwd_path
@@ -403,6 +478,17 @@ fn pi_start(
                 .map_err(|err| format!("failed to locate Pi Desktop executable: {err}"))?
                 .to_string_lossy()
                 .to_string(),
+        ),
+        (
+            "PIDESKTOP_MCP_CONFIG".to_string(),
+            mcp_config
+                .as_deref()
+                .map(|path| path.to_string_lossy().to_string())
+                .unwrap_or_default(),
+        ),
+        (
+            "PIDESKTOP_MCP_CONFIRM".to_string(),
+            if settings.mcp_confirm_tools { "1" } else { "0" }.to_string(),
         ),
     ];
     let runtime_id = format!(
@@ -598,6 +684,27 @@ fn set_settings(state: State<'_, AppState>, settings: AppSettings) -> Result<(),
     }
     if !(75..=150).contains(&settings.ui_scale) {
         return Err("UI scale must be between 75 and 150".to_string());
+    }
+    let mut mcp_ids = std::collections::HashSet::new();
+    for server in &settings.mcp_servers {
+        if server.id.trim().is_empty() || !mcp_ids.insert(server.id.trim().to_lowercase()) {
+            return Err("MCP server IDs must be non-empty and unique".to_string());
+        }
+        if !matches!(server.transport.as_str(), "stdio" | "http") {
+            return Err(format!("invalid MCP transport for {}", server.name));
+        }
+        if server.enabled && server.transport == "stdio" && server.command.trim().is_empty() {
+            return Err(format!("MCP server {} requires a command", server.name));
+        }
+        if server.enabled
+            && server.transport == "http"
+            && !(server.url.starts_with("http://") || server.url.starts_with("https://"))
+        {
+            return Err(format!(
+                "MCP server {} requires an HTTP(S) URL",
+                server.name
+            ));
+        }
     }
     if !settings.custom_instructions.trim().is_empty() {
         ensure_personal_instructions(&settings.custom_instructions)?;

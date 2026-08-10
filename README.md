@@ -11,6 +11,7 @@ Pi Desktop is a Codex-style Windows desktop client for the local [Pi coding agen
 - Pi slash commands, skills, prompt templates, and extension commands discovered through RPC
 - Isolated Edge/Chrome browser automation for page inspection, interaction, and screenshots
 - Native Windows computer use for desktop screenshots, visible-window discovery, focus, mouse clicks, text input, and key combinations
+- MCP tool hosting for local STDIO and remote Streamable HTTP servers with dynamic tool discovery and approval gates
 - Extension UI requests: confirmation, selection, text input, editor input, notifications, status, and widgets
 - Codex-style permission modes backed by a Pi tool-interception extension
 - Git working-tree summary, unified diff review pane, inline/new-chat review delivery, and configurable Git instructions
@@ -20,7 +21,7 @@ Pi Desktop is a Codex-style Windows desktop client for the local [Pi coding agen
 - Full-screen settings center for appearance, notifications, personalization, shortcuts, archives, usage, models, Pi resources/packages, permissions, terminal, Git, worktrees, and advanced configuration
 - Persisted process, appearance, behavior, provider, permission, Git, notification, and session settings
 
-See [CODEX_PARITY.md](CODEX_PARITY.md) for the feature-by-feature boundary. UI parity does not turn Pi into OpenAI's hosted Codex platform: cloud environments, first-class MCP, automations, and OS sandboxing need additional runtimes rather than settings-page placeholders.
+See [CODEX_PARITY.md](CODEX_PARITY.md) for the feature-by-feature boundary. UI parity does not turn Pi into OpenAI's hosted Codex platform: cloud environments, unattended automations, and OS sandboxing need additional runtimes rather than settings-page placeholders.
 
 ## Architecture
 
@@ -75,6 +76,8 @@ These approval gates are not an isolation boundary. Run untrusted or unattended 
 
 The bundled `computer` tool uses a native helper in the Pi Desktop executable. Screenshots and window listing are read-only; focusing windows, clicking, typing, and key presses use a separate approval gate by default and are blocked by `read-only` mode. Windows UIPI still prevents input into higher-integrity or protected windows, and Pi Desktop does not attempt to bypass it. Desktop screenshots can contain sensitive information.
 
+The bundled MCP host supports newline-framed STDIO servers and Streamable HTTP servers using the current stable MCP protocol revision. Discovered server tools become first-class Pi tools. STDIO inherits a credential-filtered environment by default, HTTP supports explicit request headers, and all MCP calls can require approval. Server commands, environment values, and HTTP headers are stored in the local Pi Desktop settings file; use a restricted account or external secret manager for higher-assurance deployments.
+
 ## Important files
 
 - `src/App.tsx` - desktop workspace composition
@@ -87,7 +90,8 @@ The bundled `computer` tool uses a native helper in the Pi Desktop executable. S
 - `src-tauri/src/computer.rs` - native Windows screenshot, window, mouse, and keyboard bridge
 - `src-tauri/resources/pidesktop-guard.ts` - project trust and permission gates
 - `src-tauri/resources/pidesktop-computer.ts` - Pi computer tool and approval flow
+- `src-tauri/resources/pidesktop-mcp.ts` - MCP lifecycle, transports, tool discovery, and Pi tool bridge
 
 ## Known platform boundary
 
-The implemented scope covers the core local Codex-style coding workflow, including managed worktrees, isolated browser automation, and approval-gated Windows computer use. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, scheduled automations, and first-class MCP hosting require separate platform backends rather than UI-only emulation.
+The implemented scope covers the core local Codex-style coding workflow, including managed worktrees, isolated browser automation, approval-gated Windows computer use, and MCP tools. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, scheduled automations, MCP OAuth discovery, and richer MCP resources/prompts/tasks still require additional backends or protocol work.

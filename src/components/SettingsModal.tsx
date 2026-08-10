@@ -12,8 +12,10 @@ import {
   GitBranch,
   Globe2,
   Keyboard,
+  Network,
   MonitorCog,
   Palette,
+  Plus,
   RefreshCw,
   Search,
   Settings2,
@@ -40,6 +42,7 @@ export type SettingsPage =
   | "usage"
   | "models"
   | "resources"
+  | "mcp"
   | "browser"
   | "computer"
   | "permissions"
@@ -85,6 +88,9 @@ const DEFAULTS: AppSettings = {
   browserExecutable: "",
   computerEnabled: true,
   computerConfirmActions: true,
+  mcpEnabled: true,
+  mcpConfirmTools: true,
+  mcpServers: [],
   reviewDelivery: "inline",
   branchPrefix: "pi/",
   allowForcePush: false,
@@ -117,6 +123,7 @@ const NAVIGATION: Array<{ label: string; items: Array<{ id: SettingsPage; label:
     items: [
       { id: "models", label: "模型与提供商", icon: Bot, keywords: "pi 模型 提供商 推理 model provider" },
       { id: "resources", label: "扩展与技能", icon: Blocks, keywords: "软件包 插件 技能 提示词 resources plugins" },
+      { id: "mcp", label: "MCP 服务器", icon: Network, keywords: "mcp tools stdio http server 工具 服务器" },
       { id: "browser", label: "浏览器", icon: Globe2, keywords: "edge chrome chromium 网页 自动化 截图 browser web automation screenshot" },
       { id: "computer", label: "计算机控制", icon: MonitorCog, keywords: "windows 鼠标 键盘 窗口 截图 computer use mouse keyboard" },
     ],
@@ -272,6 +279,7 @@ export function SettingsModal({
             {active === "usage" && <UsagePage usage={usage} />}
             {active === "models" && <ModelsPage form={form} update={update} />}
             {active === "resources" && <ResourcesPage cwd={cwd} resources={resources} loading={loadingData} onReload={async () => setResources(await pi.listResources(cwd))} />}
+            {active === "mcp" && <McpPage form={form} update={update} />}
             {active === "browser" && <BrowserPage form={form} update={update} />}
             {active === "computer" && <ComputerPage form={form} update={update} />}
             {active === "permissions" && <PermissionsPage form={form} update={update} />}
@@ -435,6 +443,77 @@ function ResourcesPage({ cwd, resources, loading, onReload }: { cwd: string; res
     {result && <pre className="package-result">{result}</pre>}
     <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在发现资源…</div> : resources.length === 0 ? <div className="settings-empty"><Blocks size={22} />未发现资源</div> : <div className="resource-list">{resources.map((item) => <button key={`${item.kind}-${item.path}`} onClick={() => item.path.includes(":") && void openPath(item.path).catch(() => undefined)}><span className={`resource-kind ${item.kind}`}>{kindLabels[item.kind] || item.kind}</span><span><strong>{item.name}</strong><small>{item.path}</small></span><em>{scopeLabels[item.scope] || item.scope}</em>{item.kind === "package" ? <span role="button" className="resource-remove" title="移除软件包" onClick={(event) => { event.stopPropagation(); void action("remove", item.path); }}><Trash2 size={13} /></span> : <ChevronRight size={14} />}</button>)}</div>}</Card>
     <div className="settings-info"><Blocks size={17} /><span>软件包操作使用 Pi 自身的安装、移除和更新命令；重新连接工作区后资源即可使用。</span></div>
+  </>;
+}
+
+function linesToRecord(value: string): Record<string, string> {
+  return Object.fromEntries(value.split(/\r?\n/).map((line) => {
+    const separator = line.indexOf("=");
+    return separator < 1 ? null : [line.slice(0, separator).trim(), line.slice(separator + 1)];
+  }).filter((entry): entry is [string, string] => Boolean(entry)));
+}
+
+function recordToLines(value: Record<string, string>): string {
+  return Object.entries(value).map(([key, entry]) => `${key}=${entry}`).join("\n");
+}
+
+function McpPage({ form, update }: { form: AppSettings; update: Update }) {
+  const addServer = (transport: "stdio" | "http") => {
+    const id = `server-${Date.now().toString(36)}`;
+    update("mcpServers", [...form.mcpServers, {
+      id,
+      name: transport === "stdio" ? "本地 MCP" : "远程 MCP",
+      enabled: true,
+      transport,
+      command: "",
+      args: [],
+      cwd: "",
+      env: {},
+      inheritEnvironment: false,
+      url: "",
+      headers: {},
+      trustedReadOnly: false,
+    }]);
+  };
+  const changeServer = (id: string, patch: Partial<AppSettings["mcpServers"][number]>) => {
+    update("mcpServers", form.mcpServers.map((server) => server.id === id ? { ...server, ...patch } : server));
+  };
+  const removeServer = (id: string) => update("mcpServers", form.mcpServers.filter((server) => server.id !== id));
+
+  return <>
+    <PageHeading title="MCP 服务器" description="连接本地或远程 Model Context Protocol 服务器，并把它们的真实工具注册给 Pi。" />
+    <Card title="MCP 主机">
+      <Row title="启用 MCP" description="新任务会连接已启用的服务器，并动态注册发现到的工具。"><Switch label="启用 MCP" checked={form.mcpEnabled} onChange={(value) => update("mcpEnabled", value)} /></Row>
+      <Row title="工具调用前审批" description="每次执行 MCP 工具前显示服务器、工具名和参数。"><Switch label="MCP 工具调用前审批" checked={form.mcpConfirmTools} onChange={(value) => update("mcpConfirmTools", value)} /></Row>
+    </Card>
+    <div className="mcp-toolbar">
+      <button className="primary-button" onClick={() => addServer("stdio")}><Plus size={14} />添加本地服务器</button>
+      <button className="secondary-button" onClick={() => addServer("http")}><Plus size={14} />添加 HTTP 服务器</button>
+    </div>
+    {form.mcpServers.length === 0 && <div className="settings-empty mcp-empty"><Network size={24} />尚未配置 MCP 服务器。</div>}
+    {form.mcpServers.map((server) => <section className="mcp-server-editor" key={server.id}>
+      <header>
+        <span><Network size={16} /><strong>{server.name || server.id}</strong><small>{server.transport === "stdio" ? "STDIO" : "Streamable HTTP"}</small></span>
+        <div><Switch label={`启用 ${server.name || server.id}`} checked={server.enabled} onChange={(enabled) => changeServer(server.id, { enabled })} /><button className="icon-button danger" title="删除服务器" onClick={() => removeServer(server.id)}><Trash2 size={15} /></button></div>
+      </header>
+      <div className="mcp-server-fields">
+        <Row title="名称"><input value={server.name} onChange={(event) => changeServer(server.id, { name: event.target.value })} placeholder="文件系统" /></Row>
+        <Row title="服务器 ID" description="用于生成 mcp__server__tool 工具名；必须唯一。"><input value={server.id} onChange={(event) => changeServer(server.id, { id: event.target.value.replace(/[^a-zA-Z0-9_-]/g, "-") })} /></Row>
+        <Row title="传输方式"><select value={server.transport} onChange={(event) => changeServer(server.id, { transport: event.target.value as "stdio" | "http" })}><option value="stdio">STDIO（本地进程）</option><option value="http">Streamable HTTP</option></select></Row>
+        {server.transport === "stdio" ? <>
+          <Row title="命令" description="例如 npx、uvx 或服务器可执行文件的绝对路径。"><input value={server.command} onChange={(event) => changeServer(server.id, { command: event.target.value })} placeholder="npx" /></Row>
+          <Row title="参数" description="每行一个参数。"><textarea value={server.args.join("\n")} onChange={(event) => changeServer(server.id, { args: event.target.value.split(/\r?\n/).filter((value) => value.length > 0) })} placeholder={'-y\n@modelcontextprotocol/server-filesystem\nD:\\Projects'} /></Row>
+          <Row title="工作目录" description="留空时使用当前任务工作区。"><input value={server.cwd} onChange={(event) => changeServer(server.id, { cwd: event.target.value })} placeholder="使用任务工作区" /></Row>
+          <Row title="环境变量" description="每行 KEY=value；适合 STDIO 服务器凭据。"><textarea value={recordToLines(server.env)} onChange={(event) => changeServer(server.id, { env: linesToRecord(event.target.value) })} placeholder="TOKEN=…" /></Row>
+          <Row title="继承完整环境" description="默认会过滤父进程中的 API key、令牌、密码和 Cookie。"><Switch label="继承完整父进程环境" checked={server.inheritEnvironment} onChange={(inheritEnvironment) => changeServer(server.id, { inheritEnvironment })} /></Row>
+        </> : <>
+          <Row title="MCP 端点"><input value={server.url} onChange={(event) => changeServer(server.id, { url: event.target.value })} placeholder="https://example.com/mcp" /></Row>
+          <Row title="请求头" description="每行 Header=value；可用于预配置 Bearer 令牌。"><textarea value={recordToLines(server.headers)} onChange={(event) => changeServer(server.id, { headers: linesToRecord(event.target.value) })} placeholder="Authorization=Bearer …" /></Row>
+        </>}
+        <Row title="受信任只读服务器" description="仅在你确认该服务器所有非破坏性工具都只读时启用；只读权限模式据此决定是否允许调用。"><Switch label="将服务器标记为受信任只读" checked={server.trustedReadOnly} onChange={(trustedReadOnly) => changeServer(server.id, { trustedReadOnly })} /></Row>
+      </div>
+    </section>)}
+    <div className="settings-info"><ShieldAlert size={17} /><span>MCP 服务器拥有其进程或远程账户对应的权限。STDIO 凭据和 HTTP 请求头保存在本机 PIDesktop 设置中；工具注解来自服务器，只有“受信任只读服务器”开关代表你的明确授权。保存后请新建任务，并运行 <code>/mcp-diagnose</code> 查看连接和工具数量。</span></div>
   </>;
 }
 
