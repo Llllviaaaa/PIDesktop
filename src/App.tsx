@@ -10,6 +10,7 @@ import {
   Globe2,
   Menu,
   Minus,
+  MonitorCog,
   MoreHorizontal,
   Pencil,
   Settings,
@@ -80,6 +81,7 @@ export default function App() {
     stats,
     git,
     browser,
+    computer,
     terminal,
     piLog,
     extensionRequest,
@@ -489,6 +491,9 @@ export default function App() {
           {settings?.browserEnabled !== false && <button className={`topbar-button ${inspectorTab === "browser" ? "active" : ""}`} onClick={() => setInspectorTab(inspectorTab === "browser" ? null : "browser")}>
             <Globe2 size={14} /> 浏览器
           </button>}
+          {settings?.computerEnabled !== false && <button className={`topbar-button ${inspectorTab === "computer" ? "active" : ""}`} onClick={() => setInspectorTab(inspectorTab === "computer" ? null : "computer")}>
+            <MonitorCog size={14} /> 计算机
+          </button>}
           <button className="icon-button" onClick={() => setSettingsOpen(true)} title="设置"><Settings size={16} /></button>
           <div className="topbar-menu-wrap">
             <button className="icon-button" title="任务操作" onClick={() => setMoreOpen((value) => !value)}><MoreHorizontal size={17} /></button>
@@ -662,6 +667,7 @@ export default function App() {
             cwd={cwd}
             terminal={terminal}
             browser={browser}
+            computer={computer}
             logs={piLog}
             onClose={() => setInspectorTab(null)}
             onRefreshGit={() => void store.refreshGit()}

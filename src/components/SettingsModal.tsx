@@ -41,6 +41,7 @@ export type SettingsPage =
   | "models"
   | "resources"
   | "browser"
+  | "computer"
   | "permissions"
   | "terminal"
   | "git"
@@ -82,6 +83,8 @@ const DEFAULTS: AppSettings = {
   browserHeadless: true,
   browserConfirmActions: true,
   browserExecutable: "",
+  computerEnabled: true,
+  computerConfirmActions: true,
   reviewDelivery: "inline",
   branchPrefix: "pi/",
   allowForcePush: false,
@@ -115,6 +118,7 @@ const NAVIGATION: Array<{ label: string; items: Array<{ id: SettingsPage; label:
       { id: "models", label: "模型与提供商", icon: Bot, keywords: "pi 模型 提供商 推理 model provider" },
       { id: "resources", label: "扩展与技能", icon: Blocks, keywords: "软件包 插件 技能 提示词 resources plugins" },
       { id: "browser", label: "浏览器", icon: Globe2, keywords: "edge chrome chromium 网页 自动化 截图 browser web automation screenshot" },
+      { id: "computer", label: "计算机控制", icon: MonitorCog, keywords: "windows 鼠标 键盘 窗口 截图 computer use mouse keyboard" },
     ],
   },
   {
@@ -269,6 +273,7 @@ export function SettingsModal({
             {active === "models" && <ModelsPage form={form} update={update} />}
             {active === "resources" && <ResourcesPage cwd={cwd} resources={resources} loading={loadingData} onReload={async () => setResources(await pi.listResources(cwd))} />}
             {active === "browser" && <BrowserPage form={form} update={update} />}
+            {active === "computer" && <ComputerPage form={form} update={update} />}
             {active === "permissions" && <PermissionsPage form={form} update={update} />}
             {active === "terminal" && <TerminalPage form={form} update={update} />}
             {active === "git" && <GitPage form={form} update={update} />}
@@ -443,6 +448,17 @@ function BrowserPage({ form, update }: { form: AppSettings; update: Update }) {
       <Row title="浏览器程序" description="留空时依次查找 Edge、Chrome 和 Chromium。"><input value={form.browserExecutable} onChange={(event) => update("browserExecutable", event.target.value)} placeholder="自动检测" /></Row>
     </Card>
     <div className="settings-info"><Globe2 size={17} /><span>浏览器使用独立临时配置目录，不读取你的日常浏览器登录状态。设置修改将在新任务中生效。</span></div>
+  </>;
+}
+
+function ComputerPage({ form, update }: { form: AppSettings; update: Update }) {
+  return <>
+    <PageHeading title="计算机控制" description="允许 Pi 查看并在审批后操作 Windows 桌面应用。" />
+    <Card title="Computer Use">
+      <Row title="启用计算机工具" description="为新任务注册 computer 工具，包括截图、窗口列表、点击、输入和按键。"><Switch label="启用计算机工具" checked={form.computerEnabled} onChange={(value) => update("computerEnabled", value)} /></Row>
+      <Row title="交互操作前审批" description="切换窗口、点击、输入和按键前必须确认；截图和窗口列表保持只读。"><Switch label="计算机操作前审批" checked={form.computerConfirmActions} onChange={(value) => update("computerConfirmActions", value)} /></Row>
+    </Card>
+    <div className="security-note expanded"><ShieldAlert size={18} /><span><strong>系统边界仍然有效。</strong>Windows 会阻止向更高权限或受保护窗口注入输入；Pi Desktop 不会绕过 UIPI。桌面截图可能包含敏感信息，启用后请留意任务上下文。</span></div>
   </>;
 }
 

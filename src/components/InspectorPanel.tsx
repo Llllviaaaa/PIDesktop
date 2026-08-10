@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { FileDiff, Globe2, LoaderCircle, RefreshCw, SearchCheck, Square, Terminal, X } from "lucide-react";
-import type { BrowserState, GitSnapshot } from "../types";
+import { FileDiff, Globe2, LoaderCircle, MonitorCog, RefreshCw, SearchCheck, Square, Terminal, X } from "lucide-react";
+import type { BrowserState, ComputerState, GitSnapshot } from "../types";
 
-export type InspectorTab = "changes" | "terminal" | "browser" | "logs";
+export type InspectorTab = "changes" | "terminal" | "browser" | "computer" | "logs";
 
 export function InspectorPanel({
   initialTab,
@@ -10,6 +10,7 @@ export function InspectorPanel({
   cwd,
   terminal,
   browser,
+  computer,
   logs,
   onClose,
   onRefreshGit,
@@ -22,6 +23,7 @@ export function InspectorPanel({
   cwd: string;
   terminal: { running: boolean; command: string; output: string; exitCode?: number };
   browser: BrowserState | null;
+  computer: ComputerState | null;
   logs: string[];
   onClose: () => void;
   onRefreshGit: () => void;
@@ -42,6 +44,7 @@ export function InspectorPanel({
           </button>
           <button className={tab === "terminal" ? "active" : ""} onClick={() => setTab("terminal")}>终端</button>
           <button className={tab === "browser" ? "active" : ""} onClick={() => setTab("browser")}>浏览器</button>
+          <button className={tab === "computer" ? "active" : ""} onClick={() => setTab("computer")}>计算机</button>
           <button className={tab === "logs" ? "active" : ""} onClick={() => setTab("logs")}>日志</button>
         </nav>
         <button className="icon-button" onClick={onClose}><X size={16} /></button>
@@ -140,6 +143,20 @@ export function InspectorPanel({
               ? <img src={`data:${browser.screenshot.mimeType};base64,${browser.screenshot.data}`} alt={browser.title} />
               : <div className="panel-empty">页面已经连接。让 Pi 调用 browser 的 screenshot 操作即可在这里查看截图。</div>}
           </> : <div className="panel-empty browser-empty"><Globe2 size={24} />让 Pi 使用 browser 工具打开或检查网页，最新页面和截图会显示在这里。</div>}
+        </div>
+      )}
+
+      {tab === "computer" && (
+        <div className="inspector-content browser-panel computer-panel">
+          {computer ? <>
+            <div className="browser-panel-heading">
+              <MonitorCog size={15} />
+              <span><strong>Windows 桌面</strong><small>{computer.width}×{computer.height} · 原点 ({computer.left}, {computer.top}) · {computer.action}</small></span>
+            </div>
+            {computer.screenshot
+              ? <img src={`data:${computer.screenshot.mimeType};base64,${computer.screenshot.data}`} alt="Windows 桌面截图" />
+              : <div className="panel-empty">最近一次操作没有返回桌面截图。</div>}
+          </> : <div className="panel-empty browser-empty"><MonitorCog size={24} />让 Pi 使用 computer 工具截图；最新桌面画面会显示在这里。</div>}
         </div>
       )}
 

@@ -8,6 +8,7 @@ import {
   FileSearch,
   Globe2,
   LoaderCircle,
+  MonitorCog,
   Terminal,
   Wrench,
 } from "lucide-react";
@@ -29,6 +30,11 @@ function summary(call: UiToolCall): string {
     const labels: Record<string, string> = { open: "打开网页", inspect: "检查网页", click: "点击网页元素", type: "在网页中输入", screenshot: "截取网页", close: "关闭浏览器" };
     return labels[action] || "操作浏览器";
   }
+  if (name === "computer") {
+    const action = typeof call.args.action === "string" ? call.args.action : "screenshot";
+    const labels: Record<string, string> = { screenshot: "查看 Windows 桌面", list_windows: "列出窗口", focus_window: "切换窗口", click: "点击桌面", type: "在应用中输入", key: "发送按键" };
+    return labels[action] || "操作计算机";
+  }
   return call.name;
 }
 
@@ -38,6 +44,7 @@ function ToolIcon({ call }: { call: UiToolCall }) {
   if (name === "write" || name === "edit") return <FilePenLine size={14} />;
   if (name === "read" || name === "grep" || name === "find") return <FileSearch size={14} />;
   if (name === "browser") return <Globe2 size={14} />;
+  if (name === "computer") return <MonitorCog size={14} />;
   return <Wrench size={14} />;
 }
 

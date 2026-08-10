@@ -10,6 +10,7 @@ Pi Desktop is a Codex-style Windows desktop client for the local [Pi coding agen
 - Image inputs and local file references
 - Pi slash commands, skills, prompt templates, and extension commands discovered through RPC
 - Isolated Edge/Chrome browser automation for page inspection, interaction, and screenshots
+- Native Windows computer use for desktop screenshots, visible-window discovery, focus, mouse clicks, text input, and key combinations
 - Extension UI requests: confirmation, selection, text input, editor input, notifications, status, and widgets
 - Codex-style permission modes backed by a Pi tool-interception extension
 - Git working-tree summary, unified diff review pane, inline/new-chat review delivery, and configurable Git instructions
@@ -19,7 +20,7 @@ Pi Desktop is a Codex-style Windows desktop client for the local [Pi coding agen
 - Full-screen settings center for appearance, notifications, personalization, shortcuts, archives, usage, models, Pi resources/packages, permissions, terminal, Git, worktrees, and advanced configuration
 - Persisted process, appearance, behavior, provider, permission, Git, notification, and session settings
 
-See [CODEX_PARITY.md](CODEX_PARITY.md) for the feature-by-feature boundary. UI parity does not turn Pi into OpenAI's hosted Codex platform: cloud environments, first-class MCP, OS-wide computer-use, automations, and OS sandboxing need additional runtimes rather than settings-page placeholders.
+See [CODEX_PARITY.md](CODEX_PARITY.md) for the feature-by-feature boundary. UI parity does not turn Pi into OpenAI's hosted Codex platform: cloud environments, first-class MCP, automations, and OS sandboxing need additional runtimes rather than settings-page placeholders.
 
 ## Architecture
 
@@ -72,6 +73,8 @@ Pi does not provide a built-in operating-system sandbox. Pi Desktop's `read-only
 
 These approval gates are not an isolation boundary. Run untrusted or unattended work inside a container, VM, Windows Sandbox, or another policy-controlled environment. `full-access` gives Pi the permissions of the desktop user.
 
+The bundled `computer` tool uses a native helper in the Pi Desktop executable. Screenshots and window listing are read-only; focusing windows, clicking, typing, and key presses use a separate approval gate by default and are blocked by `read-only` mode. Windows UIPI still prevents input into higher-integrity or protected windows, and Pi Desktop does not attempt to bypass it. Desktop screenshots can contain sensitive information.
+
 ## Important files
 
 - `src/App.tsx` - desktop workspace composition
@@ -81,8 +84,10 @@ These approval gates are not an isolation boundary. Run untrusted or unattended 
 - `src-tauri/src/lib.rs` - Tauri commands and persisted settings
 - `src-tauri/src/pi/rpc.rs` - Pi process and JSONL transport
 - `src-tauri/src/pi/sessions.rs` - session metadata and recoverable deletion
+- `src-tauri/src/computer.rs` - native Windows screenshot, window, mouse, and keyboard bridge
 - `src-tauri/resources/pidesktop-guard.ts` - project trust and permission gates
+- `src-tauri/resources/pidesktop-computer.ts` - Pi computer tool and approval flow
 
 ## Known platform boundary
 
-The implemented scope covers the core local Codex-style coding workflow, including managed worktrees and isolated browser automation. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, scheduled automations, OS-wide computer-use, and first-class MCP hosting require separate platform backends rather than UI-only emulation.
+The implemented scope covers the core local Codex-style coding workflow, including managed worktrees, isolated browser automation, and approval-gated Windows computer use. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, scheduled automations, and first-class MCP hosting require separate platform backends rather than UI-only emulation.

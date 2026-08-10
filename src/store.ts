@@ -6,6 +6,7 @@ import type {
   AssistantMessage,
   AttachmentPayload,
   BrowserState,
+  ComputerState,
   ConnectionState,
   ExtensionUIRequest,
   GitSnapshot,
@@ -186,6 +187,36 @@ function browserFromMessages(messages: UiMessage[]): BrowserState | null {
   return null;
 }
 
+function computerFromResult(result: unknown, previous: ComputerState | null): ComputerState | null {
+  const details = resultDetails(result);
+  const images = imagesFromContent(resultContent(result));
+  const hasDesktopFrame = Boolean(images?.[0])
+    || typeof details?.width === "number"
+    || typeof details?.height === "number";
+  if (!hasDesktopFrame && !previous) return null;
+  return {
+    action: typeof details?.action === "string" ? details.action : previous?.action || "screenshot",
+    width: typeof details?.width === "number" ? details.width : previous?.width || 0,
+    height: typeof details?.height === "number" ? details.height : previous?.height || 0,
+    left: typeof details?.left === "number" ? details.left : previous?.left || 0,
+    top: typeof details?.top === "number" ? details.top : previous?.top || 0,
+    screenshot: images?.[0] ?? previous?.screenshot,
+    updatedAt: Date.now(),
+  };
+}
+
+function computerFromMessages(messages: UiMessage[]): ComputerState | null {
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const calls = messages[messageIndex].toolCalls ?? [];
+    for (let callIndex = calls.length - 1; callIndex >= 0; callIndex -= 1) {
+      const call = calls[callIndex];
+      if (call.name.toLowerCase() !== "computer") continue;
+      return computerFromResult({ content: call.images ?? [], details: call.details }, null);
+    }
+  }
+  return null;
+}
+
 function stringifyResult(result: unknown): string | undefined {
   if (result === undefined || result === null) return undefined;
   if (typeof result === "string") return result;
@@ -247,6 +278,7 @@ interface PiState {
   settings: AppSettings | null;
   git: GitSnapshot | null;
   browser: BrowserState | null;
+  computer: ComputerState | null;
   terminal: TerminalState;
   extensionRequest: ExtensionUIRequest | null;
   extensionStatuses: Record<string, string>;
@@ -355,6 +387,7 @@ export const usePiStore = create<PiState>((set, get) => {
       availableThinkingLevels: levels.data?.levels ?? ["off"],
       messages: restoredMessages,
       browser: browserFromMessages(restoredMessages),
+      computer: computerFromMessages(restoredMessages),
       commands: commands.data?.commands ?? [],
     });
     const sessionFile = data?.sessionFile;
@@ -408,6 +441,7 @@ export const usePiStore = create<PiState>((set, get) => {
     settings: null,
     git: null,
     browser: null,
+    computer: null,
     terminal: { running: false, command: "", output: "" },
     extensionRequest: null,
     extensionStatuses: {},
@@ -427,6 +461,7 @@ export const usePiStore = create<PiState>((set, get) => {
         isCompacting: false,
         extensionRequest: null,
         browser: null,
+        computer: null,
         lastError: null,
       });
       try {
@@ -533,6 +568,7 @@ export const usePiStore = create<PiState>((set, get) => {
       retryStatus: null,
       extensionRequest: null,
       browser: null,
+      computer: null,
       extensionStatuses: {},
       extensionWidgets: {},
       steeringQueue: [],
@@ -688,6 +724,9 @@ export const usePiStore = create<PiState>((set, get) => {
                   ? null
                   : browserFromResult(event.result, state.browser)
                 : state.browser,
+              computer: event.toolName.toLowerCase() === "computer"
+                ? computerFromResult(event.result, state.computer)
+                : state.computer,
             };
           });
           return;

@@ -254,6 +254,8 @@ export interface AppSettings {
   browserHeadless: boolean;
   browserConfirmActions: boolean;
   browserExecutable: string;
+  computerEnabled: boolean;
+  computerConfirmActions: boolean;
   reviewDelivery: "inline" | "detached";
   branchPrefix: string;
   allowForcePush: boolean;
@@ -348,6 +350,16 @@ export interface UiToolCall {
 export interface BrowserState {
   url: string;
   title: string;
+  screenshot?: ImageContent;
+  updatedAt: number;
+}
+
+export interface ComputerState {
+  action: string;
+  width: number;
+  height: number;
+  left: number;
+  top: number;
   screenshot?: ImageContent;
   updatedAt: number;
 }

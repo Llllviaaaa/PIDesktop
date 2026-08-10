@@ -1,3 +1,5 @@
+#[cfg(windows)]
+mod computer;
 mod pi;
 
 use std::collections::HashMap;
@@ -21,6 +23,7 @@ use pi::sessions::{
 
 const GUARD_EXTENSION: &str = include_str!("../resources/pidesktop-guard.ts");
 const BROWSER_EXTENSION: &str = include_str!("../resources/pidesktop-browser.ts");
+const COMPUTER_EXTENSION: &str = include_str!("../resources/pidesktop-computer.ts");
 
 #[cfg(windows)]
 static KEEP_AWAKE: AtomicBool = AtomicBool::new(false);
@@ -74,6 +77,8 @@ struct AppSettings {
     browser_headless: bool,
     browser_confirm_actions: bool,
     browser_executable: String,
+    computer_enabled: bool,
+    computer_confirm_actions: bool,
     review_delivery: String,
     branch_prefix: String,
     allow_force_push: bool,
@@ -125,6 +130,8 @@ impl Default for AppSettings {
             browser_headless: true,
             browser_confirm_actions: true,
             browser_executable: String::new(),
+            computer_enabled: true,
+            computer_confirm_actions: true,
             review_delivery: "inline".to_string(),
             branch_prefix: "pi/".to_string(),
             allow_force_push: false,
@@ -146,6 +153,7 @@ impl AppSettings {
         &self,
         guard_extension: &Path,
         browser_extension: Option<&Path>,
+        computer_extension: Option<&Path>,
     ) -> Vec<String> {
         let mut args = vec![
             "-e".to_string(),
@@ -155,6 +163,12 @@ impl AppSettings {
             args.extend([
                 "-e".to_string(),
                 browser_extension.to_string_lossy().to_string(),
+            ]);
+        }
+        if let Some(computer_extension) = computer_extension {
+            args.extend([
+                "-e".to_string(),
+                computer_extension.to_string_lossy().to_string(),
             ]);
         }
         if !self.provider.is_empty() {
@@ -259,6 +273,10 @@ fn ensure_browser_extension() -> Result<PathBuf, String> {
     ensure_bundled_extension("pidesktop-browser.ts", BROWSER_EXTENSION, "browser")
 }
 
+fn ensure_computer_extension() -> Result<PathBuf, String> {
+    ensure_bundled_extension("pidesktop-computer.ts", COMPUTER_EXTENSION, "computer")
+}
+
 fn ensure_bundled_extension(
     file_name: &str,
     contents: &str,
@@ -328,7 +346,15 @@ fn pi_start(
         .browser_enabled
         .then(ensure_browser_extension)
         .transpose()?;
-    let extra_args = settings.rpc_extra_args(&guard_extension, browser_extension.as_deref());
+    let computer_extension = settings
+        .computer_enabled
+        .then(ensure_computer_extension)
+        .transpose()?;
+    let extra_args = settings.rpc_extra_args(
+        &guard_extension,
+        browser_extension.as_deref(),
+        computer_extension.as_deref(),
+    );
     let quick_root = app_config_dir().join("quick-chat");
     let is_quick_chat = cwd_path
         .canonicalize()
@@ -361,6 +387,22 @@ fn pi_start(
         (
             "PIDESKTOP_BROWSER_EXECUTABLE".to_string(),
             settings.browser_executable.clone(),
+        ),
+        (
+            "PIDESKTOP_COMPUTER_CONFIRM".to_string(),
+            if settings.computer_confirm_actions {
+                "1"
+            } else {
+                "0"
+            }
+            .to_string(),
+        ),
+        (
+            "PIDESKTOP_COMPUTER_HELPER".to_string(),
+            std::env::current_exe()
+                .map_err(|err| format!("failed to locate Pi Desktop executable: {err}"))?
+                .to_string_lossy()
+                .to_string(),
         ),
     ];
     let runtime_id = format!(
@@ -1094,6 +1136,18 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Pi Desktop");
+}
+
+pub fn run_computer_helper() -> i32 {
+    #[cfg(windows)]
+    {
+        computer::run()
+    }
+    #[cfg(not(windows))]
+    {
+        println!(r#"{{"ok":false,"error":"Computer Use currently supports Windows only"}}"#);
+        1
+    }
 }
 
 #[cfg(test)]
