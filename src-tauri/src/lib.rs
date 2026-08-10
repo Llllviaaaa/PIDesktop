@@ -1,10 +1,12 @@
 mod pi;
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 #[cfg(windows)]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -21,6 +23,7 @@ const GUARD_EXTENSION: &str = include_str!("../resources/pidesktop-guard.ts");
 
 #[cfg(windows)]
 static KEEP_AWAKE: AtomicBool = AtomicBool::new(false);
+static NEXT_RUNTIME_ID: AtomicU64 = AtomicU64::new(1);
 
 #[cfg(windows)]
 unsafe extern "system" {
@@ -172,8 +175,22 @@ impl AppSettings {
     }
 }
 
+struct PiRuntime {
+    client: PiRpcClient,
+    cwd: String,
+    session_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeInfo {
+    runtime_id: String,
+    cwd: String,
+    session_file: Option<String>,
+}
+
 struct AppState {
-    client: Mutex<Option<PiRpcClient>>,
+    runtimes: Mutex<HashMap<String, PiRuntime>>,
     settings: Mutex<AppSettings>,
 }
 
@@ -243,19 +260,29 @@ fn ensure_personal_instructions(contents: &str) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-fn pi_start(app: AppHandle, state: State<'_, AppState>, cwd: String) -> Result<(), String> {
+fn pi_start(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    cwd: String,
+    session_file: Option<String>,
+) -> Result<String, String> {
     let cwd_path = PathBuf::from(&cwd);
     if !cwd_path.is_dir() {
         return Err(format!("workspace does not exist: {cwd}"));
     }
 
-    if let Some(client) = state
-        .client
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
-        .take()
-    {
-        client.kill();
+    if let Some(ref requested_session) = session_file {
+        let mut runtimes = state
+            .runtimes
+            .lock()
+            .map_err(|_| "state lock poisoned".to_string())?;
+        runtimes.retain(|_, runtime| runtime.client.is_running());
+        if let Some((runtime_id, _)) = runtimes.iter().find(|(_, runtime)| {
+            runtime.session_file.as_ref() == Some(requested_session)
+                && paths_equal(&runtime.cwd, &cwd)
+        }) {
+            return Ok(runtime_id.clone());
+        }
     }
 
     let settings = state
@@ -284,50 +311,116 @@ fn pi_start(app: AppHandle, state: State<'_, AppState>, cwd: String) -> Result<(
             if is_quick_chat { "1" } else { "0" }.to_string(),
         ),
     ];
-    let client = PiRpcClient::spawn(app, &settings.pi_binary, &cwd, &extra_args, &environment)?;
+    let runtime_id = format!(
+        "runtime-{}-{}",
+        std::process::id(),
+        NEXT_RUNTIME_ID.fetch_add(1, Ordering::Relaxed)
+    );
+    let client = PiRpcClient::spawn(
+        app,
+        &runtime_id,
+        &settings.pi_binary,
+        &cwd,
+        &extra_args,
+        &environment,
+    )?;
 
     state
-        .client
+        .runtimes
         .lock()
         .map_err(|_| "state lock poisoned".to_string())?
-        .replace(client);
-    Ok(())
+        .insert(
+            runtime_id.clone(),
+            PiRuntime {
+                client,
+                cwd,
+                session_file,
+            },
+        );
+    Ok(runtime_id)
 }
 
 #[tauri::command]
-fn pi_send(state: State<'_, AppState>, line: String) -> Result<(), String> {
+fn pi_send(state: State<'_, AppState>, runtime_id: String, line: String) -> Result<(), String> {
     let guard = state
-        .client
+        .runtimes
         .lock()
         .map_err(|_| "state lock poisoned".to_string())?;
     guard
-        .as_ref()
-        .ok_or_else(|| "Pi is not running; open a workspace first".to_string())?
+        .get(&runtime_id)
+        .ok_or_else(|| format!("Pi runtime is not running: {runtime_id}"))?
+        .client
         .send_line(&line)
 }
 
 #[tauri::command]
-fn pi_stop(state: State<'_, AppState>) -> Result<(), String> {
-    if let Some(client) = state
-        .client
+fn pi_stop(state: State<'_, AppState>, runtime_id: String) -> Result<(), String> {
+    let mut runtimes = state
+        .runtimes
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
-        .take()
-    {
-        client.kill();
+        .map_err(|_| "state lock poisoned".to_string())?;
+    if let Some(runtime) = runtimes.remove(&runtime_id) {
+        runtime.client.kill();
     }
     #[cfg(windows)]
-    KEEP_AWAKE.store(false, Ordering::Relaxed);
+    if runtimes.is_empty() {
+        KEEP_AWAKE.store(false, Ordering::Relaxed);
+    }
     Ok(())
 }
 
 #[tauri::command]
-fn pi_is_running(state: State<'_, AppState>) -> Result<bool, String> {
-    state
-        .client
+fn pi_is_running(state: State<'_, AppState>, runtime_id: String) -> Result<bool, String> {
+    let mut runtimes = state
+        .runtimes
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())
-        .map(|guard| guard.is_some())
+        .map_err(|_| "state lock poisoned".to_string())?;
+    let is_running = runtimes
+        .get(&runtime_id)
+        .is_some_and(|runtime| runtime.client.is_running());
+    if !is_running {
+        runtimes.remove(&runtime_id);
+    }
+    Ok(is_running)
+}
+
+#[tauri::command]
+fn pi_bind_session(
+    state: State<'_, AppState>,
+    runtime_id: String,
+    session_file: String,
+) -> Result<(), String> {
+    let mut runtimes = state
+        .runtimes
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?;
+    let runtime = runtimes
+        .get_mut(&runtime_id)
+        .ok_or_else(|| format!("Pi runtime is not running: {runtime_id}"))?;
+    runtime.session_file = Some(session_file);
+    Ok(())
+}
+
+#[tauri::command]
+fn list_pi_runtimes(state: State<'_, AppState>) -> Result<Vec<RuntimeInfo>, String> {
+    let mut runtimes = state
+        .runtimes
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?;
+    runtimes.retain(|_, runtime| runtime.client.is_running());
+    Ok(runtimes
+        .iter()
+        .map(|(runtime_id, runtime)| RuntimeInfo {
+            runtime_id: runtime_id.clone(),
+            cwd: runtime.cwd.clone(),
+            session_file: runtime.session_file.clone(),
+        })
+        .collect())
+}
+
+fn paths_equal(left: &str, right: &str) -> bool {
+    let normalize = |value: &str| value.trim_end_matches(['/', '\\']).to_lowercase();
+    normalize(left) == normalize(right)
 }
 
 #[tauri::command]
@@ -919,7 +1012,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
-            client: Mutex::new(None),
+            runtimes: Mutex::new(HashMap::new()),
             settings: Mutex::new(load_settings()),
         })
         .invoke_handler(tauri::generate_handler![
@@ -927,6 +1020,8 @@ pub fn run() {
             pi_send,
             pi_stop,
             pi_is_running,
+            pi_bind_session,
+            list_pi_runtimes,
             quick_chat_dir,
             list_sessions_cmd,
             list_archived_sessions_cmd,

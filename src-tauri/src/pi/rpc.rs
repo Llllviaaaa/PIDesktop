@@ -19,6 +19,7 @@ impl PiRpcClient {
     /// Spawn `pi --mode rpc` rooted at `cwd`, forwarding output to the app.
     pub fn spawn(
         app: AppHandle,
+        runtime_id: &str,
         pi_binary: &str,
         cwd: &str,
         extra_args: &[String],
@@ -56,6 +57,7 @@ impl PiRpcClient {
             let child = Arc::clone(&child);
             let app = app.clone();
             let status_cwd = cwd.to_string();
+            let runtime_id = runtime_id.to_string();
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stdout);
                 let mut line = Vec::new();
@@ -73,15 +75,24 @@ impl PiRpcClient {
                             }
                             match serde_json::from_str::<serde_json::Value>(&text) {
                                 Ok(value) => {
-                                    let _ = app.emit("pi-event", value);
+                                    let _ = app.emit(
+                                        "pi-event",
+                                        serde_json::json!({ "runtimeId": runtime_id, "event": value }),
+                                    );
                                 }
                                 Err(_) => {
-                                    let _ = app.emit("pi-log", text.to_string());
+                                    let _ = app.emit(
+                                        "pi-log",
+                                        serde_json::json!({ "runtimeId": runtime_id, "line": text.to_string() }),
+                                    );
                                 }
                             }
                         }
                         Err(err) => {
-                            let _ = app.emit("pi-log", format!("error reading pi stdout: {err}"));
+                            let _ = app.emit(
+                                "pi-log",
+                                serde_json::json!({ "runtimeId": runtime_id, "line": format!("error reading pi stdout: {err}") }),
+                            );
                             break;
                         }
                     }
@@ -94,7 +105,7 @@ impl PiRpcClient {
                     .and_then(|status| status.code());
                 let _ = app.emit(
                     "pi-status",
-                    serde_json::json!({ "status": "exited", "code": exit_code, "cwd": status_cwd }),
+                    serde_json::json!({ "runtimeId": runtime_id, "status": "exited", "code": exit_code, "cwd": status_cwd }),
                 );
             });
         }
@@ -102,6 +113,7 @@ impl PiRpcClient {
         // stderr reader: forward everything as log lines for diagnostics.
         {
             let app = app.clone();
+            let runtime_id = runtime_id.to_string();
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stderr);
                 let mut line = String::new();
@@ -112,7 +124,10 @@ impl PiRpcClient {
                         Ok(_) => {
                             let trimmed = line.trim_end();
                             if !trimmed.is_empty() {
-                                let _ = app.emit("pi-log", trimmed.to_string());
+                                let _ = app.emit(
+                                    "pi-log",
+                                    serde_json::json!({ "runtimeId": runtime_id, "line": trimmed }),
+                                );
                             }
                         }
                         Err(_) => break,
@@ -123,7 +138,7 @@ impl PiRpcClient {
 
         let _ = app.emit(
             "pi-status",
-            serde_json::json!({ "status": "running", "cwd": cwd }),
+            serde_json::json!({ "runtimeId": runtime_id, "status": "running", "cwd": cwd }),
         );
 
         Ok(PiRpcClient {
@@ -147,6 +162,14 @@ impl PiRpcClient {
             .write_all(payload.as_bytes())
             .and_then(|_| stdin.flush())
             .map_err(|err| format!("failed to write to pi stdin: {err}"))
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.child
+            .lock()
+            .ok()
+            .and_then(|mut child| child.try_wait().ok())
+            .is_some_and(|status| status.is_none())
     }
 
     /// Terminate the pi process tree (cmd wrapper + node + any child shells).

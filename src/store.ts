@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { pi, respondToExtension, sendCommand } from "./lib/pi";
+import { pi, respondToExtension, sendCommand, type PiRuntimeStatus } from "./lib/pi";
 import type {
   AgentMessage,
   AppSettings,
@@ -168,7 +168,19 @@ interface TerminalState {
   exitCode?: number;
 }
 
+interface RuntimeState {
+  runtimeId: string;
+  cwd: string;
+  sessionFile: string | null;
+  isStreaming: boolean;
+  status: ConnectionState;
+  extensionRequest: ExtensionUIRequest | null;
+  updatedAt: number;
+}
+
 interface PiState {
+  runtimeId: string | null;
+  runtimes: Record<string, RuntimeState>;
   connection: ConnectionState;
   cwd: string;
   piLog: string[];
@@ -201,11 +213,13 @@ interface PiState {
   connect: (cwd: string, sessionFile?: string) => Promise<void>;
   switchSession: (cwd: string, sessionFile: string) => Promise<void>;
   disconnect: () => Promise<void>;
-  handleEvent: (event: PiEvent) => void;
-  handleStatus: (status: { status: string; code?: number | null; cwd?: string }) => void;
+  handleEvent: (runtimeId: string, event: PiEvent) => void;
+  handleStatus: (status: PiRuntimeStatus) => void;
+  handleLog: (runtimeId: string, line: string) => void;
   appendLog: (line: string) => void;
   sendMessage: (text: string, attachments?: AttachmentPayload[], behavior?: "steer" | "followUp") => Promise<void>;
   abort: () => Promise<void>;
+  prepareNewTask: () => void;
   newSession: () => Promise<void>;
   cloneSession: () => Promise<void>;
   forkLatest: () => Promise<void>;
@@ -242,9 +256,35 @@ export const usePiStore = create<PiState>((set, get) => {
     new Notification(title, { body });
   };
 
+  const command = (
+    name: string,
+    payload: Record<string, unknown> = {},
+    timeoutMs = 30_000,
+  ) => {
+    const runtimeId = get().runtimeId;
+    if (!runtimeId) return Promise.reject(new Error("当前没有活动的 Pi 任务"));
+    return sendCommand(runtimeId, name, payload, timeoutMs);
+  };
+
+  const updateRuntime = (runtimeId: string, patch: Partial<RuntimeState>) => {
+    set((state) => {
+      const current = state.runtimes[runtimeId];
+      if (!current) return state;
+      return {
+        runtimes: {
+          ...state.runtimes,
+          [runtimeId]: { ...current, ...patch, updatedAt: Date.now() },
+        },
+      };
+    });
+  };
+
   const syncSession = async () => {
-    const stateResponse = await sendCommand("get_state");
+    const runtimeId = get().runtimeId;
+    if (!runtimeId) return;
+    const stateResponse = await sendCommand(runtimeId, "get_state");
     const data = stateResponse.data;
+    if (get().runtimeId !== runtimeId) return;
     if (data) {
       set({
         sessionFile: data.sessionFile ?? null,
@@ -258,23 +298,37 @@ export const usePiStore = create<PiState>((set, get) => {
     }
 
     const [models, levels, history, commands] = await Promise.all([
-      sendCommand("get_available_models"),
-      sendCommand("get_available_thinking_levels"),
-      sendCommand("get_messages"),
-      sendCommand("get_commands"),
+      sendCommand(runtimeId, "get_available_models"),
+      sendCommand(runtimeId, "get_available_thinking_levels"),
+      sendCommand(runtimeId, "get_messages"),
+      sendCommand(runtimeId, "get_commands"),
     ]);
+    if (get().runtimeId !== runtimeId) return;
     set({
       availableModels: models.data?.models ?? [],
       availableThinkingLevels: levels.data?.levels ?? ["off"],
       messages: messagesToUi(history.data?.messages ?? []),
       commands: commands.data?.commands ?? [],
     });
+    const sessionFile = data?.sessionFile;
+    if (sessionFile) {
+      await pi.bindSession(runtimeId, sessionFile);
+      set((state) => ({
+        runtimes: {
+          ...state.runtimes,
+          [runtimeId]: { ...state.runtimes[runtimeId], sessionFile, updatedAt: Date.now() },
+        },
+      }));
+    }
     await refreshStats();
   };
 
   const refreshStats = async () => {
+    const runtimeId = get().runtimeId;
+    if (!runtimeId) return;
     try {
-      const response = await sendCommand("get_session_stats");
+      const response = await sendCommand(runtimeId, "get_session_stats");
+      if (get().runtimeId !== runtimeId) return;
       set({ stats: (response.data as unknown as SessionStats) ?? null });
     } catch {
       set({ stats: null });
@@ -282,6 +336,8 @@ export const usePiStore = create<PiState>((set, get) => {
   };
 
   return {
+    runtimeId: null,
+    runtimes: {},
     connection: "disconnected",
     cwd: "",
     piLog: [],
@@ -319,15 +375,36 @@ export const usePiStore = create<PiState>((set, get) => {
         sessionFile: null,
         sessionId: null,
         sessionName: null,
+        isStreaming: false,
+        isCompacting: false,
+        extensionRequest: null,
         lastError: null,
       });
       try {
-        await pi.start(cwd);
-        if (sessionFile) {
-          await sendCommand("switch_session", { sessionPath: sessionFile }, 60_000);
+        const runtimeId = await pi.start(cwd, sessionFile);
+        const existing = get().runtimes[runtimeId];
+        set((state) => ({
+          runtimeId,
+          connection: "running",
+          isStreaming: existing?.isStreaming ?? false,
+          runtimes: {
+            ...state.runtimes,
+            [runtimeId]: {
+              runtimeId,
+              cwd,
+              sessionFile: sessionFile ?? existing?.sessionFile ?? null,
+              isStreaming: existing?.isStreaming ?? false,
+              status: "running",
+              extensionRequest: existing?.extensionRequest ?? null,
+              updatedAt: Date.now(),
+            },
+          },
+          extensionRequest: existing?.extensionRequest ?? null,
+        }));
+        if (sessionFile && existing?.sessionFile !== sessionFile) {
+          await sendCommand(runtimeId, "switch_session", { sessionPath: sessionFile }, 60_000);
         }
         await syncSession();
-        set({ connection: "running" });
         await Promise.all([get().refreshSessions(), get().refreshGit()]);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -339,34 +416,68 @@ export const usePiStore = create<PiState>((set, get) => {
 
     switchSession: async (cwd, sessionFile) => {
       const current = get();
-      const normalize = (value: string) => value.replace(/[\\/]+$/, "").toLowerCase();
-      if (current.connection !== "running" || normalize(current.cwd) !== normalize(cwd)) {
-        await get().connect(cwd, sessionFile);
-        return;
-      }
-      if (current.sessionFile === sessionFile) return;
-      if (current.isStreaming) {
-        toast("请先停止当前任务，再切换会话。", "warning");
-        return;
-      }
-      set({ messages: [], sessionFile: null, sessionId: null, sessionName: null, lastError: null });
-      try {
-        await sendCommand("switch_session", { sessionPath: sessionFile }, 60_000);
-        await syncSession();
-        await Promise.all([get().refreshSessions(), get().refreshGit()]);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        set({ lastError: message });
-        toast(message, "error");
-      }
+      if (current.sessionFile === sessionFile && current.connection === "running") return;
+      await get().connect(cwd, sessionFile);
     },
 
     disconnect: async () => {
-      await pi.stop();
-      set({ connection: "disconnected", isStreaming: false, messages: [] });
+      const runtimeId = get().runtimeId;
+      if (runtimeId) await pi.stop(runtimeId);
+      set((state) => {
+        const runtimes = { ...state.runtimes };
+        if (runtimeId) delete runtimes[runtimeId];
+        return { runtimeId: null, runtimes, connection: "disconnected", isStreaming: false, messages: [] };
+      });
     },
 
-    handleEvent: (event) => {
+    prepareNewTask: () => set({
+      runtimeId: null,
+      connection: "disconnected",
+      cwd: "",
+      messages: [],
+      sessionFile: null,
+      sessionId: null,
+      sessionName: null,
+      isStreaming: false,
+      isCompacting: false,
+      retryStatus: null,
+      extensionRequest: null,
+      extensionStatuses: {},
+      extensionWidgets: {},
+      steeringQueue: [],
+      followUpQueue: [],
+      terminal: { running: false, command: "", output: "" },
+      lastError: null,
+    }),
+
+    handleEvent: (runtimeId, event) => {
+      if (event.type === "agent_start") updateRuntime(runtimeId, { isStreaming: true });
+      if (event.type === "agent_end" && !event.willRetry) updateRuntime(runtimeId, { isStreaming: false });
+      if (event.type === "agent_settled") updateRuntime(runtimeId, { isStreaming: false });
+      if (event.type === "message_start" && event.message.role === "user") void get().refreshSessions();
+      if (event.type === "extension_ui_request") {
+        const request = event as ExtensionUIRequest;
+        if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
+          updateRuntime(runtimeId, { extensionRequest: request });
+        }
+      }
+
+      if (runtimeId !== get().runtimeId) {
+        if (event.type === "agent_end" && !event.willRetry) {
+          const runtime = get().runtimes[runtimeId];
+          const project = runtime?.cwd.split(/[\\/]/).filter(Boolean).pop() || "后台任务";
+          notify("Pi 后台任务已完成", project);
+        }
+        if (event.type === "agent_settled") void get().refreshSessions();
+        if (event.type === "extension_ui_request") {
+          const request = event as ExtensionUIRequest;
+          if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
+            notify("Pi 后台任务等待审批", ("title" in request && request.title) || "打开任务以处理审批。", true);
+          }
+        }
+        return;
+      }
+
       switch (event.type) {
         case "response":
           return;
@@ -541,13 +652,40 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     handleStatus: (status) => {
+      const runtimeId = status.runtimeId;
+      set((state) => {
+        if (status.status === "exited") {
+          const runtimes = { ...state.runtimes };
+          delete runtimes[runtimeId];
+          return { runtimes };
+        }
+        const current = state.runtimes[runtimeId];
+        const nextStatus = status.status === "running" ? "running" : "starting";
+        return {
+          runtimes: {
+            ...state.runtimes,
+            [runtimeId]: {
+              runtimeId,
+              cwd: status.cwd || current?.cwd || "",
+              sessionFile: current?.sessionFile ?? null,
+              isStreaming: current?.isStreaming ?? false,
+              status: nextStatus,
+              extensionRequest: current?.extensionRequest ?? null,
+              updatedAt: Date.now(),
+            },
+          },
+        };
+      });
+      if (runtimeId !== get().runtimeId) return;
       if (status.status === "running") set({ connection: "running" });
       if (status.status === "exited") {
-        const normalize = (value: string) => value.replace(/[\\/]+$/, "").toLowerCase();
-        if (status.cwd && get().cwd && normalize(status.cwd) !== normalize(get().cwd)) return;
         set({ connection: "exited", isStreaming: false });
         if (status.code && status.code !== 0) toast(`Pi 已退出，代码 ${status.code}`, "error");
       }
+    },
+
+    handleLog: (runtimeId, line) => {
+      if (runtimeId === get().runtimeId) get().appendLog(line);
     },
 
     appendLog: (line) => set((state) => ({ piLog: [...state.piLog.slice(-399), line] })),
@@ -569,10 +707,10 @@ export const usePiStore = create<PiState>((set, get) => {
       }));
       try {
         if (get().isStreaming) {
-          const command = behavior === "followUp" ? "follow_up" : "steer";
-          await sendCommand(command, { message, images });
+          const commandName = behavior === "followUp" ? "follow_up" : "steer";
+          await command(commandName, { message, images });
         } else {
-          await sendCommand("prompt", { message, images });
+          await command("prompt", { message, images });
         }
       } catch (error) {
         toast(error instanceof Error ? error.message : String(error), "error");
@@ -581,14 +719,14 @@ export const usePiStore = create<PiState>((set, get) => {
 
     abort: async () => {
       try {
-        await sendCommand("abort");
+        await command("abort");
       } finally {
         set({ isStreaming: false });
       }
     },
 
     newSession: async () => {
-      const response = await sendCommand("new_session");
+      const response = await command("new_session");
       if (!response.data?.cancelled) {
         await syncSession();
         await get().refreshSessions();
@@ -596,7 +734,7 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     cloneSession: async () => {
-      const response = await sendCommand("clone", {}, 60_000);
+      const response = await command("clone", {}, 60_000);
       if (!response.data?.cancelled) {
         await syncSession();
         await get().refreshSessions();
@@ -605,14 +743,14 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     forkLatest: async () => {
-      const points = await sendCommand("get_fork_messages");
+      const points = await command("get_fork_messages");
       const messages = points.data?.messages as Array<{ entryId: string; text: string }> | undefined;
       const latest = messages?.[messages.length - 1];
       if (!latest) {
         toast("当前对话还没有可分叉的检查点", "warning");
         return;
       }
-      const response = await sendCommand("fork", { entryId: latest.entryId }, 60_000);
+      const response = await command("fork", { entryId: latest.entryId }, 60_000);
       if (!response.data?.cancelled) {
         await syncSession();
         await get().refreshSessions();
@@ -623,7 +761,7 @@ export const usePiStore = create<PiState>((set, get) => {
     compact: async () => {
       set({ isCompacting: true });
       try {
-        await sendCommand("compact", {}, 10 * 60_000);
+        await command("compact", {}, 10 * 60_000);
         await refreshStats();
       } finally {
         set({ isCompacting: false });
@@ -631,26 +769,26 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     exportSession: async () => {
-      const response = await sendCommand("export_html", {}, 60_000);
+      const response = await command("export_html", {}, 60_000);
       const path = typeof response.data?.path === "string" ? response.data.path : null;
       if (path) toast(`已导出到 ${path}`, "info");
       return path;
     },
 
     setModel: async (model) => {
-      const response = await sendCommand("set_model", { provider: model.provider, modelId: model.id });
+      const response = await command("set_model", { provider: model.provider, modelId: model.id });
       set({ model: (response.data as unknown as ModelInfo) ?? model });
-      const levels = await sendCommand("get_available_thinking_levels");
+      const levels = await command("get_available_thinking_levels");
       set({ availableThinkingLevels: levels.data?.levels ?? ["off"] });
     },
 
     setThinkingLevel: async (level) => {
-      await sendCommand("set_thinking_level", { level });
+      await command("set_thinking_level", { level });
       set({ thinkingLevel: level });
     },
 
     setSessionName: async (name) => {
-      await sendCommand("set_session_name", { name: name.trim() });
+      await command("set_session_name", { name: name.trim() });
       set({ sessionName: name.trim() || null });
       await get().refreshSessions();
     },
@@ -691,12 +829,12 @@ export const usePiStore = create<PiState>((set, get) => {
       await get().refreshSessions();
     },
 
-    runBash: async (command, excludeFromContext = false) => {
-      const trimmed = command.trim();
+    runBash: async (shellCommand, excludeFromContext = false) => {
+      const trimmed = shellCommand.trim();
       if (!trimmed || get().terminal.running) return;
       set({ terminal: { running: true, command: trimmed, output: "" } });
       try {
-        const response = await sendCommand("bash", { command: trimmed, excludeFromContext }, 60 * 60_000);
+        const response = await command("bash", { command: trimmed, excludeFromContext }, 60 * 60_000);
         set((state) => ({
           terminal: {
             ...state.terminal,
@@ -713,15 +851,17 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     abortBash: async () => {
-      await sendCommand("abort_bash");
+      await command("abort_bash");
       set((state) => ({ terminal: { ...state.terminal, running: false } }));
     },
 
     answerExtension: async (response) => {
       const request = get().extensionRequest;
-      if (!request) return;
+      const runtimeId = get().runtimeId;
+      if (!request || !runtimeId) return;
       set({ extensionRequest: null });
-      await respondToExtension(request, response);
+      updateRuntime(runtimeId, { extensionRequest: null });
+      await respondToExtension(runtimeId, request, response);
     },
 
     showToast: toast,

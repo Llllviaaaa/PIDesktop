@@ -8,10 +8,12 @@ import {
   FolderOpen,
   GitPullRequest,
   Globe2,
+  LoaderCircle,
   MessageSquarePlus,
   PanelLeftClose,
   Search,
   Settings,
+  ShieldAlert,
   Trash2,
 } from "lucide-react";
 import type { ConnectionState, SessionInfo } from "../types";
@@ -19,6 +21,9 @@ import type { ConnectionState, SessionInfo } from "../types";
 interface SidebarProps {
   sessions: SessionInfo[];
   currentSessionFile: string | null;
+  runningSessionFiles: string[];
+  approvalSessionFiles: string[];
+  runningCount: number;
   cwd: string;
   connection: ConnectionState;
   onNewSession: () => void;
@@ -50,12 +55,16 @@ function relativeTime(timestamp?: number): string {
 }
 
 function repoName(path: string): string {
+  if (path.toLowerCase().endsWith("quick-chat")) return "快速对话";
   return path.split(/[\\/]/).filter(Boolean).pop() || path || "未知工作区";
 }
 
 export function Sidebar({
   sessions,
   currentSessionFile,
+  runningSessionFiles,
+  approvalSessionFiles,
+  runningCount,
   cwd,
   connection,
   onNewSession,
@@ -150,6 +159,12 @@ export function Sidebar({
                         <span className="session-title">{titleFor(session)}</span>
                         <span className="session-time">{relativeTime(session.updatedAt)}</span>
                         <span
+                          className={`session-runtime-state ${approvalSessionFiles.includes(session.file) ? "approval" : runningSessionFiles.includes(session.file) ? "running" : ""}`}
+                          title={approvalSessionFiles.includes(session.file) ? "等待审批" : runningSessionFiles.includes(session.file) ? "后台运行中" : undefined}
+                        >
+                          {approvalSessionFiles.includes(session.file) ? <ShieldAlert size={12} /> : runningSessionFiles.includes(session.file) ? <LoaderCircle size={12} /> : null}
+                        </span>
+                        <span
                           role="button"
                           tabIndex={0}
                           className="session-archive"
@@ -194,7 +209,7 @@ export function Sidebar({
           <span className={`status-dot ${connection}`} />
           <span className="workspace-picker-copy">
             <strong>{cwd ? repoName(cwd) : "未打开工作区"}</strong>
-            <small>{connection === "running" ? "本地" : connection === "starting" ? "正在连接" : connection === "exited" ? "已退出" : "未连接"}</small>
+            <small>{runningCount > 0 ? `${runningCount} 个任务运行中` : connection === "running" ? "本地" : connection === "starting" ? "正在连接" : connection === "exited" ? "已退出" : "未连接"}</small>
           </span>
           <FolderOpen size={14} />
         </button>

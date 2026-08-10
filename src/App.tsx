@@ -64,6 +64,7 @@ export default function App() {
     extensionStatuses,
     extensionWidgets,
     composerPrefill,
+    runtimes,
     toasts,
   } = store;
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -91,12 +92,12 @@ export default function App() {
     const cleanup = subscribeToPi({
       onEvent: store.handleEvent,
       onStatus: store.handleStatus,
-      onLog: store.appendLog,
+      onLog: store.handleLog,
     });
     void store.loadSettings();
     void store.refreshSessions();
     return () => { void cleanup.then((unlisten) => unlisten()); };
-  }, [isTauri, store.handleEvent, store.handleStatus, store.appendLog, store.loadSettings, store.refreshSessions]);
+  }, [isTauri, store.handleEvent, store.handleStatus, store.handleLog, store.loadSettings, store.refreshSessions]);
 
   useEffect(() => {
     if (!settings?.autoConnect || autoConnectedRef.current || connection !== "disconnected") return;
@@ -157,7 +158,9 @@ export default function App() {
       if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
       if (shortcut === normalize(settings.shortcutNewChat) && connection === "running") {
         event.preventDefault();
-        void store.newSession();
+        store.prepareNewTask();
+        setQuickChat(false);
+        setHubView(null);
       } else if (shortcut === normalize(settings.shortcutTerminal)) {
         event.preventDefault();
         setInspectorTab((value) => value === "terminal" ? null : "terminal");
@@ -171,7 +174,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [connection, settings, settingsOpen, store.newSession]);
+  }, [connection, settings, settingsOpen, store.prepareNewTask]);
 
   useEffect(() => {
     setTitleDraft(sessionName || (sessionId ? `任务 ${sessionId.slice(0, 8)}` : "新任务"));
@@ -271,6 +274,14 @@ export default function App() {
       .filter((item): item is string => Boolean(item) && !item.toLowerCase().endsWith("quick-chat")),
     [cwd, draftWorkspace, sessions],
   );
+  const runningSessionFiles = useMemo(
+    () => Object.values(runtimes).filter((runtime) => runtime.isStreaming && runtime.sessionFile).map((runtime) => runtime.sessionFile as string),
+    [runtimes],
+  );
+  const approvalSessionFiles = useMemo(
+    () => Object.values(runtimes).filter((runtime) => runtime.extensionRequest && runtime.sessionFile).map((runtime) => runtime.sessionFile as string),
+    [runtimes],
+  );
   const taskWorkspaceName = quickChat
     ? "快速对话"
     : draftWorkspace.split(/[\\/]/).filter(Boolean).pop() || "一个项目";
@@ -314,14 +325,10 @@ export default function App() {
     setAttachments([]);
   }, [attachments, draftWorkspace, quickChat, selectWorkspace, taskEnvironment]);
 
-  const startNewTask = useCallback(async (asQuickChat = false) => {
+  const startNewTask = useCallback((asQuickChat = false) => {
     const current = usePiStore.getState();
-    if (current.isStreaming) {
-      current.showToast("当前 Pi 任务仍在运行。请先停止，再切换到新任务。", "warning");
-      return;
-    }
-    if (current.connection === "running") await current.newSession();
     if (current.cwd && !current.cwd.toLowerCase().endsWith("quick-chat")) setDraftWorkspace(current.cwd);
+    current.prepareNewTask();
     setQuickChat(asQuickChat);
     if (asQuickChat) setTaskEnvironment("local");
     setInspectorTab(null);
@@ -334,7 +341,12 @@ export default function App() {
   }, []);
 
   const requestReview = useCallback(async () => {
-    if (settings?.reviewDelivery === "detached") await usePiStore.getState().newSession();
+    if (settings?.reviewDelivery === "detached") {
+      const current = usePiStore.getState();
+      const workspace = current.cwd;
+      current.prepareNewTask();
+      if (workspace) await usePiStore.getState().connect(workspace);
+    }
     await usePiStore.getState().sendMessage("检查当前 Git 更改的正确性、回归风险、安全问题和缺失测试。按严重程度列出发现，并提供准确的文件引用。");
   }, [settings?.reviewDelivery]);
 
@@ -426,17 +438,18 @@ export default function App() {
             <button className="icon-button" title="任务操作" onClick={() => setMoreOpen((value) => !value)}><MoreHorizontal size={17} /></button>
             {moreOpen && (
               <div className="topbar-menu">
-                <button disabled={!connected} onClick={() => { setMoreOpen(false); void store.newSession(); }}>新任务</button>
+                <button onClick={() => { setMoreOpen(false); startNewTask(false); }}>新任务</button>
                 <button disabled={!connected || !git?.isRepository} onClick={() => { setMoreOpen(false); void newWorktreeChat(); }}>新建 Worktree 任务</button>
                 <button disabled={!connected} onClick={() => { setMoreOpen(false); void store.cloneSession(); }}>克隆当前分支</button>
                 <button disabled={!connected || isStreaming} onClick={() => { setMoreOpen(false); void store.forkLatest(); }}>从最新检查点分叉</button>
                 <button disabled={!connected || isStreaming} onClick={() => { setMoreOpen(false); void store.compact(); }}>压缩上下文</button>
                 <button disabled={!connected} onClick={() => { setMoreOpen(false); void store.exportSession(); }}>导出为 HTML</button>
-                <button disabled={!sessionFile} onClick={() => {
+                <button disabled={!sessionFile || isStreaming} onClick={() => {
                   setMoreOpen(false);
                   if (!sessionFile) return;
                   void pi.archiveSession(sessionFile).then(async () => {
-                    await store.newSession();
+                    await store.disconnect();
+                    store.prepareNewTask();
                     await store.refreshSessions();
                   });
                 }}>归档任务</button>
@@ -464,6 +477,9 @@ export default function App() {
           <Sidebar
             sessions={sessions}
             currentSessionFile={sessionFile}
+            runningSessionFiles={runningSessionFiles}
+            approvalSessionFiles={approvalSessionFiles}
+            runningCount={Object.values(runtimes).filter((runtime) => runtime.isStreaming).length}
             cwd={cwd}
             connection={connection}
             onNewSession={() => void startNewTask(false)}

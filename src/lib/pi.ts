@@ -14,10 +14,12 @@ import type {
 } from "../types";
 
 export const pi = {
-  start: (cwd: string) => invoke<void>("pi_start", { cwd }),
-  stop: () => invoke<void>("pi_stop"),
-  sendRaw: (line: string) => invoke<void>("pi_send", { line }),
-  isRunning: () => invoke<boolean>("pi_is_running"),
+  start: (cwd: string, sessionFile?: string) => invoke<string>("pi_start", { cwd, sessionFile }),
+  stop: (runtimeId: string) => invoke<void>("pi_stop", { runtimeId }),
+  sendRaw: (runtimeId: string, line: string) => invoke<void>("pi_send", { runtimeId, line }),
+  isRunning: (runtimeId: string) => invoke<boolean>("pi_is_running", { runtimeId }),
+  bindSession: (runtimeId: string, sessionFile: string) => invoke<void>("pi_bind_session", { runtimeId, sessionFile }),
+  listRuntimes: () => invoke<PiRuntimeInfo[]>("list_pi_runtimes"),
   quickChatDir: () => invoke<string>("quick_chat_dir"),
   listSessions: () => invoke<SessionInfo[]>("list_sessions_cmd"),
   listArchivedSessions: () => invoke<SessionInfo[]>("list_archived_sessions_cmd"),
@@ -35,25 +37,49 @@ export const pi = {
   usageSummary: () => invoke<UsageSummary>("usage_summary"),
 };
 
+export interface PiRuntimeInfo {
+  runtimeId: string;
+  cwd: string;
+  sessionFile?: string | null;
+}
+
+export interface PiRuntimeStatus {
+  runtimeId: string;
+  status: string;
+  code?: number | null;
+  cwd?: string;
+}
+
+interface TaggedPiEvent {
+  runtimeId: string;
+  event: PiEvent;
+}
+
+interface TaggedPiLog {
+  runtimeId: string;
+  line: string;
+}
+
 export interface PiListeners {
-  onEvent: (event: PiEvent) => void;
-  onStatus: (status: { status: string; code?: number | null; cwd?: string }) => void;
-  onLog: (line: string) => void;
+  onEvent: (runtimeId: string, event: PiEvent) => void;
+  onStatus: (status: PiRuntimeStatus) => void;
+  onLog: (runtimeId: string, line: string) => void;
 }
 
 export async function subscribeToPi(listeners: PiListeners): Promise<UnlistenFn> {
   const unlisteners = await Promise.all([
-    listen<PiEvent>("pi-event", (event) => listeners.onEvent(event.payload)),
-    listen<{ status: string; code?: number | null; cwd?: string }>(
+    listen<TaggedPiEvent>("pi-event", (event) => listeners.onEvent(event.payload.runtimeId, event.payload.event)),
+    listen<PiRuntimeStatus>(
       "pi-status",
       (event) => listeners.onStatus(event.payload),
     ),
-    listen<string>("pi-log", (event) => listeners.onLog(event.payload)),
+    listen<TaggedPiLog>("pi-log", (event) => listeners.onLog(event.payload.runtimeId, event.payload.line)),
   ]);
   return () => unlisteners.forEach((unlisten) => unlisten());
 }
 
 export async function sendCommand(
+  runtimeId: string,
   command: string,
   payload: Record<string, unknown> = {},
   timeoutMs = 30_000,
@@ -74,8 +100,9 @@ export async function sendCommand(
       finish(() => reject(new Error(`Pi command '${command}' timed out`)));
     }, timeoutMs);
 
-    void listen<RpcResponse>("pi-event", (event) => {
-      const response = event.payload;
+    void listen<TaggedPiEvent>("pi-event", (event) => {
+      if (event.payload.runtimeId !== runtimeId) return;
+      const response = event.payload.event as RpcResponse;
       if (response.type !== "response" || response.id !== id) return;
       if (!response.success) {
         finish(() => reject(new Error(response.error || `Pi command '${command}' failed`)));
@@ -89,17 +116,19 @@ export async function sendCommand(
           unlisten();
           return;
         }
-        return pi.sendRaw(JSON.stringify({ id, type: command, ...payload }));
+        return pi.sendRaw(runtimeId, JSON.stringify({ id, type: command, ...payload }));
       })
       .catch((error) => finish(() => reject(error)));
   });
 }
 
 export function respondToExtension(
+  runtimeId: string,
   request: ExtensionUIRequest,
   response: { value?: string; confirmed?: boolean; cancelled?: true },
 ): Promise<void> {
   return pi.sendRaw(
+    runtimeId,
     JSON.stringify({
       type: "extension_ui_response",
       id: request.id,

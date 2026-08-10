@@ -6,6 +6,7 @@ This file is the product contract for Pi Desktop. A feature is only marked **Imp
 | --- | --- | --- |
 | Project workspace and conversation UI | Implemented | Codex-style sidebar, project grouping, chat stream, composer, inspector, terminal, and settings center |
 | Streaming agent runtime | Implemented | Pi JSONL RPC events for text, reasoning, tools, tool output, retries, queue state, tokens, and cost |
+| Parallel local tasks | Implemented | Per-task Pi runtimes keep chats running in the background, preserve task-specific streaming and approval state, and allow instant task switching |
 | Sessions | Implemented | Search, resume, rename, clone, checkpoint fork, compact, export, archive/restore, and recoverable delete |
 | Models and reasoning | Implemented | Provider/model/thinking selection backed by Pi runtime commands and persisted defaults |
 | Attachments and references | Implemented | Image attachment plus local file reference insertion |
