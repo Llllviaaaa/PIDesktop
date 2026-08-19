@@ -62,7 +62,12 @@ export function ToolCall({ call }: { call: UiToolCall }) {
 
   return (
     <div className={`tool-step ${call.isError ? "error" : ""}`}>
-      <button className="tool-step-heading" onClick={() => setExpanded((value) => !value)}>
+      <button
+        type="button"
+        className="tool-step-heading"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
         <span className="tool-icon"><ToolIcon call={call} /></span>
         <span className="tool-summary">{summary(call)}</span>
         {duration && <small>{duration}</small>}

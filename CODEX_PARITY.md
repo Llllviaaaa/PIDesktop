@@ -2,6 +2,8 @@
 
 This file is the product contract for Pi Desktop. A feature is only marked **Implemented** when a real frontend action reaches a real local backend; visual placeholders do not count.
 
+**Product frame:** Pi Desktop is a **local-only** command center for the [Pi](https://pi.dev) coding agent. UI may follow Codex-style desktop workflow; semantics stay **Pi-native** (RPC runtime, extensions/skills/packages, no cloud execution). See [PRODUCT_PLAN.md](./PRODUCT_PLAN.md) for the fill-in roadmap under those constraints.
+
 | Area | Status | Pi Desktop behavior |
 | --- | --- | --- |
 | Project workspace and conversation UI | Implemented | Codex-style sidebar, project grouping, chat stream, composer, inspector, terminal, and settings center |
@@ -24,13 +26,16 @@ This file is the product contract for Pi Desktop. A feature is only marked **Imp
 | Settings | Implemented | Searchable multi-page center covering personal, integration, coding, and advanced areas |
 | Permissions | Partial | Pi tool interception provides read-only/ask/workspace-write/full-access modes, but is not an OS isolation boundary |
 | Terminal | Partial | Integrated streaming shell exists; Codex's full terminal profile and policy integration is not reproduced |
-| Handoff | Partial | Chats can be cloned/forked and worktrees can be opened, but there is no cross-device or cloud handoff service |
+| Handoff | Partial (local only) | Local clone/fork/worktree only; cross-device or cloud handoff is intentionally out of scope |
 | MCP resources, prompts, OAuth, and tasks | Partial | Tool hosting is implemented; automatic OAuth discovery, server prompt commands, resource browsing/subscriptions, list-change refresh, and experimental task flows remain |
-| Cloud environments | Platform gap | Requires remote workers, secrets, repositories, images, logs, and lifecycle APIs |
-| Scheduled automations | Platform gap | Requires a durable scheduler and unattended execution service |
-| OS sandbox | Platform gap | Approval gates are implemented; process/filesystem/network isolation requires Windows Sandbox, a VM, or containers |
-| Account, billing, and organization policy | Platform gap | These are OpenAI service capabilities and are not Pi runtime features |
+| Session tree UX | Implemented | Inspector 会话树 loads Pi `get_tree`; 从此继续 issues `fork` for the selected entry id; clear error if runtime lacks `get_tree` |
+| Configurable tool rules | Implemented | Rules v1: always-confirm shell, block outside-workspace writes, shell allow prefixes — settings + env injection + `pidesktop-rules.ts` / guard |
+| Review pane depth | Planned (local) | File/hunk stage-revert and line comments back into chat (PRODUCT_PLAN L4) |
+| Scheduled automations | Planned (local) | In-app local scheduler that spawns Pi on this machine while the app (or a local runner) is available; not a cloud job service (PRODUCT_PLAN L5) |
+| Cloud environments | Out of scope | Remote workers and hosted agent fleets are not part of this product |
+| OS sandbox | Out of scope as built-in | Pi has no OS sandbox in core; Desktop provides approval gates. Strong isolation remains the user's container/VM/Windows Sandbox (optional local wizard later) |
+| Account, billing, and organization policy | Out of scope | OpenAI/ChatGPT service capabilities; not Pi Desktop features |
 
 ## Product rule
 
-New Codex-like pages must be wired to a real capability before they are presented as supported. Platform gaps should remain explicit until the necessary backend exists.
+New Codex-like pages must be wired to a real capability before they are presented as supported. **Out of scope** items stay explicit and must not ship as empty hubs. Local **Planned** items land only with a real backend (see PRODUCT_PLAN.md).

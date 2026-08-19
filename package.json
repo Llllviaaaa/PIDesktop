@@ -1,18 +1,27 @@
 {
   "name": "pid-desktop",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:rules": "npx --yes tsx scripts/test-permission-rules.ts",
+    "test:session-tree": "npx --yes tsx scripts/test-session-tree.ts",
+    "test:git-diff": "npx --yes tsx scripts/test-git-diff-stats.ts",
+    "test:history": "npx --yes tsx scripts/test-message-history.ts",
+    "test:schedule": "npx --yes tsx scripts/test-schedule.ts",
+    "test:model-switch": "npx --yes tsx scripts/test-model-selection-extension.ts",
+    "test:unit": "npm run test:rules && npm run test:session-tree && npm run test:git-diff && npm run test:history && npm run test:schedule && npm run test:model-switch"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-opener": "^2",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "highlight.js": "^11.11.1",
     "lucide-react": "^1.30.0",
     "react": "^19.1.0",

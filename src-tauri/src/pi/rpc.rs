@@ -391,7 +391,11 @@ mod tests {
 fn kill_process_tree(pid: u32) -> Result<(), String> {
     #[cfg(windows)]
     {
-        let output = Command::new("taskkill")
+        let mut command = Command::new("taskkill");
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+        let output = command
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output()
             .map_err(|err| format!("taskkill failed: {err}"))?;

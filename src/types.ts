@@ -119,6 +119,43 @@ export interface ModelInfo {
   cost?: Record<string, unknown>;
 }
 
+export interface ModelProviderModel {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  input: string[];
+  contextWindow?: number | null;
+  maxTokens?: number | null;
+}
+
+export interface ModelProviderConfig {
+  id: string;
+  name: string;
+  baseUrl: string;
+  api: string;
+  hasApiKey: boolean;
+  apiKeySource: "none" | "stored" | "environment" | "command";
+  authHeader: boolean;
+  models: ModelProviderModel[];
+}
+
+export interface ModelProviderInput {
+  originalId?: string | null;
+  id: string;
+  name: string;
+  baseUrl: string;
+  api: string;
+  apiKey: string;
+  keepExistingApiKey: boolean;
+  authHeader: boolean;
+  models: ModelProviderModel[];
+}
+
+export interface ModelProviderCheckResult {
+  ok: boolean;
+  message: string;
+}
+
 export interface SessionStats {
   sessionFile?: string;
   sessionId?: string;
@@ -204,7 +241,20 @@ export type PiEvent =
   | { type: "turn_start" }
   | { type: "turn_end"; message: AssistantMessage; toolResults: ToolResultMessage[] }
   | { type: "message_start"; message: AgentMessage }
-  | { type: "message_update"; message: AgentMessage; assistantMessageEvent: { type: string; contentIndex?: number; delta?: string; toolCall?: ToolCallContent; partial?: ToolCallContent } }
+  | {
+      type: "message_update";
+      /** Older Pi versions included the cumulative message; current RPC sends deltas only. */
+      message?: AgentMessage;
+      assistantMessageEvent: {
+        type: string;
+        contentIndex?: number;
+        delta?: string;
+        content?: string;
+        toolCall?: ToolCallContent;
+        message?: AssistantMessage;
+        error?: AssistantMessage;
+      };
+    }
   | { type: "message_end"; message: AgentMessage }
   | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: Record<string, unknown> }
   | { type: "tool_execution_update"; toolCallId: string; toolName: string; args: Record<string, unknown>; partialResult: unknown }
@@ -226,6 +276,14 @@ export interface AppSettings {
   thinkingLevel: string;
   sessionDir: string;
   permissionMode: "read-only" | "ask" | "workspace-write" | "full-access";
+  /** Shell/bash/exec always requires confirmation (unless full-access). */
+  alwaysConfirmShell: boolean;
+  /** Block model writes outside the workspace without prompting. */
+  blockWriteOutsideWorkspace: boolean;
+  /** Newline- or comma-separated command prefixes that skip shell confirmation. */
+  shellAllowPrefixes: string;
+  /** Default new-task environment when starting a coding task. */
+  defaultTaskEnvironment: "local" | "worktree";
   showThinking: boolean;
   autoConnect: boolean;
   followUpBehavior: "steer" | "followUp";
@@ -299,6 +357,12 @@ export interface SessionInfo {
   updatedAt?: number;
 }
 
+export interface SessionMessageTiming {
+  role: "user" | "assistant";
+  messageTimestamp: number;
+  entryTimestamp: string;
+}
+
 export interface AttachmentPayload {
   path: string;
   fileName: string;
@@ -321,11 +385,82 @@ export interface GitSnapshot {
   diff: string;
 }
 
+export interface GitBranchInfo {
+  name: string;
+  current: boolean;
+}
+
 export interface WorktreeInfo {
   path: string;
   head?: string;
   branch?: string;
   isMain: boolean;
+}
+
+export interface ProjectConfig {
+  path: string;
+  name: string;
+  pinned: boolean;
+  hidden: boolean;
+}
+
+export type ScheduledFrequency = "hourly" | "daily" | "weekdays" | "weekly";
+
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  prompt: string;
+  cwd: string;
+  frequency: ScheduledFrequency;
+  hour: number;
+  minute: number;
+  weekday: number;
+  enabled: boolean;
+  lastRunAt?: number | null;
+  nextRunAt?: number | null;
+  lastStatus: "" | "running" | "success" | "error";
+  lastMessage: string;
+}
+
+export interface ScheduledRunResult {
+  success: boolean;
+  output: string;
+}
+
+export interface PullRequestInfo {
+  number: number;
+  title: string;
+  state: string;
+  isDraft: boolean;
+  headRefName: string;
+  baseRefName: string;
+  updatedAt: string;
+  url: string;
+  author: string;
+  reviewDecision: string;
+}
+
+export interface PullRequestCollection {
+  repository: string;
+  remoteUrl: string;
+  items: PullRequestInfo[];
+}
+
+export interface WorkspaceDirEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+}
+
+export interface WorkspaceFileContent {
+  path: string;
+  fileName: string;
+  text: string | null;
+  mimeType?: string | null;
+  data?: string | null;
+  truncated: boolean;
+  isBinary: boolean;
+  size: number;
 }
 
 export interface ResourceItem {
@@ -338,6 +473,16 @@ export interface ResourceItem {
 export interface ForkPoint {
   entryId: string;
   text: string;
+}
+
+export interface SessionTreeNodeView {
+  entryId: string;
+  parentId: string | null;
+  role: string;
+  summary: string;
+  depth: number;
+  isLeaf: boolean;
+  childCount: number;
 }
 
 export interface UsageSummary {
@@ -393,6 +538,7 @@ export interface UiMessage {
   isStreaming?: boolean;
   toolCalls?: UiToolCall[];
   isError?: boolean;
+  durationMs?: number;
   timestamp: number;
 }
 

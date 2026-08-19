@@ -1,6 +1,8 @@
 # Pi Desktop
 
-Pi Desktop is a Codex-style Windows desktop client for the local [Pi coding agent](https://pi.dev). It uses Pi's JSONL RPC mode as the execution engine and adds a project-oriented desktop workflow around it. The UI and local workflow deliberately follow Codex Desktop, while Pi remains the model and tool runtime.
+Pi Desktop is a **local-only**, Codex-style Windows desktop client for the [Pi coding agent](https://pi.dev). It uses Pi's JSONL RPC mode as the execution engine and adds a project-oriented desktop workflow around it. The UI may follow Codex Desktop patterns; **Pi remains the runtime**, and extra capabilities ship as bundled or user extensions/skills/packages—not a cloud agent platform.
+
+Roadmap under these constraints: [PRODUCT_PLAN.md](./PRODUCT_PLAN.md). Feature boundary vs Codex-style workflow: [CODEX_PARITY.md](./CODEX_PARITY.md).
 
 ## Current capabilities
 
@@ -21,7 +23,7 @@ Pi Desktop is a Codex-style Windows desktop client for the local [Pi coding agen
 - Full-screen settings center for appearance, notifications, personalization, shortcuts, archives, usage, models, Pi resources/packages, permissions, terminal, Git, worktrees, and advanced configuration
 - Persisted process, appearance, behavior, provider, permission, Git, notification, and session settings
 
-See [CODEX_PARITY.md](CODEX_PARITY.md) for the feature-by-feature boundary. UI parity does not turn Pi into OpenAI's hosted Codex platform: cloud environments, unattended automations, and OS sandboxing need additional runtimes rather than settings-page placeholders.
+See [CODEX_PARITY.md](CODEX_PARITY.md) for the feature-by-feature boundary and [PRODUCT_PLAN.md](PRODUCT_PLAN.md) for what we will fill in locally. UI parity does **not** include cloud environments, account/billing, or a built-in OS sandbox; those stay out of scope or optional user isolation.
 
 ## Architecture
 

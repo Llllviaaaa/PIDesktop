@@ -1,5 +1,11 @@
 import { create } from "zustand";
 import { pi, respondToExtension, sendCommand, type PiRuntimeStatus } from "./lib/pi";
+import {
+  buildForkCommand,
+  buildGetTreeCommand,
+  flattenSessionTree,
+  type SessionTreeNode,
+} from "./lib/sessionTree";
 import type {
   AgentMessage,
   AppSettings,
@@ -9,12 +15,15 @@ import type {
   ComputerState,
   ConnectionState,
   ExtensionUIRequest,
+  ForkPoint,
   GitSnapshot,
   ImageContent,
   ModelInfo,
   PiEvent,
   SessionInfo,
+  SessionMessageTiming,
   SessionStats,
+  SessionTreeNodeView,
   SlashCommand,
   Toast,
   ToolResultMessage,
@@ -52,7 +61,7 @@ function thinkingFromContent(content: unknown): string | undefined {
   return value || undefined;
 }
 
-function toolCallsFromContent(content: unknown): UiToolCall[] | undefined {
+function toolCallsFromContent(content: unknown, startedAt?: number): UiToolCall[] | undefined {
   if (!Array.isArray(content)) return undefined;
   const calls = content
     .filter((block) => block && typeof block === "object" && (block as { type?: string }).type === "toolCall")
@@ -63,6 +72,7 @@ function toolCallsFromContent(content: unknown): UiToolCall[] | undefined {
         name: call.name ?? "tool",
         args: call.arguments ?? {},
         running: false,
+        startedAt,
       } satisfies UiToolCall;
     });
   return calls.length ? calls : undefined;
@@ -73,7 +83,7 @@ function messageId(message: AgentMessage): string {
   return `msg-${message.role}-${message.timestamp}`;
 }
 
-function assistantToUi(message: AssistantMessage, streaming = false): UiMessage {
+function assistantToUi(message: AssistantMessage, streaming = false, durationMs?: number): UiMessage {
   return {
     id: messageId(message),
     role: "assistant",
@@ -81,18 +91,38 @@ function assistantToUi(message: AssistantMessage, streaming = false): UiMessage 
     thinking: thinkingFromContent(message.content),
     model: message.model,
     usage: message.usage,
-    toolCalls: toolCallsFromContent(message.content),
+    toolCalls: toolCallsFromContent(message.content, message.timestamp),
     isStreaming: streaming,
     isError: message.stopReason === "error" || message.stopReason === "aborted",
+    durationMs,
     timestamp: message.timestamp,
   };
 }
 
-function messagesToUi(messages: AgentMessage[]): UiMessage[] {
+function messageDurations(timings: SessionMessageTiming[]): Map<string, number> {
+  const durations = new Map<string, number>();
+  let turnStartedAt: number | null = null;
+  for (const timing of timings) {
+    const entryAt = Date.parse(timing.entryTimestamp);
+    if (!Number.isFinite(entryAt)) continue;
+    if (timing.role === "user") {
+      turnStartedAt = entryAt;
+    } else if (turnStartedAt !== null && entryAt > turnStartedAt) {
+      durations.set(`msg-assistant-${timing.messageTimestamp}`, entryAt - turnStartedAt);
+    }
+  }
+  return durations;
+}
+
+export function messagesToUi(messages: AgentMessage[], timings: SessionMessageTiming[] = []): UiMessage[] {
   const result: UiMessage[] = [];
+  const toolCalls = new Map<string, UiToolCall>();
+  const durations = messageDurations(timings);
   for (const message of messages) {
     if (message.role === "assistant") {
-      result.push(assistantToUi(message));
+      const converted = assistantToUi(message, false, durations.get(messageId(message)));
+      result.push(converted);
+      for (const call of converted.toolCalls ?? []) toolCalls.set(call.id, call);
     } else if (message.role === "user") {
       result.push({
         id: messageId(message),
@@ -102,7 +132,8 @@ function messagesToUi(messages: AgentMessage[]): UiMessage[] {
         timestamp: message.timestamp,
       });
     } else if (message.role === "toolResult") {
-      attachToolResult(result, message);
+      const call = toolCalls.get(message.toolCallId);
+      if (call) applyToolResult(call, message);
     } else if (message.role === "bashExecution") {
       result.push({
         id: messageId(message),
@@ -132,16 +163,38 @@ function messagesToUi(messages: AgentMessage[]): UiMessage[] {
   return result;
 }
 
+function buildPromptPayload(text: string, attachments: AttachmentPayload[]) {
+  const trimmed = text.trim();
+  const imageAttachments = attachments.filter((item) => item.kind === "image" && item.data);
+  const fileReferences = attachments
+    .filter((item) => item.kind !== "image")
+    .map((item) => `- ${item.fileName}: ${item.path}`);
+  const message = fileReferences.length
+    ? `${trimmed}\n\n附加的本地文件：\n${fileReferences.join("\n")}`.trim()
+    : trimmed;
+  const images = imageAttachments.map((item) => ({
+    type: "image" as const,
+    data: item.data!,
+    mimeType: item.mimeType,
+  }));
+  return { message, images };
+}
+
+function applyToolResult(call: UiToolCall, result: ToolResultMessage) {
+  call.result = stringifyResult(result.content);
+  call.images = imagesFromContent(result.content);
+  call.details = isRecord(result.details) ? result.details : undefined;
+  call.isError = result.isError;
+  call.running = false;
+  call.finishedAt = result.timestamp;
+}
+
 function attachToolResult(messages: UiMessage[], result: ToolResultMessage) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     const call = message.toolCalls?.find((candidate) => candidate.id === result.toolCallId);
     if (call) {
-      call.result = stringifyResult(result.content);
-      call.images = imagesFromContent(result.content);
-      call.details = isRecord(result.details) ? result.details : undefined;
-      call.isError = result.isError;
-      call.running = false;
+      applyToolResult(call, result);
       return;
     }
   }
@@ -240,6 +293,7 @@ interface TerminalState {
   command: string;
   output: string;
   exitCode?: number;
+  history: Array<{ command: string; output: string; exitCode?: number }>;
 }
 
 interface RuntimeState {
@@ -264,6 +318,7 @@ interface PiState {
   sessionId: string | null;
   sessionName: string | null;
   isStreaming: boolean;
+  isSwitchingModel: boolean;
   isCompacting: boolean;
   retryStatus: string | null;
   thinkingLevel: string;
@@ -285,8 +340,13 @@ interface PiState {
   extensionWidgets: Record<string, string[]>;
   composerPrefill: string | null;
   toasts: Toast[];
+  sessionTree: SessionTreeNodeView[];
+  sessionTreeLeafId: string | null;
+  sessionTreeError: string | null;
+  sessionTreeLoading: boolean;
 
   connect: (cwd: string, sessionFile?: string) => Promise<void>;
+  prewarmWorkspace: (cwd: string) => Promise<void>;
   restoreRuntimes: (preferredRuntimeId?: string | null) => Promise<boolean>;
   switchSession: (cwd: string, sessionFile: string) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -294,12 +354,16 @@ interface PiState {
   handleStatus: (status: PiRuntimeStatus) => void;
   handleLog: (runtimeId: string, line: string) => void;
   appendLog: (line: string) => void;
-  sendMessage: (text: string, attachments?: AttachmentPayload[], behavior?: "steer" | "followUp") => Promise<void>;
+  sendMessage: (text: string, attachments?: AttachmentPayload[], behavior?: "steer" | "followUp") => Promise<boolean>;
+  resolveMessageForkPoint: (messageId: string) => Promise<ForkPoint | null>;
+  editAndResend: (entryId: string, text: string, attachments?: AttachmentPayload[]) => Promise<boolean>;
   abort: () => Promise<void>;
   prepareNewTask: () => void;
   newSession: () => Promise<void>;
   cloneSession: () => Promise<void>;
   forkLatest: () => Promise<void>;
+  loadSessionTree: () => Promise<void>;
+  continueFromTreeNode: (entryId: string) => Promise<void>;
   compact: () => Promise<void>;
   exportSession: () => Promise<string | null>;
   setModel: (model: ModelInfo) => Promise<void>;
@@ -311,6 +375,7 @@ interface PiState {
   saveSettings: (settings: AppSettings) => Promise<void>;
   runBash: (command: string, excludeFromContext?: boolean) => Promise<void>;
   abortBash: () => Promise<void>;
+  resetTerminal: () => void;
   answerExtension: (response: { value?: string; confirmed?: boolean; cancelled?: true }) => Promise<void>;
   showToast: (message: string, kind?: Toast["kind"]) => void;
   clearComposerPrefill: () => void;
@@ -318,6 +383,139 @@ interface PiState {
 }
 
 export const usePiStore = create<PiState>((set, get) => {
+  let pendingAssistantUpdate: {
+    runtimeId: string;
+    message?: AssistantMessage;
+    textDelta: string;
+    thinkingDelta: string;
+    toolCalls: UiToolCall[];
+  } | null = null;
+  let assistantUpdateTimer: number | null = null;
+  let connectionVersion = 0;
+  let pendingOptimisticPrompt: {
+    runtimeId: string;
+    userMessageId: string;
+    assistantMessageId: string;
+  } | null = null;
+  let pendingModelChange: { runtimeId: string; promise: Promise<void> } | null = null;
+  let pendingConnection: { key: string; promise: Promise<void> } | null = null;
+  const workspaceWarmups = new Map<string, Promise<void>>();
+  let preferredWarmupKey = "";
+  let activeTurnStartedAt: number | null = null;
+
+  const workspaceKey = (cwd: string) => cwd.trim().replace(/[\\/]+$/, "").toLowerCase();
+
+  const rollbackOptimisticPrompt = (runtimeId: string) => {
+    const pending = pendingOptimisticPrompt;
+    if (!pending || pending.runtimeId !== runtimeId) return;
+    pendingOptimisticPrompt = null;
+    set((state) => ({
+      messages: state.messages.filter(
+        (message) => message.id !== pending.userMessageId && message.id !== pending.assistantMessageId,
+      ),
+      isStreaming: false,
+    }));
+  };
+
+  const settleOptimisticPrompt = (runtimeId: string) => {
+    const pending = pendingOptimisticPrompt;
+    if (!pending || pending.runtimeId !== runtimeId) return;
+    pendingOptimisticPrompt = null;
+    set((state) => ({
+      messages: state.messages.filter((message) => message.id !== pending.assistantMessageId),
+    }));
+  };
+
+  const clearPendingAssistantUpdate = (runtimeId?: string) => {
+    if (runtimeId && pendingAssistantUpdate?.runtimeId !== runtimeId) return;
+    if (assistantUpdateTimer !== null) window.clearTimeout(assistantUpdateTimer);
+    assistantUpdateTimer = null;
+    pendingAssistantUpdate = null;
+  };
+
+  const applyAssistantUpdate = (runtimeId: string, message: AssistantMessage) => {
+    if (runtimeId !== get().runtimeId) return;
+    const next = assistantToUi(message, true);
+    set((state) => {
+      const messages = [...state.messages];
+      let index = messages.length - 1;
+      while (index >= 0 && messages[index].role !== "assistant") index -= 1;
+      if (index < 0 || !messages[index].isStreaming) {
+        messages.push(next);
+      } else {
+        const previous = messages[index];
+        const previousCalls = new Map(previous.toolCalls?.map((call) => [call.id, call]));
+        next.toolCalls = next.toolCalls?.map((call) => ({ ...previousCalls.get(call.id), ...call }));
+        messages[index] = { ...previous, ...next, id: previous.id };
+      }
+      return { messages, isStreaming: true };
+    });
+  };
+
+  const applyAssistantDelta = (pending: NonNullable<typeof pendingAssistantUpdate>) => {
+    if (pending.runtimeId !== get().runtimeId) return;
+    set((state) => {
+      const messages = [...state.messages];
+      let index = messages.length - 1;
+      while (index >= 0 && messages[index].role !== "assistant") index -= 1;
+      if (index < 0 || !messages[index].isStreaming) {
+        messages.push({
+          id: `stream-${Date.now()}`,
+          role: "assistant",
+          content: pending.textDelta,
+          thinking: pending.thinkingDelta || undefined,
+          toolCalls: pending.toolCalls.length ? pending.toolCalls : undefined,
+          isStreaming: true,
+          timestamp: Date.now(),
+        });
+      } else {
+        const previous = messages[index];
+        const toolCalls = new Map((previous.toolCalls ?? []).map((call) => [call.id, { ...call }]));
+        for (const call of pending.toolCalls) {
+          toolCalls.set(call.id, { ...toolCalls.get(call.id), ...call });
+        }
+        messages[index] = {
+          ...previous,
+          content: previous.content + pending.textDelta,
+          thinking: `${previous.thinking ?? ""}${pending.thinkingDelta}` || undefined,
+          toolCalls: toolCalls.size ? [...toolCalls.values()] : undefined,
+          isStreaming: true,
+        };
+      }
+      return { messages, isStreaming: true };
+    });
+  };
+
+  const queueAssistantUpdate = (
+    runtimeId: string,
+    message: AssistantMessage | undefined,
+    update: { type: string; delta?: string; toolCall?: { id: string; name: string; arguments: Record<string, unknown> } },
+  ) => {
+    if (!pendingAssistantUpdate || pendingAssistantUpdate.runtimeId !== runtimeId) {
+      pendingAssistantUpdate = { runtimeId, textDelta: "", thinkingDelta: "", toolCalls: [] };
+    }
+    if (message) pendingAssistantUpdate.message = message;
+    if (update.type === "text_delta" && update.delta) pendingAssistantUpdate.textDelta += update.delta;
+    if (update.type === "thinking_delta" && update.delta) pendingAssistantUpdate.thinkingDelta += update.delta;
+    if (update.type === "toolcall_end" && update.toolCall) {
+      pendingAssistantUpdate.toolCalls.push({
+        id: update.toolCall.id,
+        name: update.toolCall.name,
+        args: update.toolCall.arguments,
+        running: true,
+      });
+    }
+    if (assistantUpdateTimer !== null) return;
+    assistantUpdateTimer = window.setTimeout(() => {
+      const pending = pendingAssistantUpdate;
+      assistantUpdateTimer = null;
+      pendingAssistantUpdate = null;
+      if (!pending) return;
+      if (pending.message) applyAssistantUpdate(pending.runtimeId, pending.message);
+      else applyAssistantDelta(pending);
+    }, 32);
+  };
+
   const toast = (message: string, kind: Toast["kind"] = "info") => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     set((state) => ({ toasts: [...state.toasts.slice(-3), { id, message, kind }] }));
@@ -356,12 +554,14 @@ export const usePiStore = create<PiState>((set, get) => {
     });
   };
 
-  const syncSession = async () => {
+  const syncSession = async (expectedVersion = connectionVersion) => {
     const runtimeId = get().runtimeId;
     if (!runtimeId) return;
-    const stateResponse = await sendCommand(runtimeId, "get_state");
+    const stateRequest = sendCommand(runtimeId, "get_state");
+    const historyRequest = sendCommand(runtimeId, "get_messages");
+    const stateResponse = await stateRequest;
     const data = stateResponse.data;
-    if (get().runtimeId !== runtimeId) return;
+    if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
     if (data) {
       set({
         sessionFile: data.sessionFile ?? null,
@@ -374,25 +574,13 @@ export const usePiStore = create<PiState>((set, get) => {
       });
     }
 
-    const [models, levels, history, commands] = await Promise.all([
-      sendCommand(runtimeId, "get_available_models"),
-      sendCommand(runtimeId, "get_available_thinking_levels"),
-      sendCommand(runtimeId, "get_messages"),
-      sendCommand(runtimeId, "get_commands"),
-    ]);
-    if (get().runtimeId !== runtimeId) return;
-    const restoredMessages = messagesToUi(history.data?.messages ?? []);
-    set({
-      availableModels: models.data?.models ?? [],
-      availableThinkingLevels: levels.data?.levels ?? ["off"],
-      messages: restoredMessages,
-      browser: browserFromMessages(restoredMessages),
-      computer: computerFromMessages(restoredMessages),
-      commands: commands.data?.commands ?? [],
-    });
     const sessionFile = data?.sessionFile;
+    const timingsRequest = sessionFile
+      ? pi.sessionMessageTimings(sessionFile).catch(() => [] as SessionMessageTiming[])
+      : Promise.resolve([] as SessionMessageTiming[]);
     if (sessionFile) {
       await pi.bindSession(runtimeId, sessionFile);
+      if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
       set((state) => ({
         runtimes: {
           ...state.runtimes,
@@ -400,18 +588,39 @@ export const usePiStore = create<PiState>((set, get) => {
         },
       }));
     }
-    await refreshStats();
+
+    const [history, timings] = await Promise.all([historyRequest, timingsRequest]);
+    if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
+    const restoredMessages = messagesToUi(history.data?.messages ?? [], timings);
+    set({
+      messages: restoredMessages,
+      browser: browserFromMessages(restoredMessages),
+      computer: computerFromMessages(restoredMessages),
+    });
+
+    const [models, levels, commands] = await Promise.all([
+      sendCommand(runtimeId, "get_available_models"),
+      sendCommand(runtimeId, "get_available_thinking_levels"),
+      sendCommand(runtimeId, "get_commands"),
+    ]);
+    if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
+    set({
+      availableModels: models.data?.models ?? [],
+      availableThinkingLevels: levels.data?.levels ?? ["off"],
+      commands: commands.data?.commands ?? [],
+    });
+    await refreshStats(expectedVersion);
   };
 
-  const refreshStats = async () => {
+  const refreshStats = async (expectedVersion = connectionVersion) => {
     const runtimeId = get().runtimeId;
     if (!runtimeId) return;
     try {
       const response = await sendCommand(runtimeId, "get_session_stats");
-      if (get().runtimeId !== runtimeId) return;
+      if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
       set({ stats: (response.data as unknown as SessionStats) ?? null });
     } catch {
-      set({ stats: null });
+      if (get().runtimeId === runtimeId && expectedVersion === connectionVersion) set({ stats: null });
     }
   };
 
@@ -427,6 +636,7 @@ export const usePiStore = create<PiState>((set, get) => {
     sessionId: null,
     sessionName: null,
     isStreaming: false,
+    isSwitchingModel: false,
     isCompacting: false,
     retryStatus: null,
     thinkingLevel: "medium",
@@ -442,65 +652,189 @@ export const usePiStore = create<PiState>((set, get) => {
     git: null,
     browser: null,
     computer: null,
-    terminal: { running: false, command: "", output: "" },
+    terminal: { running: false, command: "", output: "", history: [] },
     extensionRequest: null,
     extensionStatuses: {},
     extensionWidgets: {},
     composerPrefill: null,
     toasts: [],
+    sessionTree: [],
+    sessionTreeLeafId: null,
+    sessionTreeError: null,
+    sessionTreeLoading: false,
 
     connect: async (cwd, sessionFile) => {
-      set({
-        connection: "starting",
-        cwd,
-        messages: [],
-        sessionFile: null,
-        sessionId: null,
-        sessionName: null,
-        isStreaming: false,
-        isCompacting: false,
-        extensionRequest: null,
-        browser: null,
-        computer: null,
-        lastError: null,
-      });
-      try {
-        const runtimeId = await pi.start(cwd, sessionFile);
-        const existing = get().runtimes[runtimeId];
-        set((state) => ({
-          runtimeId,
-          connection: "running",
-          isStreaming: existing?.isStreaming ?? false,
-          runtimes: {
-            ...state.runtimes,
-            [runtimeId]: {
-              runtimeId,
-              cwd,
-              sessionFile: sessionFile ?? existing?.sessionFile ?? null,
-              isStreaming: existing?.isStreaming ?? false,
-              status: "running",
-              extensionRequest: existing?.extensionRequest ?? null,
-              updatedAt: Date.now(),
-            },
-          },
-          extensionRequest: existing?.extensionRequest ?? null,
-        }));
-        if (sessionFile && existing?.sessionFile !== sessionFile) {
-          await sendCommand(runtimeId, "switch_session", { sessionPath: sessionFile }, 60_000);
+      const requestKey = `${workspaceKey(cwd)}\u0000${sessionFile ?? ""}`;
+      if (pendingConnection?.key === requestKey) return pendingConnection.promise;
+
+      const request = (async () => {
+        const connectVersion = ++connectionVersion;
+        clearPendingAssistantUpdate();
+        pendingOptimisticPrompt = null;
+        activeTurnStartedAt = null;
+        const localHistory = sessionFile
+          ? Promise.all([
+              pi.sessionMessages(sessionFile),
+              pi.sessionMessageTimings(sessionFile).catch(() => [] as SessionMessageTiming[]),
+            ])
+          : null;
+        set({
+          connection: "starting",
+          cwd,
+          messages: [],
+          sessionFile: null,
+          sessionId: null,
+          sessionName: null,
+          isStreaming: false,
+          isCompacting: false,
+          extensionRequest: null,
+          browser: null,
+          computer: null,
+          git: null,
+          lastError: null,
+        });
+        if (localHistory) {
+          void localHistory.then(([history, timings]) => {
+            if (connectVersion !== connectionVersion) return;
+            const restoredMessages = messagesToUi(history, timings);
+            set({
+              messages: restoredMessages,
+              browser: browserFromMessages(restoredMessages),
+              computer: computerFromMessages(restoredMessages),
+            });
+          }).catch(() => undefined);
         }
-        await syncSession();
-        await Promise.all([get().refreshSessions(), get().refreshGit()]);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        set({ connection: "exited", lastError: message });
-        get().appendLog(message);
-        toast(message, "error");
+        try {
+          const key = workspaceKey(cwd);
+          preferredWarmupKey = key;
+          const warmup = workspaceWarmups.get(key);
+          if (warmup) await warmup;
+          if (connectVersion !== connectionVersion) return;
+          const started = await pi.start(cwd, sessionFile);
+          if (connectVersion !== connectionVersion) {
+            await pi.stop(started.runtimeId).catch(() => undefined);
+            return;
+          }
+          const runtimeId = started.runtimeId;
+          const existing = get().runtimes[runtimeId];
+          set((state) => ({
+            runtimeId,
+            connection: "running",
+            isStreaming: existing?.isStreaming ?? false,
+            runtimes: {
+              ...state.runtimes,
+              [runtimeId]: {
+                runtimeId,
+                cwd,
+                sessionFile: sessionFile ?? existing?.sessionFile ?? null,
+                isStreaming: existing?.isStreaming ?? false,
+                status: "running",
+                extensionRequest: existing?.extensionRequest ?? null,
+                updatedAt: Date.now(),
+              },
+            },
+            extensionRequest: existing?.extensionRequest ?? null,
+          }));
+          if (sessionFile && !started.sessionLoaded) {
+            await sendCommand(runtimeId, "switch_session", { sessionPath: sessionFile }, 60_000);
+            if (connectVersion !== connectionVersion) return;
+          }
+          await syncSession(connectVersion);
+          if (connectVersion !== connectionVersion) return;
+          await Promise.all([get().refreshSessions(), get().refreshGit()]);
+        } catch (error) {
+          if (connectVersion !== connectionVersion) return;
+          const message = error instanceof Error ? error.message : String(error);
+          set({ connection: "exited", lastError: message });
+          get().appendLog(message);
+          toast(message, "error");
+        }
+      })();
+
+      pendingConnection = { key: requestKey, promise: request };
+      try {
+        await request;
+      } finally {
+        if (pendingConnection?.promise === request) pendingConnection = null;
       }
     },
 
+    prewarmWorkspace: async (cwd) => {
+      const key = workspaceKey(cwd);
+      if (!key) return;
+      preferredWarmupKey = key;
+      const pending = workspaceWarmups.get(key);
+      if (pending) return pending;
+      const reusable = Object.values(get().runtimes).find((runtime) =>
+        workspaceKey(runtime.cwd) === key
+        && runtime.sessionFile === null
+        && runtime.status === "running"
+        && !runtime.isStreaming
+        && !runtime.extensionRequest
+      );
+      if (reusable) return;
+
+      const warmup = pi.start(cwd)
+        .then((started) => {
+          if (preferredWarmupKey !== key && started.runtimeId !== get().runtimeId) {
+            return pi.stop(started.runtimeId).finally(() => {
+              set((state) => {
+                const runtimes = { ...state.runtimes };
+                delete runtimes[started.runtimeId];
+                return { runtimes };
+              });
+            });
+          }
+          const staleWarmups = Object.values(get().runtimes).filter((runtime) =>
+            runtime.runtimeId !== started.runtimeId
+            && runtime.runtimeId !== get().runtimeId
+            && runtime.sessionFile === null
+            && !runtime.isStreaming
+            && !runtime.extensionRequest
+          );
+          set((state) => {
+            const current = state.runtimes[started.runtimeId];
+            return {
+              runtimes: {
+                ...state.runtimes,
+                [started.runtimeId]: {
+                  runtimeId: started.runtimeId,
+                  cwd,
+                  sessionFile: current?.sessionFile ?? null,
+                  isStreaming: current?.isStreaming ?? false,
+                  status: "running",
+                  extensionRequest: current?.extensionRequest ?? null,
+                  updatedAt: Date.now(),
+                },
+              },
+            };
+          });
+          if (staleWarmups.length > 0) {
+            void Promise.allSettled(staleWarmups.map((runtime) => pi.stop(runtime.runtimeId)))
+              .then(() => {
+                set((state) => {
+                  const runtimes = { ...state.runtimes };
+                  for (const runtime of staleWarmups) delete runtimes[runtime.runtimeId];
+                  return { runtimes };
+                });
+              });
+          }
+        })
+        .catch((error) => {
+          get().appendLog(`Workspace prewarm skipped: ${error instanceof Error ? error.message : String(error)}`);
+        })
+        .finally(() => {
+          if (workspaceWarmups.get(key) === warmup) workspaceWarmups.delete(key);
+        });
+      workspaceWarmups.set(key, warmup);
+      return warmup;
+    },
+
     restoreRuntimes: async (preferredRuntimeId) => {
+      const restoreVersion = ++connectionVersion;
       try {
         const discovered = await pi.listRuntimes();
+        if (restoreVersion !== connectionVersion) return false;
         const runtimes = Object.fromEntries(discovered.map((runtime) => [
           runtime.runtimeId,
           {
@@ -529,7 +863,8 @@ export const usePiStore = create<PiState>((set, get) => {
           extensionRequest: active.pendingExtension ?? null,
           lastError: null,
         });
-        await syncSession();
+        await syncSession(restoreVersion);
+        if (restoreVersion !== connectionVersion) return false;
         await get().refreshGit();
         return true;
       } catch (error) {
@@ -546,42 +881,63 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     disconnect: async () => {
+      connectionVersion += 1;
+      pendingConnection = null;
+      clearPendingAssistantUpdate();
+      pendingOptimisticPrompt = null;
       const runtimeId = get().runtimeId;
       if (runtimeId) await pi.stop(runtimeId);
       set((state) => {
         const runtimes = { ...state.runtimes };
         if (runtimeId) delete runtimes[runtimeId];
-        return { runtimeId: null, runtimes, connection: "disconnected", isStreaming: false, messages: [] };
+        return {
+          runtimeId: null,
+          runtimes,
+          connection: "disconnected",
+          isStreaming: false,
+          isSwitchingModel: false,
+          messages: [],
+        };
       });
     },
 
-    prepareNewTask: () => set({
-      runtimeId: null,
-      connection: "disconnected",
-      cwd: "",
-      messages: [],
-      sessionFile: null,
-      sessionId: null,
-      sessionName: null,
-      isStreaming: false,
-      isCompacting: false,
-      retryStatus: null,
-      extensionRequest: null,
-      browser: null,
-      computer: null,
-      extensionStatuses: {},
-      extensionWidgets: {},
-      steeringQueue: [],
-      followUpQueue: [],
-      terminal: { running: false, command: "", output: "" },
-      lastError: null,
-    }),
+    prepareNewTask: () => {
+      connectionVersion += 1;
+      pendingConnection = null;
+      clearPendingAssistantUpdate();
+      pendingOptimisticPrompt = null;
+      set({
+        runtimeId: null,
+        connection: "disconnected",
+        cwd: "",
+        messages: [],
+        sessionFile: null,
+        sessionId: null,
+        sessionName: null,
+        isStreaming: false,
+        isSwitchingModel: false,
+        isCompacting: false,
+        retryStatus: null,
+        extensionRequest: null,
+        browser: null,
+        computer: null,
+        extensionStatuses: {},
+        extensionWidgets: {},
+        steeringQueue: [],
+        followUpQueue: [],
+        terminal: { running: false, command: "", output: "", history: [] },
+        lastError: null,
+        sessionTree: [],
+        sessionTreeLeafId: null,
+        sessionTreeError: null,
+        sessionTreeLoading: false,
+      });
+    },
 
     handleEvent: (runtimeId, event) => {
       if (event.type === "agent_start") updateRuntime(runtimeId, { isStreaming: true });
       if (event.type === "agent_end" && !event.willRetry) updateRuntime(runtimeId, { isStreaming: false });
       if (event.type === "agent_settled") updateRuntime(runtimeId, { isStreaming: false });
-      if (event.type === "message_start" && event.message.role === "user") void get().refreshSessions();
       if (event.type === "extension_ui_request") {
         const request = event as ExtensionUIRequest;
         if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
@@ -618,51 +974,56 @@ export const usePiStore = create<PiState>((set, get) => {
           }
           return;
         case "agent_settled":
+          settleOptimisticPrompt(runtimeId);
+          activeTurnStartedAt = null;
           set({ isStreaming: false, retryStatus: null });
           void Promise.all([get().refreshSessions(), get().refreshGit(), refreshStats()]);
           return;
         case "message_start": {
           const message = event.message;
           if (message.role === "assistant") {
-            set((state) => ({ messages: [...state.messages, assistantToUi(message, true)] }));
+            clearPendingAssistantUpdate(runtimeId);
+            const optimistic = pendingOptimisticPrompt?.runtimeId === runtimeId ? pendingOptimisticPrompt : null;
+            const incoming = assistantToUi(message, true);
+            set((state) => {
+              if (!optimistic) return { messages: [...state.messages, incoming] };
+              const messages = [...state.messages];
+              const index = messages.findIndex((item) => item.id === optimistic.assistantMessageId);
+              if (index >= 0) messages[index] = { ...incoming, id: optimistic.assistantMessageId };
+              else messages.push(incoming);
+              return { messages };
+            });
+            if (optimistic) pendingOptimisticPrompt = null;
           } else if (message.role === "user") {
-            set((state) => ({
-              messages: [
-                ...state.messages,
-                {
-                  id: messageId(message),
-                  role: "user",
-                  content: textFromContent(message.content),
-                  images: imagesFromContent(message.content),
-                  timestamp: message.timestamp,
-                },
-              ],
-            }));
+            const optimistic = pendingOptimisticPrompt?.runtimeId === runtimeId ? pendingOptimisticPrompt : null;
+            const incoming: UiMessage = {
+              id: messageId(message),
+              role: "user",
+              content: textFromContent(message.content),
+              images: imagesFromContent(message.content),
+              timestamp: message.timestamp,
+            };
+            set((state) => {
+              if (!optimistic) return { messages: [...state.messages, incoming] };
+              const messages = [...state.messages];
+              const index = messages.findIndex((item) => item.id === optimistic.userMessageId);
+              if (index >= 0) messages[index] = { ...incoming, id: optimistic.userMessageId };
+              else messages.push(incoming);
+              return { messages };
+            });
           }
           return;
         }
         case "message_update": {
-          if (event.message.role !== "assistant") return;
-          const next = assistantToUi(event.message, true);
-          set((state) => {
-            const messages = [...state.messages];
-            let index = messages.length - 1;
-            while (index >= 0 && messages[index].role !== "assistant") index -= 1;
-            if (index < 0 || !messages[index].isStreaming) {
-              messages.push(next);
-            } else {
-              const previous = messages[index];
-              const previousCalls = new Map(previous.toolCalls?.map((call) => [call.id, call]));
-              next.toolCalls = next.toolCalls?.map((call) => ({ ...previousCalls.get(call.id), ...call }));
-              messages[index] = { ...previous, ...next, id: previous.id };
-            }
-            return { messages, isStreaming: true };
-          });
+          const message = event.message?.role === "assistant" ? event.message : undefined;
+          queueAssistantUpdate(runtimeId, message, event.assistantMessageEvent);
           return;
         }
         case "message_end": {
           if (event.message.role === "assistant") {
-            const completed = assistantToUi(event.message);
+            clearPendingAssistantUpdate(runtimeId);
+            const durationMs = activeTurnStartedAt === null ? undefined : Date.now() - activeTurnStartedAt;
+            const completed = assistantToUi(event.message, false, durationMs);
             set((state) => {
               const messages = [...state.messages];
               let index = messages.length - 1;
@@ -832,37 +1193,120 @@ export const usePiStore = create<PiState>((set, get) => {
 
     appendLog: (line) => set((state) => ({ piLog: [...state.piLog.slice(-399), line] })),
 
-    sendMessage: async (text, attachments = [], behavior) => {
-      const trimmed = text.trim();
-      if (!trimmed && attachments.length === 0) return;
-      const imageAttachments = attachments.filter((item) => item.kind === "image" && item.data);
-      const fileReferences = attachments
-        .filter((item) => item.kind !== "image")
-        .map((item) => `- ${item.fileName}: ${item.path}`);
-      const message = fileReferences.length
-        ? `${trimmed}\n\n附加的本地文件：\n${fileReferences.join("\n")}`.trim()
-        : trimmed;
-      const images = imageAttachments.map((item) => ({
-        type: "image" as const,
-        data: item.data!,
-        mimeType: item.mimeType,
-      }));
+    resolveMessageForkPoint: async (messageId) => {
+      const state = get();
+      const messageIndex = state.messages.findIndex((message) => message.id === messageId);
+      const target = state.messages[messageIndex];
+      if (messageIndex < 0 || target?.role !== "user" || !target.content.trim()) return null;
       try {
-        if (get().isStreaming) {
-          const commandName = behavior === "followUp" ? "follow_up" : "steer";
-          await command(commandName, { message, images });
-        } else {
-          await command("prompt", { message, images });
-        }
+        const response = await command("get_fork_messages");
+        const points = (response.data?.messages as ForkPoint[] | undefined) ?? [];
+        const matches = points.filter((point) => point.text === target.content);
+        const sameTextAfter = state.messages
+          .slice(messageIndex + 1)
+          .filter((message) => message.role === "user" && message.content === target.content)
+          .length;
+        return matches[matches.length - 1 - sameTextAfter] ?? null;
       } catch (error) {
         toast(error instanceof Error ? error.message : String(error), "error");
+        return null;
+      }
+    },
+
+    editAndResend: async (entryId, text, attachments = []) => {
+      if (get().isStreaming) {
+        toast("请等待当前回复完成后再编辑消息", "warning");
+        return false;
+      }
+      const payload = buildPromptPayload(text, attachments);
+      if (!payload.message && payload.images.length === 0) return false;
+      try {
+        const response = await command("fork", { entryId }, 60_000);
+        if (response.data?.cancelled) return false;
+        await syncSession();
+        await get().refreshSessions();
+        return get().sendMessage(text, attachments);
+      } catch (error) {
+        toast(error instanceof Error ? error.message : String(error), "error");
+        return false;
+      }
+    },
+
+    sendMessage: async (text, attachments = [], behavior) => {
+      const payload = buildPromptPayload(text, attachments);
+      if (!payload.message && payload.images.length === 0) return false;
+      const initialRuntimeId = get().runtimeId;
+      const modelChange = pendingModelChange?.runtimeId === initialRuntimeId
+        ? pendingModelChange.promise
+        : null;
+      if (modelChange) {
+        try {
+          await modelChange;
+        } catch {
+          return false;
+        }
+      }
+      const runtimeId = get().runtimeId;
+      if (!runtimeId) {
+        toast("当前没有活动的 Pi 任务", "error");
+        return false;
+      }
+      const wasStreaming = get().isStreaming;
+      const optimistic = !wasStreaming && !payload.message.startsWith("/");
+      if (!wasStreaming) activeTurnStartedAt = Date.now();
+      if (optimistic) {
+        const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        pendingOptimisticPrompt = {
+          runtimeId,
+          userMessageId: `optimistic-user-${nonce}`,
+          assistantMessageId: `optimistic-assistant-${nonce}`,
+        };
+        const pending = pendingOptimisticPrompt;
+        set((state) => ({
+          messages: [
+            ...state.messages,
+            {
+              id: pending.userMessageId,
+              role: "user",
+              content: payload.message,
+              images: payload.images.length
+                ? payload.images.map(({ data, mimeType }) => ({ type: "image", data, mimeType }))
+                : undefined,
+              timestamp: Date.now(),
+            },
+            {
+              id: pending.assistantMessageId,
+              role: "assistant",
+              content: "",
+              isStreaming: true,
+              timestamp: Date.now(),
+            },
+          ],
+          isStreaming: true,
+        }));
+      }
+      try {
+        if (wasStreaming) {
+          const commandName = behavior === "followUp" ? "follow_up" : "steer";
+          await command(commandName, payload);
+        } else {
+          await command("prompt", payload);
+        }
+        return true;
+      } catch (error) {
+        if (optimistic) rollbackOptimisticPrompt(runtimeId);
+        if (!wasStreaming) activeTurnStartedAt = null;
+        toast(error instanceof Error ? error.message : String(error), "error");
+        return false;
       }
     },
 
     abort: async () => {
+      const runtimeId = get().runtimeId;
       try {
         await command("abort");
       } finally {
+        if (runtimeId) settleOptimisticPrompt(runtimeId);
         set({ isStreaming: false });
       }
     },
@@ -896,7 +1340,64 @@ export const usePiStore = create<PiState>((set, get) => {
       if (!response.data?.cancelled) {
         await syncSession();
         await get().refreshSessions();
+        await get().loadSessionTree();
         toast("已从最新检查点分叉对话", "info");
+      }
+    },
+
+    loadSessionTree: async () => {
+      const runtimeId = get().runtimeId;
+      if (!runtimeId || get().connection !== "running") {
+        set({ sessionTree: [], sessionTreeLeafId: null, sessionTreeError: "需要已连接的 Pi 会话才能查看会话树", sessionTreeLoading: false });
+        return;
+      }
+      set({ sessionTreeLoading: true, sessionTreeError: null });
+      try {
+        const treeCommand = buildGetTreeCommand();
+        const response = await command(treeCommand.type, {}, 60_000);
+        const tree = (response.data?.tree as SessionTreeNode[] | undefined) ?? [];
+        const leafId = typeof response.data?.leafId === "string" ? response.data.leafId : null;
+        set({
+          sessionTree: flattenSessionTree(tree, leafId),
+          sessionTreeLeafId: leafId,
+          sessionTreeError: null,
+          sessionTreeLoading: false,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        set({
+          sessionTree: [],
+          sessionTreeLeafId: null,
+          sessionTreeError: message.includes("get_tree") || message.toLowerCase().includes("unknown")
+            ? "当前 Pi 运行时未暴露 get_tree；请升级 Pi 或使用检查点分叉。"
+            : message,
+          sessionTreeLoading: false,
+        });
+      }
+    },
+
+    continueFromTreeNode: async (entryId: string) => {
+      if (!entryId.trim()) {
+        toast("无效的会话树节点", "warning");
+        return;
+      }
+      if (get().isStreaming) {
+        toast("请等待当前任务完成后再从此节点继续", "warning");
+        return;
+      }
+      try {
+        const forkCommand = buildForkCommand(entryId);
+        const response = await command(forkCommand.type, { entryId: forkCommand.entryId }, 60_000);
+        if (response.data?.cancelled) {
+          toast("分叉已被取消", "warning");
+          return;
+        }
+        await syncSession();
+        await get().refreshSessions();
+        await get().loadSessionTree();
+        toast("已从此节点分叉并继续", "info");
+      } catch (error) {
+        toast(error instanceof Error ? error.message : String(error), "error");
       }
     },
 
@@ -918,14 +1419,71 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     setModel: async (model) => {
-      const response = await command("set_model", { provider: model.provider, modelId: model.id });
-      set({ model: (response.data as unknown as ModelInfo) ?? model });
-      const levels = await command("get_available_thinking_levels");
-      set({ availableThinkingLevels: levels.data?.levels ?? ["off"] });
+      const runtimeId = get().runtimeId;
+      if (!runtimeId) throw new Error("当前没有活动的 Pi 任务");
+
+      const previous = pendingModelChange?.runtimeId === runtimeId
+        ? pendingModelChange.promise.catch(() => undefined)
+        : Promise.resolve();
+      const change = previous.then(async () => {
+        if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新选择模型");
+        const response = await sendCommand(runtimeId, "set_model", {
+          provider: model.provider,
+          modelId: model.id,
+        });
+        const returned = response.data as unknown as ModelInfo | undefined;
+        if (returned && (returned.provider !== model.provider || returned.id !== model.id)) {
+          throw new Error(`Pi 返回了不同的模型：${returned.provider}/${returned.id}`);
+        }
+
+        const stateResponse = await sendCommand(runtimeId, "get_state");
+        const confirmed = stateResponse.data?.model;
+        if (!confirmed || confirmed.provider !== model.provider || confirmed.id !== model.id) {
+          const actual = confirmed ? `${confirmed.provider}/${confirmed.id}` : "未知";
+          throw new Error(`Pi 未应用所选模型，当前仍为 ${actual}`);
+        }
+        if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新选择模型");
+
+        const levels = await sendCommand(runtimeId, "get_available_thinking_levels");
+        if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新选择模型");
+        set({
+          model: confirmed,
+          availableThinkingLevels: levels.data?.levels ?? ["off"],
+        });
+      });
+
+      pendingModelChange = { runtimeId, promise: change };
+      if (get().runtimeId === runtimeId) set({ isSwitchingModel: true });
+      try {
+        await change;
+      } catch (error) {
+        if (get().runtimeId === runtimeId) {
+          try {
+            const stateResponse = await sendCommand(runtimeId, "get_state");
+            if (get().runtimeId === runtimeId) set({ model: stateResponse.data?.model ?? null });
+          } catch {
+            // Keep the last confirmed UI value when the runtime cannot be queried.
+          }
+          toast(`切换模型失败：${error instanceof Error ? error.message : String(error)}`, "error");
+        }
+        throw error;
+      } finally {
+        if (pendingModelChange?.promise === change) {
+          pendingModelChange = null;
+          if (get().runtimeId === runtimeId) set({ isSwitchingModel: false });
+        }
+      }
     },
 
     setThinkingLevel: async (level) => {
-      await command("set_thinking_level", { level });
+      const runtimeId = get().runtimeId;
+      if (!runtimeId) throw new Error("当前没有活动的 Pi 任务");
+      const modelChange = pendingModelChange?.runtimeId === runtimeId
+        ? pendingModelChange.promise
+        : null;
+      if (modelChange) await modelChange;
+      if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新设置推理等级");
+      await sendCommand(runtimeId, "set_thinking_level", { level });
       set({ thinkingLevel: level });
     },
 
@@ -964,17 +1522,25 @@ export const usePiStore = create<PiState>((set, get) => {
     saveSettings: async (settings) => {
       await pi.setSettings(settings);
       set({ settings });
-      if (settings.notificationsEnabled && "Notification" in window && Notification.permission === "default") {
-        void Notification.requestPermission();
-      }
-      toast("设置已保存。重新连接后将应用进程设置。", "info");
-      await get().refreshSessions();
     },
 
     runBash: async (shellCommand, excludeFromContext = false) => {
       const trimmed = shellCommand.trim();
       if (!trimmed || get().terminal.running) return;
-      set({ terminal: { running: true, command: trimmed, output: "" } });
+      set((state) => ({
+        terminal: {
+          running: true,
+          command: trimmed,
+          output: "",
+          history: state.terminal.command
+            ? [...state.terminal.history, {
+                command: state.terminal.command,
+                output: state.terminal.output,
+                exitCode: state.terminal.exitCode,
+              }].slice(-100)
+            : state.terminal.history,
+        },
+      }));
       try {
         const response = await command("bash", { command: trimmed, excludeFromContext }, 60 * 60_000);
         set((state) => ({
@@ -995,6 +1561,11 @@ export const usePiStore = create<PiState>((set, get) => {
     abortBash: async () => {
       await command("abort_bash");
       set((state) => ({ terminal: { ...state.terminal, running: false } }));
+    },
+
+    resetTerminal: () => {
+      if (get().terminal.running) return;
+      set({ terminal: { running: false, command: "", output: "", history: [] } });
     },
 
     answerExtension: async (response) => {

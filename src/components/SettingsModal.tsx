@@ -1,23 +1,27 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { openPath } from "@tauri-apps/plugin-opener";
 import {
   Archive,
   BarChart3,
-  Bell,
   Blocks,
   Bot,
+  CheckCircle2,
   ChevronRight,
+  CircleAlert,
   FileCode2,
   FolderGit2,
   GitBranch,
   Globe2,
   Keyboard,
+  KeyRound,
   Network,
   MonitorCog,
   Palette,
   Plus,
+  Pencil,
   RefreshCw,
   Search,
+  ServerCog,
   Settings2,
   Shield,
   ShieldAlert,
@@ -30,26 +34,36 @@ import {
   X,
 } from "lucide-react";
 import { pi } from "../lib/pi";
-import type { AppSettings, ResourceItem, SessionInfo, UsageSummary, WorktreeInfo } from "../types";
+import type {
+  AppSettings,
+  ModelProviderConfig,
+  ModelProviderInput,
+  ModelProviderModel,
+  ResourceItem,
+  SessionInfo,
+  UsageSummary,
+  WorktreeInfo,
+} from "../types";
 
 export type SettingsPage =
   | "general"
   | "appearance"
-  | "notifications"
+  | "agent"
+  | "providers"
   | "personalization"
   | "shortcuts"
   | "archived"
   | "usage"
-  | "models"
-  | "resources"
+  | "plugins"
+  | "skills"
   | "mcp"
   | "browser"
   | "computer"
-  | "permissions"
-  | "terminal"
+  | "review"
+  | "environment"
   | "git"
   | "worktrees"
-  | "advanced";
+  | "debug";
 
 const DEFAULTS: AppSettings = {
   piBinary: "pi",
@@ -58,6 +72,10 @@ const DEFAULTS: AppSettings = {
   thinkingLevel: "medium",
   sessionDir: "",
   permissionMode: "ask",
+  alwaysConfirmShell: true,
+  blockWriteOutsideWorkspace: true,
+  shellAllowPrefixes: "",
+  defaultTaskEnvironment: "local",
   showThinking: true,
   autoConnect: false,
   followUpBehavior: "steer",
@@ -71,7 +89,7 @@ const DEFAULTS: AppSettings = {
   notifyOnCompletion: true,
   notifyOnApproval: true,
   notifyOnlyWhenUnfocused: true,
-  theme: "dark",
+  theme: "light",
   accentColor: "#ffffff",
   backgroundColor: "#0f0f10",
   foregroundColor: "#f5f5f5",
@@ -109,33 +127,39 @@ const NAVIGATION: Array<{ label: string; items: Array<{ id: SettingsPage; label:
   {
     label: "个人",
     items: [
-      { id: "general", label: "常规", icon: Settings2, keywords: "权限 语言 启动 后续 文件 permissions language startup" },
+      { id: "general", label: "常规", icon: Settings2, keywords: "语言 启动 后续 文件 通知 language startup notifications" },
       { id: "appearance", label: "外观", icon: Palette, keywords: "主题 黑色 白色 字体 缩放 theme color font" },
-      { id: "notifications", label: "通知", icon: Bell, keywords: "完成 审批 系统 提醒 completion approval" },
+      { id: "agent", label: "配置", icon: Bot, keywords: "模型 提供商 推理 权限 审批 沙箱 model provider approval sandbox" },
       { id: "personalization", label: "个性化", icon: UserRound, keywords: "人格 指令 记忆 提示 personality instructions memory" },
       { id: "shortcuts", label: "键盘快捷键", icon: Keyboard, keywords: "按键 绑定 命令 keys bindings" },
-      { id: "archived", label: "已归档任务", icon: Archive, keywords: "会话 任务 恢复 删除 历史 sessions restore" },
-      { id: "usage", label: "使用情况", icon: BarChart3, keywords: "token 费用 统计 活动 cost statistics" },
+      { id: "usage", label: "使用情况和计费", icon: BarChart3, keywords: "token 费用 统计 活动 cost statistics" },
+      { id: "debug", label: "调试", icon: SlidersHorizontal, keywords: "程序 会话 日志 诊断 binary logging" },
     ],
   },
   {
     label: "集成",
     items: [
-      { id: "models", label: "模型与提供商", icon: Bot, keywords: "pi 模型 提供商 推理 model provider" },
-      { id: "resources", label: "扩展与技能", icon: Blocks, keywords: "软件包 插件 技能 提示词 resources plugins" },
+      { id: "providers", label: "模型提供商", icon: ServerCog, keywords: "模型 提供商 API 密钥 endpoint provider model key" },
+      { id: "plugins", label: "插件", icon: Blocks, keywords: "软件包 扩展 提示词 resources plugins extension" },
+      { id: "skills", label: "技能", icon: Sparkles, keywords: "技能 skill instructions" },
       { id: "mcp", label: "MCP 服务器", icon: Network, keywords: "mcp tools stdio http server 工具 服务器" },
       { id: "browser", label: "浏览器", icon: Globe2, keywords: "edge chrome chromium 网页 自动化 截图 browser web automation screenshot" },
-      { id: "computer", label: "计算机控制", icon: MonitorCog, keywords: "windows 鼠标 键盘 窗口 截图 computer use mouse keyboard" },
+      { id: "computer", label: "电脑操控", icon: MonitorCog, keywords: "windows 鼠标 键盘 窗口 截图 computer use mouse keyboard" },
     ],
   },
   {
     label: "编码",
     items: [
-      { id: "permissions", label: "权限", icon: Shield, keywords: "审批 沙箱 读取 写入 完全访问 approval sandbox" },
-      { id: "terminal", label: "终端", icon: TerminalSquare, keywords: "shell 输出 命令 output commands" },
-      { id: "git", label: "Git", icon: FolderGit2, keywords: "review branches commit pull request force push" },
-      { id: "worktrees", label: "Worktree", icon: GitBranch, keywords: "并行 隔离 本地 检出 parallel isolated" },
-      { id: "advanced", label: "高级", icon: SlidersHorizontal, keywords: "程序 会话 日志 诊断 binary logging" },
+      { id: "review", label: "代码审查", icon: Shield, keywords: "review 检查 审阅 delivery" },
+      { id: "git", label: "Git", icon: FolderGit2, keywords: "branches commit pull request force push" },
+      { id: "environment", label: "环境", icon: TerminalSquare, keywords: "shell 输出 命令 local worktree output commands" },
+      { id: "worktrees", label: "Worktrees", icon: GitBranch, keywords: "并行 隔离 本地 检出 parallel isolated" },
+    ],
+  },
+  {
+    label: "已归档",
+    items: [
+      { id: "archived", label: "已归档的聊天", icon: Archive, keywords: "会话 任务 恢复 删除 历史 sessions restore" },
     ],
   },
 ];
@@ -156,21 +180,34 @@ export function SettingsModal({
   const [form, setForm] = useState<AppSettings>({ ...DEFAULTS, ...settings, language: "zh-CN" });
   const [active, setActive] = useState<SettingsPage>(initialPage);
   const [query, setQuery] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
   const [resources, setResources] = useState<ResourceItem[]>([]);
   const [archived, setArchived] = useState<SessionInfo[]>([]);
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [providers, setProviders] = useState<ModelProviderConfig[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(true);
+  const [providersError, setProvidersError] = useState("");
   const [loadingData, setLoadingData] = useState(true);
+  const editedRef = useRef(false);
+  const pendingSaveRef = useRef<AppSettings | null>(null);
+  const saveTimerRef = useRef<number | null>(null);
+  const saveStatusTimerRef = useRef<number | null>(null);
+  const inFlightSaveRef = useRef<Promise<void> | null>(null);
   const isTauri = "__TAURI_INTERNALS__" in window;
-  const original = useMemo(() => JSON.stringify({ ...DEFAULTS, ...settings, language: "zh-CN" }), [settings]);
-  const dirty = JSON.stringify(form) !== original;
 
-  useEffect(() => setForm({ ...DEFAULTS, ...settings, language: "zh-CN" }), [settings]);
+  useEffect(() => {
+    if (!editedRef.current) setForm({ ...DEFAULTS, ...settings, language: "zh-CN" });
+  }, [settings]);
   useEffect(() => setActive(initialPage), [initialPage]);
+  useEffect(() => () => {
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+    if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);
+  }, []);
   useEffect(() => {
     if (!isTauri) {
       setLoadingData(false);
+      setProvidersLoading(false);
       return;
     }
     let cancelled = false;
@@ -188,37 +225,75 @@ export function SettingsModal({
       setLoadingData(false);
     });
     void pi.usageSummary().then((summary) => { if (!cancelled) setUsage(summary); });
+    void pi.listModelProviders()
+      .then((items) => { if (!cancelled) { setProviders(items); setProvidersError(""); } })
+      .catch((error) => { if (!cancelled) setProvidersError(String(error)); })
+      .finally(() => { if (!cancelled) setProvidersLoading(false); });
     return () => { cancelled = true; };
   }, [cwd, isTauri]);
 
+  const normalizeSettings = (value: AppSettings): AppSettings => {
+    const dark = value.theme !== "light";
+    return {
+      ...value,
+      language: "zh-CN",
+      accentColor: dark ? "#ffffff" : "#111111",
+      backgroundColor: dark ? "#0f0f10" : "#ffffff",
+      foregroundColor: dark ? "#f5f5f5" : "#111111",
+    };
+  };
+
+  async function flushSettings() {
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (inFlightSaveRef.current) await inFlightSaveRef.current;
+    const next = pendingSaveRef.current;
+    if (!next) return;
+    pendingSaveRef.current = null;
+    setSaveState("saving");
+    const task = Promise.resolve(onSave(normalizeSettings(next)))
+      .then(() => {
+        setSaveState("saved");
+        if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);
+        saveStatusTimerRef.current = window.setTimeout(() => setSaveState("idle"), 1400);
+      })
+      .catch(() => setSaveState("error"));
+    inFlightSaveRef.current = task;
+    await task;
+    inFlightSaveRef.current = null;
+    if (pendingSaveRef.current) await flushSettings();
+  }
+
+  function scheduleSave(next: AppSettings) {
+    pendingSaveRef.current = next;
+    setSaveState("pending");
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => void flushSettings(), 320);
+  }
+
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) =>
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => {
+      const next = { ...current, [key]: value };
+      editedRef.current = true;
+      scheduleSave(next);
+      return next;
+    });
+
+  const closeSettings = () => {
+    void flushSettings().finally(onClose);
+  };
 
   const filteredNavigation = NAVIGATION.map((section) => ({
     ...section,
     items: section.items.filter((item) => `${item.label} ${item.keywords}`.toLowerCase().includes(query.toLowerCase())),
   })).filter((section) => section.items.length > 0);
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      const dark = form.theme !== "light";
-      await onSave({
-        ...form,
-        language: "zh-CN",
-        accentColor: dark ? "#ffffff" : "#111111",
-        backgroundColor: dark ? "#0f0f10" : "#ffffff",
-        foregroundColor: dark ? "#f5f5f5" : "#111111",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <div className="settings-center" role="dialog" aria-modal="true" aria-label="设置">
       <aside className="settings-navigation">
-        <button className="settings-back" onClick={onClose}><ChevronRight size={16} /> 返回应用</button>
+        <button className="settings-back" onClick={closeSettings}><ChevronRight size={16} /> 返回应用</button>
         <label className="settings-search">
           <Search size={16} />
           <input autoFocus placeholder="搜索设置…" value={query} onChange={(event) => setQuery(event.target.value)} />
@@ -244,27 +319,23 @@ export function SettingsModal({
           ))}
           {filteredNavigation.length === 0 && <div className="settings-no-results">没有匹配的设置</div>}
         </div>
-        <div className="settings-version"><span className="brand-mark">π</span><span><strong>Pi Desktop</strong><small>设置保存在此设备</small></span></div>
       </aside>
 
       <main className="settings-content">
         <header className="settings-content-header">
+          <strong>{NAVIGATION.flatMap((section) => section.items).find((item) => item.id === active)?.label}</strong>
           <div>
-            <span>Pi Desktop</span>
-            <strong>{NAVIGATION.flatMap((section) => section.items).find((item) => item.id === active)?.label}</strong>
-          </div>
-          <div>
-            {dirty && <span className="unsaved-indicator">有未保存的更改</span>}
-            <button className="secondary-button" onClick={() => setForm({ ...DEFAULTS, ...settings, language: "zh-CN" })} disabled={!dirty}>重置</button>
-            <button className="primary-button" onClick={() => void save()} disabled={!dirty || saving}>{saving ? "正在保存…" : "保存"}</button>
-            <button className="icon-button" onClick={onClose} title="关闭设置"><X size={18} /></button>
+            <span className={`settings-save-status ${saveState}`} aria-live="polite">
+              {saveState === "pending" || saveState === "saving" ? "正在保存…" : saveState === "saved" ? "已保存" : saveState === "error" ? "保存失败" : ""}
+            </span>
+            <button className="icon-button" onClick={closeSettings} title="关闭设置"><X size={18} /></button>
           </div>
         </header>
         <div className="settings-page-scroll">
           <div className="settings-page">
             {active === "general" && <GeneralPage form={form} update={update} />}
             {active === "appearance" && <AppearancePage form={form} update={update} />}
-            {active === "notifications" && <NotificationsPage form={form} update={update} />}
+            {active === "agent" && <AgentPage form={form} update={update} providers={providers} />}
             {active === "personalization" && <PersonalizationPage form={form} update={update} />}
             {active === "shortcuts" && <ShortcutsPage form={form} update={update} />}
             {active === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
@@ -277,16 +348,27 @@ export function SettingsModal({
               setArchived((items) => items.filter((item) => item.file !== session.file));
             }} />}
             {active === "usage" && <UsagePage usage={usage} />}
-            {active === "models" && <ModelsPage form={form} update={update} />}
-            {active === "resources" && <ResourcesPage cwd={cwd} resources={resources} loading={loadingData} onReload={async () => setResources(await pi.listResources(cwd))} />}
+            {active === "providers" && <ProvidersPage providers={providers} loading={providersLoading} error={providersError} onReload={async () => {
+              setProvidersLoading(true);
+              try {
+                setProviders(await pi.listModelProviders());
+                setProvidersError("");
+              } catch (error) {
+                setProvidersError(String(error));
+              } finally {
+                setProvidersLoading(false);
+              }
+            }} />}
+            {active === "plugins" && <ResourcesPage mode="plugins" cwd={cwd} resources={resources} loading={loadingData} onReload={async () => setResources(await pi.listResources(cwd))} />}
+            {active === "skills" && <ResourcesPage mode="skills" cwd={cwd} resources={resources} loading={loadingData} onReload={async () => setResources(await pi.listResources(cwd))} />}
             {active === "mcp" && <McpPage form={form} update={update} />}
             {active === "browser" && <BrowserPage form={form} update={update} />}
             {active === "computer" && <ComputerPage form={form} update={update} />}
-            {active === "permissions" && <PermissionsPage form={form} update={update} />}
-            {active === "terminal" && <TerminalPage form={form} update={update} />}
+            {active === "review" && <CodeReviewPage form={form} update={update} />}
+            {active === "environment" && <EnvironmentPage form={form} update={update} />}
             {active === "git" && <GitPage form={form} update={update} />}
             {active === "worktrees" && <WorktreesPage cwd={cwd} worktrees={worktrees} loading={loadingData} onCreated={(item) => setWorktrees((items) => [...items, item])} />}
-            {active === "advanced" && <AdvancedPage form={form} update={update} />}
+            {active === "debug" && <DebugPage form={form} update={update} />}
           </div>
         </div>
       </main>
@@ -327,6 +409,12 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
       <Row title="默认文件打开方式"><select value={form.defaultFileOpener} onChange={(event) => update("defaultFileOpener", event.target.value as AppSettings["defaultFileOpener"])}><option value="system">系统默认</option><option value="cursor">Cursor</option><option value="vscode">Visual Studio Code</option></select></Row>
       <Row title="界面语言"><select value="zh-CN" disabled><option value="zh-CN">简体中文</option></select></Row>
     </Card>
+    <Card title="通知">
+      <Row title="启用通知" description="允许系统显示任务完成和审批通知。"><Switch label="启用通知" checked={form.notificationsEnabled} onChange={(value) => update("notificationsEnabled", value)} /></Row>
+      <Row title="任务完成" description="Pi 完成长时间任务时通知。"><Switch label="任务完成" checked={form.notifyOnCompletion} onChange={(value) => update("notifyOnCompletion", value)} /></Row>
+      <Row title="需要审批" description="Pi 等待权限决定时通知。"><Switch label="需要审批" checked={form.notifyOnApproval} onChange={(value) => update("notifyOnApproval", value)} /></Row>
+      <Row title="仅窗口未聚焦时" description="Pi Desktop 已处于活动状态时不显示通知。"><Switch label="仅窗口未聚焦时" checked={form.notifyOnlyWhenUnfocused} onChange={(value) => update("notifyOnlyWhenUnfocused", value)} /></Row>
+    </Card>
   </>;
 }
 
@@ -335,25 +423,18 @@ function AppearancePage({ form, update }: { form: AppSettings; update: Update })
   return <>
     <PageHeading title="外观" description="选择黑白主题，并调整字体与界面大小。" />
     <div className="theme-grid">
-      {themes.map(([theme, label]) => <button key={theme} className={form.theme === theme ? "active" : ""} onClick={() => update("theme", theme)}><span className={`theme-preview ${theme}`}><i /><i /><i /></span><strong>{label}</strong></button>)}
+      {themes.map(([theme, label]) => <button key={theme} className={form.theme === theme ? "active" : ""} onClick={() => update("theme", theme)}>
+        {theme === "system"
+          ? <span className="theme-preview system"><i className="theme-system-half light"><b /><b /></i><i className="theme-system-half dark"><b /><b /></i></span>
+          : <span className={`theme-preview ${theme}`}><i /><i /><i /></span>}
+        <strong>{label}</strong>
+      </button>)}
     </div>
     <div className="settings-info"><Palette size={17} /><span>界面只使用黑、白和中性灰；状态警告仍保留必要的辨识颜色。</span></div>
     <Card title="字体与缩放">
       <Row title="界面字体"><input value={form.uiFont} onChange={(event) => update("uiFont", event.target.value)} /></Row>
       <Row title="代码字体"><input value={form.codeFont} onChange={(event) => update("codeFont", event.target.value)} /></Row>
       <Row title="界面缩放" description={`${form.uiScale}%`}><input className="scale-slider" type="range" min="75" max="150" step="5" value={form.uiScale} onChange={(event) => update("uiScale", Number(event.target.value))} /></Row>
-    </Card>
-  </>;
-}
-
-function NotificationsPage({ form, update }: { form: AppSettings; update: Update }) {
-  return <>
-    <PageHeading title="通知" description="选择 Pi Desktop 在何时提醒你。" />
-    <Card>
-      <Row title="启用通知" description="允许系统显示任务完成和审批通知。"><Switch label="启用通知" checked={form.notificationsEnabled} onChange={(value) => update("notificationsEnabled", value)} /></Row>
-      <Row title="任务完成" description="Pi 完成长时间任务时通知。"><Switch label="任务完成" checked={form.notifyOnCompletion} onChange={(value) => update("notifyOnCompletion", value)} /></Row>
-      <Row title="需要审批" description="Pi 等待权限决定时通知。"><Switch label="需要审批" checked={form.notifyOnApproval} onChange={(value) => update("notifyOnApproval", value)} /></Row>
-      <Row title="仅窗口未聚焦时" description="Pi Desktop 已处于活动状态时不显示通知。"><Switch label="仅窗口未聚焦时" checked={form.notifyOnlyWhenUnfocused} onChange={(value) => update("notifyOnlyWhenUnfocused", value)} /></Row>
     </Card>
   </>;
 }
@@ -389,15 +470,15 @@ function ShortcutsPage({ form, update }: { form: AppSettings; update: Update }) 
 
 function ArchivedPage({ archived, loading, onRestore, onDelete }: { archived: SessionInfo[]; loading: boolean; onRestore: (session: SessionInfo) => Promise<void>; onDelete: (session: SessionInfo) => Promise<void> }) {
   return <>
-    <PageHeading title="已归档任务" description="恢复旧任务，或将其移到可恢复的 Pi Desktop 回收站。" />
-    <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在加载任务…</div> : archived.length === 0 ? <div className="settings-empty"><Archive size={22} />暂无已归档任务</div> : <div className="archive-list">{archived.map((session) => <div key={session.file}><span><strong>{session.name || session.firstMessage || "未命名任务"}</strong><small>{session.cwd} · {session.messageCount} 条消息</small></span><button className="secondary-button" onClick={() => void onRestore(session)}><Undo2 size={13} /> 恢复</button><button className="icon-button danger" onClick={() => void onDelete(session)}><Trash2 size={14} /></button></div>)}</div>}</Card>
+    <PageHeading title="已归档的聊天" description="查看和恢复此前归档的聊天。" />
+    <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在加载聊天…</div> : archived.length === 0 ? <div className="settings-empty"><Archive size={22} />暂无已归档的聊天</div> : <div className="archive-list">{archived.map((session) => <div key={session.file}><span><strong>{session.name || session.firstMessage || "未命名聊天"}</strong><small>{session.cwd} · {session.messageCount} 条消息</small></span><button className="secondary-button" onClick={() => void onRestore(session)}><Undo2 size={13} /> 恢复</button><button className="icon-button danger" onClick={() => void onDelete(session)}><Trash2 size={14} /></button></div>)}</div>}</Card>
   </>;
 }
 
 function UsagePage({ usage }: { usage: UsageSummary | null }) {
   const number = (value?: number) => (value ?? 0).toLocaleString();
   return <>
-    <PageHeading title="使用情况" description="查看由本机 Pi 会话文件汇总的活动数据。" />
+    <PageHeading title="使用情况和计费" description="查看由本机 Pi 会话文件汇总的活动数据。" />
     {!usage ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在计算使用情况…</div> : <>
       <div className="usage-hero"><span><small>累计 token</small><strong>{number(usage.totalTokens)}</strong></span><span><small>记录费用</small><strong>${usage.totalCost.toFixed(4)}</strong></span><span><small>任务</small><strong>{number(usage.sessions)}</strong></span><span><small>消息</small><strong>{number(usage.messages)}</strong></span></div>
       <Card title="Token 活动"><div className="usage-breakdown"><span><i style={{ width: `${Math.max(5, usage.inputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输入</strong><em>{number(usage.inputTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.outputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输出</strong><em>{number(usage.outputTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.reasoningTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>推理</strong><em>{number(usage.reasoningTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.cacheReadTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>缓存读取</strong><em>{number(usage.cacheReadTokens)}</em></span></div></Card>
@@ -406,25 +487,179 @@ function UsagePage({ usage }: { usage: UsageSummary | null }) {
   </>;
 }
 
-function ModelsPage({ form, update }: { form: AppSettings; update: Update }) {
+function AgentPage({ form, update, providers }: { form: AppSettings; update: Update; providers: ModelProviderConfig[] }) {
   const reasoningLabels: Record<string, string> = { off: "关闭", minimal: "最少", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最高" };
+  const selectedProvider = providers.find((provider) => provider.id === form.provider);
+  const modelOptions = selectedProvider
+    ? selectedProvider.models.map((model) => ({ provider: selectedProvider.id, model }))
+    : providers.flatMap((provider) => provider.models.map((model) => ({ provider: provider.id, model })));
   return <>
-    <PageHeading title="模型与提供商" description="选择新进程使用的 Pi 提供商、默认模型和推理等级。" />
+    <PageHeading title="配置" description="设置新聊天使用的默认模型、推理等级和审批策略。" />
     <Card title="默认模型">
-      <Row title="提供商" description="留空则使用 Pi 已配置的提供商。"><input value={form.provider} onChange={(event) => update("provider", event.target.value)} placeholder="使用 Pi 默认值" /></Row>
-      <Row title="模型" description="填写模型 ID 或 Pi 模糊匹配模式。"><input value={form.model} onChange={(event) => update("model", event.target.value)} placeholder="使用 Pi 默认值" /></Row>
+      <Row title="提供商" description="留空则使用 Pi 已配置的提供商。"><input list="provider-options" value={form.provider} onChange={(event) => update("provider", event.target.value)} placeholder="使用 Pi 默认值" /><datalist id="provider-options">{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</datalist></Row>
+      <Row title="模型" description="填写模型 ID 或 Pi 模糊匹配模式。"><input list="provider-model-options" value={form.model} onChange={(event) => update("model", event.target.value)} placeholder="使用 Pi 默认值" /><datalist id="provider-model-options">{modelOptions.map(({ provider, model }) => <option key={`${provider}-${model.id}`} value={model.id}>{provider} · {model.name}</option>)}</datalist></Row>
       <Row title="推理等级"><select value={form.thinkingLevel} onChange={(event) => update("thinkingLevel", event.target.value)}>{["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => <option key={level} value={level}>{reasoningLabels[level]}</option>)}</select></Row>
     </Card>
-    <div className="settings-info"><Bot size={17} /><span>实时可用模型来自 Pi 已认证的提供商注册表，并可在每个对话中单独选择。</span></div>
+    <Card title="权限">
+      <Row title="审批与文件访问" description="控制 Pi 何时请求确认，以及允许访问的文件范围。"><select value={form.permissionMode} onChange={(event) => update("permissionMode", event.target.value as AppSettings["permissionMode"])}><option value="read-only">只读</option><option value="ask">先询问</option><option value="workspace-write">工作区写入</option><option value="full-access">完全访问</option></select></Row>
+    </Card>
+    <Card title="Rules v1">
+      <Row title="始终确认 Shell" description="bash / shell / exec 在执行前必须确认。"><Switch label="始终确认 Shell" checked={form.alwaysConfirmShell} onChange={(value) => update("alwaysConfirmShell", value)} /></Row>
+      <Row title="阻止工作区外写入" description="直接拦截对工作区根目录之外路径的写入。"><Switch label="阻止工作区外写入" checked={form.blockWriteOutsideWorkspace} onChange={(value) => update("blockWriteOutsideWorkspace", value)} /></Row>
+      <label className="stacked-setting"><span>Shell 允许前缀</span><textarea value={form.shellAllowPrefixes} onChange={(event) => update("shellAllowPrefixes", event.target.value)} placeholder={"git status\nnpm test\npnpm lint"} rows={4} /><small className="field-hint">每行或逗号分隔；仅在关闭“始终确认 Shell”后生效。</small></label>
+    </Card>
+    <div className="settings-info"><Bot size={17} /><span>模型和审批设置会应用于新启动的 Pi 聊天；当前聊天仍使用启动时的配置。</span></div>
   </>;
 }
 
-function ResourcesPage({ cwd, resources, loading, onReload }: { cwd: string; resources: ResourceItem[]; loading: boolean; onReload: () => Promise<void> }) {
+const PROVIDER_APIS = [
+  ["openai-completions", "OpenAI Chat Completions"],
+  ["openai-responses", "OpenAI Responses"],
+  ["anthropic-messages", "Anthropic Messages"],
+  ["azure-openai-responses", "Azure OpenAI Responses"],
+  ["openai-codex-responses", "OpenAI Codex Responses"],
+  ["mistral-conversations", "Mistral Conversations"],
+  ["google-generative-ai", "Google Generative AI"],
+  ["google-vertex", "Google Vertex AI"],
+  ["bedrock-converse-stream", "Amazon Bedrock Converse"],
+] as const;
+
+function emptyProviderDraft(): ModelProviderInput {
+  return {
+    originalId: null,
+    id: "",
+    name: "",
+    baseUrl: "",
+    api: "openai-completions",
+    apiKey: "",
+    keepExistingApiKey: false,
+    authHeader: false,
+    models: [{ id: "", name: "", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 16384 }],
+  };
+}
+
+function ProvidersPage({ providers, loading, error, onReload }: { providers: ModelProviderConfig[]; loading: boolean; error: string; onReload: () => Promise<void> }) {
+  const [draft, setDraft] = useState<ModelProviderInput | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: "success" | "warning" | "error"; text: string } | null>(null);
+  const sourceLabels: Record<ModelProviderConfig["apiKeySource"], string> = { none: "未配置凭据", stored: "已安全隐藏", environment: "环境变量", command: "命令获取" };
+
+  const editProvider = (provider: ModelProviderConfig) => {
+    setNotice(null);
+    setDraft({
+      originalId: provider.id,
+      id: provider.id,
+      name: provider.name === provider.id ? "" : provider.name,
+      baseUrl: provider.baseUrl,
+      api: provider.api || "openai-completions",
+      apiKey: "",
+      keepExistingApiKey: provider.hasApiKey,
+      authHeader: provider.authHeader,
+      models: provider.models.map((model) => ({ ...model, input: [...model.input] })),
+    });
+  };
+
+  const changeModel = (index: number, patch: Partial<ModelProviderModel>) => {
+    if (!draft) return;
+    setDraft({ ...draft, models: draft.models.map((model, modelIndex) => modelIndex === index ? { ...model, ...patch } : model) });
+  };
+
+  const saveProvider = async () => {
+    if (!draft) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      await pi.saveModelProvider(draft);
+      await onReload();
+      setDraft(null);
+      setNotice({ kind: "success", text: "提供商配置已写入 Pi 的 models.json。" });
+    } catch (nextError) {
+      setNotice({ kind: "error", text: String(nextError) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeProvider = async (provider: ModelProviderConfig) => {
+    if (!window.confirm(`删除模型提供商“${provider.name}”及其 ${provider.models.length} 个配置模型吗？`)) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      await pi.deleteModelProvider(provider.id);
+      await onReload();
+      if (draft?.originalId === provider.id) setDraft(null);
+      setNotice({ kind: "success", text: `已删除 ${provider.name}。` });
+    } catch (nextError) {
+      setNotice({ kind: "error", text: String(nextError) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const checkProvider = async (id: string) => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await pi.checkModelProvider(id);
+      setNotice({ kind: result.ok ? "success" : "warning", text: result.message });
+    } catch (nextError) {
+      setNotice({ kind: "error", text: String(nextError) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <>
+    <PageHeading title="模型提供商" description="管理 Pi 原生 models.json 中的 API 提供商、凭据和模型目录。" />
+    <div className="provider-toolbar">
+      <button className="primary-button" disabled={busy} onClick={() => { setDraft(emptyProviderDraft()); setNotice(null); }}><Plus size={14} />添加提供商</button>
+      <button className="secondary-button" disabled={loading || busy} onClick={() => void onReload()}><RefreshCw className={loading ? "spinner-icon" : ""} size={14} />刷新</button>
+    </div>
+    {(error || notice) && <div className={`provider-notice ${error || notice?.kind === "error" ? "error" : notice?.kind ?? "warning"}`}>
+      {error || notice?.kind === "error" ? <CircleAlert size={16} /> : notice?.kind === "success" ? <CheckCircle2 size={16} /> : <CircleAlert size={16} />}
+      <span>{error || notice?.text}</span>
+    </div>}
+
+    {draft && <section className="provider-editor">
+      <header><span><ServerCog size={17} /><strong>{draft.originalId ? `编辑 ${draft.originalId}` : "添加模型提供商"}</strong></span><button className="icon-button" onClick={() => setDraft(null)} title="关闭编辑器"><X size={16} /></button></header>
+      <div className="provider-fields">
+        <label><span>提供商 ID <em>必填</em></span><input autoFocus={!draft.originalId} disabled={Boolean(draft.originalId)} value={draft.id} onChange={(event) => setDraft({ ...draft, id: event.target.value })} placeholder="例如 openrouter 或 local-ollama" /></label>
+        <label><span>显示名称</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="不填则显示提供商 ID" /></label>
+        <label className="wide"><span>API 地址 <em>必填</em></span><input value={draft.baseUrl} onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} placeholder="https://api.example.com/v1" /></label>
+        <label><span>API 协议</span><select value={draft.api} onChange={(event) => setDraft({ ...draft, api: event.target.value })}>{PROVIDER_APIS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label><span>API 密钥或引用</span><div className="provider-secret-input"><KeyRound size={14} /><input type="password" autoComplete="new-password" value={draft.apiKey} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value, keepExistingApiKey: event.target.value ? false : draft.keepExistingApiKey })} placeholder={draft.keepExistingApiKey ? "已配置，留空则保留" : "sk-…、$ENV_VAR 或 !command"} /></div></label>
+      </div>
+      <div className="provider-options-row">
+        <span><strong>Authorization Bearer</strong><small>仅当非标准接口要求自动生成 Authorization 请求头时开启。</small></span><Switch label="Authorization Bearer" checked={draft.authHeader} onChange={(value) => setDraft({ ...draft, authHeader: value })} />
+        {draft.originalId && draft.keepExistingApiKey && <button className="secondary-button compact" onClick={() => setDraft({ ...draft, apiKey: "", keepExistingApiKey: false })}>清除已配置凭据</button>}
+      </div>
+      <div className="provider-models-heading"><span><strong>模型</strong><small>只需要模型 ID；其余字段留空时由 Pi 使用默认值。</small></span><button className="secondary-button compact" onClick={() => setDraft({ ...draft, models: [...draft.models, { id: "", name: "", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 16384 }] })}><Plus size={13} />添加模型</button></div>
+      <div className="provider-models">
+        {draft.models.length === 0 && <div className="provider-model-empty">此提供商没有自定义模型；可用于覆盖 Pi 内置提供商的地址。</div>}
+        {draft.models.map((model, index) => <div className="provider-model-row" key={`${index}-${model.id}`}>
+          <div className="provider-model-main"><label><span>模型 ID</span><input value={model.id} onChange={(event) => changeModel(index, { id: event.target.value })} placeholder="model-id" /></label><label><span>显示名称</span><input value={model.name} onChange={(event) => changeModel(index, { name: event.target.value })} placeholder="可选" /></label></div>
+          <div className="provider-model-meta"><label><span>上下文</span><input type="number" min="1" value={model.contextWindow ?? ""} onChange={(event) => changeModel(index, { contextWindow: event.target.value ? Number(event.target.value) : null })} placeholder="128000" /></label><label><span>最大输出</span><input type="number" min="1" value={model.maxTokens ?? ""} onChange={(event) => changeModel(index, { maxTokens: event.target.value ? Number(event.target.value) : null })} placeholder="16384" /></label><label className="provider-model-toggle"><Switch label="推理模型" checked={model.reasoning} onChange={(value) => changeModel(index, { reasoning: value })} /><span>推理</span></label><label className="provider-model-toggle"><Switch label="支持图片" checked={model.input.includes("image")} onChange={(value) => changeModel(index, { input: value ? ["text", "image"] : ["text"] })} /><span>图片</span></label><button className="icon-button danger" title="移除模型" onClick={() => setDraft({ ...draft, models: draft.models.filter((_, modelIndex) => modelIndex !== index) })}><Trash2 size={14} /></button></div>
+        </div>)}
+      </div>
+      <footer>{draft.originalId && <button className="secondary-button" disabled={busy} onClick={() => void checkProvider(draft.originalId!)}><CheckCircle2 size={14} />检查配置</button>}<span /><button className="secondary-button" disabled={busy} onClick={() => setDraft(null)}>取消</button><button className="primary-button" disabled={busy || !draft.id.trim()} onClick={() => void saveProvider()}>{busy ? "正在保存…" : "保存提供商"}</button></footer>
+    </section>}
+
+    <Card title="已配置的提供商">
+      {loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} />正在读取 models.json…</div> : providers.length === 0 ? <div className="settings-empty"><ServerCog size={22} />尚未配置模型提供商</div> : <div className="provider-list">{providers.map((provider) => <div key={provider.id}>
+        <span className="provider-icon"><ServerCog size={16} /></span><span><strong>{provider.name}</strong><small>{provider.id} · {provider.api || "继承 Pi 内置协议"}</small><code>{provider.baseUrl || "使用 Pi 内置 API 地址"}</code></span><span className={`provider-credential ${provider.hasApiKey ? "configured" : ""}`}><KeyRound size={12} />{sourceLabels[provider.apiKeySource]}</span><em>{provider.models.length} 个模型</em><button className="icon-button" title="编辑提供商" onClick={() => editProvider(provider)}><Pencil size={14} /></button><button className="icon-button danger" disabled={busy} title="删除提供商" onClick={() => void removeProvider(provider)}><Trash2 size={14} /></button>
+      </div>)}</div>}
+    </Card>
+    <div className="settings-info"><ServerCog size={17} /><span>配置直接保存到 <code>~/.pi/agent/models.json</code>。密钥不会从后端回传到页面，编辑时留空会保留原值；新任务会自动使用更新后的模型目录。</span></div>
+  </>;
+}
+
+function ResourcesPage({ mode, cwd, resources, loading, onReload }: { mode: "plugins" | "skills"; cwd: string; resources: ResourceItem[]; loading: boolean; onReload: () => Promise<void> }) {
   const [source, setSource] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
   const kindLabels: Record<string, string> = { package: "软件包", extension: "扩展", skill: "技能", prompt: "提示词" };
   const scopeLabels: Record<string, string> = { user: "用户", project: "项目" };
+  const visibleResources = resources.filter((item) => mode === "skills" ? item.kind === "skill" : item.kind !== "skill");
   const action = async (kind: "install" | "remove" | "update", value?: string) => {
     setBusy(true);
     try {
@@ -438,11 +673,11 @@ function ResourcesPage({ cwd, resources, loading, onReload }: { cwd: string; res
     }
   };
   return <>
-    <PageHeading title="扩展与技能" description="查看用户和项目作用域中发现的 Pi 软件包、扩展、技能和提示词。" />
-    <div className="package-toolbar"><input value={source} onChange={(event) => setSource(event.target.value)} placeholder="npm 软件包、Git 地址或本地路径" /><button className="primary-button" disabled={busy || !source.trim()} onClick={() => void action("install", source)}>{busy ? "正在处理…" : "安装"}</button><button className="secondary-button" disabled={busy} onClick={() => void action("update")}>全部更新</button></div>
+    <PageHeading title={mode === "skills" ? "技能" : "插件"} description={mode === "skills" ? "查看用户和项目中可供 Pi 使用的技能。" : "安装并管理 Pi 软件包、扩展和提示词。"} />
+    {mode === "plugins" && <div className="package-toolbar"><input value={source} onChange={(event) => setSource(event.target.value)} placeholder="npm 软件包、Git 地址或本地路径" /><button className="primary-button" disabled={busy || !source.trim()} onClick={() => void action("install", source)}>{busy ? "正在处理…" : "安装"}</button><button className="secondary-button" disabled={busy} onClick={() => void action("update")}>全部更新</button></div>}
     {result && <pre className="package-result">{result}</pre>}
-    <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在发现资源…</div> : resources.length === 0 ? <div className="settings-empty"><Blocks size={22} />未发现资源</div> : <div className="resource-list">{resources.map((item) => <button key={`${item.kind}-${item.path}`} onClick={() => item.path.includes(":") && void openPath(item.path).catch(() => undefined)}><span className={`resource-kind ${item.kind}`}>{kindLabels[item.kind] || item.kind}</span><span><strong>{item.name}</strong><small>{item.path}</small></span><em>{scopeLabels[item.scope] || item.scope}</em>{item.kind === "package" ? <span role="button" className="resource-remove" title="移除软件包" onClick={(event) => { event.stopPropagation(); void action("remove", item.path); }}><Trash2 size={13} /></span> : <ChevronRight size={14} />}</button>)}</div>}</Card>
-    <div className="settings-info"><Blocks size={17} /><span>软件包操作使用 Pi 自身的安装、移除和更新命令；重新连接工作区后资源即可使用。</span></div>
+    <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在发现资源…</div> : visibleResources.length === 0 ? <div className="settings-empty">{mode === "skills" ? <Sparkles size={22} /> : <Blocks size={22} />}{mode === "skills" ? "未发现技能" : "未发现插件"}</div> : <div className="resource-list">{visibleResources.map((item) => <button key={`${item.kind}-${item.path}`} onClick={() => item.path.includes(":") && void openPath(item.path).catch(() => undefined)}><span className={`resource-kind ${item.kind}`}>{kindLabels[item.kind] || item.kind}</span><span><strong>{item.name}</strong><small>{item.path}</small></span><em>{scopeLabels[item.scope] || item.scope}</em>{item.kind === "package" ? <span role="button" className="resource-remove" title="移除软件包" onClick={(event) => { event.stopPropagation(); void action("remove", item.path); }}><Trash2 size={13} /></span> : <ChevronRight size={14} />}</button>)}</div>}</Card>
+    <div className="settings-info">{mode === "skills" ? <Sparkles size={17} /> : <Blocks size={17} />}<span>{mode === "skills" ? "技能由 SKILL.md 定义，并按用户或当前项目作用域加载。" : "软件包操作使用 Pi 自身的安装、移除和更新命令；重新连接工作区后即可使用。"}</span></div>
   </>;
 }
 
@@ -532,7 +767,7 @@ function BrowserPage({ form, update }: { form: AppSettings; update: Update }) {
 
 function ComputerPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="计算机控制" description="允许 Pi 查看并在审批后操作 Windows 桌面应用。" />
+    <PageHeading title="电脑操控" description="允许 Pi 查看并在审批后操作 Windows 桌面应用。" />
     <Card title="Computer Use">
       <Row title="启用计算机工具" description="为新任务注册 computer 工具，包括截图、窗口列表、点击、输入和按键。"><Switch label="启用计算机工具" checked={form.computerEnabled} onChange={(value) => update("computerEnabled", value)} /></Row>
       <Row title="交互操作前审批" description="切换窗口、点击、输入和按键前必须确认；截图和窗口列表保持只读。"><Switch label="计算机操作前审批" checked={form.computerConfirmActions} onChange={(value) => update("computerConfirmActions", value)} /></Row>
@@ -541,24 +776,22 @@ function ComputerPage({ form, update }: { form: AppSettings; update: Update }) {
   </>;
 }
 
-function PermissionsPage({ form, update }: { form: AppSettings; update: Update }) {
-  const modes: Array<[AppSettings["permissionMode"], string, string]> = [
-    ["read-only", "只读", "Pi 可以检查工作区，但模型工具不能编辑文件或运行命令。"],
-    ["ask", "先询问", "模型发起文件更改或命令前需要确认。"],
-    ["workspace-write", "工作区写入", "允许写入工作区；运行命令或访问外部位置前仍需询问。"],
-    ["full-access", "完全访问", "允许 Pi 工具调用跳过 Pi Desktop 审批门禁。"],
-  ];
+function CodeReviewPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="权限" description="控制 Pi 在工作区启动时应用的默认审批策略。" />
-    <div className="permission-options">{modes.map(([mode, title, description]) => <button key={mode} className={form.permissionMode === mode ? "active" : ""} onClick={() => update("permissionMode", mode)}><span className="permission-radio" /><span><strong>{title}</strong><small>{description}</small></span></button>)}</div>
-    <div className="security-note expanded"><ShieldAlert size={18} /><span><strong>Pi 不提供 Codex 的操作系统级沙箱。</strong>这些策略由内置 Pi Desktop 扩展在模型工具执行前实施。需要强隔离时，请使用虚拟机、容器、Windows 沙盒或受限账户。</span></div>
+    <PageHeading title="代码审查" description="设置审查结果如何回到你的工作流。" />
+    <Card>
+      <Row title="审查结果位置" description="在当前聊天中继续，或为审查结果创建独立聊天。"><select value={form.reviewDelivery} onChange={(event) => update("reviewDelivery", event.target.value as AppSettings["reviewDelivery"])}><option value="inline">当前聊天</option><option value="detached">独立聊天</option></select></Row>
+    </Card>
   </>;
 }
 
-function TerminalPage({ form, update }: { form: AppSettings; update: Update }) {
+function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="终端" description="配置集成终端的显示方式，以及命令输出进入对话的范围。" />
-    <Card>
+    <PageHeading title="环境" description="配置新聊天的工作环境和集成终端。" />
+    <Card title="新聊天">
+      <Row title="默认工作环境" description="在当前检出中工作，或为任务创建隔离 Git Worktree。"><select value={form.defaultTaskEnvironment} onChange={(event) => update("defaultTaskEnvironment", event.target.value as AppSettings["defaultTaskEnvironment"])}><option value="local">Local（当前工作区）</option><option value="worktree">Worktree（隔离检出）</option></select></Row>
+    </Card>
+    <Card title="集成终端">
       <Row title="集成终端 Shell" description="选择新终端标签页使用的 Shell。"><select value={form.terminalShell} onChange={(event) => update("terminalShell", event.target.value)}><option>PowerShell</option><option>Command Prompt</option><option>Git Bash</option><option>WSL</option></select></Row>
       <Row title="对话中的命令输出"><select value={form.terminalOutput} onChange={(event) => update("terminalOutput", event.target.value as AppSettings["terminalOutput"])}><option value="summary">摘要</option><option value="full">完整输出</option></select></Row>
     </Card>
@@ -567,9 +800,8 @@ function TerminalPage({ form, update }: { form: AppSettings; update: Update }) {
 
 function GitPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="Git" description="统一代码检查、分支、提交和拉取请求行为。" />
+    <PageHeading title="Git" description="设置分支、提交和拉取请求行为。" />
     <Card>
-      <Row title="检查结果位置" description="在当前对话或独立对话中运行代码检查。"><select value={form.reviewDelivery} onChange={(event) => update("reviewDelivery", event.target.value as AppSettings["reviewDelivery"])}><option value="inline">当前对话</option><option value="detached">独立对话</option></select></Row>
       <Row title="分支前缀"><input value={form.branchPrefix} onChange={(event) => update("branchPrefix", event.target.value)} placeholder="pi/" /></Row>
       <Row title="允许强制推送" description="允许重写远程分支的工作流。"><Switch label="允许强制推送" checked={form.allowForcePush} onChange={(value) => update("allowForcePush", value)} /></Row>
     </Card>
@@ -588,15 +820,15 @@ function WorktreesPage({ cwd, worktrees, loading, onCreated }: { cwd: string; wo
     try { onCreated(await pi.createWorktree(cwd)); } finally { setCreating(false); }
   };
   return <>
-    <PageHeading title="Worktree" description="在隔离的 Git Worktree 中运行独立 Pi 任务，不影响当前本地检出。" />
+    <PageHeading title="Worktrees" description="在隔离的 Git Worktree 中运行独立 Pi 任务，不影响当前本地检出。" />
     <div className="worktree-actions"><button className="primary-button" disabled={!cwd || creating} onClick={() => void create()}><GitBranch size={14} />{creating ? "正在创建…" : "创建 Worktree"}</button></div>
     <Card>{loading ? <div className="settings-empty">正在加载 Worktree…</div> : worktrees.length === 0 ? <div className="settings-empty"><GitBranch size={22} />打开 Git 工作区以管理 Worktree</div> : <div className="worktree-list">{worktrees.map((item) => <button key={item.path} onClick={() => void openPath(item.path)}><GitBranch size={17} /><span><strong>{item.isMain ? "本地检出" : item.branch || "游离 Worktree"}</strong><small>{item.path}</small></span><code>{item.head?.slice(0, 8)}</code><ChevronRight size={15} /></button>)}</div>}</Card>
   </>;
 }
 
-function AdvancedPage({ form, update }: { form: AppSettings; update: Update }) {
+function DebugPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="高级" description="配置 Pi 进程、会话和诊断相关的底层选项。" />
+    <PageHeading title="调试" description="查看并配置 Pi 进程、会话和诊断选项。" />
     <Card title="Pi 进程">
       <Row title="可执行程序" description="PATH 中的命令或可执行程序绝对路径。"><input value={form.piBinary} onChange={(event) => update("piBinary", event.target.value)} placeholder="pi" /></Row>
       <Row title="会话目录" description="留空则使用 ~/.pi/agent/sessions。"><input value={form.sessionDir} onChange={(event) => update("sessionDir", event.target.value)} placeholder="~/.pi/agent/sessions" /></Row>

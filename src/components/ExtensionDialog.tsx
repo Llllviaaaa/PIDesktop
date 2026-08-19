@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { ArrowRight, Check, CircleHelp, ShieldCheck, X } from "lucide-react";
 import type { ExtensionUIRequest } from "../types";
 
 export function ExtensionDialog({
@@ -9,49 +10,140 @@ export function ExtensionDialog({
   onAnswer: (response: { value?: string; confirmed?: boolean; cancelled?: true }) => void;
 }) {
   const [value, setValue] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
     setValue(request.method === "editor" ? request.prefill ?? "" : "");
+    setSelected(null);
   }, [request]);
 
   if (request.method === "notify" || request.method === "setStatus" || request.method === "setWidget" || request.method === "setTitle" || request.method === "set_editor_text") {
     return null;
   }
 
+  const cancel = () => {
+    onAnswer(request.method === "confirm" ? { confirmed: false } : { cancelled: true });
+  };
+
+  const submit = () => {
+    if (request.method === "confirm") {
+      onAnswer({ confirmed: true });
+      return;
+    }
+    if (request.method === "select") {
+      if (selected !== null) onAnswer({ value: selected });
+      return;
+    }
+    onAnswer({ value });
+  };
+
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancel();
+      return;
+    }
+    if (request.method !== "select" || event.altKey || event.ctrlKey || event.metaKey) return;
+    const optionIndex = Number(event.key) - 1;
+    if (Number.isInteger(optionIndex) && optionIndex >= 0 && optionIndex < Math.min(request.options.length, 9)) {
+      event.preventDefault();
+      setSelected(request.options[optionIndex]);
+    }
+  };
+
+  const handleFieldKeyDown = (event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const shouldSubmit = request.method === "editor"
+      ? event.key === "Enter" && (event.ctrlKey || event.metaKey)
+      : event.key === "Enter" && !event.shiftKey;
+    if (!shouldSubmit || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    submit();
+  };
+
+  const isConfirm = request.method === "confirm";
+  const submitDisabled = request.method === "select" && selected === null;
+  const shortcut = request.method === "select"
+    ? "1-9 选择"
+    : request.method === "editor"
+      ? "Ctrl+Enter 提交"
+      : request.method === "input"
+        ? "Enter 提交"
+        : null;
+
   return (
-      <section className="permission-dialog permission-inline" role="dialog" aria-label="Pi 请求权限">
-        <div className="permission-badge">Pi 请求权限</div>
-        <h2>{request.title}</h2>
-        {request.method === "confirm" && <pre className="permission-message">{request.message}</pre>}
+    <section
+      className={`question-card question-${request.method}`}
+      role="dialog"
+      aria-label={request.title}
+      onKeyDown={handleDialogKeyDown}
+    >
+      <header className="question-card-header">
+        <span className="question-kind">
+          {isConfirm ? <ShieldCheck size={14} /> : <CircleHelp size={14} />}
+          {isConfirm ? "需要确认" : "需要你的回答"}
+        </span>
+        {shortcut && <span className="question-shortcut">{shortcut}</span>}
+      </header>
 
-        {request.method === "select" && (
-          <div className="permission-options">
-            {request.options.map((option) => (
-              <button key={option} onClick={() => onAnswer({ value: option })}>{option}</button>
-            ))}
-          </div>
-        )}
+      <h2>{request.title}</h2>
 
-        {request.method === "input" && (
-          <input autoFocus value={value} placeholder={request.placeholder} onChange={(event) => setValue(event.target.value)} />
-        )}
-        {request.method === "editor" && (
-          <textarea autoFocus rows={9} value={value} onChange={(event) => setValue(event.target.value)} />
-        )}
+      {request.method === "confirm" && <div className="question-message">{request.message}</div>}
 
-        {request.method !== "select" && (
-          <footer>
-            <button className="secondary-button" onClick={() => onAnswer(request.method === "confirm" ? { confirmed: false } : { cancelled: true })}>
-              {request.method === "confirm" ? "拒绝" : "取消"}
-            </button>
-            <button className="primary-button" onClick={() => onAnswer(request.method === "confirm" ? { confirmed: true } : { value })}>
-              {request.method === "confirm" ? "允许一次" : "提交"}
-            </button>
-          </footer>
-        )}
-        {request.method === "select" && (
-          <button className="dialog-cancel-link" onClick={() => onAnswer({ cancelled: true })}>取消</button>
-        )}
-      </section>
+      {request.method === "select" && (
+        <div className="question-options" role="radiogroup" aria-label={request.title}>
+          {request.options.map((option, index) => {
+            const active = selected === option;
+            return (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                className={`question-option ${active ? "active" : ""}`}
+                autoFocus={index === 0}
+                onClick={() => setSelected(option)}
+                onDoubleClick={() => onAnswer({ value: option })}
+              >
+                <span className="question-option-indicator">{active && <Check size={11} strokeWidth={2.5} />}</span>
+                <span>{option}</span>
+                {index < 9 && <kbd>{index + 1}</kbd>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {request.method === "input" && (
+        <input
+          className="question-field"
+          autoFocus
+          value={value}
+          placeholder={request.placeholder}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={handleFieldKeyDown}
+        />
+      )}
+      {request.method === "editor" && (
+        <textarea
+          className="question-field"
+          autoFocus
+          rows={7}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={handleFieldKeyDown}
+        />
+      )}
+
+      <footer className="question-footer">
+        <button type="button" className="secondary-button" onClick={cancel}>
+          <X size={14} />
+          {isConfirm ? "拒绝" : "取消"}
+        </button>
+        <button type="button" className="primary-button" disabled={submitDisabled} onClick={submit}>
+          {isConfirm ? <Check size={14} /> : <ArrowRight size={14} />}
+          {isConfirm ? "允许一次" : "提交回答"}
+        </button>
+      </footer>
+    </section>
   );
 }
