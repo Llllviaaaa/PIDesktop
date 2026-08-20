@@ -1,6 +1,7 @@
 #[cfg(windows)]
 mod computer;
 mod pi;
+mod secret_store;
 mod terminal;
 
 use std::collections::HashMap;
@@ -28,6 +29,7 @@ const RULES_MODULE: &str = include_str!("../resources/pidesktop-rules.ts");
 const BROWSER_EXTENSION: &str = include_str!("../resources/pidesktop-browser.ts");
 const COMPUTER_EXTENSION: &str = include_str!("../resources/pidesktop-computer.ts");
 const MCP_EXTENSION: &str = include_str!("../resources/pidesktop-mcp.ts");
+const MCP_SECRET_PLACEHOLDER: &str = "••••••••";
 
 #[cfg(windows)]
 static KEEP_AWAKE: AtomicBool = AtomicBool::new(false);
@@ -289,6 +291,15 @@ struct RuntimeInfo {
     pending_extension: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+struct McpServerSecrets {
+    env: HashMap<String, String>,
+    headers: HashMap<String, String>,
+}
+
+type McpSecrets = HashMap<String, McpServerSecrets>;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct ModelProviderModel {
@@ -444,6 +455,10 @@ fn settings_path() -> PathBuf {
     app_config_dir().join("settings.json")
 }
 
+fn mcp_secrets_path() -> PathBuf {
+    app_config_dir().join("mcp-secrets.dat")
+}
+
 fn projects_path() -> PathBuf {
     app_config_dir().join("projects.json")
 }
@@ -481,22 +496,179 @@ fn quick_chat_dir() -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
-fn load_settings() -> AppSettings {
-    fs::read_to_string(settings_path())
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
+fn collect_mcp_secrets(settings: &AppSettings) -> McpSecrets {
+    settings
+        .mcp_servers
+        .iter()
+        .filter(|server| !server.env.is_empty() || !server.headers.is_empty())
+        .map(|server| {
+            (
+                server.id.clone(),
+                McpServerSecrets {
+                    env: server.env.clone(),
+                    headers: server.headers.clone(),
+                },
+            )
+        })
+        .collect()
 }
 
-fn save_settings(settings: &AppSettings) -> Result<(), String> {
+fn without_mcp_secrets(settings: &AppSettings) -> AppSettings {
+    let mut public = settings.clone();
+    for server in &mut public.mcp_servers {
+        server.env.clear();
+        server.headers.clear();
+    }
+    public
+}
+
+fn apply_mcp_secrets(settings: &mut AppSettings, secrets: &McpSecrets) {
+    for server in &mut settings.mcp_servers {
+        if let Some(saved) = secrets.get(&server.id) {
+            server.env.clone_from(&saved.env);
+            server.headers.clone_from(&saved.headers);
+        }
+    }
+}
+
+fn merge_mcp_secret_sets(target: &mut McpSecrets, source: McpSecrets) {
+    for (id, source) in source {
+        let entry = target.entry(id).or_default();
+        entry.env.extend(source.env);
+        entry.headers.extend(source.headers);
+    }
+}
+
+fn redact_mcp_secrets(settings: &AppSettings) -> AppSettings {
+    let mut redacted = settings.clone();
+    for server in &mut redacted.mcp_servers {
+        server
+            .env
+            .values_mut()
+            .for_each(|value| *value = MCP_SECRET_PLACEHOLDER.to_string());
+        server
+            .headers
+            .values_mut()
+            .for_each(|value| *value = MCP_SECRET_PLACEHOLDER.to_string());
+    }
+    redacted
+}
+
+fn resolve_mcp_secret_placeholders(
+    incoming: &mut AppSettings,
+    current: &AppSettings,
+) -> Result<(), String> {
+    for server in &mut incoming.mcp_servers {
+        let existing = current.mcp_servers.iter().find(|item| item.id == server.id);
+        for (key, value) in &mut server.env {
+            if value == MCP_SECRET_PLACEHOLDER {
+                *value = existing
+                    .and_then(|item| item.env.get(key))
+                    .cloned()
+                    .ok_or_else(|| format!("MCP server {} credential {key} must be re-entered", server.id))?;
+            }
+        }
+        for (key, value) in &mut server.headers {
+            if value == MCP_SECRET_PLACEHOLDER {
+                *value = existing
+                    .and_then(|item| item.headers.get(key))
+                    .cloned()
+                    .ok_or_else(|| format!("MCP server {} header {key} must be re-entered", server.id))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn load_mcp_secrets() -> Result<McpSecrets, String> {
+    let path = mcp_secrets_path();
+    if !path.exists() {
+        return Ok(McpSecrets::new());
+    }
+    let protected = fs::read(&path)
+        .map_err(|err| format!("failed to read encrypted MCP credentials: {err}"))?;
+    let mut plaintext = secret_store::unprotect(&protected)?;
+    let parsed = serde_json::from_slice(&plaintext)
+        .map_err(|err| format!("encrypted MCP credentials are invalid: {err}"));
+    plaintext.fill(0);
+    parsed
+}
+
+fn save_mcp_secrets(secrets: &McpSecrets) -> Result<(), String> {
+    let path = mcp_secrets_path();
+    if secrets.is_empty() {
+        if path.exists() {
+            fs::remove_file(path)
+                .map_err(|err| format!("failed to remove encrypted MCP credentials: {err}"))?;
+        }
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create settings directory: {err}"))?;
+    }
+    let mut plaintext = serde_json::to_vec(secrets)
+        .map_err(|err| format!("failed to serialize MCP credentials: {err}"))?;
+    let protected = secret_store::protect(&plaintext);
+    plaintext.fill(0);
+    fs::write(&path, protected?)
+        .map_err(|err| format!("failed to write encrypted MCP credentials: {err}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+            .map_err(|err| format!("failed to restrict MCP credential permissions: {err}"))?;
+    }
+    Ok(())
+}
+
+fn write_public_settings(settings: &AppSettings) -> Result<(), String> {
     let path = settings_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create settings directory: {err}"))?;
     }
-    let raw = serde_json::to_string_pretty(settings)
+    let raw = serde_json::to_string_pretty(&without_mcp_secrets(settings))
         .map_err(|err| format!("failed to serialize settings: {err}"))?;
     fs::write(path, raw).map_err(|err| format!("failed to write settings: {err}"))
+}
+
+fn load_settings() -> AppSettings {
+    let mut settings = fs::read_to_string(settings_path())
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
+    let legacy_secrets = collect_mcp_secrets(&settings);
+    let mut secrets = match load_mcp_secrets() {
+        Ok(secrets) => secrets,
+        Err(err) => {
+            eprintln!("PIDesktop could not load protected MCP credentials: {err}");
+            McpSecrets::new()
+        }
+    };
+    merge_mcp_secret_sets(&mut secrets, legacy_secrets.clone());
+    settings = without_mcp_secrets(&settings);
+    apply_mcp_secrets(&mut settings, &secrets);
+
+    if !legacy_secrets.is_empty() {
+        match save_mcp_secrets(&secrets) {
+            Ok(()) => {
+                if let Err(err) = write_public_settings(&settings) {
+                    eprintln!("PIDesktop could not remove migrated MCP credentials from settings: {err}");
+                }
+            }
+            Err(err) => eprintln!("PIDesktop could not migrate MCP credentials: {err}"),
+        }
+    }
+    let _ = fs::remove_file(app_config_dir().join("mcp-servers.json"));
+    settings
+}
+
+fn save_settings(settings: &AppSettings) -> Result<(), String> {
+    save_mcp_secrets(&collect_mcp_secrets(settings))?;
+    write_public_settings(settings)?;
+    let _ = fs::remove_file(app_config_dir().join("mcp-servers.json"));
+    Ok(())
 }
 
 #[tauri::command]
@@ -692,7 +864,7 @@ fn run_scheduled_task_cmd(
             } else {
                 stderr
             };
-            (success, message)
+            (success, redact_runtime_output(&settings, &message))
         }
         Err(err) => (false, format!("failed to run scheduled Pi task: {err}")),
     };
@@ -726,18 +898,6 @@ fn ensure_computer_extension() -> Result<PathBuf, String> {
 
 fn ensure_mcp_extension() -> Result<PathBuf, String> {
     ensure_bundled_extension("pidesktop-mcp.ts", MCP_EXTENSION, "MCP")
-}
-
-fn ensure_mcp_config(servers: &[McpServerConfig]) -> Result<PathBuf, String> {
-    let path = app_config_dir().join("mcp-servers.json");
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create MCP config directory: {err}"))?;
-    }
-    let raw = serde_json::to_string_pretty(servers)
-        .map_err(|err| format!("failed to serialize MCP servers: {err}"))?;
-    fs::write(&path, raw).map_err(|err| format!("failed to write MCP config: {err}"))?;
-    Ok(path)
 }
 
 fn ensure_bundled_extension(
@@ -855,10 +1015,19 @@ fn pi_start(
         .mcp_enabled
         .then(ensure_mcp_extension)
         .transpose()?;
-    let mcp_config = settings
-        .mcp_enabled
-        .then(|| ensure_mcp_config(&settings.mcp_servers))
-        .transpose()?;
+    let mcp_config = if settings.mcp_enabled {
+        let mut raw = serde_json::to_vec(&settings.mcp_servers)
+            .map_err(|err| format!("failed to serialize MCP runtime config: {err}"))?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&raw);
+        raw.fill(0);
+        encoded
+    } else {
+        String::new()
+    };
+    let mut sensitive_values = runtime_secret_values(&settings);
+    if !mcp_config.is_empty() {
+        sensitive_values.push(mcp_config.clone());
+    }
     let mut extra_args = settings.rpc_extra_args(
         &guard_extension,
         browser_extension.as_deref(),
@@ -950,11 +1119,8 @@ fn pi_start(
                 .to_string(),
         ),
         (
-            "PIDESKTOP_MCP_CONFIG".to_string(),
-            mcp_config
-                .as_deref()
-                .map(|path| path.to_string_lossy().to_string())
-                .unwrap_or_default(),
+            "PIDESKTOP_MCP_CONFIG_B64".to_string(),
+            mcp_config,
         ),
         (
             "PIDESKTOP_MCP_CONFIRM".to_string(),
@@ -973,6 +1139,7 @@ fn pi_start(
         &cwd,
         &extra_args,
         &environment,
+        &sensitive_values,
     )?;
 
     state
@@ -1150,6 +1317,48 @@ fn api_key_source(value: Option<&str>) -> String {
         Some(_) => "stored",
     }
     .to_string()
+}
+
+fn runtime_secret_values(settings: &AppSettings) -> Vec<String> {
+    let mut values = Vec::new();
+    for value in settings
+        .mcp_servers
+        .iter()
+        .flat_map(|server| server.env.values().chain(server.headers.values()))
+        .filter(|value| value.len() >= 4)
+    {
+        values.push(value.clone());
+        if let Some((scheme, token)) = value.split_once(' ') {
+            if scheme.eq_ignore_ascii_case("bearer") && token.len() >= 4 {
+                values.push(token.to_string());
+            }
+        }
+    }
+
+    if let Ok(config) = load_models_config() {
+        let provider_keys = config
+            .get("providers")
+            .and_then(|value| value.as_object())
+            .into_iter()
+            .flat_map(|providers| providers.values())
+            .filter_map(|provider| provider.get("apiKey").and_then(|value| value.as_str()));
+        for configured in provider_keys {
+            let resolved = configured
+                .strip_prefix('$')
+                .and_then(|name| std::env::var(name).ok())
+                .or_else(|| (!configured.starts_with('!')).then(|| configured.to_string()));
+            if let Some(value) = resolved.filter(|value| value.len() >= 4) {
+                values.push(value);
+            }
+        }
+    }
+    values.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    values.dedup();
+    values
+}
+
+fn redact_runtime_output(settings: &AppSettings, value: &str) -> String {
+    pi::rpc::SecretRedactor::new(&runtime_secret_values(settings)).text(value)
 }
 
 fn model_from_value(value: &serde_json::Value) -> Option<ModelProviderModel> {
@@ -1419,12 +1628,12 @@ fn check_model_provider(
         .iter()
         .find(|provider| provider.id == id)
         .ok_or_else(|| format!("未找到提供商 {id}"))?;
-    let pi_binary = state
+    let settings = state
         .settings
         .lock()
         .map_err(|_| "state lock poisoned".to_string())?
-        .pi_binary
         .clone();
+    let pi_binary = settings.pi_binary.clone();
     #[cfg(windows)]
     let pi_binary = resolve_windows_pi_binary(&pi_binary);
 
@@ -1462,6 +1671,7 @@ fn check_model_provider(
         let stderr = String::from_utf8(output.stderr)
             .map(|value| value.trim().to_string())
             .unwrap_or_else(|_| "Pi 配置检查命令执行失败，请确认 Pi 可执行文件设置".to_string());
+        let stderr = redact_runtime_output(&settings, &stderr);
         return Ok(ModelProviderCheckResult {
             ok: false,
             message: if stderr.is_empty() {
@@ -1660,11 +1870,17 @@ fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, String> {
         .settings
         .lock()
         .map_err(|_| "state lock poisoned".to_string())
-        .map(|guard| guard.clone())
+        .map(|guard| redact_mcp_secrets(&guard))
 }
 
 #[tauri::command]
-fn set_settings(state: State<'_, AppState>, settings: AppSettings) -> Result<(), String> {
+fn set_settings(state: State<'_, AppState>, mut settings: AppSettings) -> Result<(), String> {
+    let current = state
+        .settings
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?
+        .clone();
+    resolve_mcp_secret_placeholders(&mut settings, &current)?;
     if !matches!(
         settings.permission_mode.as_str(),
         "read-only" | "ask" | "workspace-write" | "full-access"
@@ -2021,8 +2237,14 @@ fn pi_package_action(
         .current_dir(working_directory)
         .output()
         .map_err(|err| format!("failed to run Pi package command: {err}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = redact_runtime_output(
+        &settings,
+        String::from_utf8_lossy(&output.stdout).trim(),
+    );
+    let stderr = redact_runtime_output(
+        &settings,
+        String::from_utf8_lossy(&output.stderr).trim(),
+    );
     if output.status.success() {
         Ok(if stdout.is_empty() { stderr } else { stdout })
     } else {
@@ -2920,5 +3142,53 @@ mod tests {
             settings.default_task_environment.as_str(),
             "local" | "worktree"
         ));
+    }
+
+    #[test]
+    fn mcp_credentials_are_separated_redacted_and_restored() {
+        let mut settings = AppSettings::default();
+        settings.mcp_servers.push(McpServerConfig {
+            id: "private-server".to_string(),
+            env: HashMap::from([("API_TOKEN".to_string(), "env-secret".to_string())]),
+            headers: HashMap::from([(
+                "Authorization".to_string(),
+                "Bearer header-secret".to_string(),
+            )]),
+            ..Default::default()
+        });
+
+        let secrets = collect_mcp_secrets(&settings);
+        let public = without_mcp_secrets(&settings);
+        assert!(public.mcp_servers[0].env.is_empty());
+        assert!(public.mcp_servers[0].headers.is_empty());
+
+        let redacted = redact_mcp_secrets(&settings);
+        assert_eq!(redacted.mcp_servers[0].env["API_TOKEN"], MCP_SECRET_PLACEHOLDER);
+        assert_eq!(
+            redacted.mcp_servers[0].headers["Authorization"],
+            MCP_SECRET_PLACEHOLDER
+        );
+
+        let mut restored = public;
+        apply_mcp_secrets(&mut restored, &secrets);
+        assert_eq!(restored.mcp_servers[0].env["API_TOKEN"], "env-secret");
+        assert_eq!(
+            restored.mcp_servers[0].headers["Authorization"],
+            "Bearer header-secret"
+        );
+    }
+
+    #[test]
+    fn mcp_secret_placeholders_keep_existing_values() {
+        let mut current = AppSettings::default();
+        current.mcp_servers.push(McpServerConfig {
+            id: "server".to_string(),
+            env: HashMap::from([("TOKEN".to_string(), "existing-secret".to_string())]),
+            ..Default::default()
+        });
+        let mut incoming = redact_mcp_secrets(&current);
+        resolve_mcp_secret_placeholders(&mut incoming, &current)
+            .expect("placeholder should resolve from current settings");
+        assert_eq!(incoming.mcp_servers[0].env["TOKEN"], "existing-secret");
     }
 }

@@ -1,9 +1,138 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
+use regex::Regex;
 use tauri::{AppHandle, Emitter};
+
+const REDACTED: &str = "[REDACTED]";
+
+fn known_credential_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        Regex::new(concat!(
+            r"(?i)(?:sk-(?:proj-|svcacct-|ant-|or-v1-)?[a-z0-9_-]{16,}",
+            r"|gsk_[a-z0-9]{16,}",
+            r"|github_pat_[a-z0-9_]{30,}",
+            r"|gh[pousr]_[a-z0-9]{20,}",
+            r"|aiza[0-9a-z_-]{30,}",
+            r"|(?:akia|asia)[a-z0-9]{16}",
+            r"|xox[baprs]-[a-z0-9-]{10,}",
+            r"|hf_[a-z0-9]{20,}",
+            r"|npm_[a-z0-9]{20,}",
+            r"|pypi-[a-z0-9_-]{20,}",
+            r"|sg\.[a-z0-9_-]{10,}\.[a-z0-9_-]{20,})"
+        ))
+        .expect("credential pattern must compile")
+    })
+}
+
+fn bearer_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        Regex::new(r"(?i)\b(bearer\s+)[a-z0-9._~+/=-]{8,}").expect("bearer pattern must compile")
+    })
+}
+
+fn quoted_secret_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        Regex::new(r#"(?i)([\"'](?:api[-_]?key|access[-_]?token|auth(?:orization)?|client[-_]?secret|credential|cookie|password|private[-_]?key|secret|token)[\"']\s*:\s*[\"'])[^\"']*([\"'])"#)
+            .expect("quoted secret pattern must compile")
+    })
+}
+
+fn assigned_secret_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        Regex::new(r"(?i)\b(api[-_]?key|access[-_]?token|auth(?:orization)?|client[-_]?secret|credential|cookie|password|private[-_]?key|secret|token)\b(\s*[:=]\s*)([^\s,;]+)")
+            .expect("assigned secret pattern must compile")
+    })
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    matches!(
+        normalized.as_str(),
+        "apikey"
+            | "accesstoken"
+            | "authtoken"
+            | "authorization"
+            | "clientsecret"
+            | "credential"
+            | "credentials"
+            | "cookie"
+            | "password"
+            | "passwd"
+            | "privatekey"
+            | "secret"
+            | "setcookie"
+            | "token"
+    )
+}
+
+#[derive(Clone)]
+pub(crate) struct SecretRedactor {
+    exact_values: Arc<Vec<String>>,
+}
+
+impl SecretRedactor {
+    pub(crate) fn new(values: &[String]) -> Self {
+        let mut exact_values = values
+            .iter()
+            .filter(|value| value.len() >= 4)
+            .cloned()
+            .collect::<Vec<_>>();
+        exact_values.sort_by_key(|value| std::cmp::Reverse(value.len()));
+        exact_values.dedup();
+        Self {
+            exact_values: Arc::new(exact_values),
+        }
+    }
+
+    pub(crate) fn text(&self, input: &str) -> String {
+        let mut output = input.to_string();
+        for secret in self.exact_values.iter() {
+            output = output.replace(secret, REDACTED);
+        }
+        output = known_credential_pattern()
+            .replace_all(&output, REDACTED)
+            .into_owned();
+        output = bearer_pattern()
+            .replace_all(&output, "$1[REDACTED]")
+            .into_owned();
+        output = quoted_secret_pattern()
+            .replace_all(&output, "$1[REDACTED]$2")
+            .into_owned();
+        assigned_secret_pattern()
+            .replace_all(&output, "$1$2[REDACTED]")
+            .into_owned()
+    }
+
+    fn json(&self, value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(object) => {
+                for (key, value) in object {
+                    if is_sensitive_key(key) {
+                        *value = serde_json::Value::String(REDACTED.to_string());
+                    } else {
+                        self.json(value);
+                    }
+                }
+            }
+            serde_json::Value::Array(values) => {
+                values.iter_mut().for_each(|value| self.json(value));
+            }
+            serde_json::Value::String(text) => *text = self.text(text),
+            _ => {}
+        }
+    }
+}
 
 /// A live `pi --mode rpc` subprocess.
 ///
@@ -27,7 +156,9 @@ impl PiRpcClient {
         cwd: &str,
         extra_args: &[String],
         environment: &[(String, String)],
+        sensitive_values: &[String],
     ) -> Result<Self, String> {
+        let redactor = SecretRedactor::new(sensitive_values);
         let mut command = build_pi_command(pi_binary, cwd, extra_args);
         command.envs(environment.iter().map(|(key, value)| (key, value)));
         command
@@ -65,6 +196,7 @@ impl PiRpcClient {
             let runtime_id = runtime_id.to_string();
             let runtime_streaming = Arc::clone(&is_streaming);
             let runtime_extension = Arc::clone(&pending_extension);
+            let redactor = redactor.clone();
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stdout);
                 let mut line = Vec::new();
@@ -81,7 +213,8 @@ impl PiRpcClient {
                                 continue;
                             }
                             match serde_json::from_str::<serde_json::Value>(&text) {
-                                Ok(value) => {
+                                Ok(mut value) => {
+                                    redactor.json(&mut value);
                                     update_runtime_snapshot(
                                         &value,
                                         &runtime_streaming,
@@ -93,6 +226,7 @@ impl PiRpcClient {
                                     );
                                 }
                                 Err(_) => {
+                                    let text = redactor.text(&text);
                                     let _ = app.emit(
                                         "pi-log",
                                         serde_json::json!({ "runtimeId": runtime_id, "line": text.to_string() }),
@@ -130,6 +264,7 @@ impl PiRpcClient {
         {
             let app = app.clone();
             let runtime_id = runtime_id.to_string();
+            let redactor = redactor.clone();
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stderr);
                 let mut line = String::new();
@@ -140,6 +275,7 @@ impl PiRpcClient {
                         Ok(_) => {
                             let trimmed = line.trim_end();
                             if !trimmed.is_empty() {
+                                let trimmed = redactor.text(trimmed);
                                 let _ = app.emit(
                                     "pi-log",
                                     serde_json::json!({ "runtimeId": runtime_id, "line": trimmed }),
@@ -322,6 +458,29 @@ impl Drop for PiRpcClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redacts_configured_and_structured_credentials() {
+        let redactor = SecretRedactor::new(&["custom-private-value".to_string()]);
+        let provider_key = format!("{}{}", "sk-proj-", "abcdefghijklmnopqrstuvwxyz");
+        let text = redactor.text(&format!(
+            "Authorization: Bearer abcdefghijklmnop api_key={provider_key} custom-private-value"
+        ));
+        assert!(!text.contains("abcdefghijklmnop"));
+        assert!(!text.contains("sk-proj-"));
+        assert!(!text.contains("custom-private-value"));
+        assert!(text.contains(REDACTED));
+
+        let mut value = serde_json::json!({
+            "apiKey": "plain-value",
+            "maxTokens": 4096,
+            "nested": { "authorization": "Bearer another-secret" }
+        });
+        redactor.json(&mut value);
+        assert_eq!(value["apiKey"], REDACTED);
+        assert_eq!(value["nested"]["authorization"], REDACTED);
+        assert_eq!(value["maxTokens"], 4096);
+    }
 
     #[test]
     fn runtime_snapshot_tracks_streaming_and_actionable_approval() {

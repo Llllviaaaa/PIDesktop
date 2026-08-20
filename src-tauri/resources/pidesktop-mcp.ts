@@ -1,6 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { readFile } from "node:fs/promises";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
@@ -76,6 +75,8 @@ function safeEnvironment(config: McpServerConfig): NodeJS.ProcessEnv {
   const inherited = config.inheritEnvironment
     ? { ...process.env }
     : Object.fromEntries(Object.entries(process.env).filter(([key]) => !sensitive.test(key)));
+  delete inherited.PIDESKTOP_MCP_CONFIG;
+  delete inherited.PIDESKTOP_MCP_CONFIG_B64;
   return { ...inherited, ...config.env };
 }
 
@@ -388,9 +389,11 @@ function resultContent(result: McpToolResult): Array<{ type: "text"; text: strin
 }
 
 async function loadConfig(): Promise<McpServerConfig[]> {
-  const path = process.env.PIDESKTOP_MCP_CONFIG;
-  if (!path) return [];
-  const parsed = JSON.parse(await readFile(path, "utf8")) as McpServerConfig[];
+  const encoded = process.env.PIDESKTOP_MCP_CONFIG_B64;
+  delete process.env.PIDESKTOP_MCP_CONFIG_B64;
+  delete process.env.PIDESKTOP_MCP_CONFIG;
+  if (!encoded) return [];
+  const parsed = JSON.parse(Buffer.from(encoded, "base64").toString("utf8")) as McpServerConfig[];
   return parsed.filter((server) => server.enabled);
 }
 

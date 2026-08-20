@@ -255,6 +255,10 @@ export function SettingsModal({
     setSaveState("saving");
     const task = Promise.resolve(onSave(normalizeSettings(next)))
       .then(() => {
+        if (!pendingSaveRef.current) {
+          editedRef.current = false;
+          setForm((current) => maskMcpCredentials(current));
+        }
         setSaveState("saved");
         if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);
         saveStatusTimerRef.current = window.setTimeout(() => setSaveState("idle"), 1400);
@@ -692,6 +696,17 @@ function recordToLines(value: Record<string, string>): string {
   return Object.entries(value).map(([key, entry]) => `${key}=${entry}`).join("\n");
 }
 
+function maskMcpCredentials(settings: AppSettings): AppSettings {
+  return {
+    ...settings,
+    mcpServers: settings.mcpServers.map((server) => ({
+      ...server,
+      env: Object.fromEntries(Object.keys(server.env).map((key) => [key, "••••••••"])),
+      headers: Object.fromEntries(Object.keys(server.headers).map((key) => [key, "••••••••"])),
+    })),
+  };
+}
+
 function McpPage({ form, update }: { form: AppSettings; update: Update }) {
   const addServer = (transport: "stdio" | "http") => {
     const id = `server-${Date.now().toString(36)}`;
@@ -748,7 +763,7 @@ function McpPage({ form, update }: { form: AppSettings; update: Update }) {
         <Row title="受信任只读服务器" description="仅在你确认该服务器所有非破坏性工具都只读时启用；只读权限模式据此决定是否允许调用。"><Switch label="将服务器标记为受信任只读" checked={server.trustedReadOnly} onChange={(trustedReadOnly) => changeServer(server.id, { trustedReadOnly })} /></Row>
       </div>
     </section>)}
-    <div className="settings-info"><ShieldAlert size={17} /><span>MCP 服务器拥有其进程或远程账户对应的权限。STDIO 凭据和 HTTP 请求头保存在本机 PIDesktop 设置中；工具注解来自服务器，只有“受信任只读服务器”开关代表你的明确授权。保存后请新建任务，并运行 <code>/mcp-diagnose</code> 查看连接和工具数量。</span></div>
+    <div className="settings-info"><ShieldAlert size={17} /><span>MCP 服务器拥有其进程或远程账户对应的权限。STDIO 凭据和 HTTP 请求头由当前 Windows 账户加密保存，重新打开设置时只显示掩码；工具注解来自服务器，只有“受信任只读服务器”开关代表你的明确授权。保存后请新建任务，并运行 <code>/mcp-diagnose</code> 查看连接和工具数量。</span></div>
   </>;
 }
 

@@ -12,6 +12,30 @@ dist
 dist-ssr
 *.local
 
+# Local credentials and private key material
+.env
+.env.*
+!.env.example
+!.env.*.example
+credentials*.json
+secrets*.json
+auth.json
+mcp-secrets.dat
+mcp-servers.json
+.npmrc
+.pypirc
+.netrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

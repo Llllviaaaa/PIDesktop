@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { pi, respondToExtension, sendCommand, type PiRuntimeStatus } from "./lib/pi";
+import { redactSensitiveText } from "./lib/redact";
 import {
   buildForkCommand,
   buildGetTreeCommand,
@@ -518,7 +519,7 @@ export const usePiStore = create<PiState>((set, get) => {
 
   const toast = (message: string, kind: Toast["kind"] = "info") => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    set((state) => ({ toasts: [...state.toasts.slice(-3), { id, message, kind }] }));
+    set((state) => ({ toasts: [...state.toasts.slice(-3), { id, message: redactSensitiveText(message), kind }] }));
     window.setTimeout(() => get().dismissToast(id), 5500);
   };
 
@@ -528,7 +529,7 @@ export const usePiStore = create<PiState>((set, get) => {
     if (approval ? !settings.notifyOnApproval : !settings.notifyOnCompletion) return;
     if (settings.notifyOnlyWhenUnfocused && document.hasFocus()) return;
     if (!("Notification" in window) || Notification.permission !== "granted") return;
-    new Notification(title, { body });
+    new Notification(redactSensitiveText(title), { body: redactSensitiveText(body) });
   };
 
   const command = (
@@ -1191,7 +1192,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (runtimeId === get().runtimeId) get().appendLog(line);
     },
 
-    appendLog: (line) => set((state) => ({ piLog: [...state.piLog.slice(-399), line] })),
+    appendLog: (line) => set((state) => ({ piLog: [...state.piLog.slice(-399), redactSensitiveText(line)] })),
 
     resolveMessageForkPoint: async (messageId) => {
       const state = get();
@@ -1521,7 +1522,7 @@ export const usePiStore = create<PiState>((set, get) => {
 
     saveSettings: async (settings) => {
       await pi.setSettings(settings);
-      set({ settings });
+      set({ settings: await pi.getSettings() });
     },
 
     runBash: async (shellCommand, excludeFromContext = false) => {
