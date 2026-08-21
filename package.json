@@ -14,9 +14,10 @@
     "test:history": "npx --yes tsx scripts/test-message-history.ts",
     "test:schedule": "npx --yes tsx scripts/test-schedule.ts",
     "test:model-switch": "npx --yes tsx scripts/test-model-selection-extension.ts",
+    "test:pull-requests": "npx --yes tsx scripts/test-pull-requests.ts",
     "test:redaction": "npx --yes tsx scripts/test-redaction.ts",
     "scan:secrets": "node scripts/scan-secrets.mjs",
-    "test:unit": "npm run test:rules && npm run test:session-tree && npm run test:git-diff && npm run test:history && npm run test:schedule && npm run test:model-switch && npm run test:redaction"
+    "test:unit": "npm run test:rules && npm run test:session-tree && npm run test:git-diff && npm run test:history && npm run test:schedule && npm run test:model-switch && npm run test:pull-requests && npm run test:redaction"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

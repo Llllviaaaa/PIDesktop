@@ -290,7 +290,7 @@ export interface AppSettings {
   requireCtrlEnter: boolean;
   preventSleep: boolean;
   language: "system" | "en" | "zh-CN";
-  defaultFileOpener: "system" | "cursor" | "vscode";
+  defaultFileOpener: "system" | "cursor" | "vscode" | "windsurf" | "antigravity";
   terminalShell: string;
   terminalOutput: "summary" | "full";
   notificationsEnabled: boolean;
@@ -357,10 +357,20 @@ export interface SessionInfo {
   updatedAt?: number;
 }
 
+export interface WorkspaceEditorInfo {
+  id: "cursor" | "vscode" | "windsurf" | "antigravity";
+  name: string;
+}
+
 export interface SessionMessageTiming {
   role: "user" | "assistant";
   messageTimestamp: number;
   entryTimestamp: string;
+}
+
+export interface SessionHistory {
+  messages: AgentMessage[];
+  timings: SessionMessageTiming[];
 }
 
 export interface AttachmentPayload {
@@ -376,6 +386,11 @@ export interface AttachmentPayload {
 export interface GitFileChange {
   path: string;
   status: string;
+  indexStatus?: string;
+  worktreeStatus?: string;
+  staged?: boolean;
+  unstaged?: boolean;
+  untracked?: boolean;
 }
 
 export interface GitSnapshot {
@@ -405,6 +420,7 @@ export interface ProjectConfig {
 }
 
 export type ScheduledFrequency = "hourly" | "daily" | "weekdays" | "weekly";
+export type ScheduledPermissionMode = "read-only" | "ask" | "workspace-write";
 
 export interface ScheduledTask {
   id: string;
@@ -415,16 +431,35 @@ export interface ScheduledTask {
   hour: number;
   minute: number;
   weekday: number;
+  permissionMode: ScheduledPermissionMode;
   enabled: boolean;
   lastRunAt?: number | null;
   nextRunAt?: number | null;
-  lastStatus: "" | "running" | "success" | "error";
+  lastStatus: "" | "running" | "success" | "error" | "interrupted";
   lastMessage: string;
+}
+
+export interface ScheduledRunRecord {
+  id: string;
+  taskId: string;
+  taskName: string;
+  cwd: string;
+  prompt: string;
+  permissionMode: ScheduledPermissionMode;
+  trigger: "manual" | "scheduled";
+  status: "running" | "success" | "error" | "interrupted";
+  startedAt: number;
+  finishedAt?: number | null;
+  durationMs?: number | null;
+  exitCode?: number | null;
+  output: string;
+  sessionFile?: string | null;
 }
 
 export interface ScheduledRunResult {
   success: boolean;
   output: string;
+  run: ScheduledRunRecord;
 }
 
 export interface PullRequestInfo {
@@ -464,10 +499,54 @@ export interface WorkspaceFileContent {
 }
 
 export interface ResourceItem {
-  kind: "extension" | "skill" | "package" | "prompt";
+  kind: "extension" | "skill" | "package" | "prompt" | "theme";
   name: string;
   path: string;
   scope: "user" | "project";
+  version?: string | null;
+}
+
+export interface PackageCatalogItem {
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  publishedAt: string;
+  downloads: number;
+  score: number;
+  keywords: string[];
+  npmUrl: string;
+  repositoryUrl?: string | null;
+  homepageUrl?: string | null;
+}
+
+export interface PackageCatalogPage {
+  items: PackageCatalogItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface PackageCatalogDetail {
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  license: string;
+  keywords: string[];
+  npmUrl: string;
+  repositoryUrl?: string | null;
+  homepageUrl?: string | null;
+  imageUrl?: string | null;
+  videoUrl?: string | null;
+  extensions: string[];
+  skills: string[];
+  prompts: string[];
+  themes: string[];
+  dependencyCount: number;
+  peerDependencyCount: number;
+  unpackedSize: number;
+  integrity: string;
 }
 
 export interface ForkPoint {

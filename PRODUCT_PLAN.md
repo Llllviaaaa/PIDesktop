@@ -1,6 +1,6 @@
 # Pi Desktop 补齐计划
 
-> 状态：草案 v1 · 约束：**纯本地** + **对齐 Pi 设计理念**  
+> 状态：执行版 v2（Phase A/B 已落地，Phase C 核心已落地） · 约束：**纯本地** + **对齐 Pi 设计理念**
 > 对照文档：[CODEX_PARITY.md](./CODEX_PARITY.md) · 运行时：[Pi](https://pi.dev)
 
 本文是产品与工程的执行计划，不是功能愿望清单。  
@@ -64,13 +64,14 @@
 | --- | --- | --- |
 | 多 Pi runtime 并行 + 切换 + 恢复 | 已有 | 指挥中心骨架 |
 | 流式对话 / tools / 会话生命周期 | 已有 | 接 Pi RPC |
-| Skills / prompts / extensions / packages | 已有 | 资源面可再产品化 |
+| Skills / prompts / extensions / packages | 已有 | 首页资源中心支持发现与 npm/git/本地源管理 |
 | Guard 权限模式 | 已有 | 审批门，非 OS 沙箱 |
 | Browser / Computer / MCP tools | 已有 | bundled 可选扩展 |
-| Git status/diff、worktree 基础、终端 | 已有 | 深度不够 |
+| Git review、worktree、终端 | 已有 | stage/unstage/revert、行评、多 tab 已落地 |
+| 本地 Scheduled | 已有 | App 运行期间触发，SQLite 记录，禁止静默 full-access |
 | 设置中心、通知、用量 | 已有 | — |
 
-**已知诚实缺口**（见 CODEX_PARITY）：权限非 OS 隔离、终端偏弱、Scheduled 占位、无云/账号。
+**已知诚实缺口**（见 CODEX_PARITY）：权限不是 OS 隔离；MCP OAuth/订阅/tasks、细粒度 package filter UI 和完整本地 Memory 管理仍待做；云/账号明确不做。
 
 ---
 
@@ -98,7 +99,7 @@
 | Cloud environments | 永久不做；parity 保持 Platform gap |
 | 账号计费组织策略 | 永久不做 |
 | 跨设备云 handoff | 不做；本地 clone/fork/worktree 足够 |
-| 插件商店 | 不做；走 Pi packages（npm/git） |
+| 自建云插件商店与上架审核 | 不做；首页资源中心直接使用 Pi packages（npm/git/本地）与公开 npm 元数据 |
 | Voice / 生图平台 / SaaS 全家桶 | 默认不做 |
 | 企业级 OS sandbox 宣传成「已与 Codex 对等」 | 不做虚假对等；可选本机隔离另议 |
 
@@ -125,16 +126,16 @@
 | **A2 Worktree 默认** | 新建任务可选 Local / Worktree；Worktree 创建→开聊一气呵成 | `App.tsx`、worktree commands、设置默认项 | 并行改同一仓库时默认不互相踩工作区 |
 | **A3 Rules v1** | 可配置：shell 总是问 / 路径写保护 / 常用前缀允许 | `pidesktop-guard.ts`、Settings | 在 ask 模式下重复确认明显减少且可审计 |
 | **A4 权限文案诚实化** | 设置与 README 统一：「审批门 ≠ OS 沙箱」 | 文案 + CODEX_PARITY | 用户不会误判安全边界 |
-| **A5 Hub 去空壳** | Scheduled 保持「未接入」或隐藏；Plugins→资源中心；Sites 降为快捷 skill/prompt | `App.tsx` | 无虚假「已支持」页 |
+| **A5 Hub 去空壳** | Plugins→首页资源中心；Scheduled 只在接入真实本机调度后展示；Sites 不做空壳 | `App.tsx` | 无虚假「已支持」页 |
 
 **Phase A 不做**：定时执行、OS 沙箱内核、云。
 
 **出口标准**
 
-- [ ] 多任务 + worktree 路径文档化且可点通  
-- [ ] 会话树至少支持：查看、回点继续、与现有 clone/fork 不冲突  
-- [ ] Rules 有持久化配置并实际作用于 tool_call  
-- [ ] 无新增占位冒充功能  
+- [x] 多任务 + worktree 路径文档化且可点通
+- [x] 会话树至少支持：查看、回点继续、与现有 clone/fork 不冲突
+- [x] Rules 有持久化配置并实际作用于 tool_call
+- [x] 无新增占位冒充功能
 
 ---
 
@@ -154,10 +155,10 @@
 
 **出口标准**
 
-- [ ] Review：至少 file 级 stage/revert + 行评回灌  
-- [ ] Scheduled：创建 / 暂停 / 手动跑一次 / 历史列表全本地  
-- [ ] 资源中心可开关 browser/computer/mcp 类能力叙事与设置一致  
-- [ ] CODEX_PARITY：Scheduled 从「平台缺口」改为「本地已实现/部分」并写清限制  
+- [x] Review：file 级 stage/unstage/revert + 行评回灌
+- [x] Scheduled：创建 / 暂停 / 手动跑一次 / 历史列表全本地
+- [x] 资源中心与 browser/computer/mcp 的开关、安全叙事一致
+- [x] CODEX_PARITY：Scheduled 标记本地已实现并写清运行限制
 
 ---
 
@@ -175,9 +176,9 @@
 
 **出口标准**
 
-- [ ] browser/computer/mcp 均有「一键关闭且核心聊天仍可用」  
+- [x] browser/computer/mcp 均有「一键关闭且核心聊天仍可用」
 - [ ] Memory 可导出/删除（纯文件）  
-- [ ] parity 与 README 安全模型无矛盾  
+- [x] parity 与 README 安全模型无矛盾
 
 ---
 
@@ -275,7 +276,7 @@ A1 会话树 ──┬── A2 Worktree 默认
 
 ### Sprint 1（Phase A 切片）— 已落地（2026-08-11）
 
-1. **A5** Hub 去空壳 / 文案诚实 — Scheduled 明确未接入；Plugins→扩展与技能设置；Sites=本地 prompt 快捷方式  
+1. **A5** Hub 去空壳 / 文案诚实 — Plugins→首页资源中心；Scheduled 接真实本机调度后展示；Sites 不做空壳
 2. **A2** 新建任务 Local | Worktree 一等选择（Composer toggle + settings default + 首条消息前 create/connect）  
 3. **A3** Rules v1：`alwaysConfirmShell`、`blockWriteOutsideWorkspace`、`shellAllowPrefixes` + guard/`pidesktop-rules.ts` + env 注入  
 4. **A1** 会话树 Inspector + `get_tree` / `fork` 从此继续  
@@ -304,3 +305,4 @@ A1 会话树 ──┬── A2 Worktree 默认
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
 | v1 | 2026-08-11 | 初稿：纯本地 + Pi-native 补齐计划 |
+| v2 | 2026-08-21 | Phase A/B 落地；补齐 Review、Scheduled、安全权限、多 tab 终端、资源中心与 MCP resources/prompts；明确剩余本地范围 |

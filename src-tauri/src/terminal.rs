@@ -180,10 +180,7 @@ pub fn terminal_resize(
 }
 
 #[tauri::command]
-pub fn terminal_close(
-    state: State<'_, crate::AppState>,
-    id: String,
-) -> Result<(), String> {
+pub fn terminal_close(state: State<'_, crate::AppState>, id: String) -> Result<(), String> {
     let mut sessions = state
         .terminal_sessions
         .lock()

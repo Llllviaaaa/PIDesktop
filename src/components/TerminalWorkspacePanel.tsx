@@ -41,25 +41,21 @@ export function TerminalWorkspacePanel({ cwd, shellLabel, placement = "side", on
   const cwdLabel = useMemo(() => cwd.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop() || cwd || "工作区", [cwd]);
 
   const addTab = useCallback(() => {
-    setTabs((current) => {
-      const tab = createTab(shellLabel, current.length + 1);
-      setActiveId(tab.id);
-      return [...current, tab];
-    });
-  }, [shellLabel]);
+    const tab = createTab(shellLabel, tabs.length + 1);
+    setTabs((current) => [...current, tab]);
+    setActiveId(tab.id);
+  }, [shellLabel, tabs.length]);
 
   const closeTab = useCallback((id: string) => {
-    setTabs((current) => {
-      const index = current.findIndex((tab) => tab.id === id);
-      const next = current.filter((tab) => tab.id !== id);
-      if (!next.length) {
-        window.queueMicrotask(onClose);
-        return current;
-      }
-      if (activeId === id) setActiveId(next[Math.min(index, next.length - 1)].id);
-      return next;
-    });
-  }, [activeId, onClose]);
+    const index = tabs.findIndex((tab) => tab.id === id);
+    const next = tabs.filter((tab) => tab.id !== id);
+    if (!next.length) {
+      onClose();
+      return;
+    }
+    if (activeId === id) setActiveId(next[Math.min(Math.max(index, 0), next.length - 1)].id);
+    setTabs(next);
+  }, [activeId, onClose, tabs]);
 
   return (
     <section className={placement === "bottom" ? "bottom-terminal-dock workspace-terminal-pane" : "workspace-terminal-pane"} aria-label="终端">

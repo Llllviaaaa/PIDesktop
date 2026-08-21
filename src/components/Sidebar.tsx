@@ -30,7 +30,7 @@ import { pi } from "../lib/pi";
 import type { ProjectConfig, SessionInfo } from "../types";
 import { sessionRecency, sessionTitle } from "../lib/sessionTitle";
 
-type SidebarHub = "pull-requests" | "scheduled" | null;
+type SidebarHub = "pull-requests" | "scheduled" | "plugins" | null;
 
 interface SidebarProps {
   sessions: SessionInfo[];
@@ -473,7 +473,7 @@ export function Sidebar({
           <Clock3 size={16} strokeWidth={1.75} />
           <span>已安排</span>
         </button>
-        <button type="button" className="nav-item" onClick={() => { closePopovers(); onOpenPlugins(); }}>
+        <button type="button" className={`nav-item ${activeHub === "plugins" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenPlugins(); }}>
           <AtSign size={16} strokeWidth={1.75} />
           <span>插件</span>
         </button>

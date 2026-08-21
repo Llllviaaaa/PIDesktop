@@ -82,9 +82,9 @@ if (fixture === "thread" || fixture === "performance") {
       isRepository: true,
       branch: "agent/codex-parity-client",
       files: [
-        { status: "M", path: "src/App.tsx" },
-        { status: "M", path: "src/styles.css" },
-        { status: "M", path: "src-tauri/src/lib.rs" },
+        { status: "M", path: "src/App.tsx", indexStatus: "", worktreeStatus: "M", staged: false, unstaged: true, untracked: false },
+        { status: "M", path: "src/styles.css", indexStatus: "M", worktreeStatus: "", staged: true, unstaged: false, untracked: false },
+        { status: "MM", path: "src-tauri/src/lib.rs", indexStatus: "M", worktreeStatus: "M", staged: true, unstaged: true, untracked: false },
       ],
       diff: [
         "diff --git a/src/App.tsx b/src/App.tsx",

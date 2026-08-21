@@ -13,12 +13,14 @@ Roadmap under these constraints: [PRODUCT_PLAN.md](./PRODUCT_PLAN.md). Feature b
 - Pi slash commands, skills, prompt templates, and extension commands discovered through RPC
 - Isolated Edge/Chrome browser automation for page inspection, interaction, and screenshots
 - Native Windows computer use for desktop screenshots, visible-window discovery, focus, mouse clicks, text input, and key combinations
-- MCP tool hosting for local STDIO and remote Streamable HTTP servers with dynamic tool discovery and approval gates
+- MCP hosting for local STDIO and remote Streamable HTTP servers with dynamic tools, read-only resources, prompt templates, diagnostics, and approval gates
 - Extension UI requests: confirmation, selection, text input, editor input, notifications, status, and widgets
 - Codex-style permission modes backed by a Pi tool-interception extension
-- Git working-tree summary, unified diff review pane, inline/new-chat review delivery, and configurable Git instructions
+- Git index/worktree summary, unified diff review, file stage/unstage/revert, line feedback into chat, and configurable Git instructions
 - Managed Git worktrees and worktree-scoped new chats
-- Integrated Pi terminal with streaming output and optional exclusion from model context
+- Multi-tab local PTY terminal with streaming output, lifecycle status, and optional exclusion from model context
+- Local scheduled Pi tasks with permission snapshots, pause/run-now controls, SQLite run history, and links back to generated sessions
+- Pi package resource center with npm/gallery discovery plus npm, Git, and local-path install/update/remove flows
 - Native completion/approval notifications, prevent-sleep support, local token/cost usage aggregation, and custom instructions
 - Full-screen settings center for appearance, notifications, personalization, shortcuts, archives, usage, models, Pi resources/packages, permissions, terminal, Git, worktrees, and advanced configuration
 - Persisted process, appearance, behavior, provider, permission, Git, notification, and session settings
@@ -78,7 +80,9 @@ These approval gates are not an isolation boundary. Run untrusted or unattended 
 
 The bundled `computer` tool uses a native helper in the Pi Desktop executable. Screenshots and window listing are read-only; focusing windows, clicking, typing, and key presses use a separate approval gate by default and are blocked by `read-only` mode. Windows UIPI still prevents input into higher-integrity or protected windows, and Pi Desktop does not attempt to bypass it. Desktop screenshots can contain sensitive information.
 
-The bundled MCP host supports newline-framed STDIO servers and Streamable HTTP servers using the current stable MCP protocol revision. Discovered server tools become first-class Pi tools. STDIO inherits a credential-filtered environment by default, HTTP supports explicit request headers, and all MCP calls can require approval. Server commands, environment values, and HTTP headers are stored in the local Pi Desktop settings file; use a restricted account or external secret manager for higher-assurance deployments.
+The bundled MCP host supports newline-framed STDIO servers and Streamable HTTP servers using the current stable MCP protocol revision. Discovered server tools become first-class Pi tools. Servers that only expose resources or prompts are supported too; Pi can list/read resources and list/resolve prompt templates, while users can inspect them with `/mcp-resources`, `/mcp-read`, and `/mcp-prompts`. STDIO inherits a credential-filtered environment by default, HTTP supports explicit request headers, and MCP calls can require approval. Server commands, environment values, and HTTP headers are stored locally; use a restricted account or external secret manager for higher-assurance deployments.
+
+Scheduled tasks are intentionally local. They run only while the computer and Pi Desktop are running, never accept silent `full-access`, and store task/run metadata in `%APPDATA%\pid-desktop\scheduled-runs.sqlite3`.
 
 ## Important files
 
@@ -96,4 +100,4 @@ The bundled MCP host supports newline-framed STDIO servers and Streamable HTTP s
 
 ## Known platform boundary
 
-The implemented scope covers the core local Codex-style coding workflow, including managed worktrees, isolated browser automation, approval-gated Windows computer use, and MCP tools. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, scheduled automations, MCP OAuth discovery, and richer MCP resources/prompts/tasks still require additional backends or protocol work.
+The implemented scope covers the core local Codex-style coding workflow, including managed worktrees, local scheduling, multi-tab terminal sessions, isolated browser automation, approval-gated Windows computer use, and MCP tools/resources/prompts. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, account/billing features, MCP OAuth discovery, subscriptions/list-change notifications, and experimental MCP task flows remain out of scope or optional follow-up work. See [docs/LOCAL_CAPABILITIES.md](docs/LOCAL_CAPABILITIES.md) for the complete local boundary.

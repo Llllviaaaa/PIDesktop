@@ -510,7 +510,7 @@ export const Composer = memo(function Composer({
                 type="button"
                 className={`model-combo ${modelMenuOpen ? "active" : ""} ${isSwitchingModel ? "switching" : ""}`}
                 title={isSwitchingModel ? "正在确认模型切换" : "选择模型和思考等级"}
-                disabled={disabled || isSwitchingModel || models.length === 0}
+                disabled={disabled || models.length === 0}
                 aria-haspopup="dialog"
                 aria-expanded={modelMenuOpen}
                 onClick={() => {

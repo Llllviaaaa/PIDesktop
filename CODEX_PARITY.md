@@ -13,10 +13,10 @@ This file is the product contract for Pi Desktop. A feature is only marked **Imp
 | Sessions | Implemented | Search, resume, rename, clone, checkpoint fork, compact, export, archive/restore, and recoverable delete |
 | Models and reasoning | Implemented | Provider/model/thinking selection backed by Pi runtime commands and persisted defaults |
 | Attachments and references | Implemented | Image attachment plus local file reference insertion |
-| Skills, prompts, and extensions | Implemented | Runtime discovery, inventory, and Pi package install/update/remove |
+| Skills, prompts, and extensions | Implemented | Home resource center discovers local resources and installs/updates/removes Pi packages from npm, Git, or local paths; granular package filters remain available through Pi config |
 | Extension UI bridge | Implemented | Confirm, select, input, editor, notify, status, and widget requests |
 | Local instructions and memory control | Implemented | Personality, custom system instructions, suggested prompts, and Pi context-file enable/disable |
-| Git changes and review | Implemented | Status, unified diff, inline/new-chat review delivery, and configurable review/Git instructions |
+| Git changes and review | Implemented | Index/worktree status, unified diff, file stage/unstage/revert, line feedback into the current chat, inline/new-chat review delivery, and configurable Git instructions |
 | Git worktrees | Implemented | List, create, open, and start worktree-scoped chats |
 | Browser automation | Implemented | Bundled Pi browser tool drives an isolated local Edge/Chrome session through CDP for page inspection, clicks, typing, and screenshots with approval gates |
 | OS computer-use | Implemented | Native Windows helper captures the virtual desktop, lists/focuses visible windows, and sends approval-gated mouse, text, and key input; read-only mode blocks interactive actions and Windows UIPI remains enforced |
@@ -25,13 +25,14 @@ This file is the product contract for Pi Desktop. A feature is only marked **Imp
 | Usage | Implemented | Local Pi session aggregation for message count, tokens, and recorded cost |
 | Settings | Implemented | Searchable multi-page center covering personal, integration, coding, and advanced areas |
 | Permissions | Partial | Pi tool interception provides read-only/ask/workspace-write/full-access modes, but is not an OS isolation boundary |
-| Terminal | Partial | Integrated streaming shell exists; Codex's full terminal profile and policy integration is not reproduced |
+| Terminal | Implemented (local) | Multiple real PTY tabs, streaming output, active/exited status, close/new-tab interactions, and optional exclusion from model context |
 | Handoff | Partial (local only) | Local clone/fork/worktree only; cross-device or cloud handoff is intentionally out of scope |
-| MCP resources, prompts, OAuth, and tasks | Partial | Tool hosting is implemented; automatic OAuth discovery, server prompt commands, resource browsing/subscriptions, list-change refresh, and experimental task flows remain |
+| MCP resources and prompts | Implemented (local core) | Capability-aware servers may expose no tools; Pi tools and slash commands list/read resources and list/resolve prompts with pagination and approval gates |
+| MCP OAuth, subscriptions, and tasks | Partial | Automatic OAuth discovery, resource subscriptions/list-change refresh, and experimental MCP task flows remain optional protocol work |
 | Session tree UX | Implemented | Inspector 会话树 loads Pi `get_tree`; 从此继续 issues `fork` for the selected entry id; clear error if runtime lacks `get_tree` |
 | Configurable tool rules | Implemented | Rules v1: always-confirm shell, block outside-workspace writes, shell allow prefixes — settings + env injection + `pidesktop-rules.ts` / guard |
-| Review pane depth | Planned (local) | File/hunk stage-revert and line comments back into chat (PRODUCT_PLAN L4) |
-| Scheduled automations | Planned (local) | In-app local scheduler that spawns Pi on this machine while the app (or a local runner) is available; not a cloud job service (PRODUCT_PLAN L5) |
+| Review pane depth | Implemented | File-level stage/unstage/revert, index/worktree separation, diff navigation, and line comments back into the current chat |
+| Scheduled automations | Implemented (local) | Native in-app scheduler spawns non-interactive Pi locally, stores SQLite history, supports pause/run-now, links results to sessions, snapshots safe permissions, and runs only while the app/computer is running |
 | Cloud environments | Out of scope | Remote workers and hosted agent fleets are not part of this product |
 | OS sandbox | Out of scope as built-in | Pi has no OS sandbox in core; Desktop provides approval gates. Strong isolation remains the user's container/VM/Windows Sandbox (optional local wizard later) |
 | Account, billing, and organization policy | Out of scope | OpenAI/ChatGPT service capabilities; not Pi Desktop features |

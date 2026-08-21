@@ -10,23 +10,30 @@ import type {
   ModelProviderCheckResult,
   ModelProviderConfig,
   ModelProviderInput,
+  PackageCatalogDetail,
+  PackageCatalogPage,
   PiEvent,
   ProjectConfig,
   PullRequestCollection,
   ResourceItem,
   RpcResponse,
+  SessionHistory,
   SessionInfo,
   SessionMessageTiming,
+  ScheduledRunRecord,
   ScheduledRunResult,
   ScheduledTask,
   UsageSummary,
   WorkspaceDirEntry,
+  WorkspaceEditorInfo,
   WorkspaceFileContent,
   WorktreeInfo,
 } from "../types";
 
 let sessionsRequest: Promise<SessionInfo[]> | null = null;
 const gitSnapshotRequests = new Map<string, Promise<GitSnapshot>>();
+const packageSearchCache = new Map<string, PackageCatalogPage>();
+const packageDetailCache = new Map<string, PackageCatalogDetail>();
 
 function listSessions(): Promise<SessionInfo[]> {
   if (!sessionsRequest) {
@@ -46,6 +53,29 @@ function gitSnapshot(cwd: string): Promise<GitSnapshot> {
   return request;
 }
 
+async function searchPackages(query: string, page = 0, pageSize = 30): Promise<PackageCatalogPage> {
+  const key = `${query.trim().toLowerCase()}\u0000${page}\u0000${pageSize}`;
+  const cached = packageSearchCache.get(key);
+  if (cached) return cached;
+  const result = await invoke<PackageCatalogPage>("search_pi_packages", { query, page, pageSize });
+  packageSearchCache.set(key, result);
+  return result;
+}
+
+async function packageDetail(name: string): Promise<PackageCatalogDetail> {
+  const key = name.trim().toLowerCase();
+  const cached = packageDetailCache.get(key);
+  if (cached) return cached;
+  const result = await invoke<PackageCatalogDetail>("pi_package_detail", { name });
+  packageDetailCache.set(key, result);
+  return result;
+}
+
+function clearPackageCatalogCache() {
+  packageSearchCache.clear();
+  packageDetailCache.clear();
+}
+
 export const pi = {
   start: (cwd: string, sessionFile?: string, isolated = false) => invoke<PiStartResult>("pi_start", { cwd, sessionFile, isolated }),
   stop: (runtimeId: string) => invoke<void>("pi_stop", { runtimeId }),
@@ -59,11 +89,14 @@ export const pi = {
   saveProject: (project: ProjectConfig) => invoke<ProjectConfig>("save_project_cmd", { project }),
   removeLocalProject: (path: string) => invoke<void>("remove_local_project_cmd", { path }),
   listScheduledTasks: () => invoke<ScheduledTask[]>("list_scheduled_tasks_cmd"),
+  listScheduledRuns: (taskId?: string, limit = 80) =>
+    invoke<ScheduledRunRecord[]>("list_scheduled_runs_cmd", { taskId: taskId || null, limit }),
   saveScheduledTask: (task: ScheduledTask) => invoke<ScheduledTask>("save_scheduled_task_cmd", { task }),
   deleteScheduledTask: (id: string) => invoke<void>("delete_scheduled_task_cmd", { id }),
   runScheduledTask: (id: string, nextRunAt?: number | null) =>
     invoke<ScheduledRunResult>("run_scheduled_task_cmd", { id, nextRunAt: nextRunAt ?? null }),
   listSessions,
+  sessionHistory: (file: string) => invoke<SessionHistory>("session_history_cmd", { file }),
   sessionMessageTimings: (file: string) => invoke<SessionMessageTiming[]>("session_message_timings_cmd", { file }),
   sessionMessages: (file: string) => invoke<AgentMessage[]>("session_messages_cmd", { file }),
   listArchivedSessions: () => invoke<SessionInfo[]>("list_archived_sessions_cmd"),
@@ -78,13 +111,19 @@ export const pi = {
   checkModelProvider: (id: string) => invoke<ModelProviderCheckResult>("check_model_provider", { id }),
   readAttachment: (file: string) => invoke<AttachmentPayload>("read_attachment", { file }),
   gitSnapshot,
+  gitRepositoryRoot: (cwd: string) => invoke<string | null>("git_repository_root", { cwd }),
   gitRestoreFiles: (cwd: string, paths: string[]) => invoke<void>("git_restore_files", { cwd, paths }),
+  gitStageFiles: (cwd: string, paths: string[]) => invoke<void>("git_stage_files", { cwd, paths }),
+  gitUnstageFiles: (cwd: string, paths: string[]) => invoke<void>("git_unstage_files", { cwd, paths }),
   gitListBranches: (cwd: string) => invoke<GitBranchInfo[]>("git_list_branches", { cwd }),
   gitCheckoutBranch: (cwd: string, branch: string) => invoke<void>("git_checkout_branch", { cwd, branch }),
   gitCompare: (cwd: string, base: string) => invoke<GitSnapshot>("git_compare", { cwd, base }),
   listPullRequests: (cwd: string) => invoke<PullRequestCollection>("list_pull_requests", { cwd }),
   checkoutPullRequest: (cwd: string, number: number) => invoke<void>("checkout_pull_request", { cwd, number }),
   listResources: (cwd: string) => invoke<ResourceItem[]>("list_resources", { cwd }),
+  searchPackages,
+  packageDetail,
+  clearPackageCatalogCache,
   listWorkspaceDir: (cwd: string, path?: string) =>
     invoke<WorkspaceDirEntry[]>("list_workspace_dir", { cwd, path }),
   searchWorkspaceFiles: (cwd: string, query: string) =>
@@ -92,9 +131,12 @@ export const pi = {
   readWorkspaceFile: (cwd: string, path: string) =>
     invoke<WorkspaceFileContent>("read_workspace_file", { cwd, path }),
   openWorkspaceInFileManager: (path: string) => invoke<void>("open_workspace_in_file_manager", { path }),
+  listWorkspaceEditors: () => invoke<WorkspaceEditorInfo[]>("list_workspace_editors"),
+  openWorkspaceInEditor: (path: string, editorId: WorkspaceEditorInfo["id"]) =>
+    invoke<void>("open_workspace_in_editor", { path, editorId }),
   listWorktrees: (cwd: string) => invoke<WorktreeInfo[]>("list_worktrees", { cwd }),
   createWorktree: (cwd: string, base?: string) => invoke<WorktreeInfo>("create_worktree", { cwd, base }),
-  packageAction: (action: "install" | "remove" | "update", source?: string, cwd?: string) => invoke<string>("pi_package_action", { action, source, cwd }),
+  packageAction: (action: "install" | "remove" | "update", source?: string, cwd?: string, scope: "user" | "project" = "user") => invoke<string>("pi_package_action", { action, source, cwd, scope }),
   usageSummary: () => invoke<UsageSummary>("usage_summary"),
 };
 

@@ -3,7 +3,6 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import {
   Archive,
   BarChart3,
-  Blocks,
   Bot,
   CheckCircle2,
   ChevronRight,
@@ -54,7 +53,6 @@ export type SettingsPage =
   | "shortcuts"
   | "archived"
   | "usage"
-  | "plugins"
   | "skills"
   | "mcp"
   | "browser"
@@ -93,8 +91,8 @@ const DEFAULTS: AppSettings = {
   accentColor: "#ffffff",
   backgroundColor: "#0f0f10",
   foregroundColor: "#f5f5f5",
-  uiFont: "Inter, Segoe UI, system-ui, sans-serif",
-  codeFont: "JetBrains Mono, Consolas, monospace",
+  uiFont: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  codeFont: 'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
   uiScale: 100,
   personality: "pragmatic",
   customInstructions: "",
@@ -140,7 +138,6 @@ const NAVIGATION: Array<{ label: string; items: Array<{ id: SettingsPage; label:
     label: "集成",
     items: [
       { id: "providers", label: "模型提供商", icon: ServerCog, keywords: "模型 提供商 API 密钥 endpoint provider model key" },
-      { id: "plugins", label: "插件", icon: Blocks, keywords: "软件包 扩展 提示词 resources plugins extension" },
       { id: "skills", label: "技能", icon: Sparkles, keywords: "技能 skill instructions" },
       { id: "mcp", label: "MCP 服务器", icon: Network, keywords: "mcp tools stdio http server 工具 服务器" },
       { id: "browser", label: "浏览器", icon: Globe2, keywords: "edge chrome chromium 网页 自动化 截图 browser web automation screenshot" },
@@ -363,8 +360,7 @@ export function SettingsModal({
                 setProvidersLoading(false);
               }
             }} />}
-            {active === "plugins" && <ResourcesPage mode="plugins" cwd={cwd} resources={resources} loading={loadingData} onReload={async () => setResources(await pi.listResources(cwd))} />}
-            {active === "skills" && <ResourcesPage mode="skills" cwd={cwd} resources={resources} loading={loadingData} onReload={async () => setResources(await pi.listResources(cwd))} />}
+            {active === "skills" && <SkillsPage resources={resources} loading={loadingData} />}
             {active === "mcp" && <McpPage form={form} update={update} />}
             {active === "browser" && <BrowserPage form={form} update={update} />}
             {active === "computer" && <ComputerPage form={form} update={update} />}
@@ -410,7 +406,7 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
     <Card title="应用">
       <Row title="恢复上次任务" description="启动时重新打开上一次任务及其 Pi 会话；前端刷新时会直接接回仍在运行的任务。"><Switch label="恢复上次任务" checked={form.autoConnect} onChange={(value) => update("autoConnect", value)} /></Row>
       <Row title="运行时防止休眠" description="执行长时间本地任务时保持电脑唤醒。"><Switch label="运行时防止休眠" checked={form.preventSleep} onChange={(value) => update("preventSleep", value)} /></Row>
-      <Row title="默认文件打开方式"><select value={form.defaultFileOpener} onChange={(event) => update("defaultFileOpener", event.target.value as AppSettings["defaultFileOpener"])}><option value="system">系统默认</option><option value="cursor">Cursor</option><option value="vscode">Visual Studio Code</option></select></Row>
+      <Row title="默认文件打开方式"><select value={form.defaultFileOpener} onChange={(event) => update("defaultFileOpener", event.target.value as AppSettings["defaultFileOpener"])}><option value="system">自动选择已安装的编辑器</option><option value="cursor">Cursor</option><option value="vscode">Visual Studio Code</option><option value="antigravity">Antigravity</option><option value="windsurf">Windsurf</option></select></Row>
       <Row title="界面语言"><select value="zh-CN" disabled><option value="zh-CN">简体中文</option></select></Row>
     </Card>
     <Card title="通知">
@@ -657,31 +653,12 @@ function ProvidersPage({ providers, loading, error, onReload }: { providers: Mod
   </>;
 }
 
-function ResourcesPage({ mode, cwd, resources, loading, onReload }: { mode: "plugins" | "skills"; cwd: string; resources: ResourceItem[]; loading: boolean; onReload: () => Promise<void> }) {
-  const [source, setSource] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState("");
-  const kindLabels: Record<string, string> = { package: "软件包", extension: "扩展", skill: "技能", prompt: "提示词" };
-  const scopeLabels: Record<string, string> = { user: "用户", project: "项目" };
-  const visibleResources = resources.filter((item) => mode === "skills" ? item.kind === "skill" : item.kind !== "skill");
-  const action = async (kind: "install" | "remove" | "update", value?: string) => {
-    setBusy(true);
-    try {
-      setResult(await pi.packageAction(kind, value, cwd));
-      await onReload();
-      if (kind === "install") setSource("");
-    } catch (error) {
-      setResult(String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
+function SkillsPage({ resources, loading }: { resources: ResourceItem[]; loading: boolean }) {
+  const skills = resources.filter((item) => item.kind === "skill");
   return <>
-    <PageHeading title={mode === "skills" ? "技能" : "插件"} description={mode === "skills" ? "查看用户和项目中可供 Pi 使用的技能。" : "安装并管理 Pi 软件包、扩展和提示词。"} />
-    {mode === "plugins" && <div className="package-toolbar"><input value={source} onChange={(event) => setSource(event.target.value)} placeholder="npm 软件包、Git 地址或本地路径" /><button className="primary-button" disabled={busy || !source.trim()} onClick={() => void action("install", source)}>{busy ? "正在处理…" : "安装"}</button><button className="secondary-button" disabled={busy} onClick={() => void action("update")}>全部更新</button></div>}
-    {result && <pre className="package-result">{result}</pre>}
-    <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在发现资源…</div> : visibleResources.length === 0 ? <div className="settings-empty">{mode === "skills" ? <Sparkles size={22} /> : <Blocks size={22} />}{mode === "skills" ? "未发现技能" : "未发现插件"}</div> : <div className="resource-list">{visibleResources.map((item) => <button key={`${item.kind}-${item.path}`} onClick={() => item.path.includes(":") && void openPath(item.path).catch(() => undefined)}><span className={`resource-kind ${item.kind}`}>{kindLabels[item.kind] || item.kind}</span><span><strong>{item.name}</strong><small>{item.path}</small></span><em>{scopeLabels[item.scope] || item.scope}</em>{item.kind === "package" ? <span role="button" className="resource-remove" title="移除软件包" onClick={(event) => { event.stopPropagation(); void action("remove", item.path); }}><Trash2 size={13} /></span> : <ChevronRight size={14} />}</button>)}</div>}</Card>
-    <div className="settings-info">{mode === "skills" ? <Sparkles size={17} /> : <Blocks size={17} />}<span>{mode === "skills" ? "技能由 SKILL.md 定义，并按用户或当前项目作用域加载。" : "软件包操作使用 Pi 自身的安装、移除和更新命令；重新连接工作区后即可使用。"}</span></div>
+    <PageHeading title="技能" description="查看用户和当前项目中可供 Pi 调用的技能。" />
+    <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} />正在发现技能…</div> : skills.length === 0 ? <div className="settings-empty"><Sparkles size={22} />未发现技能</div> : <div className="resource-list">{skills.map((item) => <button key={`${item.scope}-${item.path}`} onClick={() => void openPath(item.path).catch(() => undefined)}><span className="resource-kind skill">技能</span><span><strong>{item.name}</strong><small>{item.path}</small></span><em>{item.scope === "project" ? "项目" : "用户"}</em><ChevronRight size={14} /></button>)}</div>}</Card>
+    <div className="settings-info"><Sparkles size={17} /><span>技能由 <code>SKILL.md</code> 定义。项目技能只在当前工作区受信任后加载，软件包内的技能请在“插件”中管理。</span></div>
   </>;
 }
 

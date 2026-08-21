@@ -13,6 +13,7 @@ import {
   Laptop,
   ListTree,
   LoaderCircle,
+  Minus,
   MonitorCog,
   MessageSquarePlus,
   Plus,
@@ -96,6 +97,8 @@ export function InspectorPanel({
   onReviewComment,
   onCommitOrPush,
   onRestoreFiles,
+  onStageFiles,
+  onUnstageFiles,
   onEnvironmentChange,
   onSwitchWorkspace,
   onRunCommand,
@@ -137,6 +140,8 @@ export function InspectorPanel({
   onReviewComment?: (path: string, line: number | null, comment: string) => void;
   onCommitOrPush: () => void;
   onRestoreFiles: (paths?: string[]) => void;
+  onStageFiles: (paths: string[]) => Promise<void>;
+  onUnstageFiles: (paths: string[]) => Promise<void>;
   onEnvironmentChange: (environment: "local" | "worktree") => void;
   onSwitchWorkspace: (path: string) => void;
   onRunCommand: (command: string, excludeFromContext?: boolean) => void;
@@ -158,6 +163,7 @@ export function InspectorPanel({
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [commentTarget, setCommentTarget] = useState<{ row: number; line: number | null } | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
+  const [indexBusy, setIndexBusy] = useState<string | null>(null);
   const [command, setCommand] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -320,6 +326,20 @@ export function InspectorPanel({
   }, [git?.diff, selectedFile]);
 
   const selectedStats = selectedFile ? fileStats.get(normalizePath(selectedFile)) : undefined;
+  const selectedChange = selectedFile ? git?.files.find((file) => file.path === selectedFile) : undefined;
+  const stagedPaths = useMemo(() => git?.files.filter((file) => file.staged).map((file) => file.path) ?? [], [git?.files]);
+  const unstagedPaths = useMemo(() => git?.files.filter((file) => file.unstaged).map((file) => file.path) ?? [], [git?.files]);
+
+  const updateIndex = async (mode: "stage" | "unstage", paths: string[]) => {
+    if (!paths.length || indexBusy) return;
+    setIndexBusy(`${mode}:${paths.join("\n")}`);
+    try {
+      if (mode === "stage") await onStageFiles(paths);
+      else await onUnstageFiles(paths);
+    } finally {
+      setIndexBusy(null);
+    }
+  };
 
   const diffRows = useMemo(() => parseDiffRows(selectedDiff), [selectedDiff]);
 
@@ -586,6 +606,12 @@ export function InspectorPanel({
               ) : (git?.isRepository ? "无未提交更改" : "不是 Git 仓库")}
             </span>
             <div className="changes-actions">
+              <button className="icon-button" disabled={!unstagedPaths.length || Boolean(indexBusy)} onClick={() => void updateIndex("stage", unstagedPaths)} title="暂存全部更改">
+                {indexBusy?.startsWith("stage:") ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}
+              </button>
+              <button className="icon-button" disabled={!stagedPaths.length || Boolean(indexBusy)} onClick={() => void updateIndex("unstage", stagedPaths)} title="取消暂存全部">
+                {indexBusy?.startsWith("unstage:") ? <LoaderCircle className="spin" size={13} /> : <Minus size={13} />}
+              </button>
               <button className="secondary-button compact" disabled={!hasChanges} onClick={() => onRestoreFiles()} title="撤销全部本地更改">
                 <Undo2 size={13} /> 撤销
               </button>
@@ -600,30 +626,27 @@ export function InspectorPanel({
               {git!.files.map((file) => {
                 const stats = fileStats.get(normalizePath(file.path));
                 return (
-                  <button
+                  <div
                     key={`${file.status}-${file.path}`}
-                    type="button"
                     className="env-file-row"
-                    title={`${file.path} · 查看差异`}
-                    onClick={() => setSelectedFile(file.path)}
                   >
-                    <span className={`git-status status-${file.status.trim().charAt(0).toLowerCase() || "u"}`}>{file.status || "?"}</span>
-                    <span className="env-file-path">{file.path}</span>
-                    <span className="env-file-stats">
-                      {stats && stats.add > 0 && <em className="diff-add-stat">+{stats.add}</em>}
-                      {stats && stats.del > 0 && <em className="diff-del-stat">-{stats.del}</em>}
+                    <button type="button" className="env-file-open" title={`${file.path} · 查看差异`} onClick={() => setSelectedFile(file.path)}>
+                      <span className={`git-status status-${file.status.trim().charAt(0).toLowerCase() || "u"}`}>{file.status || "?"}</span>
+                      <span className="env-file-path">{file.path}</span>
+                      <span className="env-file-state" title={file.staged && file.unstaged ? "包含已暂存和未暂存更改" : file.staged ? "已暂存" : file.untracked ? "未跟踪" : "未暂存"}>
+                        {file.staged && <em>S</em>}{file.unstaged && <em>{file.untracked ? "U" : "M"}</em>}
+                      </span>
+                      <span className="env-file-stats">
+                        {stats && stats.add > 0 && <em className="diff-add-stat">+{stats.add}</em>}
+                        {stats && stats.del > 0 && <em className="diff-del-stat">-{stats.del}</em>}
+                      </span>
+                    </button>
+                    <span className="env-file-index-actions">
+                      {file.unstaged && <button type="button" disabled={Boolean(indexBusy)} title="暂存此文件" onClick={() => void updateIndex("stage", [file.path])}><Plus size={12} /></button>}
+                      {file.staged && <button type="button" disabled={Boolean(indexBusy)} title="取消暂存此文件" onClick={() => void updateIndex("unstage", [file.path])}><Minus size={12} /></button>}
+                      <button type="button" className="danger" title="撤销此文件" onClick={() => onRestoreFiles([file.path])}><RotateCcw size={12} /></button>
                     </span>
-                    <span
-                      className="env-file-restore"
-                      title="撤销此文件"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onRestoreFiles([file.path]);
-                      }}
-                    >
-                      <RotateCcw size={12} />
-                    </span>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -646,6 +669,8 @@ export function InspectorPanel({
               ) : "差异"}
             </span>
             <div className="changes-actions">
+              {selectedChange?.unstaged && <button className="secondary-button compact" disabled={Boolean(indexBusy)} onClick={() => void updateIndex("stage", [selectedFile])} title="暂存此文件"><Plus size={13} /> 暂存</button>}
+              {selectedChange?.staged && <button className="secondary-button compact" disabled={Boolean(indexBusy)} onClick={() => void updateIndex("unstage", [selectedFile])} title="取消暂存此文件"><Minus size={13} /> 取消暂存</button>}
               <button className="secondary-button compact" onClick={() => onRestoreFiles([selectedFile])} title="撤销此文件的本地更改">
                 <Undo2 size={13} /> 撤销
               </button>

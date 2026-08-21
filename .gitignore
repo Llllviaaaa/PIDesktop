@@ -46,3 +46,6 @@ id_ed25519
 *.njsproj
 *.sln
 *.sw?
+
+# Local UI comparison captures and driver artifacts
+docs/codex-ui-refs/live-compare/

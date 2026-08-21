@@ -1,10 +1,11 @@
 #[cfg(windows)]
 mod computer;
 mod pi;
+mod scheduler;
 mod secret_store;
 mod terminal;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -16,13 +17,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
-use pi::rpc::PiRpcClient;
+use pi::rpc::{build_pi_print_command, PiRpcClient};
 use pi::sessions::{
-    list_sessions, parse_session_file, session_message_timings, session_messages, trash_session,
-    validate_session_path, SessionInfo, SessionMessageTiming,
+    list_sessions, parse_session_file, session_history, session_message_timings, session_messages,
+    trash_session, validate_session_path, SessionHistory, SessionInfo, SessionMessageTiming,
 };
+use scheduler::ScheduledRunRecord;
 
 const GUARD_EXTENSION: &str = include_str!("../resources/pidesktop-guard.ts");
 const RULES_MODULE: &str = include_str!("../resources/pidesktop-rules.ts");
@@ -34,6 +36,7 @@ const MCP_SECRET_PLACEHOLDER: &str = "••••••••";
 #[cfg(windows)]
 static KEEP_AWAKE: AtomicBool = AtomicBool::new(false);
 static NEXT_RUNTIME_ID: AtomicU64 = AtomicU64::new(1);
+const MAX_CONCURRENT_SCHEDULED_RUNS: usize = 2;
 
 #[cfg(windows)]
 unsafe extern "system" {
@@ -127,6 +130,12 @@ struct McpServerConfig {
     trusted_read_only: bool,
 }
 
+const CODEX_UI_FONT: &str = "-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif";
+const CODEX_CODE_FONT: &str =
+    "ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace";
+const LEGACY_UI_FONT: &str = "Inter, Segoe UI, system-ui, sans-serif";
+const LEGACY_CODE_FONT: &str = "JetBrains Mono, Consolas, monospace";
+
 impl Default for McpServerConfig {
     fn default() -> Self {
         Self {
@@ -176,8 +185,8 @@ impl Default for AppSettings {
             accent_color: "#111111".to_string(),
             background_color: "#ffffff".to_string(),
             foreground_color: "#1a1a1a".to_string(),
-            ui_font: "Inter, Segoe UI, system-ui, sans-serif".to_string(),
-            code_font: "JetBrains Mono, Consolas, monospace".to_string(),
+            ui_font: CODEX_UI_FONT.to_string(),
+            code_font: CODEX_CODE_FONT.to_string(),
             ui_scale: 100,
             personality: "pragmatic".to_string(),
             custom_instructions: String::new(),
@@ -391,7 +400,7 @@ struct ProjectConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-struct ScheduledTask {
+pub(crate) struct ScheduledTask {
     id: String,
     name: String,
     prompt: String,
@@ -400,6 +409,8 @@ struct ScheduledTask {
     hour: u8,
     minute: u8,
     weekday: u8,
+    #[serde(default = "default_scheduled_permission_mode")]
+    permission_mode: String,
     enabled: bool,
     last_run_at: Option<u64>,
     next_run_at: Option<u64>,
@@ -407,11 +418,20 @@ struct ScheduledTask {
     last_message: String,
 }
 
+fn default_scheduled_permission_mode() -> String {
+    "ask".to_string()
+}
+
+fn is_safe_scheduled_permission_mode(mode: &str) -> bool {
+    matches!(mode, "read-only" | "ask" | "workspace-write")
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ScheduledRunResult {
     success: bool,
     output: String,
+    run: ScheduledRunRecord,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -442,6 +462,7 @@ struct AppState {
     settings: Mutex<AppSettings>,
     projects: Mutex<Vec<ProjectConfig>>,
     scheduled_tasks: Mutex<Vec<ScheduledTask>>,
+    running_scheduled_tasks: Mutex<HashSet<String>>,
     terminal_sessions: terminal::TerminalSessions,
 }
 
@@ -467,8 +488,15 @@ fn scheduled_tasks_path() -> PathBuf {
     app_config_dir().join("scheduled-tasks.json")
 }
 
+fn scheduled_runs_path() -> PathBuf {
+    app_config_dir().join("scheduled-runs.sqlite3")
+}
+
 fn normalize_path_key(path: &str) -> String {
-    path.trim().trim_end_matches(['\\', '/']).replace('\\', "/").to_lowercase()
+    path.trim()
+        .trim_end_matches(['\\', '/'])
+        .replace('\\', "/")
+        .to_lowercase()
 }
 
 fn load_json_list<T: for<'de> Deserialize<'de>>(path: &Path) -> Vec<T> {
@@ -565,7 +593,12 @@ fn resolve_mcp_secret_placeholders(
                 *value = existing
                     .and_then(|item| item.env.get(key))
                     .cloned()
-                    .ok_or_else(|| format!("MCP server {} credential {key} must be re-entered", server.id))?;
+                    .ok_or_else(|| {
+                        format!(
+                            "MCP server {} credential {key} must be re-entered",
+                            server.id
+                        )
+                    })?;
             }
         }
         for (key, value) in &mut server.headers {
@@ -573,7 +606,9 @@ fn resolve_mcp_secret_placeholders(
                 *value = existing
                     .and_then(|item| item.headers.get(key))
                     .cloned()
-                    .ok_or_else(|| format!("MCP server {} header {key} must be re-entered", server.id))?;
+                    .ok_or_else(|| {
+                        format!("MCP server {} header {key} must be re-entered", server.id)
+                    })?;
             }
         }
     }
@@ -650,14 +685,31 @@ fn load_settings() -> AppSettings {
     settings = without_mcp_secrets(&settings);
     apply_mcp_secrets(&mut settings, &secrets);
 
+    let mut typography_migrated = false;
+    if settings.ui_font.trim() == LEGACY_UI_FONT {
+        settings.ui_font = CODEX_UI_FONT.to_string();
+        typography_migrated = true;
+    }
+    if settings.code_font.trim() == LEGACY_CODE_FONT {
+        settings.code_font = CODEX_CODE_FONT.to_string();
+        typography_migrated = true;
+    }
+
     if !legacy_secrets.is_empty() {
         match save_mcp_secrets(&secrets) {
             Ok(()) => {
                 if let Err(err) = write_public_settings(&settings) {
-                    eprintln!("PIDesktop could not remove migrated MCP credentials from settings: {err}");
+                    eprintln!(
+                        "PIDesktop could not remove migrated MCP credentials from settings: {err}"
+                    );
                 }
             }
             Err(err) => eprintln!("PIDesktop could not migrate MCP credentials: {err}"),
+        }
+    }
+    if typography_migrated {
+        if let Err(err) = write_public_settings(&settings) {
+            eprintln!("PIDesktop could not migrate Codex typography defaults: {err}");
         }
     }
     let _ = fs::remove_file(app_config_dir().join("mcp-servers.json"));
@@ -713,7 +765,10 @@ fn register_project_cmd(state: State<'_, AppState>, path: String) -> Result<Proj
 }
 
 #[tauri::command]
-fn save_project_cmd(state: State<'_, AppState>, project: ProjectConfig) -> Result<ProjectConfig, String> {
+fn save_project_cmd(
+    state: State<'_, AppState>,
+    project: ProjectConfig,
+) -> Result<ProjectConfig, String> {
     if project.path.trim().is_empty() {
         return Err("project path is required".to_string());
     }
@@ -756,6 +811,211 @@ fn remove_local_project_cmd(state: State<'_, AppState>, path: String) -> Result<
     save_json_list(&projects_path(), &projects)
 }
 
+fn current_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn truncate_scheduled_output(value: &str, limit: usize) -> String {
+    let mut chars = value.chars();
+    let mut result: String = chars.by_ref().take(limit).collect();
+    if chars.next().is_some() {
+        result.push_str("\n... output truncated by PIDesktop");
+    }
+    result
+}
+
+struct ScheduledTaskRunGuard<'a> {
+    running: &'a Mutex<HashSet<String>>,
+    id: String,
+}
+
+impl Drop for ScheduledTaskRunGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut running) = self.running.lock() {
+            running.remove(&self.id);
+        }
+    }
+}
+
+fn reserve_scheduled_task<'a>(
+    state: &'a AppState,
+    id: &str,
+) -> Result<ScheduledTaskRunGuard<'a>, String> {
+    let mut running = state
+        .running_scheduled_tasks
+        .lock()
+        .map_err(|_| "scheduled runner state lock poisoned".to_string())?;
+    if running.len() >= MAX_CONCURRENT_SCHEDULED_RUNS {
+        return Err("scheduled runner is at its concurrency limit".to_string());
+    }
+    if !running.insert(id.to_string()) {
+        return Err("scheduled task is already running".to_string());
+    }
+    Ok(ScheduledTaskRunGuard {
+        running: &state.running_scheduled_tasks,
+        id: id.to_string(),
+    })
+}
+
+fn emit_scheduled_task(app: &AppHandle, task: &ScheduledTask) {
+    let _ = app.emit("scheduled-task-updated", task);
+}
+
+fn detect_scheduled_session(
+    settings: &AppSettings,
+    task: &ScheduledTask,
+    before: &HashMap<String, Option<u64>>,
+) -> Option<String> {
+    list_sessions(&settings.session_dir)
+        .into_iter()
+        .filter(|session| normalize_path_key(&session.cwd) == normalize_path_key(&task.cwd))
+        .filter(|session| {
+            before
+                .get(&session.file)
+                .map(|previous| session.updated_at > *previous)
+                .unwrap_or(true)
+        })
+        .max_by_key(|session| session.updated_at.unwrap_or_default())
+        .map(|session| session.file)
+}
+
+fn execute_scheduled_task(
+    app: &AppHandle,
+    state: &AppState,
+    id: &str,
+    trigger: &str,
+) -> Result<ScheduledRunResult, String> {
+    let _reservation = reserve_scheduled_task(state, id)?;
+    let started_at = current_time_ms();
+    let task = {
+        let tasks = state
+            .scheduled_tasks
+            .lock()
+            .map_err(|_| "scheduled task state lock poisoned".to_string())?;
+        tasks
+            .iter()
+            .find(|task| task.id == id)
+            .cloned()
+            .ok_or_else(|| "scheduled task not found".to_string())?
+    };
+    let mut run = scheduler::begin_run(&scheduled_runs_path(), &task, trigger, started_at)?;
+
+    let running_task = {
+        let mut tasks = state
+            .scheduled_tasks
+            .lock()
+            .map_err(|_| "scheduled task state lock poisoned".to_string())?;
+        let entry = tasks
+            .iter_mut()
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| "scheduled task not found".to_string())?;
+        entry.last_run_at = Some(started_at);
+        if trigger == "scheduled" {
+            entry.next_run_at = entry
+                .enabled
+                .then(|| scheduler::next_scheduled_run(entry, started_at.saturating_add(1_000)));
+        } else if entry.enabled && entry.next_run_at.is_none() {
+            entry.next_run_at = Some(scheduler::next_scheduled_run(entry, started_at));
+        }
+        entry.last_status = "running".to_string();
+        entry.last_message.clear();
+        let snapshot = entry.clone();
+        save_json_list(&scheduled_tasks_path(), &tasks)?;
+        snapshot
+    };
+    emit_scheduled_task(app, &running_task);
+    let _ = app.emit("scheduled-run-updated", &run);
+
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?
+        .clone();
+    let before_sessions: HashMap<String, Option<u64>> = list_sessions(&settings.session_dir)
+        .into_iter()
+        .filter(|session| normalize_path_key(&session.cwd) == normalize_path_key(&task.cwd))
+        .map(|session| (session.file, session.updated_at))
+        .collect();
+    let permission_mode = if is_safe_scheduled_permission_mode(&task.permission_mode) {
+        task.permission_mode.as_str()
+    } else {
+        "ask"
+    };
+    let execution = (|| -> Result<std::process::Output, String> {
+        let launch = build_pi_launch_config(&settings, &task.cwd, permission_mode, false)?;
+        let mut command = build_pi_print_command(
+            &settings.pi_binary,
+            &task.cwd,
+            &launch.extra_args,
+            &task.prompt,
+        );
+        command.envs(launch.environment.iter().map(|(key, value)| (key, value)));
+        command
+            .output()
+            .map_err(|err| format!("failed to run scheduled Pi task: {err}"))
+    })();
+    let (success, exit_code, message) = match execution {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let success = output.status.success();
+            let message = if success {
+                if stdout.is_empty() {
+                    stderr
+                } else {
+                    stdout
+                }
+            } else if stderr.is_empty() {
+                format!("Pi exited with {}", output.status.code().unwrap_or(-1))
+            } else {
+                stderr
+            };
+            (
+                success,
+                output.status.code(),
+                redact_runtime_output(&settings, &message),
+            )
+        }
+        Err(err) => (false, None, err),
+    };
+    let finished_at = current_time_ms();
+    run.status = if success { "success" } else { "error" }.to_string();
+    run.finished_at = Some(finished_at);
+    run.duration_ms = Some(finished_at.saturating_sub(started_at));
+    run.exit_code = exit_code;
+    run.output = truncate_scheduled_output(&message, 100_000);
+    run.session_file = detect_scheduled_session(&settings, &task, &before_sessions);
+    let history_result = scheduler::finish_run(&scheduled_runs_path(), &run);
+
+    let task_result = (|| -> Result<Option<ScheduledTask>, String> {
+        let mut tasks = state
+            .scheduled_tasks
+            .lock()
+            .map_err(|_| "scheduled task state lock poisoned".to_string())?;
+        let completed = tasks.iter_mut().find(|entry| entry.id == id).map(|entry| {
+            entry.last_status = run.status.clone();
+            entry.last_message = truncate_scheduled_output(&message, 2_000);
+            entry.clone()
+        });
+        save_json_list(&scheduled_tasks_path(), &tasks)?;
+        Ok(completed)
+    })();
+    if let Ok(Some(completed_task)) = &task_result {
+        emit_scheduled_task(app, &completed_task);
+    }
+    let _ = app.emit("scheduled-run-updated", &run);
+    task_result?;
+    history_result?;
+    Ok(ScheduledRunResult {
+        success,
+        output: message,
+        run,
+    })
+}
+
 #[tauri::command]
 fn list_scheduled_tasks_cmd(state: State<'_, AppState>) -> Result<Vec<ScheduledTask>, String> {
     state
@@ -766,7 +1026,20 @@ fn list_scheduled_tasks_cmd(state: State<'_, AppState>) -> Result<Vec<ScheduledT
 }
 
 #[tauri::command]
+fn list_scheduled_runs_cmd(
+    task_id: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<ScheduledRunRecord>, String> {
+    scheduler::list_runs(
+        &scheduled_runs_path(),
+        task_id.as_deref(),
+        limit.unwrap_or(80),
+    )
+}
+
+#[tauri::command]
 fn save_scheduled_task_cmd(
+    app: AppHandle,
     state: State<'_, AppState>,
     mut task: ScheduledTask,
 ) -> Result<ScheduledTask, String> {
@@ -779,12 +1052,23 @@ fn save_scheduled_task_cmd(
     if !Path::new(&task.cwd).is_dir() {
         return Err("task workspace does not exist".to_string());
     }
-    if !matches!(task.frequency.as_str(), "hourly" | "daily" | "weekdays" | "weekly") {
+    if !matches!(
+        task.frequency.as_str(),
+        "hourly" | "daily" | "weekdays" | "weekly"
+    ) {
         return Err("unsupported task frequency".to_string());
+    }
+    if !is_safe_scheduled_permission_mode(&task.permission_mode) {
+        return Err(
+            "scheduled task permission mode must be read-only, ask, or workspace-write".to_string(),
+        );
     }
     task.hour = task.hour.min(23);
     task.minute = task.minute.min(59);
     task.weekday = task.weekday.min(6);
+    task.next_run_at = task
+        .enabled
+        .then(|| scheduler::next_scheduled_run(&task, current_time_ms()));
     if task.id.trim().is_empty() {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -802,84 +1086,106 @@ fn save_scheduled_task_cmd(
         tasks.push(task.clone());
     }
     save_json_list(&scheduled_tasks_path(), &tasks)?;
+    emit_scheduled_task(&app, &task);
     Ok(task)
 }
 
 #[tauri::command]
-fn delete_scheduled_task_cmd(state: State<'_, AppState>, id: String) -> Result<(), String> {
+fn delete_scheduled_task_cmd(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
     let mut tasks = state
         .scheduled_tasks
         .lock()
         .map_err(|_| "scheduled task state lock poisoned".to_string())?;
     tasks.retain(|task| task.id != id);
-    save_json_list(&scheduled_tasks_path(), &tasks)
+    save_json_list(&scheduled_tasks_path(), &tasks)?;
+    let _ = app.emit(
+        "scheduled-task-updated",
+        serde_json::json!({ "id": id, "deleted": true }),
+    );
+    Ok(())
 }
 
 #[tauri::command]
-fn run_scheduled_task_cmd(
-    state: State<'_, AppState>,
+async fn run_scheduled_task_cmd(
+    app: AppHandle,
     id: String,
     next_run_at: Option<u64>,
 ) -> Result<ScheduledRunResult, String> {
-    let started_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let task = {
-        let mut tasks = state
-            .scheduled_tasks
-            .lock()
-            .map_err(|_| "scheduled task state lock poisoned".to_string())?;
-        let task = tasks
-            .iter_mut()
-            .find(|task| task.id == id)
-            .ok_or_else(|| "scheduled task not found".to_string())?;
-        task.last_run_at = Some(started_at);
-        task.next_run_at = next_run_at;
-        task.last_status = "running".to_string();
-        task.last_message.clear();
-        let snapshot = task.clone();
-        save_json_list(&scheduled_tasks_path(), &tasks)?;
-        snapshot
-    };
-    let settings = state
-        .settings
+    let _ = next_run_at;
+    let runner_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = runner_app.state::<AppState>();
+        execute_scheduled_task(&runner_app, &state, &id, "manual")
+    })
+    .await
+    .map_err(|err| format!("scheduled task worker failed: {err}"))?
+}
+
+fn initialize_scheduled_runner(app: &AppHandle) -> Result<(), String> {
+    let now = current_time_ms();
+    scheduler::recover_interrupted_runs(&scheduled_runs_path(), now)?;
+    let state = app.state::<AppState>();
+    let mut tasks = state
+        .scheduled_tasks
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
-        .clone();
-    let execution = hidden_command(&settings.pi_binary)
-        .arg("-p")
-        .arg(&task.prompt)
-        .current_dir(&task.cwd)
-        .output();
-    let (success, message) = match execution {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let success = output.status.success();
-            let message = if success {
-                if stdout.is_empty() { stderr } else { stdout }
-            } else if stderr.is_empty() {
-                format!("Pi exited with {}", output.status.code().unwrap_or(-1))
-            } else {
-                stderr
-            };
-            (success, redact_runtime_output(&settings, &message))
+        .map_err(|_| "scheduled task state lock poisoned".to_string())?;
+    for task in tasks.iter_mut() {
+        if !is_safe_scheduled_permission_mode(&task.permission_mode) {
+            task.permission_mode = default_scheduled_permission_mode();
         }
-        Err(err) => (false, format!("failed to run scheduled Pi task: {err}")),
-    };
-    {
-        let mut tasks = state
-            .scheduled_tasks
-            .lock()
-            .map_err(|_| "scheduled task state lock poisoned".to_string())?;
-        if let Some(entry) = tasks.iter_mut().find(|entry| entry.id == id) {
-            entry.last_status = if success { "success" } else { "error" }.to_string();
-            entry.last_message = message.chars().take(2000).collect();
+        if task.last_status == "running" {
+            task.last_status = "interrupted".to_string();
+            task.last_message = "PIDesktop exited before this run completed.".to_string();
         }
-        save_json_list(&scheduled_tasks_path(), &tasks)?;
+        if task.enabled {
+            if task.next_run_at.is_none() {
+                task.next_run_at = Some(scheduler::next_scheduled_run(task, now));
+            }
+        } else {
+            task.next_run_at = None;
+        }
     }
-    Ok(ScheduledRunResult { success, output: message })
+    save_json_list(&scheduled_tasks_path(), &tasks)
+}
+
+fn run_due_scheduled_tasks(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let available = state
+        .running_scheduled_tasks
+        .lock()
+        .map(|running| MAX_CONCURRENT_SCHEDULED_RUNS.saturating_sub(running.len()))
+        .unwrap_or(0);
+    if available == 0 {
+        return;
+    }
+    let now = current_time_ms();
+    let due_ids: Vec<String> = state
+        .scheduled_tasks
+        .lock()
+        .map(|tasks| {
+            tasks
+                .iter()
+                .filter(|task| {
+                    task.enabled && task.next_run_at.is_some_and(|next_run| next_run <= now)
+                })
+                .take(available)
+                .map(|task| task.id.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    for id in due_ids {
+        let runner_app = app.clone();
+        std::thread::spawn(move || {
+            let state = runner_app.state::<AppState>();
+            if let Err(error) = execute_scheduled_task(&runner_app, &state, &id, "scheduled") {
+                eprintln!("scheduled task {id} failed: {error}");
+            }
+        });
+    }
 }
 
 fn ensure_guard_extension() -> Result<PathBuf, String> {
@@ -929,6 +1235,128 @@ fn ensure_personal_instructions(contents: &str) -> Result<PathBuf, String> {
     fs::write(&path, contents)
         .map_err(|err| format!("failed to write personal instructions: {err}"))?;
     Ok(path)
+}
+
+struct PiLaunchConfig {
+    extra_args: Vec<String>,
+    environment: Vec<(String, String)>,
+    sensitive_values: Vec<String>,
+}
+
+fn build_pi_launch_config(
+    settings: &AppSettings,
+    cwd: &str,
+    permission_mode: &str,
+    is_quick_chat: bool,
+) -> Result<PiLaunchConfig, String> {
+    let guard_extension = ensure_guard_extension()?;
+    let browser_extension = settings
+        .browser_enabled
+        .then(ensure_browser_extension)
+        .transpose()?;
+    let computer_extension = settings
+        .computer_enabled
+        .then(ensure_computer_extension)
+        .transpose()?;
+    let mcp_extension = settings
+        .mcp_enabled
+        .then(ensure_mcp_extension)
+        .transpose()?;
+    let mcp_config = if settings.mcp_enabled {
+        let mut raw = serde_json::to_vec(&settings.mcp_servers)
+            .map_err(|err| format!("failed to serialize MCP runtime config: {err}"))?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&raw);
+        raw.fill(0);
+        encoded
+    } else {
+        String::new()
+    };
+    let mut sensitive_values = runtime_secret_values(settings);
+    if !mcp_config.is_empty() {
+        sensitive_values.push(mcp_config.clone());
+    }
+    let extra_args = settings.rpc_extra_args(
+        &guard_extension,
+        browser_extension.as_deref(),
+        computer_extension.as_deref(),
+        mcp_extension.as_deref(),
+    );
+    let environment = vec![
+        (
+            "PIDESKTOP_PERMISSION_MODE".to_string(),
+            permission_mode.to_string(),
+        ),
+        ("PIDESKTOP_WORKSPACE_ROOT".to_string(), cwd.to_string()),
+        (
+            "PIDESKTOP_RULE_ALWAYS_CONFIRM_SHELL".to_string(),
+            if settings.always_confirm_shell {
+                "1"
+            } else {
+                "0"
+            }
+            .to_string(),
+        ),
+        (
+            "PIDESKTOP_RULE_BLOCK_OUTSIDE_WRITE".to_string(),
+            if settings.block_write_outside_workspace {
+                "1"
+            } else {
+                "0"
+            }
+            .to_string(),
+        ),
+        (
+            "PIDESKTOP_RULE_SHELL_ALLOWLIST".to_string(),
+            settings.shell_allow_prefixes.clone(),
+        ),
+        (
+            "PIDESKTOP_QUICK_CHAT".to_string(),
+            if is_quick_chat { "1" } else { "0" }.to_string(),
+        ),
+        (
+            "PIDESKTOP_BROWSER_HEADLESS".to_string(),
+            if settings.browser_headless { "1" } else { "0" }.to_string(),
+        ),
+        (
+            "PIDESKTOP_BROWSER_CONFIRM".to_string(),
+            if settings.browser_confirm_actions {
+                "1"
+            } else {
+                "0"
+            }
+            .to_string(),
+        ),
+        (
+            "PIDESKTOP_BROWSER_EXECUTABLE".to_string(),
+            settings.browser_executable.clone(),
+        ),
+        (
+            "PIDESKTOP_COMPUTER_CONFIRM".to_string(),
+            if settings.computer_confirm_actions {
+                "1"
+            } else {
+                "0"
+            }
+            .to_string(),
+        ),
+        (
+            "PIDESKTOP_COMPUTER_HELPER".to_string(),
+            std::env::current_exe()
+                .map_err(|err| format!("failed to locate Pi Desktop executable: {err}"))?
+                .to_string_lossy()
+                .to_string(),
+        ),
+        ("PIDESKTOP_MCP_CONFIG_B64".to_string(), mcp_config),
+        (
+            "PIDESKTOP_MCP_CONFIRM".to_string(),
+            if settings.mcp_confirm_tools { "1" } else { "0" }.to_string(),
+        ),
+    ];
+    Ok(PiLaunchConfig {
+        extra_args,
+        environment,
+        sensitive_values,
+    })
 }
 
 #[tauri::command]
@@ -1002,131 +1430,29 @@ fn pi_start(
         .clone();
     #[cfg(windows)]
     KEEP_AWAKE.store(settings.prevent_sleep, Ordering::Relaxed);
-    let guard_extension = ensure_guard_extension()?;
-    let browser_extension = settings
-        .browser_enabled
-        .then(ensure_browser_extension)
-        .transpose()?;
-    let computer_extension = settings
-        .computer_enabled
-        .then(ensure_computer_extension)
-        .transpose()?;
-    let mcp_extension = settings
-        .mcp_enabled
-        .then(ensure_mcp_extension)
-        .transpose()?;
-    let mcp_config = if settings.mcp_enabled {
-        let mut raw = serde_json::to_vec(&settings.mcp_servers)
-            .map_err(|err| format!("failed to serialize MCP runtime config: {err}"))?;
-        let encoded = base64::engine::general_purpose::STANDARD.encode(&raw);
-        raw.fill(0);
-        encoded
-    } else {
-        String::new()
-    };
-    let mut sensitive_values = runtime_secret_values(&settings);
-    if !mcp_config.is_empty() {
-        sensitive_values.push(mcp_config.clone());
-    }
-    let mut extra_args = settings.rpc_extra_args(
-        &guard_extension,
-        browser_extension.as_deref(),
-        computer_extension.as_deref(),
-        mcp_extension.as_deref(),
-    );
-    let mut initial_session_file = None;
-    let mut session_loaded = false;
-    if let Some(requested_session) = session_file.as_deref() {
-        let validated = validate_session_path(&settings.session_dir, requested_session)?;
-        let validated = validated.to_string_lossy().to_string();
-        if is_isolated {
-            extra_args.extend(["--fork".to_string(), validated]);
-        } else {
-            extra_args.extend(["--session".to_string(), validated.clone()]);
-            initial_session_file = Some(validated);
-            session_loaded = true;
-        }
-    }
     let quick_root = app_config_dir().join("quick-chat");
     let is_quick_chat = cwd_path
         .canonicalize()
         .ok()
         .zip(quick_root.canonicalize().ok())
         .is_some_and(|(active, quick)| active == quick);
-    let environment = vec![
-        (
-            "PIDESKTOP_PERMISSION_MODE".to_string(),
-            settings.permission_mode.clone(),
-        ),
-        ("PIDESKTOP_WORKSPACE_ROOT".to_string(), cwd.clone()),
-        (
-            "PIDESKTOP_RULE_ALWAYS_CONFIRM_SHELL".to_string(),
-            if settings.always_confirm_shell {
-                "1"
-            } else {
-                "0"
-            }
-            .to_string(),
-        ),
-        (
-            "PIDESKTOP_RULE_BLOCK_OUTSIDE_WRITE".to_string(),
-            if settings.block_write_outside_workspace {
-                "1"
-            } else {
-                "0"
-            }
-            .to_string(),
-        ),
-        (
-            "PIDESKTOP_RULE_SHELL_ALLOWLIST".to_string(),
-            settings.shell_allow_prefixes.clone(),
-        ),
-        (
-            "PIDESKTOP_QUICK_CHAT".to_string(),
-            if is_quick_chat { "1" } else { "0" }.to_string(),
-        ),
-        (
-            "PIDESKTOP_BROWSER_HEADLESS".to_string(),
-            if settings.browser_headless { "1" } else { "0" }.to_string(),
-        ),
-        (
-            "PIDESKTOP_BROWSER_CONFIRM".to_string(),
-            if settings.browser_confirm_actions {
-                "1"
-            } else {
-                "0"
-            }
-            .to_string(),
-        ),
-        (
-            "PIDESKTOP_BROWSER_EXECUTABLE".to_string(),
-            settings.browser_executable.clone(),
-        ),
-        (
-            "PIDESKTOP_COMPUTER_CONFIRM".to_string(),
-            if settings.computer_confirm_actions {
-                "1"
-            } else {
-                "0"
-            }
-            .to_string(),
-        ),
-        (
-            "PIDESKTOP_COMPUTER_HELPER".to_string(),
-            std::env::current_exe()
-                .map_err(|err| format!("failed to locate Pi Desktop executable: {err}"))?
-                .to_string_lossy()
-                .to_string(),
-        ),
-        (
-            "PIDESKTOP_MCP_CONFIG_B64".to_string(),
-            mcp_config,
-        ),
-        (
-            "PIDESKTOP_MCP_CONFIRM".to_string(),
-            if settings.mcp_confirm_tools { "1" } else { "0" }.to_string(),
-        ),
-    ];
+    let mut launch =
+        build_pi_launch_config(&settings, &cwd, &settings.permission_mode, is_quick_chat)?;
+    let mut initial_session_file = None;
+    let mut session_loaded = false;
+    if let Some(requested_session) = session_file.as_deref() {
+        let validated = validate_session_path(&settings.session_dir, requested_session)?;
+        let validated = validated.to_string_lossy().to_string();
+        if is_isolated {
+            launch.extra_args.extend(["--fork".to_string(), validated]);
+        } else {
+            launch
+                .extra_args
+                .extend(["--session".to_string(), validated.clone()]);
+            initial_session_file = Some(validated);
+            session_loaded = true;
+        }
+    }
     let runtime_id = format!(
         "runtime-{}-{}",
         std::process::id(),
@@ -1137,9 +1463,9 @@ fn pi_start(
         &runtime_id,
         &settings.pi_binary,
         &cwd,
-        &extra_args,
-        &environment,
-        &sensitive_values,
+        &launch.extra_args,
+        &launch.environment,
+        &launch.sensitive_values,
     )?;
 
     state
@@ -1259,9 +1585,7 @@ fn resolve_windows_pi_node_command(pi_binary: &str) -> Option<(PathBuf, PathBuf)
 
     let mut node_candidates = vec![npm_root.join("node.exe")];
     if let Some(path) = std::env::var_os("PATH") {
-        node_candidates.extend(
-            std::env::split_paths(&path).map(|entry| entry.join("node.exe")),
-        );
+        node_candidates.extend(std::env::split_paths(&path).map(|entry| entry.join("node.exe")));
     }
     node_candidates.extend(
         windows_registry_path_entries()
@@ -1277,13 +1601,60 @@ fn resolve_windows_pi_node_command(pi_binary: &str) -> Option<(PathBuf, PathBuf)
     Some((node, cli))
 }
 
+#[cfg(windows)]
+fn find_windows_executable_in_dirs(program: &str, directories: &[PathBuf]) -> Option<PathBuf> {
+    let path = PathBuf::from(program);
+    if path.is_file() {
+        return Some(path);
+    }
+    let names = if path.extension().is_some() {
+        vec![program.to_string()]
+    } else {
+        vec![
+            format!("{program}.exe"),
+            format!("{program}.cmd"),
+            format!("{program}.bat"),
+            program.to_string(),
+        ]
+    };
+    directories
+        .iter()
+        .flat_map(|directory| names.iter().map(move |name| directory.join(name)))
+        .find(|candidate| candidate.is_file())
+}
+
+#[cfg(windows)]
+fn resolve_windows_executable(program: &str) -> Option<PathBuf> {
+    let mut directories = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    directories.extend(windows_registry_path_entries());
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        directories.push(PathBuf::from(program_files).join("GitHub CLI"));
+    }
+    find_windows_executable_in_dirs(program, &directories)
+}
+
+fn github_cli_command() -> Command {
+    #[cfg(windows)]
+    {
+        return hidden_command(
+            resolve_windows_executable("gh").unwrap_or_else(|| PathBuf::from("gh")),
+        );
+    }
+    #[cfg(not(windows))]
+    {
+        hidden_command("gh")
+    }
+}
+
 fn load_models_config() -> Result<serde_json::Value, String> {
     let path = models_config_path();
     if !path.exists() {
         return Ok(serde_json::json!({ "providers": {} }));
     }
-    let raw = fs::read_to_string(&path)
-        .map_err(|err| format!("无法读取 {}: {err}", path.display()))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|err| format!("无法读取 {}: {err}", path.display()))?;
     let value: serde_json::Value = json5::from_str(&raw)
         .map_err(|err| format!("{} 不是有效的 JSON/JSONC: {err}", path.display()))?;
     if !value.is_object() {
@@ -1295,13 +1666,11 @@ fn load_models_config() -> Result<serde_json::Value, String> {
 fn save_models_config(value: &serde_json::Value) -> Result<(), String> {
     let path = models_config_path();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("无法创建 Pi 配置目录: {err}"))?;
+        fs::create_dir_all(parent).map_err(|err| format!("无法创建 Pi 配置目录: {err}"))?;
     }
     if path.exists() {
         let backup = path.with_extension("json.pidesktop.bak");
-        fs::copy(&path, &backup)
-            .map_err(|err| format!("无法备份 models.json: {err}"))?;
+        fs::copy(&path, &backup).map_err(|err| format!("无法备份 models.json: {err}"))?;
     }
     let raw = serde_json::to_string_pretty(value)
         .map_err(|err| format!("无法序列化 models.json: {err}"))?;
@@ -1397,9 +1766,9 @@ fn model_from_value(value: &serde_json::Value) -> Option<ModelProviderModel> {
 fn validate_model_provider(provider: &ModelProviderInput) -> Result<(), String> {
     let id = provider.id.trim();
     if id.is_empty()
-        || !id
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+        || !id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
     {
         return Err("提供商 ID 只能包含字母、数字、点、短横线和下划线".to_string());
     }
@@ -1531,7 +1900,10 @@ fn save_model_provider(provider: ModelProviderInput) -> Result<(), String> {
     if provider.base_url.trim().is_empty() {
         provider_object.remove("baseUrl");
     } else {
-        provider_object.insert("baseUrl".to_string(), serde_json::json!(provider.base_url.trim()));
+        provider_object.insert(
+            "baseUrl".to_string(),
+            serde_json::json!(provider.base_url.trim()),
+        );
     }
     if provider.api.trim().is_empty() {
         provider_object.remove("api");
@@ -1555,7 +1927,9 @@ fn save_model_provider(provider: ModelProviderInput) -> Result<(), String> {
         .map(|model| {
             let mut object = existing_models
                 .iter()
-                .find(|value| value.get("id").and_then(|value| value.as_str()) == Some(model.id.trim()))
+                .find(|value| {
+                    value.get("id").and_then(|value| value.as_str()) == Some(model.id.trim())
+                })
                 .and_then(|value| value.as_object())
                 .cloned()
                 .unwrap_or_default();
@@ -1818,6 +2192,15 @@ fn session_messages_cmd(
 }
 
 #[tauri::command]
+fn session_history_cmd(state: State<'_, AppState>, file: String) -> Result<SessionHistory, String> {
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?;
+    session_history(&settings.session_dir, &file)
+}
+
+#[tauri::command]
 fn list_archived_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, String> {
     let settings = state
         .settings
@@ -1935,6 +2318,124 @@ struct ResourceItem {
     name: String,
     path: String,
     scope: String,
+    version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PackageCatalogItem {
+    name: String,
+    version: String,
+    description: String,
+    author: String,
+    published_at: String,
+    downloads: u64,
+    score: f64,
+    keywords: Vec<String>,
+    npm_url: String,
+    repository_url: Option<String>,
+    homepage_url: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PackageCatalogPage {
+    items: Vec<PackageCatalogItem>,
+    total: u64,
+    page: u32,
+    page_size: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PackageCatalogDetail {
+    name: String,
+    version: String,
+    description: String,
+    author: String,
+    license: String,
+    keywords: Vec<String>,
+    npm_url: String,
+    repository_url: Option<String>,
+    homepage_url: Option<String>,
+    image_url: Option<String>,
+    video_url: Option<String>,
+    extensions: Vec<String>,
+    skills: Vec<String>,
+    prompts: Vec<String>,
+    themes: Vec<String>,
+    dependency_count: u64,
+    peer_dependency_count: u64,
+    unpacked_size: u64,
+    integrity: String,
+}
+
+fn package_sources_from_settings(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("packages")
+        .and_then(|entry| entry.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            entry
+                .as_str()
+                .or_else(|| entry.get("source").and_then(|source| source.as_str()))
+        })
+        .map(str::trim)
+        .filter(|source| !source.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn npm_package_name(source: &str) -> Option<String> {
+    let value = source.trim().strip_prefix("npm:").unwrap_or(source.trim());
+    if value.is_empty() || value.contains("://") || value.starts_with("git:") {
+        return None;
+    }
+    if value.starts_with('@') {
+        let slash = value.find('/')?;
+        let version = value[slash + 1..].rfind('@').map(|index| slash + 1 + index);
+        return Some(value[..version.unwrap_or(value.len())].to_string());
+    }
+    Some(value.split('@').next().unwrap_or(value).to_string())
+}
+
+fn installed_package_version(scope_root: &Path, source: &str) -> Option<String> {
+    let name = npm_package_name(source)?;
+    let manifest = scope_root
+        .join("npm")
+        .join("node_modules")
+        .join(name)
+        .join("package.json");
+    let value =
+        serde_json::from_str::<serde_json::Value>(&fs::read_to_string(manifest).ok()?).ok()?;
+    value
+        .get("version")
+        .and_then(|entry| entry.as_str())
+        .map(str::to_string)
+}
+
+fn collect_package_settings(
+    settings_path: &Path,
+    scope_root: &Path,
+    scope: &str,
+    items: &mut Vec<ResourceItem>,
+) {
+    let Ok(raw) = fs::read_to_string(settings_path) else {
+        return;
+    };
+    let Ok(value) = json5::from_str::<serde_json::Value>(&raw) else {
+        return;
+    };
+    for source in package_sources_from_settings(&value) {
+        items.push(ResourceItem {
+            kind: "package".to_string(),
+            name: npm_package_name(&source).unwrap_or_else(|| source.clone()),
+            version: installed_package_version(scope_root, &source),
+            path: source,
+            scope: scope.to_string(),
+        });
+    }
 }
 
 #[tauri::command]
@@ -1945,21 +2446,8 @@ fn list_resources(cwd: String) -> Result<Vec<ResourceItem>, String> {
         collect_resources(&agent.join("extensions"), "extension", "user", &mut items);
         collect_resources(&agent.join("skills"), "skill", "user", &mut items);
         collect_resources(&agent.join("prompts"), "prompt", "user", &mut items);
-        let settings_path = agent.join("settings.json");
-        if let Ok(raw) = fs::read_to_string(settings_path) {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
-                if let Some(packages) = value.get("packages").and_then(|entry| entry.as_array()) {
-                    for package in packages.iter().filter_map(|entry| entry.as_str()) {
-                        items.push(ResourceItem {
-                            kind: "package".to_string(),
-                            name: package.to_string(),
-                            path: package.to_string(),
-                            scope: "user".to_string(),
-                        });
-                    }
-                }
-            }
-        }
+        collect_resources(&agent.join("themes"), "theme", "user", &mut items);
+        collect_package_settings(&agent.join("settings.json"), &agent, "user", &mut items);
     }
     let project = PathBuf::from(cwd).join(".pi");
     collect_resources(
@@ -1970,6 +2458,13 @@ fn list_resources(cwd: String) -> Result<Vec<ResourceItem>, String> {
     );
     collect_resources(&project.join("skills"), "skill", "project", &mut items);
     collect_resources(&project.join("prompts"), "prompt", "project", &mut items);
+    collect_resources(&project.join("themes"), "theme", "project", &mut items);
+    collect_package_settings(
+        &project.join("settings.json"),
+        &project,
+        "project",
+        &mut items,
+    );
     items.sort_by(|a, b| a.kind.cmp(&b.kind).then_with(|| a.name.cmp(&b.name)));
     Ok(items)
 }
@@ -1991,8 +2486,221 @@ fn collect_resources(root: &Path, kind: &str, scope: &str, items: &mut Vec<Resou
             name,
             path: path.to_string_lossy().to_string(),
             scope: scope.to_string(),
+            version: None,
         });
     }
+}
+
+fn json_string(value: Option<&serde_json::Value>) -> String {
+    value
+        .and_then(|entry| entry.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+fn json_string_list(value: Option<&serde_json::Value>) -> Vec<String> {
+    match value {
+        Some(serde_json::Value::Array(entries)) => entries
+            .iter()
+            .filter_map(|entry| entry.as_str())
+            .map(str::to_string)
+            .collect(),
+        Some(serde_json::Value::String(entry)) => vec![entry.clone()],
+        _ => Vec::new(),
+    }
+}
+
+fn package_author(value: &serde_json::Value) -> String {
+    value
+        .get("author")
+        .and_then(|entry| {
+            entry
+                .as_str()
+                .or_else(|| entry.get("name").and_then(|name| name.as_str()))
+        })
+        .or_else(|| {
+            value
+                .pointer("/publisher/username")
+                .and_then(|entry| entry.as_str())
+        })
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn package_link(value: &serde_json::Value, field: &str) -> Option<String> {
+    value
+        .pointer(&format!("/links/{field}"))
+        .and_then(|entry| entry.as_str())
+        .or_else(|| {
+            value.get(field).and_then(|entry| {
+                entry
+                    .as_str()
+                    .or_else(|| entry.get("url").and_then(|url| url.as_str()))
+            })
+        })
+        .and_then(safe_external_url)
+}
+
+fn safe_external_url(entry: &str) -> Option<String> {
+    let entry = entry.trim().trim_start_matches("git+");
+    if entry.starts_with("https://") || entry.starts_with("http://") {
+        return Some(entry.to_string());
+    }
+    entry
+        .strip_prefix("git://github.com/")
+        .map(|path| format!("https://github.com/{}", path.trim_end_matches(".git")))
+}
+
+fn npm_registry_json(url: &str) -> Result<serde_json::Value, String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(18))
+        .user_agent("PiDesktop/0.2 package-marketplace")
+        .build();
+    let response = agent
+        .get(url)
+        .call()
+        .map_err(|err| format!("无法连接 npm Registry: {err}"))?;
+    response
+        .into_json::<serde_json::Value>()
+        .map_err(|err| format!("npm Registry 返回了无效数据: {err}"))
+}
+
+#[tauri::command]
+fn search_pi_packages(
+    query: String,
+    page: Option<u32>,
+    page_size: Option<u32>,
+) -> Result<PackageCatalogPage, String> {
+    let query = query.trim();
+    if query.chars().count() > 120 {
+        return Err("搜索词不能超过 120 个字符".to_string());
+    }
+    let page = page.unwrap_or(0);
+    let page_size = page_size.unwrap_or(30).clamp(1, 50);
+    let text = if query.is_empty() {
+        "keywords:pi-package".to_string()
+    } else {
+        format!("keywords:pi-package {query}")
+    };
+    let url = format!(
+        "https://registry.npmjs.org/-/v1/search?text={}&size={page_size}&from={}",
+        urlencoding::encode(&text),
+        page.saturating_mul(page_size)
+    );
+    let value = npm_registry_json(&url)?;
+    let total = value
+        .get("total")
+        .and_then(|entry| entry.as_u64())
+        .unwrap_or(0);
+    let items = value
+        .get("objects")
+        .and_then(|entry| entry.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let package = entry.get("package")?;
+            let keywords = json_string_list(package.get("keywords"));
+            if !keywords.iter().any(|keyword| keyword == "pi-package") {
+                return None;
+            }
+            let name = json_string(package.get("name"));
+            if name.is_empty() {
+                return None;
+            }
+            Some(PackageCatalogItem {
+                npm_url: package_link(package, "npm")
+                    .unwrap_or_else(|| format!("https://www.npmjs.com/package/{name}")),
+                repository_url: package_link(package, "repository"),
+                homepage_url: package_link(package, "homepage"),
+                name,
+                version: json_string(package.get("version")),
+                description: json_string(package.get("description")),
+                author: package_author(package),
+                published_at: json_string(package.get("date")),
+                downloads: entry
+                    .pointer("/downloads/monthly")
+                    .and_then(|item| item.as_u64())
+                    .unwrap_or(0),
+                score: entry
+                    .pointer("/score/final")
+                    .and_then(|item| item.as_f64())
+                    .unwrap_or(0.0),
+                keywords,
+            })
+        })
+        .collect();
+    Ok(PackageCatalogPage {
+        items,
+        total,
+        page,
+        page_size,
+    })
+}
+
+#[tauri::command]
+fn pi_package_detail(name: String) -> Result<PackageCatalogDetail, String> {
+    let name = npm_package_name(&name).ok_or_else(|| "无效的 npm 软件包名称".to_string())?;
+    if name.chars().count() > 214 {
+        return Err("npm 软件包名称过长".to_string());
+    }
+    let url = format!(
+        "https://registry.npmjs.org/{}/latest",
+        urlencoding::encode(&name)
+    );
+    let value = npm_registry_json(&url)?;
+    let keywords = json_string_list(value.get("keywords"));
+    if !keywords.iter().any(|keyword| keyword == "pi-package") {
+        return Err("该软件包没有 pi-package 标记，未进入 Pi 官方目录".to_string());
+    }
+    let manifest = value.get("pi").cloned().unwrap_or(serde_json::Value::Null);
+    let license = value
+        .get("license")
+        .and_then(|entry| {
+            entry
+                .as_str()
+                .or_else(|| entry.get("type").and_then(|item| item.as_str()))
+        })
+        .unwrap_or("未声明")
+        .to_string();
+    Ok(PackageCatalogDetail {
+        npm_url: format!("https://www.npmjs.com/package/{name}"),
+        repository_url: package_link(&value, "repository"),
+        homepage_url: package_link(&value, "homepage"),
+        name,
+        version: json_string(value.get("version")),
+        description: json_string(value.get("description")),
+        author: package_author(&value),
+        license,
+        keywords,
+        image_url: manifest
+            .get("image")
+            .and_then(|entry| entry.as_str())
+            .and_then(safe_external_url),
+        video_url: manifest
+            .get("video")
+            .and_then(|entry| entry.as_str())
+            .and_then(safe_external_url),
+        extensions: json_string_list(manifest.get("extensions")),
+        skills: json_string_list(manifest.get("skills")),
+        prompts: json_string_list(manifest.get("prompts")),
+        themes: json_string_list(manifest.get("themes")),
+        dependency_count: value
+            .get("dependencies")
+            .and_then(|entry| entry.as_object())
+            .map(|entry| entry.len() as u64)
+            .unwrap_or(0),
+        peer_dependency_count: value
+            .get("peerDependencies")
+            .and_then(|entry| entry.as_object())
+            .map(|entry| entry.len() as u64)
+            .unwrap_or(0),
+        unpacked_size: value
+            .pointer("/dist/unpackedSize")
+            .and_then(|entry| entry.as_u64())
+            .unwrap_or(0),
+        integrity: json_string(value.pointer("/dist/integrity")),
+    })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2099,13 +2807,18 @@ fn search_workspace_files(cwd: String, query: String) -> Result<Vec<WorkspaceDir
     let mut pending = vec![root.clone()];
     let mut matches = Vec::new();
     while let Some(directory) = pending.pop() {
-        let Ok(entries) = fs::read_dir(&directory) else { continue };
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
             let is_dir = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
             if is_dir {
-                if !matches!(name.as_str(), ".git" | "node_modules" | "target" | "dist" | ".next" | ".venv") {
+                if !matches!(
+                    name.as_str(),
+                    ".git" | "node_modules" | "target" | "dist" | ".next" | ".venv"
+                ) {
                     pending.push(path);
                 }
                 continue;
@@ -2115,8 +2828,14 @@ fn search_workspace_files(cwd: String, query: String) -> Result<Vec<WorkspaceDir
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace('\\', "/");
-            if name.to_ascii_lowercase().contains(&needle) || relative.to_ascii_lowercase().contains(&needle) {
-                matches.push(WorkspaceDirEntry { name, path: relative, is_dir: false });
+            if name.to_ascii_lowercase().contains(&needle)
+                || relative.to_ascii_lowercase().contains(&needle)
+            {
+                matches.push(WorkspaceDirEntry {
+                    name,
+                    path: relative,
+                    is_dir: false,
+                });
                 if matches.len() >= 200 {
                     break;
                 }
@@ -2126,7 +2845,11 @@ fn search_workspace_files(cwd: String, query: String) -> Result<Vec<WorkspaceDir
             break;
         }
     }
-    matches.sort_by(|a, b| a.path.to_ascii_lowercase().cmp(&b.path.to_ascii_lowercase()));
+    matches.sort_by(|a, b| {
+        a.path
+            .to_ascii_lowercase()
+            .cmp(&b.path.to_ascii_lowercase())
+    });
     Ok(matches)
 }
 
@@ -2180,7 +2903,12 @@ fn read_workspace_file(cwd: String, path: String) -> Result<WorkspaceFileContent
         text,
         mime_type: mime_type.map(str::to_string),
         data,
-        truncated: metadata.len() > if binary_preview { MAX_BINARY_PREVIEW_BYTES } else { MAX_BYTES },
+        truncated: metadata.len()
+            > if binary_preview {
+                MAX_BINARY_PREVIEW_BYTES
+            } else {
+                MAX_BYTES
+            },
         is_binary,
         size: metadata.len(),
     })
@@ -2192,6 +2920,7 @@ fn pi_package_action(
     action: String,
     source: Option<String>,
     cwd: Option<String>,
+    scope: Option<String>,
 ) -> Result<String, String> {
     if !matches!(action.as_str(), "install" | "remove" | "update") {
         return Err("unsupported Pi package action".to_string());
@@ -2206,19 +2935,55 @@ fn pi_package_action(
         .map(PathBuf::from)
         .or_else(dirs::home_dir)
         .unwrap_or_else(|| PathBuf::from("."));
+    let scope = scope.unwrap_or_else(|| "user".to_string());
+    if !matches!(scope.as_str(), "user" | "project") {
+        return Err("unsupported Pi package scope".to_string());
+    }
+    let source = source
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let mut arguments = match action.as_str() {
+        "install" | "remove" => {
+            let value = source
+                .clone()
+                .ok_or_else(|| "Pi package source is required".to_string())?;
+            vec![action.clone(), value]
+        }
+        "update" => source
+            .clone()
+            .map(|value| vec!["update".to_string(), "--extension".to_string(), value])
+            .unwrap_or_else(|| vec!["update".to_string(), "--extensions".to_string()]),
+        _ => unreachable!(),
+    };
+    if scope == "project" && matches!(action.as_str(), "install" | "remove") {
+        arguments.extend(["-l".to_string(), "--approve".to_string()]);
+    }
 
     #[cfg(windows)]
     let mut command = {
-        let mut command_line =
-            format!("\"{}\" {}", settings.pi_binary.replace('"', "\"\""), action);
-        if let Some(value) = source.as_ref().filter(|value| !value.trim().is_empty()) {
-            command_line.push(' ');
-            command_line.push('"');
-            command_line.push_str(&value.replace('"', "\"\""));
-            command_line.push('"');
-        }
-        let mut command = Command::new("cmd.exe");
-        command.args(["/D", "/S", "/C", &command_line]);
+        let pi_binary = resolve_windows_pi_binary(&settings.pi_binary);
+        let mut command = if let Some((node, cli)) = resolve_windows_pi_node_command(&pi_binary) {
+            let mut command = Command::new(node);
+            command.arg(cli).args(&arguments);
+            command
+        } else if Path::new(&pi_binary)
+            .extension()
+            .and_then(|entry| entry.to_str())
+            .is_some_and(|entry| entry.eq_ignore_ascii_case("exe"))
+        {
+            let mut command = Command::new(&pi_binary);
+            command.args(&arguments);
+            command
+        } else {
+            let command_line = std::iter::once(pi_binary.as_str())
+                .chain(arguments.iter().map(String::as_str))
+                .map(|value| format!("\"{}\"", value.replace('%', "%%").replace('"', "\"\"")))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let mut command = Command::new("cmd.exe");
+            command.args(["/D", "/S", "/C", &command_line]);
+            command
+        };
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
@@ -2227,24 +2992,15 @@ fn pi_package_action(
     #[cfg(not(windows))]
     let mut command = {
         let mut command = Command::new(&settings.pi_binary);
-        command.arg(&action);
-        if let Some(value) = source.as_ref().filter(|value| !value.trim().is_empty()) {
-            command.arg(value);
-        }
+        command.args(&arguments);
         command
     };
     let output = command
         .current_dir(working_directory)
         .output()
         .map_err(|err| format!("failed to run Pi package command: {err}"))?;
-    let stdout = redact_runtime_output(
-        &settings,
-        String::from_utf8_lossy(&output.stdout).trim(),
-    );
-    let stderr = redact_runtime_output(
-        &settings,
-        String::from_utf8_lossy(&output.stderr).trim(),
-    );
+    let stdout = redact_runtime_output(&settings, String::from_utf8_lossy(&output.stdout).trim());
+    let stderr = redact_runtime_output(&settings, String::from_utf8_lossy(&output.stderr).trim());
     if output.status.success() {
         Ok(if stdout.is_empty() { stderr } else { stdout })
     } else {
@@ -2287,7 +3043,7 @@ fn list_pull_requests(cwd: String) -> Result<PullRequestCollection, String> {
         .unwrap_or_default()
         .trim()
         .to_string();
-    let output = hidden_command("gh")
+    let output = github_cli_command()
         .args([
             "pr",
             "list",
@@ -2316,14 +3072,44 @@ fn list_pull_requests(cwd: String) -> Result<PullRequestCollection, String> {
         .into_iter()
         .flatten()
         .map(|item| PullRequestInfo {
-            number: item.get("number").and_then(|value| value.as_u64()).unwrap_or(0),
-            title: item.get("title").and_then(|value| value.as_str()).unwrap_or("").to_string(),
-            state: item.get("state").and_then(|value| value.as_str()).unwrap_or("OPEN").to_string(),
-            is_draft: item.get("isDraft").and_then(|value| value.as_bool()).unwrap_or(false),
-            head_ref_name: item.get("headRefName").and_then(|value| value.as_str()).unwrap_or("").to_string(),
-            base_ref_name: item.get("baseRefName").and_then(|value| value.as_str()).unwrap_or("").to_string(),
-            updated_at: item.get("updatedAt").and_then(|value| value.as_str()).unwrap_or("").to_string(),
-            url: item.get("url").and_then(|value| value.as_str()).unwrap_or("").to_string(),
+            number: item
+                .get("number")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0),
+            title: item
+                .get("title")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+            state: item
+                .get("state")
+                .and_then(|value| value.as_str())
+                .unwrap_or("OPEN")
+                .to_string(),
+            is_draft: item
+                .get("isDraft")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+            head_ref_name: item
+                .get("headRefName")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+            base_ref_name: item
+                .get("baseRefName")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+            updated_at: item
+                .get("updatedAt")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+            url: item
+                .get("url")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
             author: item
                 .pointer("/author/login")
                 .and_then(|value| value.as_str())
@@ -2346,7 +3132,7 @@ fn list_pull_requests(cwd: String) -> Result<PullRequestCollection, String> {
 #[tauri::command]
 fn checkout_pull_request(cwd: String, number: u64) -> Result<(), String> {
     let cwd_path = PathBuf::from(cwd);
-    let output = hidden_command("gh")
+    let output = github_cli_command()
         .args(["pr", "checkout", &number.to_string()])
         .current_dir(cwd_path)
         .output()
@@ -2434,7 +3220,11 @@ fn list_worktrees(cwd: String) -> Result<Vec<WorktreeInfo>, String> {
 }
 
 #[tauri::command]
-fn create_worktree(state: State<'_, AppState>, cwd: String, base: Option<String>) -> Result<WorktreeInfo, String> {
+fn create_worktree(
+    state: State<'_, AppState>,
+    cwd: String,
+    base: Option<String>,
+) -> Result<WorktreeInfo, String> {
     let cwd = PathBuf::from(cwd);
     let repo = run_git(&cwd, &["rev-parse", "--show-toplevel"])?;
     let repo = PathBuf::from(repo.trim());
@@ -2627,11 +3417,16 @@ fn mime_for_extension(extension: &str) -> &'static str {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GitFileChange {
     path: String,
     status: String,
+    index_status: String,
+    worktree_status: String,
+    staged: bool,
+    unstaged: bool,
+    untracked: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -2648,6 +3443,53 @@ struct GitSnapshot {
 struct GitBranchInfo {
     name: String,
     current: bool,
+}
+
+fn parse_git_status(output: &str) -> Vec<GitFileChange> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let bytes = line.as_bytes();
+            if bytes.len() < 3 {
+                return None;
+            }
+            let index = bytes[0] as char;
+            let worktree = bytes[1] as char;
+            let raw_path = line.get(3..)?.trim();
+            let path = raw_path
+                .rsplit_once(" -> ")
+                .map(|(_, renamed)| renamed)
+                .unwrap_or(raw_path)
+                .trim_matches('"');
+            if path.is_empty() {
+                return None;
+            }
+            let untracked = index == '?' && worktree == '?';
+            let staged = !untracked && index != ' ' && index != '?';
+            let unstaged = untracked || (worktree != ' ' && worktree != '?');
+            let status = if untracked {
+                "?".to_string()
+            } else {
+                [index, worktree]
+                    .into_iter()
+                    .filter(|value| *value != ' ')
+                    .collect()
+            };
+            Some(GitFileChange {
+                path: path.to_string(),
+                status,
+                index_status: (index != ' ')
+                    .then(|| index.to_string())
+                    .unwrap_or_default(),
+                worktree_status: (worktree != ' ')
+                    .then(|| worktree.to_string())
+                    .unwrap_or_default(),
+                staged,
+                unstaged,
+                untracked,
+            })
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -2735,6 +3577,11 @@ fn git_compare(cwd: String, base: String) -> Result<GitSnapshot, String> {
             Some(GitFileChange {
                 status,
                 path: path.to_string(),
+                index_status: String::new(),
+                worktree_status: String::new(),
+                staged: false,
+                unstaged: false,
+                untracked: false,
             })
         })
         .collect();
@@ -2789,6 +3636,55 @@ fn git_restore_files(cwd: String, paths: Vec<String>) -> Result<(), String> {
     })
 }
 
+fn run_git_path_command(root: &Path, args: &[&str], paths: &[String]) -> Result<(), String> {
+    let output = hidden_command("git")
+        .args(args)
+        .arg("--")
+        .args(paths)
+        .current_dir(root)
+        .output()
+        .map_err(|err| format!("failed to run git: {err}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Err(if stderr.is_empty() {
+        format!("git {} failed", args.join(" "))
+    } else {
+        stderr
+    })
+}
+
+fn validate_git_paths(cwd: &str, paths: &[String]) -> Result<PathBuf, String> {
+    let root = PathBuf::from(cwd);
+    if !root.is_dir() {
+        return Err("workspace no longer exists".to_string());
+    }
+    if paths.is_empty() {
+        return Err("no paths selected".to_string());
+    }
+    if paths.iter().any(|path| path.trim().is_empty()) {
+        return Err("empty Git path is not allowed".to_string());
+    }
+    Ok(root)
+}
+
+#[tauri::command]
+fn git_stage_files(cwd: String, paths: Vec<String>) -> Result<(), String> {
+    let root = validate_git_paths(&cwd, &paths)?;
+    run_git_path_command(&root, &["add"], &paths)
+}
+
+#[tauri::command]
+fn git_unstage_files(cwd: String, paths: Vec<String>) -> Result<(), String> {
+    let root = validate_git_paths(&cwd, &paths)?;
+    match run_git_path_command(&root, &["restore", "--staged"], &paths) {
+        Ok(()) => Ok(()),
+        Err(first_error) => run_git_path_command(&root, &["reset", "HEAD"], &paths)
+            .map_err(|second_error| format!("{first_error}\n{second_error}")),
+    }
+}
+
 #[tauri::command]
 fn git_snapshot(cwd: String) -> Result<GitSnapshot, String> {
     let root = PathBuf::from(&cwd);
@@ -2830,14 +3726,7 @@ fn git_snapshot(cwd: String) -> Result<GitSnapshot, String> {
             staged.join().unwrap_or_default(),
         )
     });
-    let files = status
-        .lines()
-        .filter(|line| line.len() >= 3)
-        .map(|line| GitFileChange {
-            status: line[..2].trim().to_string(),
-            path: line[3..].trim().to_string(),
-        })
-        .collect();
+    let files = parse_git_status(&status);
     let diff = match (staged.is_empty(), working.is_empty()) {
         (true, _) => working,
         (_, true) => staged,
@@ -2850,6 +3739,21 @@ fn git_snapshot(cwd: String) -> Result<GitSnapshot, String> {
         files,
         diff,
     })
+}
+
+#[tauri::command]
+fn git_repository_root(cwd: String) -> Result<Option<String>, String> {
+    let workspace = PathBuf::from(cwd.trim());
+    if !workspace.is_dir() {
+        return Ok(None);
+    }
+    match run_git(&workspace, &["rev-parse", "--show-toplevel"]) {
+        Ok(root) => {
+            let root = root.trim();
+            Ok((!root.is_empty()).then(|| root.to_string()))
+        }
+        Err(_) => Ok(None),
+    }
 }
 
 fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
@@ -2877,14 +3781,19 @@ fn browser_webview_action(
     match action.as_str() {
         "navigate" => {
             let raw = url.ok_or_else(|| "browser URL is required".to_string())?;
-            let parsed = tauri::Url::parse(&raw).map_err(|err| format!("invalid browser URL: {err}"))?;
+            let parsed =
+                tauri::Url::parse(&raw).map_err(|err| format!("invalid browser URL: {err}"))?;
             if !matches!(parsed.scheme(), "http" | "https") {
                 return Err("browser only supports HTTP(S) URLs".to_string());
             }
             webview.navigate(parsed).map_err(|err| err.to_string())
         }
-        "back" => webview.eval("history.back()").map_err(|err| err.to_string()),
-        "forward" => webview.eval("history.forward()").map_err(|err| err.to_string()),
+        "back" => webview
+            .eval("history.back()")
+            .map_err(|err| err.to_string()),
+        "forward" => webview
+            .eval("history.forward()")
+            .map_err(|err| err.to_string()),
         "reload" => webview.reload().map_err(|err| err.to_string()),
         _ => Err("unsupported browser action".to_string()),
     }
@@ -2905,6 +3814,185 @@ fn validate_workspace_directory(path: &str) -> Result<PathBuf, String> {
         return Err("workspace path is not a directory".to_string());
     }
     Ok(workspace)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceEditorInfo {
+    id: String,
+    name: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WorkspaceEditorSpec {
+    id: &'static str,
+    name: &'static str,
+    commands: &'static [&'static str],
+    executable_names: &'static [&'static str],
+}
+
+const WORKSPACE_EDITOR_SPECS: &[WorkspaceEditorSpec] = &[
+    WorkspaceEditorSpec {
+        id: "cursor",
+        name: "Cursor",
+        commands: &["cursor"],
+        executable_names: &["Cursor.exe"],
+    },
+    WorkspaceEditorSpec {
+        id: "vscode",
+        name: "Visual Studio Code",
+        commands: &["code", "code-insiders"],
+        executable_names: &["Code.exe", "Code - Insiders.exe"],
+    },
+    WorkspaceEditorSpec {
+        id: "windsurf",
+        name: "Windsurf",
+        commands: &["windsurf"],
+        executable_names: &["Windsurf.exe"],
+    },
+    WorkspaceEditorSpec {
+        id: "antigravity",
+        name: "Antigravity",
+        commands: &["antigravity"],
+        executable_names: &["Antigravity.exe"],
+    },
+];
+
+fn workspace_editor_spec(editor_id: &str) -> Option<&'static WorkspaceEditorSpec> {
+    WORKSPACE_EDITOR_SPECS
+        .iter()
+        .find(|editor| editor.id.eq_ignore_ascii_case(editor_id.trim()))
+}
+
+#[cfg(windows)]
+fn prefer_native_editor_executable(path: PathBuf, spec: &WorkspaceEditorSpec) -> PathBuf {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+    {
+        return path;
+    }
+    for ancestor in path.ancestors().take(6) {
+        for executable_name in spec.executable_names {
+            let candidate = ancestor.join(executable_name);
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    path
+}
+
+#[cfg(windows)]
+fn windows_editor_install_candidates(spec: &WorkspaceEditorSpec) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        roots.push(PathBuf::from(local_app_data).join("Programs"));
+    }
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        roots.push(PathBuf::from(program_files));
+    }
+    if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
+        roots.push(PathBuf::from(program_files_x86));
+    }
+
+    let install_directories: &[&str] = match spec.id {
+        "cursor" => &["Cursor", "cursor"],
+        "vscode" => &["Microsoft VS Code", "Microsoft VS Code Insiders"],
+        "windsurf" => &["Windsurf"],
+        "antigravity" => &["Antigravity", "antigravity"],
+        _ => &[],
+    };
+    let mut candidates = roots
+        .iter()
+        .flat_map(|root| {
+            install_directories.iter().flat_map(move |directory| {
+                spec.executable_names
+                    .iter()
+                    .map(move |name| root.join(directory).join(name))
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(user_profile) = std::env::var_os("USERPROFILE") {
+        let scoop_name = match spec.id {
+            "cursor" => "cursor",
+            "vscode" => "vscode",
+            "windsurf" => "windsurf",
+            "antigravity" => "antigravity",
+            _ => "",
+        };
+        if !scoop_name.is_empty() {
+            let root = PathBuf::from(user_profile)
+                .join("scoop")
+                .join("apps")
+                .join(scoop_name)
+                .join("current");
+            candidates.extend(spec.executable_names.iter().map(|name| root.join(name)));
+        }
+    }
+    candidates
+}
+
+#[cfg(windows)]
+fn resolve_workspace_editor(spec: &WorkspaceEditorSpec) -> Option<PathBuf> {
+    if let Some(candidate) = windows_editor_install_candidates(spec)
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+    {
+        return Some(candidate);
+    }
+
+    spec.commands.iter().find_map(|program| {
+        let candidate = resolve_windows_executable(program)?;
+        let normalized = candidate.to_string_lossy().to_ascii_lowercase();
+        if spec.id == "vscode"
+            && (normalized.contains("cursor")
+                || normalized.contains("windsurf")
+                || normalized.contains("antigravity"))
+        {
+            return None;
+        }
+        Some(prefer_native_editor_executable(candidate, spec))
+    })
+}
+
+#[cfg(not(windows))]
+fn resolve_workspace_editor(spec: &WorkspaceEditorSpec) -> Option<PathBuf> {
+    let path_entries = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    spec.commands
+        .iter()
+        .flat_map(|program| path_entries.iter().map(move |entry| entry.join(program)))
+        .find(|candidate| candidate.is_file())
+}
+
+#[tauri::command]
+fn list_workspace_editors() -> Vec<WorkspaceEditorInfo> {
+    WORKSPACE_EDITOR_SPECS
+        .iter()
+        .filter(|editor| resolve_workspace_editor(editor).is_some())
+        .map(|editor| WorkspaceEditorInfo {
+            id: editor.id.to_string(),
+            name: editor.name.to_string(),
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn open_workspace_in_editor(path: String, editor_id: String) -> Result<(), String> {
+    let workspace = validate_workspace_directory(&path)?;
+    let editor = workspace_editor_spec(&editor_id)
+        .ok_or_else(|| format!("unsupported workspace editor: {editor_id}"))?;
+    let executable = resolve_workspace_editor(editor)
+        .ok_or_else(|| format!("{} is not installed or cannot be found", editor.name))?;
+
+    hidden_command(&executable)
+        .arg(&workspace)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| format!("failed to open workspace in {}: {err}", editor.name))
 }
 
 #[tauri::command]
@@ -2939,7 +4027,7 @@ fn open_workspace_in_file_manager(path: String) -> Result<(), String> {
     }
 }
 
-fn hidden_command(program: &str) -> Command {
+fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut command = Command::new(program);
     #[cfg(windows)]
     {
@@ -2976,7 +4064,19 @@ pub fn run() {
             settings: Mutex::new(load_settings()),
             projects: Mutex::new(load_json_list(&projects_path())),
             scheduled_tasks: Mutex::new(load_json_list(&scheduled_tasks_path())),
+            running_scheduled_tasks: Mutex::new(HashSet::new()),
             terminal_sessions: Mutex::new(HashMap::new()),
+        })
+        .setup(|app| {
+            if let Err(error) = initialize_scheduled_runner(app.handle()) {
+                eprintln!("failed to initialize scheduled runner: {error}");
+            }
+            let runner_app = app.handle().clone();
+            std::thread::spawn(move || loop {
+                run_due_scheduled_tasks(&runner_app);
+                std::thread::sleep(std::time::Duration::from_secs(15));
+            });
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             pi_start,
@@ -2991,10 +4091,12 @@ pub fn run() {
             save_project_cmd,
             remove_local_project_cmd,
             list_scheduled_tasks_cmd,
+            list_scheduled_runs_cmd,
             save_scheduled_task_cmd,
             delete_scheduled_task_cmd,
             run_scheduled_task_cmd,
             list_sessions_cmd,
+            session_history_cmd,
             session_message_timings_cmd,
             session_messages_cmd,
             list_archived_sessions_cmd,
@@ -3009,15 +4111,22 @@ pub fn run() {
             check_model_provider,
             read_attachment,
             git_snapshot,
+            git_repository_root,
             git_restore_files,
+            git_stage_files,
+            git_unstage_files,
             git_list_branches,
             git_checkout_branch,
             git_compare,
             list_resources,
+            search_pi_packages,
+            pi_package_detail,
             list_workspace_dir,
             search_workspace_files,
             read_workspace_file,
             open_workspace_in_file_manager,
+            list_workspace_editors,
+            open_workspace_in_editor,
             browser_webview_action,
             terminal::terminal_create,
             terminal::terminal_write,
@@ -3049,6 +4158,72 @@ pub fn run_computer_helper() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_git_index_and_worktree_status_separately() {
+        let changes = parse_git_status(
+            " M src/working.ts\nM  src/staged.ts\nMM src/both.ts\n?? src/new.ts\nR  old.ts -> renamed.ts\n",
+        );
+        assert_eq!(changes.len(), 5);
+        assert!(!changes[0].staged);
+        assert!(changes[0].unstaged);
+        assert_eq!(changes[0].worktree_status, "M");
+        assert!(changes[1].staged);
+        assert!(!changes[1].unstaged);
+        assert_eq!(changes[1].index_status, "M");
+        assert!(changes[2].staged && changes[2].unstaged);
+        assert!(changes[3].untracked && changes[3].unstaged);
+        assert_eq!(changes[4].path, "renamed.ts");
+    }
+
+    #[test]
+    fn stages_and_unstages_selected_files() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "pid-desktop-git-index-{}-{stamp}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("temporary repository should be created");
+        run_git(&directory, &["init"]).expect("git repository should initialize");
+        fs::write(directory.join("tracked.txt"), "first\n")
+            .expect("tracked file should be written");
+        run_git(&directory, &["add", "tracked.txt"]).expect("file should stage");
+        run_git(
+            &directory,
+            &[
+                "-c",
+                "user.email=pid-desktop@example.invalid",
+                "-c",
+                "user.name=PIDesktop Tests",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                "initial",
+            ],
+        )
+        .expect("fixture commit should be created");
+        fs::write(directory.join("tracked.txt"), "second\n")
+            .expect("tracked file should be modified");
+
+        let cwd = directory.to_string_lossy().to_string();
+        let paths = vec!["tracked.txt".to_string()];
+        let working = git_snapshot(cwd.clone()).expect("working snapshot should load");
+        assert!(working.files[0].unstaged);
+        git_stage_files(cwd.clone(), paths.clone()).expect("file should stage");
+        let staged = git_snapshot(cwd.clone()).expect("staged snapshot should load");
+        assert!(staged.files[0].staged);
+        assert!(!staged.files[0].unstaged);
+        git_unstage_files(cwd.clone(), paths).expect("file should unstage");
+        let unstaged = git_snapshot(cwd).expect("unstaged snapshot should load");
+        assert!(!unstaged.files[0].staged);
+        assert!(unstaged.files[0].unstaged);
+
+        fs::remove_dir_all(directory).expect("temporary repository should be removed");
+    }
 
     #[test]
     fn parses_git_worktree_porcelain_output() {
@@ -3087,6 +4262,75 @@ mod tests {
         assert!(validate_workspace_directory(&file.to_string_lossy()).is_err());
 
         fs::remove_dir_all(directory).expect("temporary workspace should be removed");
+    }
+
+    #[test]
+    fn workspace_editor_catalog_has_stable_unique_ids() {
+        let ids = WORKSPACE_EDITOR_SPECS
+            .iter()
+            .map(|editor| editor.id)
+            .collect::<HashSet<_>>();
+        assert_eq!(ids.len(), WORKSPACE_EDITOR_SPECS.len());
+        assert_eq!(
+            workspace_editor_spec("cursor").map(|item| item.name),
+            Some("Cursor")
+        );
+        assert_eq!(
+            workspace_editor_spec("VSCODE").map(|item| item.name),
+            Some("Visual Studio Code")
+        );
+        assert_eq!(
+            workspace_editor_spec("antigravity").map(|item| item.name),
+            Some("Antigravity")
+        );
+        assert!(workspace_editor_spec("unknown").is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn promotes_editor_command_script_to_native_executable() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "pid-desktop-editor-launcher-{}-{stamp}",
+            std::process::id()
+        ));
+        let bin = root.join("resources").join("app").join("bin");
+        fs::create_dir_all(&bin).expect("temporary editor bin should exist");
+        let script = bin.join("cursor.cmd");
+        let executable = root.join("Cursor.exe");
+        fs::write(&script, b"").expect("temporary command script should be written");
+        fs::write(&executable, b"").expect("temporary editor executable should be written");
+
+        let spec = workspace_editor_spec("cursor").expect("Cursor spec should exist");
+        assert_eq!(prefer_native_editor_executable(script, spec), executable);
+
+        fs::remove_dir_all(root).expect("temporary editor directory should be removed");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolves_windows_executable_from_explicit_search_directories() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "pid-desktop-command-path-{}-{stamp}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("temporary executable directory should exist");
+        let executable = directory.join("gh.exe");
+        fs::write(&executable, b"").expect("temporary executable should be written");
+
+        assert_eq!(
+            find_windows_executable_in_dirs("gh", std::slice::from_ref(&directory)),
+            Some(executable)
+        );
+
+        fs::remove_dir_all(directory).expect("temporary executable directory should be removed");
     }
 
     #[test]
@@ -3145,6 +4389,45 @@ mod tests {
     }
 
     #[test]
+    fn reads_string_and_filtered_package_settings() {
+        let value = serde_json::json!({
+            "packages": [
+                "npm:plain-package",
+                { "source": "npm:@scope/filtered@2.0.0", "skills": [] },
+                { "skills": ["missing-source"] },
+                42
+            ]
+        });
+        assert_eq!(
+            package_sources_from_settings(&value),
+            vec!["npm:plain-package", "npm:@scope/filtered@2.0.0"]
+        );
+        assert_eq!(
+            npm_package_name("npm:plain-package@1.2.0").as_deref(),
+            Some("plain-package")
+        );
+        assert_eq!(
+            npm_package_name("npm:@scope/filtered@2.0.0").as_deref(),
+            Some("@scope/filtered")
+        );
+        assert!(npm_package_name("git:github.com/example/package").is_none());
+    }
+
+    #[test]
+    fn filters_marketplace_external_urls() {
+        assert_eq!(
+            safe_external_url("git+https://github.com/example/package.git").as_deref(),
+            Some("https://github.com/example/package.git")
+        );
+        assert_eq!(
+            safe_external_url("git://github.com/example/package.git").as_deref(),
+            Some("https://github.com/example/package")
+        );
+        assert!(safe_external_url("javascript:alert(1)").is_none());
+        assert!(safe_external_url("file:///C:/private.txt").is_none());
+    }
+
+    #[test]
     fn mcp_credentials_are_separated_redacted_and_restored() {
         let mut settings = AppSettings::default();
         settings.mcp_servers.push(McpServerConfig {
@@ -3163,7 +4446,10 @@ mod tests {
         assert!(public.mcp_servers[0].headers.is_empty());
 
         let redacted = redact_mcp_secrets(&settings);
-        assert_eq!(redacted.mcp_servers[0].env["API_TOKEN"], MCP_SECRET_PLACEHOLDER);
+        assert_eq!(
+            redacted.mcp_servers[0].env["API_TOKEN"],
+            MCP_SECRET_PLACEHOLDER
+        );
         assert_eq!(
             redacted.mcp_servers[0].headers["Authorization"],
             MCP_SECRET_PLACEHOLDER

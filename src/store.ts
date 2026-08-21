@@ -399,6 +399,7 @@ export const usePiStore = create<PiState>((set, get) => {
     assistantMessageId: string;
   } | null = null;
   let pendingModelChange: { runtimeId: string; promise: Promise<void> } | null = null;
+  let queuedModelSelection: ModelInfo | null = null;
   let pendingConnection: { key: string; promise: Promise<void> } | null = null;
   const workspaceWarmups = new Map<string, Promise<void>>();
   let preferredWarmupKey = "";
@@ -665,6 +666,7 @@ export const usePiStore = create<PiState>((set, get) => {
     sessionTreeLoading: false,
 
     connect: async (cwd, sessionFile) => {
+      if (sessionFile) queuedModelSelection = null;
       const requestKey = `${workspaceKey(cwd)}\u0000${sessionFile ?? ""}`;
       if (pendingConnection?.key === requestKey) return pendingConnection.promise;
 
@@ -673,17 +675,12 @@ export const usePiStore = create<PiState>((set, get) => {
         clearPendingAssistantUpdate();
         pendingOptimisticPrompt = null;
         activeTurnStartedAt = null;
-        const localHistory = sessionFile
-          ? Promise.all([
-              pi.sessionMessages(sessionFile),
-              pi.sessionMessageTimings(sessionFile).catch(() => [] as SessionMessageTiming[]),
-            ])
-          : null;
+        const localHistory = sessionFile ? pi.sessionHistory(sessionFile) : null;
         set({
           connection: "starting",
           cwd,
           messages: [],
-          sessionFile: null,
+          sessionFile: sessionFile ?? null,
           sessionId: null,
           sessionName: null,
           isStreaming: false,
@@ -695,7 +692,7 @@ export const usePiStore = create<PiState>((set, get) => {
           lastError: null,
         });
         if (localHistory) {
-          void localHistory.then(([history, timings]) => {
+          void localHistory.then(({ messages: history, timings }) => {
             if (connectVersion !== connectionVersion) return;
             const restoredMessages = messagesToUi(history, timings);
             set({
@@ -742,6 +739,16 @@ export const usePiStore = create<PiState>((set, get) => {
           }
           await syncSession(connectVersion);
           if (connectVersion !== connectionVersion) return;
+          if (!sessionFile && queuedModelSelection) {
+            const queued = queuedModelSelection;
+            queuedModelSelection = null;
+            try {
+              await get().setModel(queued);
+            } catch {
+              // setModel reports the failure without invalidating an otherwise healthy runtime.
+            }
+            if (connectVersion !== connectionVersion) return;
+          }
           await Promise.all([get().refreshSessions(), get().refreshGit()]);
         } catch (error) {
           if (connectVersion !== connectionVersion) return;
@@ -884,6 +891,7 @@ export const usePiStore = create<PiState>((set, get) => {
     disconnect: async () => {
       connectionVersion += 1;
       pendingConnection = null;
+      queuedModelSelection = null;
       clearPendingAssistantUpdate();
       pendingOptimisticPrompt = null;
       const runtimeId = get().runtimeId;
@@ -1421,7 +1429,11 @@ export const usePiStore = create<PiState>((set, get) => {
 
     setModel: async (model) => {
       const runtimeId = get().runtimeId;
-      if (!runtimeId) throw new Error("当前没有活动的 Pi 任务");
+      if (!runtimeId) {
+        queuedModelSelection = model;
+        set({ model });
+        return;
+      }
 
       const previous = pendingModelChange?.runtimeId === runtimeId
         ? pendingModelChange.promise.catch(() => undefined)

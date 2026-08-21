@@ -35,6 +35,45 @@ interface McpToolResult {
   isError?: boolean;
 }
 
+interface McpCapabilities {
+  tools?: Record<string, unknown>;
+  resources?: { subscribe?: boolean; listChanged?: boolean; [key: string]: unknown };
+  prompts?: { listChanged?: boolean; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+interface McpConnectResult {
+  protocolVersion: string;
+  capabilities: McpCapabilities;
+}
+
+interface McpResource {
+  uri: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+interface McpResourceContents {
+  uri: string;
+  mimeType?: string;
+  text?: string;
+  blob?: string;
+}
+
+interface McpPrompt {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: Array<{ name: string; description?: string; required?: boolean }>;
+}
+
+interface McpPromptResult {
+  description?: string;
+  messages?: Array<{ role?: string; content?: Record<string, unknown> }>;
+}
+
 interface JsonRpcMessage {
   jsonrpc: "2.0";
   id?: number | string | null;
@@ -49,6 +88,7 @@ interface ConnectedServer {
   client: McpClient;
   tools: McpTool[];
   protocolVersion: string;
+  capabilities: McpCapabilities;
 }
 
 interface ServerStatus {
@@ -56,13 +96,19 @@ interface ServerStatus {
   connected: boolean;
   toolCount: number;
   protocolVersion?: string;
+  hasResources?: boolean;
+  hasPrompts?: boolean;
   error?: string;
 }
 
 interface McpClient {
-  connect(): Promise<string>;
+  connect(): Promise<McpConnectResult>;
   listTools(): Promise<McpTool[]>;
   callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<McpToolResult>;
+  listResources(): Promise<McpResource[]>;
+  readResource(uri: string): Promise<{ contents?: McpResourceContents[] }>;
+  listPrompts(): Promise<McpPrompt[]>;
+  getPrompt(name: string, args: Record<string, string>): Promise<McpPromptResult>;
   close(): void;
 }
 
@@ -97,7 +143,7 @@ class StdioMcpClient implements McpClient {
 
   constructor(private config: McpServerConfig) {}
 
-  async connect(): Promise<string> {
+  async connect(): Promise<McpConnectResult> {
     const launch = commandForWindows(this.config.command, this.config.args || []);
     this.child = spawn(launch.command, launch.args, {
       cwd: this.config.cwd || undefined,
@@ -119,13 +165,13 @@ class StdioMcpClient implements McpClient {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: { name: "Pi Desktop", version: "0.2.0" },
-    }) as { protocolVersion?: string };
+    }) as { protocolVersion?: string; capabilities?: McpCapabilities };
     const negotiated = result.protocolVersion || PROTOCOL_VERSION;
     if (!SUPPORTED_PROTOCOL_VERSIONS.has(negotiated)) {
       throw new Error(`MCP server selected unsupported protocol version ${negotiated}`);
     }
     this.notify("notifications/initialized");
-    return negotiated;
+    return { protocolVersion: negotiated, capabilities: result.capabilities || {} };
   }
 
   async listTools(): Promise<McpTool[]> {
@@ -142,6 +188,22 @@ class StdioMcpClient implements McpClient {
 
   async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<McpToolResult> {
     return this.request("tools/call", { name, arguments: args }, 120_000, signal) as Promise<McpToolResult>;
+  }
+
+  async listResources(): Promise<McpResource[]> {
+    return this.listPaginated<McpResource>("resources/list", "resources");
+  }
+
+  async readResource(uri: string): Promise<{ contents?: McpResourceContents[] }> {
+    return this.request("resources/read", { uri }) as Promise<{ contents?: McpResourceContents[] }>;
+  }
+
+  async listPrompts(): Promise<McpPrompt[]> {
+    return this.listPaginated<McpPrompt>("prompts/list", "prompts");
+  }
+
+  async getPrompt(name: string, args: Record<string, string>): Promise<McpPromptResult> {
+    return this.request("prompts/get", { name, arguments: args }) as Promise<McpPromptResult>;
   }
 
   close(): void {
@@ -193,6 +255,19 @@ class StdioMcpClient implements McpClient {
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
+  }
+
+  private async listPaginated<T>(method: string, field: string): Promise<T[]> {
+    const items: T[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 50; page += 1) {
+      const result = await this.request(method, cursor ? { cursor } : {}) as Record<string, unknown> & { nextCursor?: string };
+      const pageItems = result[field];
+      if (Array.isArray(pageItems)) items.push(...pageItems as T[]);
+      cursor = result.nextCursor;
+      if (!cursor) return items;
+    }
+    throw new Error(`${method} exceeded 50 pages`);
   }
 
   private notify(method: string, params?: Record<string, unknown>): void {
@@ -251,18 +326,18 @@ class HttpMcpClient implements McpClient {
 
   constructor(private config: McpServerConfig) {}
 
-  async connect(): Promise<string> {
+  async connect(): Promise<McpConnectResult> {
     const result = await this.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: { name: "Pi Desktop", version: "0.2.0" },
-    }) as { protocolVersion?: string };
+    }) as { protocolVersion?: string; capabilities?: McpCapabilities };
     this.negotiatedVersion = result.protocolVersion || PROTOCOL_VERSION;
     if (!SUPPORTED_PROTOCOL_VERSIONS.has(this.negotiatedVersion)) {
       throw new Error(`MCP server selected unsupported protocol version ${this.negotiatedVersion}`);
     }
     await this.notification("notifications/initialized");
-    return this.negotiatedVersion;
+    return { protocolVersion: this.negotiatedVersion, capabilities: result.capabilities || {} };
   }
 
   async listTools(): Promise<McpTool[]> {
@@ -281,6 +356,22 @@ class HttpMcpClient implements McpClient {
     return this.request("tools/call", { name, arguments: args }, signal, 120_000) as Promise<McpToolResult>;
   }
 
+  async listResources(): Promise<McpResource[]> {
+    return this.listPaginated<McpResource>("resources/list", "resources");
+  }
+
+  async readResource(uri: string): Promise<{ contents?: McpResourceContents[] }> {
+    return this.request("resources/read", { uri }) as Promise<{ contents?: McpResourceContents[] }>;
+  }
+
+  async listPrompts(): Promise<McpPrompt[]> {
+    return this.listPaginated<McpPrompt>("prompts/list", "prompts");
+  }
+
+  async getPrompt(name: string, args: Record<string, string>): Promise<McpPromptResult> {
+    return this.request("prompts/get", { name, arguments: args }) as Promise<McpPromptResult>;
+  }
+
   close(): void {
     if (!this.sessionId) return;
     const headers: Record<string, string> = { ...this.config.headers, "mcp-session-id": this.sessionId };
@@ -297,6 +388,19 @@ class HttpMcpClient implements McpClient {
     if (!matched) throw new Error(`MCP HTTP response did not include request ${id}`);
     if (matched.error) throw new Error(`MCP ${matched.error.code}: ${matched.error.message}`);
     return matched.result;
+  }
+
+  private async listPaginated<T>(method: string, field: string): Promise<T[]> {
+    const items: T[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 50; page += 1) {
+      const result = await this.request(method, cursor ? { cursor } : {}) as Record<string, unknown> & { nextCursor?: string };
+      const pageItems = result[field];
+      if (Array.isArray(pageItems)) items.push(...pageItems as T[]);
+      cursor = result.nextCursor;
+      if (!cursor) return items;
+    }
+    throw new Error(`${method} exceeded 50 pages`);
   }
 
   private async notification(method: string, params?: Record<string, unknown>): Promise<void> {
@@ -388,6 +492,50 @@ function resultContent(result: McpToolResult): Array<{ type: "text"; text: strin
   return content;
 }
 
+function resourceContent(result: { contents?: McpResourceContents[] }): Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> {
+  const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
+  for (const resource of result.contents || []) {
+    if (typeof resource.text === "string") {
+      const limit = 200_000;
+      const suffix = resource.text.length > limit ? `\n\n[内容已截断：原始长度 ${resource.text.length.toLocaleString()} 字符]` : "";
+      content.push({ type: "text", text: `资源：${resource.uri}\n\n${resource.text.slice(0, limit)}${suffix}` });
+    } else if (typeof resource.blob === "string" && resource.mimeType?.startsWith("image/")) {
+      content.push({ type: "image", data: resource.blob, mimeType: resource.mimeType });
+    } else if (typeof resource.blob === "string") {
+      content.push({ type: "text", text: `资源：${resource.uri}\n二进制内容 · ${resource.mimeType || "application/octet-stream"} · ${resource.blob.length} 个 Base64 字符` });
+    }
+  }
+  return content.length ? content : [{ type: "text", text: "MCP 服务器返回了空资源。" }];
+}
+
+function resourceListMarkdown(server: ConnectedServer, resources: McpResource[]): string {
+  const title = server.config.name || server.config.id;
+  if (!resources.length) return `### MCP 资源 · ${title}\n\n该服务器没有返回资源。`;
+  return `### MCP 资源 · ${title}\n\n${resources.map((resource) => {
+    const label = resource.title || resource.name || resource.uri;
+    const metadata = [resource.mimeType, resource.description].filter(Boolean).join(" · ");
+    return `- **${label}**\n  - URI: \`${resource.uri}\`${metadata ? `\n  - ${metadata}` : ""}`;
+  }).join("\n")}`;
+}
+
+function promptListMarkdown(server: ConnectedServer, prompts: McpPrompt[]): string {
+  const title = server.config.name || server.config.id;
+  if (!prompts.length) return `### MCP 提示词 · ${title}\n\n该服务器没有返回提示词。`;
+  return `### MCP 提示词 · ${title}\n\n${prompts.map((prompt) => {
+    const args = (prompt.arguments || []).map((arg) => `${arg.name}${arg.required ? "*" : ""}`).join(", ");
+    return `- **${prompt.title || prompt.name}**${prompt.description ? `：${prompt.description}` : ""}${args ? `\n  - 参数：${args}` : ""}`;
+  }).join("\n")}`;
+}
+
+function promptResultMarkdown(server: ConnectedServer, name: string, result: McpPromptResult): string {
+  const messages = (result.messages || []).map((message) => {
+    const raw = message.content || {};
+    const body = typeof raw.text === "string" ? raw.text : JSON.stringify(raw, null, 2);
+    return `#### ${message.role || "message"}\n\n${body}`;
+  }).join("\n\n");
+  return `### MCP 提示词 · ${server.config.name || server.config.id} / ${name}${result.description ? `\n\n${result.description}` : ""}${messages ? `\n\n${messages}` : "\n\n服务器返回了空提示词。"}`;
+}
+
 async function loadConfig(): Promise<McpServerConfig[]> {
   const encoded = process.env.PIDESKTOP_MCP_CONFIG_B64;
   delete process.env.PIDESKTOP_MCP_CONFIG_B64;
@@ -419,9 +567,10 @@ export default async function (pi: ExtensionAPI) {
   const attempts = await Promise.all(configured.map(async (config) => {
     const client = createClient(config);
     try {
-      const protocolVersion = await client.connect();
-      const tools = await client.listTools();
-      return { config, client, tools, protocolVersion } satisfies ConnectedServer;
+      const connection = await client.connect();
+      const capabilitiesDeclared = Object.keys(connection.capabilities).length > 0;
+      const tools = connection.capabilities.tools || !capabilitiesDeclared ? await client.listTools() : [];
+      return { config, client, tools, ...connection } satisfies ConnectedServer;
     } catch (error) {
       client.close();
       statuses.push({ config, connected: false, toolCount: 0, error: errorText(error) });
@@ -432,7 +581,14 @@ export default async function (pi: ExtensionAPI) {
   for (const server of attempts) {
     if (!server) continue;
     connected.push(server);
-    statuses.push({ config: server.config, connected: true, toolCount: server.tools.length, protocolVersion: server.protocolVersion });
+    statuses.push({
+      config: server.config,
+      connected: true,
+      toolCount: server.tools.length,
+      protocolVersion: server.protocolVersion,
+      hasResources: Boolean(server.capabilities.resources),
+      hasPrompts: Boolean(server.capabilities.prompts),
+    });
     for (const remoteTool of server.tools) {
       const name = toolName(server.config.id, remoteTool.name, usedNames);
       const parameters = Type.Unsafe<Record<string, unknown>>(
@@ -482,11 +638,128 @@ export default async function (pi: ExtensionAPI) {
     }
   }
 
+  const resourceServers = connected.filter((server) => Boolean(server.capabilities.resources));
+  const promptServers = connected.filter((server) => Boolean(server.capabilities.prompts));
+  const resolveServer = (requestedId: string | undefined, candidates: ConnectedServer[], capability: string): ConnectedServer => {
+    const requested = requestedId?.trim();
+    if (requested) {
+      const match = candidates.find((server) => server.config.id === requested || server.config.name === requested);
+      if (match) return match;
+      throw new Error(`没有找到支持${capability}的 MCP 服务器“${requested}”。可用：${candidates.map((server) => server.config.id).join(", ") || "无"}`);
+    }
+    if (candidates.length === 1) return candidates[0];
+    if (!candidates.length) throw new Error(`没有已连接且支持${capability}的 MCP 服务器`);
+    throw new Error(`请指定 serverId。可用：${candidates.map((server) => server.config.id).join(", ")}`);
+  };
+
+  if (resourceServers.length) {
+    pi.registerTool({
+      name: "mcp_list_resources",
+      label: "MCP 资源列表",
+      description: "List read-only resources advertised by a connected MCP server.",
+      promptSnippet: "List resources exposed by a configured MCP server before reading one",
+      parameters: Type.Object({
+        serverId: Type.Optional(Type.String({ description: "MCP server ID; optional when exactly one server supports resources" })),
+      }),
+      async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+        const server = resolveServer(params.serverId, resourceServers, "资源");
+        if (permissionMode === "read-only" && !server.config.trustedReadOnly) {
+          throw new Error("只读模式只允许读取已标记为受信任只读的 MCP 服务器");
+        }
+        if (confirmTools && !server.config.trustedReadOnly) {
+          const allowed = await ctx.ui.confirm("允许读取 MCP 资源列表？", server.config.name || server.config.id);
+          if (!allowed) throw new Error("用户拒绝了 MCP 资源读取");
+        }
+        onUpdate?.({ content: [{ type: "text", text: `正在读取 ${server.config.name || server.config.id} 的资源列表…` }] });
+        const resources = await server.client.listResources();
+        return { content: [{ type: "text", text: resourceListMarkdown(server, resources) }], details: { serverId: server.config.id, resources } };
+      },
+    });
+
+    pi.registerTool({
+      name: "mcp_read_resource",
+      label: "读取 MCP 资源",
+      description: "Read a resource URI from a connected MCP server.",
+      promptSnippet: "Read a specific resource exposed by a configured MCP server",
+      parameters: Type.Object({
+        serverId: Type.Optional(Type.String({ description: "MCP server ID; optional when exactly one server supports resources" })),
+        uri: Type.String({ description: "Exact URI returned by mcp_list_resources" }),
+      }),
+      async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+        const server = resolveServer(params.serverId, resourceServers, "资源");
+        if (permissionMode === "read-only" && !server.config.trustedReadOnly) {
+          throw new Error("只读模式只允许读取已标记为受信任只读的 MCP 服务器");
+        }
+        if (confirmTools && !server.config.trustedReadOnly) {
+          const allowed = await ctx.ui.confirm("允许读取 MCP 资源？", `${server.config.name || server.config.id}\n${params.uri}`);
+          if (!allowed) throw new Error("用户拒绝了 MCP 资源读取");
+        }
+        onUpdate?.({ content: [{ type: "text", text: `正在读取 MCP 资源 ${params.uri}…` }] });
+        const result = await server.client.readResource(params.uri);
+        return { content: resourceContent(result), details: { serverId: server.config.id, uri: params.uri } };
+      },
+    });
+  }
+
+  if (promptServers.length) {
+    pi.registerTool({
+      name: "mcp_list_prompts",
+      label: "MCP 提示词列表",
+      description: "List prompt templates advertised by a connected MCP server.",
+      promptSnippet: "List reusable prompt templates exposed by a configured MCP server",
+      parameters: Type.Object({
+        serverId: Type.Optional(Type.String({ description: "MCP server ID; optional when exactly one server supports prompts" })),
+      }),
+      async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+        const server = resolveServer(params.serverId, promptServers, "提示词");
+        if (permissionMode === "read-only" && !server.config.trustedReadOnly) {
+          throw new Error("只读模式只允许访问已标记为受信任只读的 MCP 服务器");
+        }
+        if (confirmTools && !server.config.trustedReadOnly) {
+          const allowed = await ctx.ui.confirm("允许读取 MCP 提示词列表？", server.config.name || server.config.id);
+          if (!allowed) throw new Error("用户拒绝了 MCP 提示词读取");
+        }
+        onUpdate?.({ content: [{ type: "text", text: `正在读取 ${server.config.name || server.config.id} 的提示词…` }] });
+        const prompts = await server.client.listPrompts();
+        return { content: [{ type: "text", text: promptListMarkdown(server, prompts) }], details: { serverId: server.config.id, prompts } };
+      },
+    });
+
+    pi.registerTool({
+      name: "mcp_get_prompt",
+      label: "读取 MCP 提示词",
+      description: "Resolve a prompt template from a connected MCP server with string arguments.",
+      promptSnippet: "Resolve a reusable MCP prompt template before following it",
+      parameters: Type.Object({
+        serverId: Type.Optional(Type.String({ description: "MCP server ID; optional when exactly one server supports prompts" })),
+        name: Type.String({ description: "Prompt name returned by mcp_list_prompts" }),
+        arguments: Type.Optional(Type.Record(Type.String(), Type.String())),
+      }),
+      async execute(_toolCallId, params, _signal, onUpdate, ctx) {
+        const server = resolveServer(params.serverId, promptServers, "提示词");
+        if (permissionMode === "read-only" && !server.config.trustedReadOnly) {
+          throw new Error("只读模式只允许访问已标记为受信任只读的 MCP 服务器");
+        }
+        if (confirmTools && !server.config.trustedReadOnly) {
+          const allowed = await ctx.ui.confirm("允许读取 MCP 提示词？", `${server.config.name || server.config.id}\n${params.name}`);
+          if (!allowed) throw new Error("用户拒绝了 MCP 提示词读取");
+        }
+        onUpdate?.({ content: [{ type: "text", text: `正在读取 MCP 提示词 ${params.name}…` }] });
+        const result = await server.client.getPrompt(params.name, params.arguments || {});
+        return { content: [{ type: "text", text: promptResultMarkdown(server, params.name, result) }], details: { serverId: server.config.id, name: params.name } };
+      },
+    });
+  }
+
   const summary = () => {
     const healthy = statuses.filter((status) => status.connected).length;
     const tools = statuses.reduce((total, status) => total + status.toolCount, 0);
+    const resources = statuses.filter((status) => status.hasResources).length;
+    const prompts = statuses.filter((status) => status.hasPrompts).length;
     const failed = statuses.length - healthy;
-    return configured.length ? `MCP ${healthy}/${configured.length} · ${tools} 工具${failed ? ` · ${failed} 失败` : ""}` : "MCP 未配置";
+    const extras = [resources ? `${resources} 资源服务` : "", prompts ? `${prompts} 提示词服务` : ""].filter(Boolean).join(" · ");
+    if (!configured.length && statuses.length) return `MCP 配置错误 · ${statuses[0].error || "无法读取服务器配置"}`;
+    return configured.length ? `MCP ${healthy}/${configured.length} · ${tools} 工具${extras ? ` · ${extras}` : ""}${failed ? ` · ${failed} 失败` : ""}` : "MCP 未配置";
   };
 
   pi.on("session_start", async (_event, ctx) => {
@@ -504,9 +777,68 @@ export default async function (pi: ExtensionAPI) {
         return;
       }
       const lines = statuses.map((status) => status.connected
-        ? `✓ ${status.config.name || status.config.id} · ${status.config.transport} · ${status.protocolVersion} · ${status.toolCount} 个工具`
+        ? `✓ ${status.config.name || status.config.id} · ${status.config.transport} · ${status.protocolVersion} · ${status.toolCount} 个工具${status.hasResources ? " · resources" : ""}${status.hasPrompts ? " · prompts" : ""}`
         : `✗ ${status.config.name || status.config.id} · ${status.error}`);
       ctx.ui.notify(lines.join("\n"), statuses.some((status) => !status.connected) ? "warning" : "info");
+    },
+  });
+
+  pi.registerCommand("mcp-resources", {
+    description: "列出 MCP 服务器公开的只读资源，可选参数为 serverId",
+    handler: async (args, ctx) => {
+      try {
+        const server = resolveServer(args.trim() || undefined, resourceServers, "资源");
+        const resources = await server.client.listResources();
+        pi.sendMessage({
+          customType: "pidesktop-mcp-resources",
+          content: resourceListMarkdown(server, resources),
+          display: true,
+          details: { serverId: server.config.id, resources },
+        }, { triggerTurn: false });
+      } catch (error) {
+        ctx.ui.notify(`MCP 资源读取失败：${errorText(error)}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("mcp-read", {
+    description: "读取 MCP 资源：/mcp-read <serverId> <uri>",
+    handler: async (args, ctx) => {
+      const match = args.trim().match(/^(\S+)\s+([\s\S]+)$/);
+      if (!match) {
+        ctx.ui.notify("用法：/mcp-read <serverId> <uri>", "warning");
+        return;
+      }
+      try {
+        const server = resolveServer(match[1], resourceServers, "资源");
+        const result = await server.client.readResource(match[2].trim());
+        pi.sendMessage({
+          customType: "pidesktop-mcp-resource",
+          content: resourceContent(result),
+          display: true,
+          details: { serverId: server.config.id, uri: match[2].trim() },
+        }, { triggerTurn: false });
+      } catch (error) {
+        ctx.ui.notify(`MCP 资源读取失败：${errorText(error)}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("mcp-prompts", {
+    description: "列出 MCP 服务器公开的提示词模板，可选参数为 serverId",
+    handler: async (args, ctx) => {
+      try {
+        const server = resolveServer(args.trim() || undefined, promptServers, "提示词");
+        const prompts = await server.client.listPrompts();
+        pi.sendMessage({
+          customType: "pidesktop-mcp-prompts",
+          content: promptListMarkdown(server, prompts),
+          display: true,
+          details: { serverId: server.config.id, prompts },
+        }, { triggerTurn: false });
+      } catch (error) {
+        ctx.ui.notify(`MCP 提示词读取失败：${errorText(error)}`, "error");
+      }
     },
   });
 }

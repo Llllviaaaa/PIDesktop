@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowLeft,
   ArrowRight,
-  Box,
   Bug,
+  Check,
   ChevronDown,
+  Code2,
   FileDiff,
   Folder,
   FolderOpen,
@@ -45,9 +47,9 @@ import { SideChatPanel } from "./components/SideChatPanel";
 import { TerminalWorkspacePanel } from "./components/TerminalWorkspacePanel";
 import { PullRequestsPage } from "./components/PullRequestsPage";
 import { ScheduledTasksPage } from "./components/ScheduledTasksPage";
+import { PluginMarketplacePage } from "./components/PluginMarketplacePage";
 import { WorkspaceFileOpenContext } from "./components/Markdown";
-import { nextScheduledRun } from "./lib/schedule";
-import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, PullRequestInfo, ScheduledTask, UiMessage } from "./types";
+import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, ScheduledRunRecord, UiMessage, WorkspaceEditorInfo } from "./types";
 
 function TelescopeIcon({ size = 18 }: { size?: number; strokeWidth?: number }) {
   return (
@@ -68,7 +70,7 @@ const STARTERS: Array<{ title: string; prompt: string; tone: "blue" | "purple" |
   { title: "修复问题和失败", prompt: "运行测试或复现当前失败项，定位根因并修复。", tone: "orange", Icon: Bug },
 ];
 
-type HubView = "pull-requests" | "sites" | "scheduled";
+type HubView = "pull-requests" | "sites" | "scheduled" | "plugins";
 type AppMenu = "file" | "edit" | "view" | "help";
 type NavigationTarget =
   | { kind: "home"; workspace: string }
@@ -81,6 +83,16 @@ function navigationKey(target: NavigationTarget): string {
     : target.kind === "hub"
       ? `hub:${target.view}`
       : `session:${target.cwd}:${target.file}`;
+}
+
+function WorkspaceCubeIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M8 1.4 14 4.85 8 8.3 2 4.85 8 1.4Z" fill="#f7f7f7" />
+      <path d="M2 4.85 8 8.3v6.3l-6-3.45v-6.3Z" fill="#a7a7a7" />
+      <path d="M14 4.85 8 8.3v6.3l6-3.45v-6.3Z" fill="#d7d7d7" />
+    </svg>
+  );
 }
 
 const ACTIVE_RUNTIME_KEY = "pid-desktop:active-runtime";
@@ -162,6 +174,7 @@ export default function App() {
   const [openFileTabs, setOpenFileTabs] = useState<Array<{ path: string; line?: number }>>([]);
   const [moreOpen, setMoreOpen] = useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const [workspaceEditors, setWorkspaceEditors] = useState<WorkspaceEditorInfo[]>([]);
   const [appMenu, setAppMenu] = useState<AppMenu | null>(null);
   const [attachments, setAttachments] = useState<AttachmentPayload[]>([]);
   const [titleDraft, setTitleDraft] = useState("");
@@ -171,6 +184,7 @@ export default function App() {
   const [draftWorkspace, setDraftWorkspace] = useState(() => window.localStorage.getItem("pid-desktop:last-workspace") || "");
   const [draftBranch, setDraftBranch] = useState("");
   const [draftGit, setDraftGit] = useState<GitSnapshot | null>(null);
+  const [registeredProjects, setRegisteredProjects] = useState<ProjectConfig[]>([]);
   const [quickChat, setQuickChat] = useState(false);
   const [goalEditPrefill, setGoalEditPrefill] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ messageId: string; entryId: string } | null>(null);
@@ -183,10 +197,15 @@ export default function App() {
   const navigationForwardRef = useRef<NavigationTarget[]>([]);
   const [navigationVersion, setNavigationVersion] = useState(0);
   const autoConnectedRef = useRef(false);
-  const scheduledRunsRef = useRef(new Set<string>());
   const isTauri = "__TAURI_INTERNALS__" in window;
   const appWindow = isTauri ? getCurrentWindow() : null;
   const workspaceSidebarVisible = workspaceSidebarOpen || Boolean(workspaceTool || previewFile);
+  const preferredWorkspaceEditor = useMemo(() => {
+    const preferredId = settings?.defaultFileOpener;
+    const configured = workspaceEditors.find((editor) => editor.id === preferredId);
+    if (configured) return configured;
+    return workspaceEditors[0] ?? null;
+  }, [settings?.defaultFileOpener, workspaceEditors]);
 
   const toggleWorkspaceSidebar = useCallback(() => {
     if (workspaceSidebarVisible) {
@@ -281,6 +300,44 @@ export default function App() {
   }, [isTauri, store.appendLog, store.handleEvent, store.handleStatus, store.handleLog, store.loadSettings, store.refreshSessions, store.restoreRuntimes]);
 
   useEffect(() => {
+    if (!isTauri) return;
+    let cancelled = false;
+    void pi.listWorkspaceEditors()
+      .then((editors) => {
+        if (!cancelled) setWorkspaceEditors(editors);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceEditors([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isTauri]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    let disposed = false;
+    let unlisten: UnlistenFn | undefined;
+    void listen<ScheduledRunRecord>("scheduled-run-updated", (event) => {
+      if (event.payload.status === "running") return;
+      void usePiStore.getState().refreshSessions();
+      usePiStore.getState().showToast(
+        event.payload.status === "success"
+          ? `计划任务“${event.payload.taskName}”已完成`
+          : `计划任务“${event.payload.taskName}”${event.payload.status === "interrupted" ? "已中断" : "失败"}`,
+        event.payload.status === "success" ? "info" : "error",
+      );
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [isTauri]);
+
+  useEffect(() => {
     if (!runtimeRecoveryDone || !settings?.autoConnect || autoConnectedRef.current || connection !== "disconnected") return;
     const lastTask = readPersistedTask();
     const lastWorkspace = lastTask?.cwd || window.localStorage.getItem("pid-desktop:last-workspace");
@@ -291,45 +348,6 @@ export default function App() {
     autoConnectedRef.current = true;
     void store.connect(lastWorkspace, sessionFile);
   }, [connection, runtimeRecoveryDone, sessions, settings?.autoConnect, store.connect]);
-
-  const runDueScheduledTasks = useCallback(async () => {
-    if (!isTauri) return;
-    let tasks: ScheduledTask[];
-    try {
-      tasks = await pi.listScheduledTasks();
-    } catch {
-      return;
-    }
-    const now = Date.now();
-    for (const task of tasks) {
-      if (!task.enabled || scheduledRunsRef.current.has(task.id)) continue;
-      if (!task.nextRunAt) {
-        const initialized = { ...task, nextRunAt: nextScheduledRun(task, now) };
-        void pi.saveScheduledTask(initialized).catch(() => undefined);
-        continue;
-      }
-      if (task.nextRunAt > now) continue;
-      scheduledRunsRef.current.add(task.id);
-      const nextRunAt = nextScheduledRun(task, now + 1_000);
-      void pi.runScheduledTask(task.id, nextRunAt)
-        .then(async (result) => {
-          await usePiStore.getState().refreshSessions();
-          usePiStore.getState().showToast(
-            result.success ? `计划任务“${task.name}”已完成` : `计划任务“${task.name}”失败`,
-            result.success ? "info" : "error",
-          );
-        })
-        .catch((error) => usePiStore.getState().showToast(`计划任务失败：${String(error)}`, "error"))
-        .finally(() => scheduledRunsRef.current.delete(task.id));
-    }
-  }, [isTauri]);
-
-  useEffect(() => {
-    if (!runtimeRecoveryDone || !isTauri) return;
-    void runDueScheduledTasks();
-    const timer = window.setInterval(() => void runDueScheduledTasks(), 30_000);
-    return () => window.clearInterval(timer);
-  }, [isTauri, runDueScheduledTasks, runtimeRecoveryDone]);
 
   useEffect(() => {
     if (!runtimeId || !cwd) return;
@@ -361,7 +379,7 @@ export default function App() {
     const dark = resolved === "dark";
     root.style.setProperty("--accent-custom", dark ? "#ffffff" : "#111111");
     root.style.setProperty("--code-font", settings.codeFont);
-    root.style.fontFamily = settings.uiFont || 'Inter, "Segoe UI", system-ui, sans-serif';
+    root.style.fontFamily = settings.uiFont || '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     root.style.setProperty("--app", dark ? "#0a0a0b" : "#ffffff");
     root.style.setProperty("--text", dark ? "#f5f5f5" : "#1a1a1a");
     const appRoot = document.getElementById("root");
@@ -505,6 +523,26 @@ export default function App() {
   }, [draftWorkspace, sessions]);
 
   useEffect(() => {
+    if (!isTauri) return;
+    let disposed = false;
+    const loadProjects = async () => {
+      try {
+        const projects = await pi.listProjects();
+        if (!disposed) setRegisteredProjects(projects.filter((project) => !project.hidden));
+      } catch {
+        if (!disposed) setRegisteredProjects([]);
+      }
+    };
+    void loadProjects();
+    const reload = () => void loadProjects();
+    window.addEventListener("pid-desktop:projects-changed", reload);
+    return () => {
+      disposed = true;
+      window.removeEventListener("pid-desktop:projects-changed", reload);
+    };
+  }, [isTauri]);
+
+  useEffect(() => {
     let disposed = false;
     if (!isTauri || !draftWorkspace) {
       setDraftBranch("");
@@ -635,7 +673,7 @@ export default function App() {
         ? "完全访问"
         : "先询问";
   const connected = connection === "running";
-  const newTask = messages.length === 0;
+  const newTask = messages.length === 0 && !sessionFile;
   const workspaceCwd = newTask ? draftWorkspace : cwd;
   const workspaceFilePath = useCallback((path: string) => (
     /^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)
@@ -655,9 +693,9 @@ export default function App() {
     }
   }, [workspaceCwd, workspaceFilePath]);
   const workspaceOptions = useMemo(
-    () => [draftWorkspace, cwd, ...sessions.map((session) => session.cwd)]
+    () => [draftWorkspace, cwd, ...registeredProjects.map((project) => project.path), ...sessions.map((session) => session.cwd)]
       .filter((item): item is string => Boolean(item) && !item.toLowerCase().endsWith("quick-chat")),
-    [cwd, draftWorkspace, sessions],
+    [cwd, draftWorkspace, registeredProjects, sessions],
   );
   const runningSessionFiles = useMemo(
     () => Object.values(runtimes).filter((runtime) => runtime.isStreaming && runtime.sessionFile).map((runtime) => runtime.sessionFile as string),
@@ -791,6 +829,21 @@ export default function App() {
     });
   }, []);
 
+  const revealWorkspaceInEditor = useCallback((workspace: string, editor: WorkspaceEditorInfo) => {
+    if (!workspace) return;
+    void pi.openWorkspaceInEditor(workspace, editor.id).catch((error) => {
+      usePiStore.getState().showToast(`无法在 ${editor.name} 中打开项目：${String(error)}`, "error");
+    });
+  }, []);
+
+  const openWorkspaceWithPreferredApp = useCallback((workspace: string) => {
+    if (preferredWorkspaceEditor) {
+      revealWorkspaceInEditor(workspace, preferredWorkspaceEditor);
+      return;
+    }
+    revealWorkspaceInExplorer(workspace);
+  }, [preferredWorkspaceEditor, revealWorkspaceInEditor, revealWorkspaceInExplorer]);
+
   const currentNavigationTarget = useCallback((): NavigationTarget => {
     if (hubView) return { kind: "hub", view: hubView };
     if (!newTask && sessionFile) return { kind: "session", cwd, file: sessionFile };
@@ -896,8 +949,8 @@ export default function App() {
   }, [sidebarVisible, sidebarWidth, workspaceChatWidth]);
 
   const restoreGitFiles = useCallback(async (paths?: string[]) => {
-    const workspace = usePiStore.getState().cwd;
-    const snapshot = usePiStore.getState().git;
+    const workspace = workspaceCwd;
+    const snapshot = newTask ? draftGit : usePiStore.getState().git;
     if (!workspace || !snapshot?.files.length) return;
     const targets = paths?.length ? paths : snapshot.files.map((file) => file.path);
     if (!targets.length) return;
@@ -905,17 +958,35 @@ export default function App() {
     if (!window.confirm(`撤销对 ${label} 的本地更改？未提交的改动将丢失。`)) return;
     try {
       await pi.gitRestoreFiles(workspace, targets);
-      await usePiStore.getState().refreshGit();
+      if (newTask) await refreshDraftGit();
+      else await usePiStore.getState().refreshGit();
       usePiStore.getState().showToast("已撤销本地更改", "info");
     } catch (error) {
       usePiStore.getState().showToast(error instanceof Error ? error.message : String(error), "error");
     }
-  }, []);
+  }, [draftGit, newTask, refreshDraftGit, workspaceCwd]);
 
   const openSettingsPage = useCallback((page: SettingsPage) => {
     setSettingsPage(page);
     setSettingsOpen(true);
   }, []);
+
+  const updateGitIndex = useCallback(async (mode: "stage" | "unstage", paths: string[]) => {
+    if (!workspaceCwd || !paths.length) return;
+    try {
+      if (mode === "stage") await pi.gitStageFiles(workspaceCwd, paths);
+      else await pi.gitUnstageFiles(workspaceCwd, paths);
+      if (newTask) await refreshDraftGit();
+      else await usePiStore.getState().refreshGit();
+      usePiStore.getState().showToast(
+        mode === "stage" ? `已暂存 ${paths.length} 个文件` : `已取消暂存 ${paths.length} 个文件`,
+        "info",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      usePiStore.getState().showToast(message, "error");
+    }
+  }, [newTask, refreshDraftGit, workspaceCwd]);
 
   const stopFromComposer = useCallback(() => {
     void usePiStore.getState().abort();
@@ -924,7 +995,9 @@ export default function App() {
     setAttachments((items) => items.filter((item) => item.path !== path));
   }, []);
   const changeComposerModel = useCallback((next: ModelInfo) => {
-    void usePiStore.getState().setModel(next).catch(() => undefined);
+    void usePiStore.getState().setModel(next).catch((error) => {
+      usePiStore.getState().appendLog(`切换模型失败：${error instanceof Error ? error.message : String(error)}`);
+    });
   }, []);
   const changeComposerThinking = useCallback((level: string) => {
     void usePiStore.getState().setThinkingLevel(level).catch((error) => {
@@ -1137,11 +1210,11 @@ export default function App() {
             approvalSessionFiles={approvalSessionFiles}
             cwd={newTask ? draftWorkspace : cwd}
             newTaskActive={newTask && hubView === null}
-            activeHub={hubView === "pull-requests" || hubView === "scheduled" ? hubView : null}
+            activeHub={hubView === "pull-requests" || hubView === "scheduled" || hubView === "plugins" ? hubView : null}
             onNewSession={() => navigateTo({ kind: "home", workspace: draftWorkspace || cwd })}
             onOpenPullRequests={() => navigateTo({ kind: "hub", view: "pull-requests" })}
             onOpenScheduled={() => navigateTo({ kind: "hub", view: "scheduled" })}
-            onOpenPlugins={() => openSettingsPage("plugins")}
+            onOpenPlugins={() => navigateTo({ kind: "hub", view: "plugins" })}
             onOpenSession={(session) => navigateTo({ kind: "session", cwd: session.cwd, file: session.file })}
             onOpenProject={(workspace) => navigateTo({ kind: "home", workspace })}
             onNewProjectSession={(workspace) => navigateTo({ kind: "home", workspace })}
@@ -1283,15 +1356,15 @@ export default function App() {
                     <button
                       type="button"
                       className="workspace-open-trigger"
-                      title="打开当前项目"
-                      aria-label="打开当前项目"
+                      title={preferredWorkspaceEditor ? `在 ${preferredWorkspaceEditor.name} 中打开` : "在文件资源管理器中打开"}
+                      aria-label={preferredWorkspaceEditor ? `在 ${preferredWorkspaceEditor.name} 中打开` : "在文件资源管理器中打开"}
                       disabled={!workspaceCwd}
                       onClick={() => {
                         if (!workspaceCwd) return;
-                        revealWorkspaceInExplorer(workspaceCwd);
+                        openWorkspaceWithPreferredApp(workspaceCwd);
                       }}
                     >
-                      <span className="workspace-tools-mark" aria-hidden><Box size={13} strokeWidth={1.8} /></span>
+                      <span className="workspace-tools-mark" aria-hidden><WorkspaceCubeIcon /></span>
                     </button>
                     <button
                       type="button"
@@ -1302,11 +1375,22 @@ export default function App() {
                       aria-expanded={toolsMenuOpen}
                       onClick={() => setToolsMenuOpen((value) => !value)}
                     >
-                      <ChevronDown size={12} strokeWidth={1.8} />
+                      <ChevronDown size={13} strokeWidth={1.75} />
                     </button>
                   </div>
                   {toolsMenuOpen && (
                     <div className="topbar-menu workspace-tools-popover" role="menu">
+                      {workspaceEditors.map((editor) => (
+                        <button role="menuitem" key={editor.id} disabled={!workspaceCwd} onClick={() => {
+                          setToolsMenuOpen(false);
+                          if (!workspaceCwd) return;
+                          revealWorkspaceInEditor(workspaceCwd, editor);
+                        }}>
+                          <Code2 size={15} /><span>在 {editor.name} 中打开</span>
+                          {preferredWorkspaceEditor?.id === editor.id && <Check className="workspace-editor-selected" size={14} />}
+                        </button>
+                      ))}
+                      {workspaceEditors.length > 0 && <div className="workspace-tools-separator" role="separator" />}
                       <button role="menuitem" disabled={!workspaceCwd} onClick={() => {
                         setToolsMenuOpen(false);
                         if (!workspaceCwd) return;
@@ -1392,31 +1476,32 @@ export default function App() {
           {hubView === "pull-requests" ? (
             <PullRequestsPage
               cwd={draftWorkspace || cwd}
+              workspaceOptions={workspaceOptions}
               onOpenUrl={(url) => void openUrl(url)}
-              onCheckout={async (pullRequest) => {
+              onCheckout={async (pullRequest, repositoryRoot) => {
                 try {
-                  const workspace = draftWorkspace || cwd;
-                  await pi.checkoutPullRequest(workspace, pullRequest.number);
-                  await store.refreshGit();
-                  navigateTo({ kind: "home", workspace });
+                  await pi.checkoutPullRequest(repositoryRoot, pullRequest.number);
+                  navigateTo({ kind: "home", workspace: repositoryRoot });
                   store.showToast(`已检出 PR #${pullRequest.number}`, "info");
                 } catch (error) {
                   store.showToast(`检出失败：${String(error)}`, "error");
                   throw error;
                 }
               }}
-              onReview={(pullRequest: PullRequestInfo) => {
-                const workspace = draftWorkspace || cwd;
+              onReview={(pullRequest: PullRequestInfo, repositoryRoot) => {
                 setGoalEditPrefill(`审查 GitHub 拉取请求 #${pullRequest.number}：${pullRequest.title}\n${pullRequest.url}\n检查正确性、回归风险、安全问题和缺失测试，并按严重程度给出文件引用。`);
-                navigateTo({ kind: "home", workspace });
+                navigateTo({ kind: "home", workspace: repositoryRoot });
               }}
             />
           ) : hubView === "scheduled" ? (
             <ScheduledTasksPage
               workspaces={workspaceOptions}
               onTasksChanged={() => void store.refreshSessions()}
+              onOpenSession={(workspace, file) => navigateTo({ kind: "session", cwd: workspace, file })}
               onError={(message) => store.showToast(message, "error")}
             />
+          ) : hubView === "plugins" ? (
+            <PluginMarketplacePage cwd={draftWorkspace || cwd} />
           ) : hubView === "sites" ? (
             <div className="feature-hub">
               <div className="feature-hub-heading"><span className="feature-hub-icon"><Globe2 size={22} /></span><div><h1>站点快捷方式</h1><p>识别当前项目中的 Web 应用并在本地启动检查。</p></div></div>
@@ -1616,6 +1701,8 @@ export default function App() {
             )}
             onCommitOrPush={() => void requestCommitOrPush()}
             onRestoreFiles={(paths) => void restoreGitFiles(paths)}
+            onStageFiles={(paths) => updateGitIndex("stage", paths)}
+            onUnstageFiles={(paths) => updateGitIndex("unstage", paths)}
             onEnvironmentChange={setTaskEnvironment}
             onSwitchWorkspace={(path) => void switchWorkspacePath(path)}
             onRunCommand={(command, exclude) => void store.runBash(command, exclude)}
@@ -1706,8 +1793,13 @@ export default function App() {
               isStreaming={isStreaming}
               onRefreshGit={() => void (newTask ? refreshDraftGit() : store.refreshGit())}
               onReview={() => void requestReview()}
+              onReviewComment={(path, line, comment) => void sendFromComposer(
+                `请处理这条代码审阅意见：\n\n文件：${path}${line ? `\n行号：${line}` : ""}\n意见：${comment}`,
+              )}
               onCommitOrPush={() => void requestCommitOrPush()}
               onRestoreFiles={(paths) => void restoreGitFiles(paths)}
+              onStageFiles={(paths) => updateGitIndex("stage", paths)}
+              onUnstageFiles={(paths) => updateGitIndex("unstage", paths)}
               onEnvironmentChange={setTaskEnvironment}
               onSwitchWorkspace={(path) => void switchWorkspacePath(path)}
               onRunCommand={(command, exclude) => void store.runBash(command, exclude)}
