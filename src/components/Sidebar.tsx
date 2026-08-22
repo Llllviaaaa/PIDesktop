@@ -29,6 +29,8 @@ import {
 import { pi } from "../lib/pi";
 import type { ProjectConfig, SessionInfo } from "../types";
 import { sessionRecency, sessionTitle } from "../lib/sessionTitle";
+import { sortSidebarProjectGroups } from "../lib/sidebarProjectOrder";
+import { normalizeLocalPath, sameLocalPath } from "../lib/pathIdentity";
 
 type SidebarHub = "pull-requests" | "scheduled" | "plugins" | null;
 
@@ -93,7 +95,7 @@ function repoName(path: string): string {
 }
 
 function pathsEqual(a: string, b: string): boolean {
-  return a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
+  return sameLocalPath(a, b);
 }
 
 function relativeTime(session: SessionInfo): string {
@@ -205,23 +207,16 @@ export function Sidebar({
         return pinDifference || sessionRecency(b) - sessionRecency(a);
       }));
     }
-    return [...result.entries()].sort((a, b) => {
-      const pinDifference = Number(projectConfigs.some((project) => project.pinned && pathsEqual(project.path, b[0])))
-        - Number(projectConfigs.some((project) => project.pinned && pathsEqual(project.path, a[0])));
-      if (pinDifference) return pinDifference;
-      const currentDifference = Number(pathsEqual(b[0], cwd)) - Number(pathsEqual(a[0], cwd));
-      if (currentDifference) return currentDifference;
-      return (b[1][0] ? sessionRecency(b[1][0]) : 0) - (a[1][0] ? sessionRecency(a[1][0]) : 0);
-    });
-  }, [cwd, pinnedSessionFiles, projectConfigs, query, sessions]);
+    return sortSidebarProjectGroups([...result.entries()], projectConfigs);
+  }, [pinnedSessionFiles, projectConfigs, query, sessions]);
 
   const notifications = useMemo(() => {
-    const byFile = new Map(sessions.map((session) => [session.file, session]));
+    const byFile = new Map(sessions.map((session) => [normalizeLocalPath(session.file), session]));
     return [
-      ...approvalSessionFiles.map((file) => ({ file, kind: "approval" as const, session: byFile.get(file) })),
+      ...approvalSessionFiles.map((file) => ({ file, kind: "approval" as const, session: byFile.get(normalizeLocalPath(file)) })),
       ...runningSessionFiles
-        .filter((file) => !approvalSessionFiles.includes(file))
-        .map((file) => ({ file, kind: "running" as const, session: byFile.get(file) })),
+        .filter((file) => !approvalSessionFiles.some((approvalFile) => sameLocalPath(approvalFile, file)))
+        .map((file) => ({ file, kind: "running" as const, session: byFile.get(normalizeLocalPath(file)) })),
     ].filter((item): item is typeof item & { session: SessionInfo } => Boolean(item.session));
   }, [approvalSessionFiles, runningSessionFiles, sessions]);
 
@@ -352,7 +347,7 @@ export function Sidebar({
 
   useEffect(() => {
     if (!currentSessionFile || lastOpenedSessionFile.current === currentSessionFile) return;
-    const activeSession = sessions.find((session) => session.file === currentSessionFile);
+    const activeSession = sessions.find((session) => sameLocalPath(session.file, currentSessionFile));
     if (!activeSession) return;
     lastOpenedSessionFile.current = currentSessionFile;
     setProjectCollapsed(activeSession.cwd, false);
@@ -553,9 +548,9 @@ export function Sidebar({
               </div>
               {!collapsed && <div className="thread-list">
                 {visibleChats.map((session) => {
-                  const running = runningSessionFiles.includes(session.file);
-                  const approval = approvalSessionFiles.includes(session.file);
-                  const active = !newTaskActive && session.file === currentSessionFile;
+                  const running = runningSessionFiles.some((file) => sameLocalPath(file, session.file));
+                  const approval = approvalSessionFiles.some((file) => sameLocalPath(file, session.file));
+                  const active = !newTaskActive && sameLocalPath(session.file, currentSessionFile);
                   const pinned = pinnedSessionFiles.includes(session.file);
                   return (
                     <div

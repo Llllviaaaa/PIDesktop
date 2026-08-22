@@ -401,6 +401,7 @@ export const usePiStore = create<PiState>((set, get) => {
   let pendingModelChange: { runtimeId: string; promise: Promise<void> } | null = null;
   let queuedModelSelection: ModelInfo | null = null;
   let pendingConnection: { key: string; promise: Promise<void> } | null = null;
+  const intentionalRuntimeStops = new Set<string>();
   const workspaceWarmups = new Map<string, Promise<void>>();
   let preferredWarmupKey = "";
   let activeTurnStartedAt: number | null = null;
@@ -895,10 +896,20 @@ export const usePiStore = create<PiState>((set, get) => {
       clearPendingAssistantUpdate();
       pendingOptimisticPrompt = null;
       const runtimeId = get().runtimeId;
-      if (runtimeId) await pi.stop(runtimeId);
+      if (runtimeId) {
+        intentionalRuntimeStops.add(runtimeId);
+        try {
+          await pi.stop(runtimeId);
+        } catch (error) {
+          intentionalRuntimeStops.delete(runtimeId);
+          throw error;
+        }
+        intentionalRuntimeStops.delete(runtimeId);
+      }
       set((state) => {
         const runtimes = { ...state.runtimes };
         if (runtimeId) delete runtimes[runtimeId];
+        if (state.runtimeId !== runtimeId) return { runtimes };
         return {
           runtimeId: null,
           runtimes,
@@ -1165,6 +1176,7 @@ export const usePiStore = create<PiState>((set, get) => {
 
     handleStatus: (status) => {
       const runtimeId = status.runtimeId;
+      const intentionalStop = status.status === "exited" && intentionalRuntimeStops.delete(runtimeId);
       set((state) => {
         if (status.status === "exited") {
           const runtimes = { ...state.runtimes };
@@ -1191,6 +1203,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (runtimeId !== get().runtimeId) return;
       if (status.status === "running") set({ connection: "running" });
       if (status.status === "exited") {
+        if (intentionalStop) return;
         set({ connection: "exited", isStreaming: false });
         if (status.code && status.code !== 0) toast(`Pi 已退出，代码 ${status.code}`, "error");
       }
@@ -1466,7 +1479,9 @@ export const usePiStore = create<PiState>((set, get) => {
       });
 
       pendingModelChange = { runtimeId, promise: change };
-      if (get().runtimeId === runtimeId) set({ isSwitchingModel: true });
+      // Reflect the click immediately while Pi confirms it in the background.
+      // A failed command is rolled back to the runtime's reported model below.
+      if (get().runtimeId === runtimeId) set({ model, isSwitchingModel: true });
       try {
         await change;
       } catch (error) {

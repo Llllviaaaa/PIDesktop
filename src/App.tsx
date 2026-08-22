@@ -32,6 +32,8 @@ import {
 import { pi, subscribeToPi } from "./lib/pi";
 import { aggregateDiffStats } from "./lib/gitDiffStats";
 import { sessionRecency, sessionTitle } from "./lib/sessionTitle";
+import { navigationKey, withoutArchivedSessions, type NavigationTarget as BaseNavigationTarget } from "./lib/navigationHistory";
+import { sameLocalPath } from "./lib/pathIdentity";
 import { usePiStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { Message } from "./components/Message";
@@ -49,7 +51,7 @@ import { PullRequestsPage } from "./components/PullRequestsPage";
 import { ScheduledTasksPage } from "./components/ScheduledTasksPage";
 import { PluginMarketplacePage } from "./components/PluginMarketplacePage";
 import { WorkspaceFileOpenContext } from "./components/Markdown";
-import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, ScheduledRunRecord, UiMessage, WorkspaceEditorInfo } from "./types";
+import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, ScheduledRunRecord, SessionInfo, UiMessage, WorkspaceEditorInfo } from "./types";
 
 function TelescopeIcon({ size = 18 }: { size?: number; strokeWidth?: number }) {
   return (
@@ -72,18 +74,7 @@ const STARTERS: Array<{ title: string; prompt: string; tone: "blue" | "purple" |
 
 type HubView = "pull-requests" | "sites" | "scheduled" | "plugins";
 type AppMenu = "file" | "edit" | "view" | "help";
-type NavigationTarget =
-  | { kind: "home"; workspace: string }
-  | { kind: "hub"; view: HubView }
-  | { kind: "session"; cwd: string; file: string };
-
-function navigationKey(target: NavigationTarget): string {
-  return target.kind === "home"
-    ? `home:${target.workspace}`
-    : target.kind === "hub"
-      ? `hub:${target.view}`
-      : `session:${target.cwd}:${target.file}`;
-}
+type NavigationTarget = BaseNavigationTarget<HubView>;
 
 function WorkspaceCubeIcon({ size = 16 }: { size?: number }) {
   return (
@@ -152,6 +143,8 @@ export default function App() {
     runtimes,
     toasts,
   } = store;
+  const [draftMode, setDraftMode] = useState(true);
+  const newTask = draftMode;
   const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth > 900);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const stored = Number(window.localStorage.getItem("pid-desktop:sidebar-width"));
@@ -197,6 +190,7 @@ export default function App() {
   const navigationForwardRef = useRef<NavigationTarget[]>([]);
   const [navigationVersion, setNavigationVersion] = useState(0);
   const autoConnectedRef = useRef(false);
+  const startupAutoConnectRef = useRef(false);
   const isTauri = "__TAURI_INTERNALS__" in window;
   const appWindow = isTauri ? getCurrentWindow() : null;
   const workspaceSidebarVisible = workspaceSidebarOpen || Boolean(workspaceTool || previewFile);
@@ -287,7 +281,30 @@ export default function App() {
       }
       await Promise.all([store.loadSettings(), store.refreshSessions()]);
       const preferredRuntimeId = window.localStorage.getItem(ACTIVE_RUNTIME_KEY);
-      await store.restoreRuntimes(preferredRuntimeId);
+      const restored = await store.restoreRuntimes(preferredRuntimeId);
+      if (restored && !disposed) {
+        const current = usePiStore.getState();
+        const restoredSessionMissing = current.sessionFile
+          && !current.sessions.some((session) => sameLocalPath(session.file, current.sessionFile));
+        if (restoredSessionMissing) {
+          const workspace = current.cwd;
+          window.localStorage.removeItem(ACTIVE_RUNTIME_KEY);
+          window.localStorage.removeItem(LAST_TASK_KEY);
+          try {
+            await current.disconnect();
+          } catch (error) {
+            current.appendLog(`关闭已归档的恢复任务失败：${error instanceof Error ? error.message : String(error)}`);
+          }
+          current.prepareNewTask();
+          setDraftMode(true);
+          if (workspace) {
+            window.localStorage.setItem("pid-desktop:last-workspace", workspace);
+            setDraftWorkspace(workspace);
+          }
+        } else {
+          setDraftMode(!current.sessionFile);
+        }
+      }
       if (!disposed) setRuntimeRecoveryDone(true);
     })().catch((error) => {
       store.appendLog(`初始化失败：${error instanceof Error ? error.message : String(error)}`);
@@ -342,21 +359,27 @@ export default function App() {
     const lastTask = readPersistedTask();
     const lastWorkspace = lastTask?.cwd || window.localStorage.getItem("pid-desktop:last-workspace");
     if (!lastWorkspace) return;
-    const sessionFile = lastTask?.sessionFile && sessions.some((session) => session.file === lastTask.sessionFile)
+    const sessionFile = lastTask?.sessionFile && sessions.some((session) => sameLocalPath(session.file, lastTask.sessionFile))
       ? lastTask.sessionFile
       : undefined;
     autoConnectedRef.current = true;
-    void store.connect(lastWorkspace, sessionFile);
+    setDraftMode(!sessionFile);
+    startupAutoConnectRef.current = true;
+    void store.connect(lastWorkspace, sessionFile).finally(() => {
+      startupAutoConnectRef.current = false;
+    });
   }, [connection, runtimeRecoveryDone, sessions, settings?.autoConnect, store.connect]);
 
   useEffect(() => {
     if (!runtimeId || !cwd) return;
     window.localStorage.setItem(ACTIVE_RUNTIME_KEY, runtimeId);
     window.localStorage.setItem("pid-desktop:last-workspace", cwd);
-    if (sessionFile) {
+    if (!draftMode && sessionFile) {
       window.localStorage.setItem(LAST_TASK_KEY, JSON.stringify({ cwd, sessionFile } satisfies PersistedTask));
+    } else {
+      window.localStorage.removeItem(LAST_TASK_KEY);
     }
-  }, [cwd, runtimeId, sessionFile]);
+  }, [cwd, draftMode, runtimeId, sessionFile]);
 
   useEffect(() => {
     if (!settings) return;
@@ -473,6 +496,7 @@ export default function App() {
       if (shortcut === normalize(shortcuts.newChat) && connection === "running") {
         event.preventDefault();
         store.prepareNewTask();
+        setDraftMode(true);
         setQuickChat(false);
         setHubView(null);
       } else if (shortcut === normalize(shortcuts.terminal) || shortcut === "ctrl+j") {
@@ -549,7 +573,7 @@ export default function App() {
       setDraftGit(null);
       return;
     }
-    if (!runtimeRecoveryDone || connection !== "disconnected" || settings?.autoConnect) return;
+    if (!runtimeRecoveryDone || !newTask || hubView !== null || connection !== "disconnected" || startupAutoConnectRef.current) return;
     // A home composer needs an active blank runtime: the model catalog and
     // model/thinking commands are runtime RPCs, not static settings data.
     void Promise.all([
@@ -571,7 +595,7 @@ export default function App() {
     return () => {
       disposed = true;
     };
-  }, [connection, draftWorkspace, isTauri, runtimeRecoveryDone, settings?.autoConnect, store.connect]);
+  }, [connection, draftWorkspace, hubView, isTauri, newTask, runtimeRecoveryDone, store.connect]);
 
   const refreshDraftGit = useCallback(async () => {
     if (!isTauri || !draftWorkspace) return;
@@ -673,7 +697,6 @@ export default function App() {
         ? "完全访问"
         : "先询问";
   const connected = connection === "running";
-  const newTask = messages.length === 0 && !sessionFile;
   const workspaceCwd = newTask ? draftWorkspace : cwd;
   const workspaceFilePath = useCallback((path: string) => (
     /^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)
@@ -790,7 +813,10 @@ export default function App() {
       }
     }
     const sent = await current.sendMessage(text, attachments, behavior);
-    if (sent) setAttachments([]);
+    if (sent) {
+      setAttachments([]);
+      setDraftMode(false);
+    }
     return sent;
   }, [attachments, draftWorkspace, editingMessage, quickChat, selectWorkspace, taskEnvironment]);
 
@@ -798,6 +824,7 @@ export default function App() {
     const current = usePiStore.getState();
     if (current.cwd && !current.cwd.toLowerCase().endsWith("quick-chat")) setDraftWorkspace(current.cwd);
     current.prepareNewTask();
+    setDraftMode(true);
     setQuickChat(asQuickChat);
     // Codex home defaults to Local; only keep Worktree when settings ask for it.
     const preferred = current.settings?.defaultTaskEnvironment === "worktree" ? "worktree" : "local";
@@ -814,6 +841,7 @@ export default function App() {
     if (!workspace) return;
     selectWorkspace(workspace);
     usePiStore.getState().prepareNewTask();
+    setDraftMode(true);
     setQuickChat(false);
     setHubView(null);
     setInspectorTab(null);
@@ -866,6 +894,7 @@ export default function App() {
     }
     window.localStorage.setItem("pid-desktop:last-workspace", target.cwd);
     setDraftWorkspace(target.cwd);
+    setDraftMode(false);
     setQuickChat(target.cwd.toLowerCase().endsWith("quick-chat"));
     setHubView(null);
     await store.switchSession(target.cwd, target.file);
@@ -895,6 +924,60 @@ export default function App() {
     setNavigationVersion((value) => value + 1);
     void applyNavigationTarget(target);
   }, [applyNavigationTarget, currentNavigationTarget]);
+
+  const forgetArchivedSessions = useCallback((archivedFiles: string[]) => {
+    navigationBackRef.current = withoutArchivedSessions(navigationBackRef.current, archivedFiles);
+    navigationForwardRef.current = withoutArchivedSessions(navigationForwardRef.current, archivedFiles);
+    const persistedTask = readPersistedTask();
+    if (persistedTask && archivedFiles.some((file) => sameLocalPath(file, persistedTask.sessionFile))) {
+      window.localStorage.removeItem(LAST_TASK_KEY);
+    }
+    setNavigationVersion((value) => value + 1);
+  }, []);
+
+  const archiveConversations = useCallback(async (
+    targets: Array<Pick<SessionInfo, "cwd" | "file">>,
+    fallbackWorkspace: string,
+    successMessage: string,
+  ) => {
+    if (targets.length === 0) return;
+    const archivedFiles = targets.map((target) => target.file);
+    try {
+      await Promise.all(archivedFiles.map((file) => pi.archiveSession(file)));
+    } catch (error) {
+      usePiStore.getState().showToast(`归档失败：${String(error)}`, "error");
+      return;
+    }
+
+    const activeFile = usePiStore.getState().sessionFile;
+    const activeTarget = activeFile
+      ? targets.find((target) => sameLocalPath(target.file, activeFile))
+      : undefined;
+    forgetArchivedSessions(archivedFiles);
+
+    let closeWarning: string | null = null;
+    if (activeTarget) {
+      window.localStorage.removeItem(ACTIVE_RUNTIME_KEY);
+      window.localStorage.removeItem(LAST_TASK_KEY);
+      try {
+        await usePiStore.getState().disconnect();
+      } catch (error) {
+        closeWarning = error instanceof Error ? error.message : String(error);
+        usePiStore.getState().appendLog(`归档后关闭旧任务失败：${closeWarning}`);
+      }
+      await applyNavigationTarget({ kind: "home", workspace: activeTarget.cwd || fallbackWorkspace });
+    }
+
+    try {
+      await usePiStore.getState().refreshSessions();
+    } catch (error) {
+      usePiStore.getState().appendLog(`归档后刷新会话失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    usePiStore.getState().showToast(
+      closeWarning ? `${successMessage}；旧任务进程关闭失败，但已返回项目首页` : successMessage,
+      closeWarning ? "warning" : "info",
+    );
+  }, [applyNavigationTarget, forgetArchivedSessions]);
 
   const canNavigateBack = navigationVersion >= 0 && navigationBackRef.current.length > 0;
   const canNavigateForward = navigationVersion >= 0 && navigationForwardRef.current.length > 0;
@@ -1066,7 +1149,8 @@ export default function App() {
       current.prepareNewTask();
       if (workspace) await usePiStore.getState().connect(workspace);
     }
-    await usePiStore.getState().sendMessage("检查当前 Git 更改的正确性、回归风险、安全问题和缺失测试。按严重程度列出发现，并提供准确的文件引用。");
+    const sent = await usePiStore.getState().sendMessage("检查当前 Git 更改的正确性、回归风险、安全问题和缺失测试。按严重程度列出发现，并提供准确的文件引用。");
+    if (sent) setDraftMode(false);
   }, [settings?.reviewDelivery]);
 
   const requestCommitOrPush = useCallback(async () => {
@@ -1218,19 +1302,7 @@ export default function App() {
             onOpenSession={(session) => navigateTo({ kind: "session", cwd: session.cwd, file: session.file })}
             onOpenProject={(workspace) => navigateTo({ kind: "home", workspace })}
             onNewProjectSession={(workspace) => navigateTo({ kind: "home", workspace })}
-            onArchiveSession={async (session) => {
-              try {
-                await pi.archiveSession(session.file);
-                if (session.file === sessionFile) {
-                  await store.disconnect();
-                  store.prepareNewTask();
-                }
-                await store.refreshSessions();
-                store.showToast("已归档对话", "info");
-              } catch (error) {
-                store.showToast(`归档失败：${String(error)}`, "error");
-              }
-            }}
+            onArchiveSession={(session) => archiveConversations([session], session.cwd, "已归档对话")}
             onOpenProjectFolder={(workspace) => {
               revealWorkspaceInExplorer(workspace);
             }}
@@ -1244,19 +1316,11 @@ export default function App() {
                 store.showToast(`创建工作树失败：${String(error)}`, "error");
               }
             }}
-            onArchiveProject={async (_workspace, projectSessions) => {
-              try {
-                await Promise.all(projectSessions.map((session) => pi.archiveSession(session.file)));
-                if (projectSessions.some((session) => session.file === sessionFile)) {
-                  await store.disconnect();
-                  store.prepareNewTask();
-                }
-                await store.refreshSessions();
-                store.showToast(`已归档 ${projectSessions.length} 个对话`, "info");
-              } catch (error) {
-                store.showToast(`归档失败：${String(error)}`, "error");
-              }
-            }}
+            onArchiveProject={(workspace, projectSessions) => archiveConversations(
+              projectSessions,
+              workspace,
+              `已归档 ${projectSessions.length} 个对话`,
+            )}
             onOpenSettings={() => openSettingsPage("general")}
             onOpenHelp={() => void openUrl("https://pi.dev")}
             onPickFolder={() => void pickFolder()}
@@ -1329,11 +1393,7 @@ export default function App() {
                         <button disabled={!sessionFile || isStreaming} onClick={() => {
                           setMoreOpen(false);
                           if (!sessionFile) return;
-                          void pi.archiveSession(sessionFile).then(async () => {
-                            await store.disconnect();
-                            store.prepareNewTask();
-                            await store.refreshSessions();
-                          });
+                          void archiveConversations([{ cwd, file: sessionFile }], cwd, "已归档对话");
                         }}>归档任务</button>
                         <div className="menu-separator" />
                         <button onClick={() => { setMoreOpen(false); setSettingsOpen(true); }}>设置</button>
