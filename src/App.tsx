@@ -29,11 +29,12 @@ import {
   SquareTerminal,
   X,
 } from "lucide-react";
-import { pi, subscribeToPi } from "./lib/pi";
+import { pi } from "./lib/pi";
 import { aggregateDiffStats } from "./lib/gitDiffStats";
 import { activeSessionTitle, sessionRecency, sessionTitle } from "./lib/sessionTitle";
 import { navigationKey, withoutArchivedSessions, type NavigationTarget as BaseNavigationTarget } from "./lib/navigationHistory";
 import { sameLocalPath } from "./lib/pathIdentity";
+import { ACTIVE_RUNTIME_KEY, LAST_TASK_KEY, readPersistedTask, useRuntimeBootstrap } from "./hooks/useRuntimeBootstrap";
 import { usePiStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { Message } from "./components/Message";
@@ -88,27 +89,7 @@ function WorkspaceCubeIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-const ACTIVE_RUNTIME_KEY = "pid-desktop:active-runtime";
-const LAST_TASK_KEY = "pid-desktop:last-task";
 const WORKSPACE_CHAT_WIDTH_KEY = "pid-desktop:workspace-chat-width:v2";
-
-interface PersistedTask {
-  cwd: string;
-  sessionFile: string;
-}
-
-function readPersistedTask(): PersistedTask | null {
-  try {
-    const raw = window.localStorage.getItem(LAST_TASK_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw) as Partial<PersistedTask>;
-    return typeof value.cwd === "string" && typeof value.sessionFile === "string"
-      ? { cwd: value.cwd, sessionFile: value.sessionFile }
-      : null;
-  } catch {
-    return null;
-  }
-}
 
 export default function App() {
   const store = usePiStore();
@@ -132,7 +113,7 @@ export default function App() {
     commands,
     stats,
     git,
-    browser,
+    agentBrowser,
     computer,
     terminal,
     piLog,
@@ -186,7 +167,6 @@ export default function App() {
   const [goalEditPrefill, setGoalEditPrefill] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ messageId: string } | null>(null);
 
-  const [runtimeRecoveryDone, setRuntimeRecoveryDone] = useState(false);
   const conversationScrollRef = useRef<HTMLDivElement>(null);
   const autoFollowConversationRef = useRef(true);
   const lastAutoScrollAtRef = useRef(0);
@@ -200,9 +180,19 @@ export default function App() {
   const navigationBackRef = useRef<NavigationTarget[]>([]);
   const navigationForwardRef = useRef<NavigationTarget[]>([]);
   const [navigationVersion, setNavigationVersion] = useState(0);
-  const autoConnectedRef = useRef(false);
-  const startupAutoConnectRef = useRef(false);
   const isTauri = "__TAURI_INTERNALS__" in window;
+  const { runtimeRecoveryDone, startupAutoConnectRef } = useRuntimeBootstrap({
+    isTauri,
+    connection,
+    sessions,
+    autoConnect: settings?.autoConnect ?? false,
+    runtimeId,
+    cwd,
+    sessionFile,
+    draftMode,
+    onDraftModeChange: setDraftMode,
+    onDraftWorkspaceChange: setDraftWorkspace,
+  });
   const appWindow = isTauri ? getCurrentWindow() : null;
   const workspaceSidebarVisible = workspaceSidebarOpen || Boolean(workspaceTool || previewFile);
   const preferredWorkspaceEditor = useMemo(() => {
@@ -278,57 +268,6 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri) return;
-    let disposed = false;
-    let cleanup: (() => void) | undefined;
-    void (async () => {
-      cleanup = await subscribeToPi({
-        onEvent: store.handleEvent,
-        onStatus: store.handleStatus,
-        onLog: store.handleLog,
-      });
-      if (disposed) {
-        cleanup();
-        return;
-      }
-      await Promise.all([store.loadSettings(), store.refreshSessions()]);
-      const preferredRuntimeId = window.localStorage.getItem(ACTIVE_RUNTIME_KEY);
-      const restored = await store.restoreRuntimes(preferredRuntimeId);
-      if (restored && !disposed) {
-        const current = usePiStore.getState();
-        const restoredSessionMissing = current.sessionFile
-          && !current.sessions.some((session) => sameLocalPath(session.file, current.sessionFile));
-        if (restoredSessionMissing) {
-          const workspace = current.cwd;
-          window.localStorage.removeItem(ACTIVE_RUNTIME_KEY);
-          window.localStorage.removeItem(LAST_TASK_KEY);
-          try {
-            await current.disconnect();
-          } catch (error) {
-            current.appendLog(`关闭已归档的恢复任务失败：${error instanceof Error ? error.message : String(error)}`);
-          }
-          current.prepareNewTask();
-          setDraftMode(true);
-          if (workspace) {
-            window.localStorage.setItem("pid-desktop:last-workspace", workspace);
-            setDraftWorkspace(workspace);
-          }
-        } else {
-          setDraftMode(!current.sessionFile);
-        }
-      }
-      if (!disposed) setRuntimeRecoveryDone(true);
-    })().catch((error) => {
-      store.appendLog(`初始化失败：${error instanceof Error ? error.message : String(error)}`);
-      if (!disposed) setRuntimeRecoveryDone(true);
-    });
-    return () => {
-      disposed = true;
-      cleanup?.();
-    };
-  }, [isTauri, store.appendLog, store.handleEvent, store.handleStatus, store.handleLog, store.loadSettings, store.refreshSessions, store.restoreRuntimes]);
-
-  useEffect(() => {
-    if (!isTauri) return;
     let cancelled = false;
     void pi.listWorkspaceEditors()
       .then((editors) => {
@@ -364,33 +303,6 @@ export default function App() {
       unlisten?.();
     };
   }, [isTauri]);
-
-  useEffect(() => {
-    if (!runtimeRecoveryDone || !settings?.autoConnect || autoConnectedRef.current || connection !== "disconnected") return;
-    const lastTask = readPersistedTask();
-    const lastWorkspace = lastTask?.cwd || window.localStorage.getItem("pid-desktop:last-workspace");
-    if (!lastWorkspace) return;
-    const sessionFile = lastTask?.sessionFile && sessions.some((session) => sameLocalPath(session.file, lastTask.sessionFile))
-      ? lastTask.sessionFile
-      : undefined;
-    autoConnectedRef.current = true;
-    setDraftMode(!sessionFile);
-    startupAutoConnectRef.current = true;
-    void store.connect(lastWorkspace, sessionFile).finally(() => {
-      startupAutoConnectRef.current = false;
-    });
-  }, [connection, runtimeRecoveryDone, sessions, settings?.autoConnect, store.connect]);
-
-  useEffect(() => {
-    if (!runtimeId || !cwd) return;
-    window.localStorage.setItem(ACTIVE_RUNTIME_KEY, runtimeId);
-    window.localStorage.setItem("pid-desktop:last-workspace", cwd);
-    if (!draftMode && sessionFile) {
-      window.localStorage.setItem(LAST_TASK_KEY, JSON.stringify({ cwd, sessionFile } satisfies PersistedTask));
-    } else {
-      window.localStorage.removeItem(LAST_TASK_KEY);
-    }
-  }, [cwd, draftMode, runtimeId, sessionFile]);
 
   useEffect(() => {
     if (!settings) return;
@@ -1304,7 +1216,7 @@ export default function App() {
                 <button onClick={() => { setAppMenu(null); setWorkspaceSidebarOpen(false); setWorkspaceTool(null); setPreviewFile(null); setInspectorTab("changes"); setInspectorOpenView(null); }}>显示环境信息</button>
                 <button onClick={() => { setAppMenu(null); toggleWorkspaceTool("review"); }}>审阅</button>
                 <button onClick={() => { setAppMenu(null); setBottomPanel((value) => !value); }}>{bottomPanel ? "隐藏终端" : "打开终端"}</button>
-                <button onClick={() => { setAppMenu(null); toggleWorkspaceTool("browser"); }}>浏览器</button>
+                <button onClick={() => { setAppMenu(null); toggleWorkspaceTool("browser"); }}>应用内浏览器</button>
                 <button onClick={() => { setAppMenu(null); toggleWorkspaceTool("files"); }}>文件</button>
                 <button onClick={() => { setAppMenu(null); openSettingsPage("appearance"); }}>外观设置</button>
               </>}
@@ -1707,6 +1619,7 @@ export default function App() {
                       key={message.id}
                       message={message}
                       showThinking={settings?.showThinking ?? true}
+                      expectVisibleThinking={thinkingLevel !== "off" && model?.reasoning === true}
                       isLastAssistant={message.id === lastAssistantId}
                       globalStreaming={isStreaming}
                       workingLabel={message.id === lastAssistantId ? statusText : undefined}
@@ -1784,7 +1697,7 @@ export default function App() {
             messages={messages}
             environment={taskEnvironment}
             terminal={terminal}
-            browser={browser}
+            agentBrowser={agentBrowser}
             computer={computer}
             logs={piLog}
             sessionTree={store.sessionTree}
@@ -1811,7 +1724,7 @@ export default function App() {
         )}
         {workspaceTool === "browser" && (
           <BrowserWorkspacePanel
-            recentBrowser={browser}
+            recentAgentPage={agentBrowser}
             onComment={(url, comment) => void sendFromComposer(`请根据这条页面反馈检查并修改页面：\n\n页面：${url}\n反馈：${comment}`)}
             onClose={() => setWorkspaceTool(null)}
           />
@@ -1885,7 +1798,7 @@ export default function App() {
               messages={messages}
               environment={taskEnvironment}
               terminal={terminal}
-              browser={browser}
+              agentBrowser={agentBrowser}
               computer={computer}
               logs={piLog}
               sessionTree={store.sessionTree}

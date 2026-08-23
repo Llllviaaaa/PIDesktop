@@ -5,30 +5,23 @@ import { invoke } from "@tauri-apps/api/core";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { Webview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { BrowserState } from "../types";
+import { resolveWorkspaceBrowserAddress } from "../lib/webAccess";
+import type { AgentBrowserState } from "../types";
 
 interface BrowserWorkspacePanelProps {
-  recentBrowser: BrowserState | null;
+  recentAgentPage: AgentBrowserState | null;
   onComment?: (url: string, comment: string) => void;
   onClose: () => void;
 }
 
-function resolveAddress(value: string): string {
-  const input = value.trim();
-  if (!input) return "";
-  if (/^https?:\/\//i.test(input)) return input;
-  if (/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(input)) return `http://${input}`;
-  if (/^[\w.-]+\.[a-z]{2,}(?::\d+)?(?:\/|$)/i.test(input)) return `https://${input}`;
-  return `https://www.bing.com/search?q=${encodeURIComponent(input)}`;
-}
-
-export function BrowserWorkspacePanel({ recentBrowser, onComment, onClose }: BrowserWorkspacePanelProps) {
+export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: BrowserWorkspacePanelProps) {
   const [address, setAddress] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [reloadKey, setReloadKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [nativeError, setNativeError] = useState<string | null>(null);
+  const [addressError, setAddressError] = useState<string | null>(null);
   const [commentOpen, setCommentOpen] = useState(false);
   const [comment, setComment] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -38,7 +31,7 @@ export function BrowserWorkspacePanel({ recentBrowser, onComment, onClose }: Bro
   const disposedRef = useRef(false);
   const isTauri = "__TAURI_INTERNALS__" in window;
   const currentUrl = historyIndex >= 0 ? history[historyIndex] : "";
-  const recentLabel = useMemo(() => recentBrowser?.title || recentBrowser?.url || "", [recentBrowser]);
+  const recentLabel = useMemo(() => recentAgentPage?.title || recentAgentPage?.url || "", [recentAgentPage]);
 
   const placeNativeWebview = useCallback(async (webview = nativeWebviewRef.current) => {
     const viewport = viewportRef.current;
@@ -128,8 +121,14 @@ export function BrowserWorkspacePanel({ recentBrowser, onComment, onClose }: Bro
   }, [isTauri, placeNativeWebview]);
 
   const navigate = (raw: string) => {
-    const next = resolveAddress(raw);
-    if (!next) return;
+    const next = resolveWorkspaceBrowserAddress(raw);
+    if (!next) {
+      setAddressError("请输入完整网址");
+      inputRef.current?.focus();
+      return;
+    }
+    setAddressError(null);
+    setNativeError(null);
     const base = history.slice(0, historyIndex + 1);
     setHistory([...base, next]);
     setHistoryIndex(base.length);
@@ -139,6 +138,7 @@ export function BrowserWorkspacePanel({ recentBrowser, onComment, onClose }: Bro
 
   const moveHistory = (nextIndex: number) => {
     if (nextIndex < 0 || nextIndex >= history.length) return;
+    setAddressError(null);
     setHistoryIndex(nextIndex);
     setAddress(history[nextIndex]);
     setLoading(true);
@@ -157,7 +157,7 @@ export function BrowserWorkspacePanel({ recentBrowser, onComment, onClose }: Bro
   };
 
   return (
-    <section className="workspace-browser-pane" aria-label="浏览器">
+    <section className="workspace-browser-pane" aria-label="应用内浏览器">
       <header className="workspace-browser-toolbar">
         <button type="button" className="icon-button" title="返回" disabled={!currentUrl || (!isTauri && historyIndex <= 0)} onClick={() => isTauri ? nativeHistoryAction("back") : moveHistory(historyIndex - 1)}>
           <ArrowLeft size={15} strokeWidth={1.8} />
@@ -186,9 +186,13 @@ export function BrowserWorkspacePanel({ recentBrowser, onComment, onClose }: Bro
             ref={inputRef}
             value={address}
             aria-label="浏览器地址"
-            placeholder="输入 URL"
+            aria-invalid={Boolean(addressError)}
+            placeholder="输入网址"
             spellCheck={false}
-            onChange={(event) => setAddress(event.target.value)}
+            onChange={(event) => {
+              setAddress(event.target.value);
+              if (addressError) setAddressError(null);
+            }}
             onKeyDown={(event) => {
               if (event.key !== "Enter") return;
               event.preventDefault();
@@ -213,6 +217,8 @@ export function BrowserWorkspacePanel({ recentBrowser, onComment, onClose }: Bro
           <X size={14} strokeWidth={1.75} />
         </button>
       </header>
+
+      {addressError && <div className="workspace-browser-address-error" role="alert">{addressError}</div>}
 
       {commentOpen && currentUrl && (
         <form
@@ -257,8 +263,8 @@ export function BrowserWorkspacePanel({ recentBrowser, onComment, onClose }: Bro
             <Globe2 size={24} strokeWidth={1.4} />
             <strong>开始浏览</strong>
             <span>输入 URL 以打开页面</span>
-            {recentBrowser?.url && (
-              <button type="button" onClick={() => navigate(recentBrowser.url)} title={recentBrowser.url}>
+            {recentAgentPage?.url && (
+              <button type="button" onClick={() => navigate(recentAgentPage.url)} title={recentAgentPage.url}>
                 打开最近页面{recentLabel ? ` · ${recentLabel}` : ""}
               </button>
             )}

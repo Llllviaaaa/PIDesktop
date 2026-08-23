@@ -41,11 +41,13 @@
     "test:navigation-history": "tsx scripts/test-navigation-history.ts",
     "test:pull-requests": "tsx scripts/test-pull-requests.ts",
     "test:redaction": "tsx scripts/test-redaction.ts",
+    "test:pi-protocol": "tsx scripts/test-pi-protocol.ts",
+    "test:web-access": "tsx scripts/test-web-access.ts",
     "test:public-hygiene": "node scripts/test-public-repo-hygiene.mjs",
     "test:doc-links": "node scripts/test-doc-links.mjs",
     "test:github-config": "node scripts/test-github-config.mjs",
     "scan:secrets": "node scripts/scan-secrets.mjs",
-    "test:unit": "npm run test:rules && npm run test:rewind && npm run test:checkpoints && npm run test:managed-queue && npm run test:plan && npm run test:hooks && npm run test:subagents && npm run test:memory-tool && npm run test:mcp-subscriptions && npm run test:session-tree && npm run test:git-diff && npm run test:history && npm run test:schedule && npm run test:model-switch && npm run test:runtime-disconnect && npm run test:sidebar-order && npm run test:session-title && npm run test:navigation-history && npm run test:pull-requests && npm run test:redaction && npm run test:public-hygiene && npm run test:doc-links && npm run test:github-config"
+    "test:unit": "npm run test:rules && npm run test:rewind && npm run test:checkpoints && npm run test:managed-queue && npm run test:plan && npm run test:hooks && npm run test:subagents && npm run test:memory-tool && npm run test:mcp-subscriptions && npm run test:session-tree && npm run test:git-diff && npm run test:history && npm run test:schedule && npm run test:model-switch && npm run test:runtime-disconnect && npm run test:sidebar-order && npm run test:session-title && npm run test:navigation-history && npm run test:pull-requests && npm run test:redaction && npm run test:pi-protocol && npm run test:web-access && npm run test:public-hygiene && npm run test:doc-links && npm run test:github-config"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

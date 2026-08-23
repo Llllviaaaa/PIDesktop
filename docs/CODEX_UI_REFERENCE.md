@@ -6,6 +6,7 @@ Primary references:
 
 - [Codex environments](https://learn.chatgpt.com/docs/environments/modes) - new chat composer and environment controls
 - [Code review](https://learn.chatgpt.com/docs/code-review) - inline review comments and diff presentation
+- [OpenAI model guidance](https://developers.openai.com/api/docs/guides/latest-model) - tool preambles, hosted web search, and cited answers
 
 ## What the official composer actually looks like
 
@@ -34,6 +35,13 @@ From the documented inline code review UI:
 ## Implication for Pi Desktop
 
 Match **structure and restraint**, not every Codex feature (no Cloud tab product).
+
+### Search and browser boundary
+
+- Web search is an inline conversation tool: show a short running/completed row, the query, and cited sources.
+- Search completion never navigates the workspace or opens a browser by itself.
+- A source opens only after an explicit user click.
+- The application browser accepts URLs only. Interactive page inspection remains a separate Agent browser tool and permission boundary.
 
 ### Layout alignment shipped
 

@@ -7,7 +7,7 @@ mod terminal;
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 #[cfg(windows)]
 use std::sync::atomic::AtomicBool;
@@ -19,7 +19,8 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use pi::rpc::{build_pi_print_command, PiRpcClient};
+use pi::process::run_pi_print;
+use pi::rpc::PiRpcClient;
 use pi::sessions::{
     list_sessions, parse_session_file, session_history, session_message_timings, session_messages,
     trash_session, validate_session_path, SessionHistory, SessionInfo, SessionMessageTiming,
@@ -1059,16 +1060,14 @@ fn execute_scheduled_task(
     };
     let execution = (|| -> Result<std::process::Output, String> {
         let launch = build_pi_launch_config(&settings, &task.cwd, permission_mode, false)?;
-        let mut command = build_pi_print_command(
+        run_pi_print(
             &settings.pi_binary,
             &task.cwd,
             &launch.extra_args,
+            &launch.environment,
             &task.prompt,
-        );
-        command.envs(launch.environment.iter().map(|(key, value)| (key, value)));
-        command
-            .output()
-            .map_err(|err| format!("failed to run scheduled Pi task: {err}"))
+        )
+        .map_err(|err| format!("failed to run scheduled Pi task: {err}"))
     })();
     let (success, exit_code, message) = match execution {
         Ok(output) => {
@@ -3124,16 +3123,18 @@ fn confined_workspace_path(cwd: &str, relative: &str) -> Result<(PathBuf, PathBu
     let root = strip_windows_prefix(
         fs::canonicalize(cwd).map_err(|err| format!("workspace not found: {err}"))?,
     );
-    let mut joined = root.clone();
-    for part in relative.replace('\\', "/").split('/') {
-        if part.is_empty() || part == "." {
-            continue;
-        }
-        if part == ".." {
-            return Err("path is outside the workspace".to_string());
-        }
-        joined.push(part);
+    let requested = strip_windows_prefix(PathBuf::from(relative));
+    if requested
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err("path is outside the workspace".to_string());
     }
+    let joined = if requested.is_absolute() {
+        requested
+    } else {
+        root.join(requested)
+    };
     let canon = if joined.exists() {
         strip_windows_prefix(
             fs::canonicalize(&joined).map_err(|err| format!("path not found: {err}"))?,
@@ -4554,6 +4555,46 @@ pub fn run_computer_helper() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn confines_relative_and_absolute_files_to_the_workspace() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "pid-desktop-workspace-path-{}-{stamp}",
+            std::process::id()
+        ));
+        let workspace = directory.join("workspace");
+        let outside = directory.join("outside.html");
+        let inside = workspace.join("inside.html");
+        fs::create_dir_all(&workspace).expect("temporary workspace should be created");
+        fs::write(&inside, "<h1>inside</h1>").expect("workspace file should be written");
+        fs::write(&outside, "<h1>outside</h1>").expect("outside file should be written");
+
+        let cwd = workspace.to_string_lossy();
+        assert_eq!(
+            confined_workspace_path(&cwd, "inside.html")
+                .expect("relative workspace path should be accepted")
+                .1,
+            strip_windows_prefix(fs::canonicalize(&inside).expect("inside file should resolve")),
+        );
+        assert_eq!(
+            confined_workspace_path(&cwd, &inside.to_string_lossy())
+                .expect("absolute workspace path should be accepted")
+                .1,
+            strip_windows_prefix(fs::canonicalize(&inside).expect("inside file should resolve")),
+        );
+        let forward_slash_inside = inside.to_string_lossy().replace('\\', "/");
+        let content = read_workspace_file(cwd.to_string(), forward_slash_inside)
+            .expect("forward-slash absolute HTML path should be readable");
+        assert_eq!(content.text.as_deref(), Some("<h1>inside</h1>"));
+        assert!(confined_workspace_path(&cwd, &outside.to_string_lossy()).is_err());
+        assert!(confined_workspace_path(&cwd, "../outside.html").is_err());
+
+        fs::remove_dir_all(directory).expect("temporary path fixture should be removed");
+    }
 
     #[test]
     fn exports_conversation_as_readable_markdown() {

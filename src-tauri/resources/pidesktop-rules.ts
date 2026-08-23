@@ -50,7 +50,7 @@ export type ToolDecision =
   | { action: "block"; reason: string }
   | { action: "confirm"; title: string; message: string };
 
-/** Keep web research inside Pi Desktop unless the caller explicitly requests a curator workflow. */
+/** Keep web search inline unless the caller explicitly requests a curator workflow. */
 export function applyDesktopToolDefaults(toolName: string, input: Record<string, unknown>): void {
   if (toolName.toLowerCase() === "web_search" && input.workflow === undefined) {
     input.workflow = "none";

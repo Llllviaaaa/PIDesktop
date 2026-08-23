@@ -1,6 +1,7 @@
 import type { UiMessage, UiToolCall } from "../types";
+import { WEB_ACCESS_LABELS, webAccessKindForTool, webSearchQuery } from "./webAccess";
 
-export type EnvSourceKind = "file" | "search" | "web" | "browser" | "pi" | "other";
+export type EnvSourceKind = "file" | "search" | "web-search" | "agent-browser" | "pi" | "other";
 
 export interface EnvSourceItem {
   id: string;
@@ -26,21 +27,22 @@ function classifyTool(call: UiToolCall): EnvSourceItem | null {
   const path = argString(call.args, ["path", "file", "filename", "filePath", "target"]);
   const url = argString(call.args, ["url", "href"]);
   const query = argString(call.args, ["query", "pattern", "q", "search"]);
+  const webKind = webAccessKindForTool(name);
 
-  if (name.includes("browser") || name.includes("web_fetch") || name.includes("fetch_url")) {
+  if (webKind === "agent-browser") {
     return {
       id: call.id,
-      kind: "browser",
-      label: url || call.name,
+      kind: webKind,
+      label: WEB_ACCESS_LABELS[webKind],
       detail: url,
     };
   }
-  if (name.includes("web_search") || name.includes("search_web") || name === "search") {
+  if (webKind === "web-search") {
     return {
       id: call.id,
-      kind: "search",
-      label: query ? `网页搜索` : "网页搜索",
-      detail: query,
+      kind: webKind,
+      label: WEB_ACCESS_LABELS[webKind],
+      detail: webSearchQuery(call.args),
     };
   }
   if (

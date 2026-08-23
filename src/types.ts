@@ -623,7 +623,7 @@ export interface UiToolCall {
   finishedAt?: number;
 }
 
-export interface BrowserState {
+export interface AgentBrowserState {
   url: string;
   title: string;
   screenshot?: ImageContent;
@@ -642,6 +642,8 @@ export interface ComputerState {
 
 export interface UiMessage {
   id: string;
+  /** Stable Pi session-tree entry for branch navigation and rewind. */
+  entryId?: string;
   role: "user" | "assistant" | "terminal" | "notice";
   content: string;
   images?: ImageContent[];

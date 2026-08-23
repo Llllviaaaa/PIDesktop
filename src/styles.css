@@ -308,6 +308,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .tool-drawer { margin-left: 21px; border-left: 1px solid var(--border); padding: 7px 10px 10px 13px; background: transparent; }
 .tool-section-label { color: var(--text-3); font-size: 9px; text-transform: uppercase; letter-spacing: .07em; margin: 5px 0 3px; }
 .tool-drawer pre { margin: 0; max-height: 280px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: #b9bac0; font: 10.5px/1.55 "JetBrains Mono", Consolas, monospace; }
+.tool-search-query { color: var(--text-2); font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.tool-search-sources { display: grid; gap: 2px; }
+.tool-search-sources a { min-width: 0; min-height: 28px; border-radius: 5px; color: var(--text-2); display: flex; align-items: center; gap: 8px; padding: 4px 6px; text-decoration: none; }
+.tool-search-sources a:hover { background: var(--panel); color: var(--text); }
+.tool-search-sources a span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.tool-search-sources a svg { flex: 0 0 auto; color: var(--text-3); }
 .tool-result-images { display: grid; gap: 8px; margin-top: 8px; }
 .tool-result-images img { display: block; width: 100%; max-height: 420px; object-fit: contain; object-position: top; border: 1px solid var(--border); border-radius: 7px; background: #fff; }
 .browser-panel { padding: 10px; }
@@ -2186,6 +2192,8 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   max-width: 720px;
   margin: 0 auto;
   padding: 0;
+  container-name: composer;
+  container-type: inline-size;
 }
 .codex-shot .task-start-composer { width: min(720px, 100%); }
 .codex-shot .composer-card,
@@ -2266,6 +2274,8 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   padding: 0 8px;
   height: 28px;
   border-radius: 8px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .codex-shot .chip-permission:hover { background: rgba(234,88,12,.07); }
 .codex-shot .chip-permission svg { color: #ea580c; }
@@ -2346,6 +2356,8 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   gap: 2px;
   min-width: 0;
 }
+.codex-shot .composer-toolbar-left { flex: 0 0 auto; }
+.codex-shot .composer-toolbar-right { flex: 1 1 auto; justify-content: flex-end; }
 .codex-shot .composer-icon-button {
   width: 32px;
   height: 32px;
@@ -2366,15 +2378,19 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 /* Model picker: quiet Codex label with an app-owned popover. */
 .codex-shot .model-picker-wrap {
   position: relative;
+  flex: 1 1 96px;
   min-width: 0;
+  max-width: 220px;
 }
 .codex-shot .model-combo {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   height: 28px;
-  max-width: 200px;
-  margin-right: 6px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin-right: 0;
   padding: 0 6px;
   border: 0;
   border-radius: 8px;
@@ -2397,6 +2413,7 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .codex-shot .model-combo > svg { flex: 0 0 auto; color: #a1a1aa; }
 .codex-shot .model-combo.active > svg { transform: rotate(180deg); }
 .codex-shot .model-combo-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4219,6 +4236,7 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 }
 .codex-shot .document-media-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .codex-shot .document-pdf-preview { width: 100%; height: 100%; border: 0; background: #f4f4f5; }
+.codex-shot .document-html-preview { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
 .codex-shot .document-table-wrap { width: 100%; height: 100%; overflow: auto; padding: 8px 4px; }
 .codex-shot .document-table { border-collapse: collapse; min-width: 100%; font: 12px/1.4 var(--code-font); }
 .codex-shot .document-table th,
@@ -4288,7 +4306,23 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   font-size: 12.5px;
 }
 .codex-shot .document-breadcrumb strong { color: #3f4248; font-weight: 600; }
-.codex-shot .document-pane-actions { display: flex; align-items: center; gap: 4px; }
+.codex-shot .document-pane-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 4px;
+}
+.codex-shot .document-pane-actions .document-action {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: #7b7f87;
+}
+.codex-shot .document-pane-actions .document-action:hover,
+.codex-shot .document-pane-actions .document-action.active { background: #eef0f3; color: #34363b; }
+.codex-shot .document-pane-actions .document-pane-close { margin-left: 2px; }
+.codex-shot .document-pane-body.html-preview-mode { overflow: hidden; padding: 0; }
 .codex-shot .document-markdown,
 .codex-shot .document-source {
   margin: 0;
@@ -4681,6 +4715,17 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   background: transparent;
   color: #34363b;
   font: 12.5px/1.2 var(--ui-font);
+}
+.codex-shot .workspace-browser-address:has(input[aria-invalid="true"]) { border-color: #d89494; }
+.codex-shot .workspace-browser-address-error {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 auto;
+  border-bottom: 1px solid #f0d2d2;
+  background: #fff7f7;
+  color: #a14848;
+  padding: 6px 12px;
+  font-size: 11px;
 }
 .codex-shot .workspace-browser-content {
   flex: 1;
@@ -5102,6 +5147,7 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 :root[data-theme="dark"] .codex-shot .workspace-browser-content,
 :root[data-theme="dark"] .codex-shot .workspace-browser-content iframe { background: #121214; }
 :root[data-theme="dark"] .codex-shot .workspace-browser-native-error { background: #121214; color: #f87171; }
+:root[data-theme="dark"] .codex-shot .workspace-browser-address-error { border-color: #4c292d; background: #25191b; color: #f2a7ad; }
 :root[data-theme="dark"] .codex-shot .workspace-browser-empty strong { color: #d4d4d8; }
 :root[data-theme="dark"] .codex-shot .workspace-browser-empty button,
 :root[data-theme="dark"] .codex-shot .side-chat-composer {
@@ -5677,3 +5723,35 @@ body,
 :root[data-theme="dark"] .codex-shot .markdown-body .hljs-strong { color: #c9d1d9; font-weight: 600; }
 :root[data-theme="dark"] .codex-shot .markdown-body .hljs-addition { color: #aff5b4; background: #033a16; }
 :root[data-theme="dark"] .codex-shot .markdown-body .hljs-deletion { color: #ffdcd7; background: #67060c; }
+
+:root[data-theme="dark"] .codex-shot .document-pane-actions .document-action:hover,
+:root[data-theme="dark"] .codex-shot .document-pane-actions .document-action.active {
+  background: #2a2a2f;
+  color: #f4f4f5;
+}
+
+/* The composer can become narrow while the app viewport stays wide in split view. */
+@container composer (max-width: 620px) {
+  .codex-shot .composer-toolbar { gap: 4px; }
+  .codex-shot .composer-toolbar-left,
+  .codex-shot .composer-toolbar-right { gap: 1px; }
+  .codex-shot .agent-mode-segmented { grid-template-columns: repeat(3, 34px); }
+  .codex-shot .agent-mode-segmented button { width: 34px; }
+  .codex-shot .chip-permission {
+    width: 32px;
+    height: 32px;
+    justify-content: center;
+    padding: 0;
+  }
+  .codex-shot .chip-permission > span,
+  .codex-shot .chip-permission > svg:last-child { display: none; }
+  .codex-shot .model-picker-wrap { max-width: 180px; }
+  .codex-shot .model-combo { padding-inline: 5px; }
+}
+
+@container composer (max-width: 420px) {
+  .codex-shot .agent-mode-segmented { grid-template-columns: repeat(3, 30px); }
+  .codex-shot .agent-mode-segmented button { width: 30px; padding: 0; }
+  .codex-shot .model-picker-wrap { max-width: 132px; }
+  .codex-shot .composer-context-usage { display: none; }
+}

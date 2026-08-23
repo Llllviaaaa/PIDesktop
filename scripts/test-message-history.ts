@@ -2,8 +2,9 @@
  * Guards the long-session conversion path against quadratic tool-result lookup.
  * Run: npx --yes tsx scripts/test-message-history.ts
  */
-import { messagesToUi, usePiStore } from "../src/store.ts";
-import type { AgentMessage, SessionMessageTiming } from "../src/types.ts";
+import { attachForkPointsToUi, messagesToUi } from "../src/lib/piMessages.ts";
+import { usePiStore } from "../src/store.ts";
+import type { AgentMessage, ForkPoint, SessionMessageTiming, UiMessage } from "../src/types.ts";
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -68,6 +69,19 @@ const timings: SessionMessageTiming[] = [
   { role: "assistant", messageTimestamp: 11, entryTimestamp: "2026-08-17T01:00:13.000Z" },
 ];
 assert(messagesToUi(timedHistory, timings)[1].durationMs === 13_000, "session duration was not restored");
+
+const repeatedMessages: UiMessage[] = [
+  { id: "user-1", role: "user", content: "repeat", timestamp: 1 },
+  { id: "assistant-1", role: "assistant", content: "first", timestamp: 2 },
+  { id: "user-2", role: "user", content: "repeat", timestamp: 3 },
+];
+const repeatedPoints: ForkPoint[] = [
+  { entryId: "entry-1", text: "repeat" },
+  { entryId: "entry-2", text: "repeat" },
+];
+const hydrated = attachForkPointsToUi(repeatedMessages, repeatedPoints);
+assert(hydrated[0].entryId === "entry-1", "first repeated message did not keep its fork identity");
+assert(hydrated[2].entryId === "entry-2", "second repeated message did not keep its fork identity");
 
 // Pi 0.84 RPC omits the cumulative message from message_update and sends deltas only.
 Object.assign(globalThis, { window: globalThis });

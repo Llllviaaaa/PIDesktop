@@ -28,8 +28,12 @@ import {
 } from "lucide-react";
 import { pi } from "../lib/pi";
 import type { ProjectConfig, SessionInfo } from "../types";
-import { sessionRecency, sessionTitle } from "../lib/sessionTitle";
-import { sortSidebarProjectGroups } from "../lib/sidebarProjectOrder";
+import { sessionTitle } from "../lib/sessionTitle";
+import {
+  reconcileSidebarSessionOrder,
+  sortSidebarProjectGroups,
+  sortSidebarSessions,
+} from "../lib/sidebarProjectOrder";
 import { normalizeLocalPath, sameLocalPath } from "../lib/pathIdentity";
 
 type SidebarHub = "pull-requests" | "scheduled" | "plugins" | null;
@@ -70,6 +74,7 @@ interface PositionedThreadPreview {
 
 const PINNED_SESSIONS_KEY = "pid-desktop:pinned-sessions";
 const COLLAPSED_PROJECTS_KEY = "pid-desktop:collapsed-projects";
+const SIDEBAR_SESSION_ORDER_KEY = "pid-desktop:sidebar-session-order";
 
 function readStringList(key: string): string[] {
   try {
@@ -146,6 +151,7 @@ export function Sidebar({
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [collapsedProjectPaths, setCollapsedProjectPaths] = useState(() => readStringList(COLLAPSED_PROJECTS_KEY));
   const [pinnedSessionFiles, setPinnedSessionFiles] = useState(() => readStringList(PINNED_SESSIONS_KEY));
+  const [persistedSessionOrder, setPersistedSessionOrder] = useState(() => readStringList(SIDEBAR_SESSION_ORDER_KEY));
   const [projectConfigs, setProjectConfigs] = useState<ProjectConfig[]>([]);
   const [projectMenu, setProjectMenu] = useState<PositionedProjectMenu | null>(null);
   const [threadPreview, setThreadPreview] = useState<PositionedThreadPreview | null>(null);
@@ -153,6 +159,17 @@ export function Sidebar({
   const [editingProject, setEditingProject] = useState<string | null>(null);
   const [aliasDraft, setAliasDraft] = useState("");
   const lastOpenedSessionFile = useRef<string | null>(null);
+  const stableSessionOrder = useMemo(
+    () => reconcileSidebarSessionOrder(persistedSessionOrder, sessions),
+    [persistedSessionOrder, sessions],
+  );
+
+  useEffect(() => {
+    if (stableSessionOrder.length === persistedSessionOrder.length
+      && stableSessionOrder.every((file, index) => file === persistedSessionOrder[index])) return;
+    setPersistedSessionOrder(stableSessionOrder);
+    window.localStorage.setItem(SIDEBAR_SESSION_ORDER_KEY, JSON.stringify(stableSessionOrder));
+  }, [persistedSessionOrder, stableSessionOrder]);
 
   const projectConfig = (workspace: string): ProjectConfig => projectConfigs.find((project) => pathsEqual(project.path, workspace)) ?? {
     path: workspace,
@@ -200,15 +217,11 @@ export function Sidebar({
       if (normalizedQuery && !haystack.includes(normalizedQuery)) continue;
       result.set(config.path, []);
     }
-    const pinnedSessionSet = new Set(pinnedSessionFiles);
     for (const [key, chats] of result) {
-      result.set(key, [...chats].sort((a, b) => {
-        const pinDifference = Number(pinnedSessionSet.has(b.file)) - Number(pinnedSessionSet.has(a.file));
-        return pinDifference || sessionRecency(b) - sessionRecency(a);
-      }));
+      result.set(key, sortSidebarSessions(chats, pinnedSessionFiles, stableSessionOrder));
     }
-    return sortSidebarProjectGroups([...result.entries()], projectConfigs);
-  }, [pinnedSessionFiles, projectConfigs, query, sessions]);
+    return sortSidebarProjectGroups([...result.entries()], projectConfigs, stableSessionOrder);
+  }, [pinnedSessionFiles, projectConfigs, query, sessions, stableSessionOrder]);
 
   const notifications = useMemo(() => {
     const byFile = new Map(sessions.map((session) => [normalizeLocalPath(session.file), session]));

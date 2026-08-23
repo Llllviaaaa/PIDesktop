@@ -28,6 +28,7 @@ function formatWorkDuration(toolCalls: UiToolCall[]): string | null {
 export const Message = memo(function Message({
   message,
   showThinking = true,
+  expectVisibleThinking = false,
   isLastAssistant = false,
   globalStreaming = false,
   workingLabel,
@@ -39,6 +40,8 @@ export const Message = memo(function Message({
 }: {
   message: UiMessage;
   showThinking?: boolean;
+  /** The selected runtime requested reasoning, so an empty stream should be explained. */
+  expectVisibleThinking?: boolean;
   /** True when this is the newest assistant reply of the current turn. */
   isLastAssistant?: boolean;
   /** App-level streaming flag; message.isStreaming is false during reasoning/tool phases. */
@@ -202,8 +205,17 @@ export const Message = memo(function Message({
   // B1: during reasoning/tool phases message.isStreaming is false while the agent is still working,
   // so the newest assistant reply also honors the app-level streaming flag.
   const working = assistantWorking;
+  const reasoningUnavailable = showThinking
+    && expectVisibleThinking
+    && isLastAssistant
+    && !working
+    && !hasThinking
+    && Boolean(message.content)
+    && !message.isError;
   const duration = formatDuration(message.durationMs ?? 0) ?? formatWorkDuration(toolCalls);
-  const thinkingLabel = working
+  const thinkingLabel = reasoningUnavailable
+    ? "模型未返回可见推理"
+    : working
     ? workingLabel || "Pi 正在工作…"
     : duration
       ? `思考了 ${duration}`
@@ -253,7 +265,7 @@ export const Message = memo(function Message({
       className={`message-row assistant-message ${message.isError ? "error" : ""} ${!message.content && (working || hasThinking || hasTools) ? "work-only" : ""}`}
       id={`message-${message.id}`}
     >
-      {(working || hasThinking) && (
+      {(working || hasThinking || reasoningUnavailable) && (
         <div className="thinking-block">
           <div className="thinking-caption">{thinkingLabel}</div>
           {!summaryMode && hasThinking && (

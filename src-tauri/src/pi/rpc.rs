@@ -6,7 +6,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use regex::Regex;
 use tauri::{AppHandle, Emitter};
 
+use super::process::build_pi_rpc_command;
+
 const REDACTED: &str = "[REDACTED]";
+const PIDESKTOP_PROTOCOL_VERSION: u8 = 1;
 
 fn known_credential_pattern() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
@@ -159,7 +162,7 @@ impl PiRpcClient {
         sensitive_values: &[String],
     ) -> Result<Self, String> {
         let redactor = SecretRedactor::new(sensitive_values);
-        let mut command = build_pi_command(pi_binary, cwd, extra_args);
+        let mut command = build_pi_rpc_command(pi_binary, cwd, extra_args);
         command.envs(environment.iter().map(|(key, value)| (key, value)));
         command
             .stdout(Stdio::piped())
@@ -222,7 +225,11 @@ impl PiRpcClient {
                                     );
                                     let _ = app.emit(
                                         "pi-event",
-                                        serde_json::json!({ "runtimeId": runtime_id, "event": value }),
+                                        serde_json::json!({
+                                            "protocolVersion": PIDESKTOP_PROTOCOL_VERSION,
+                                            "runtimeId": runtime_id,
+                                            "event": value,
+                                        }),
                                     );
                                 }
                                 Err(_) => {
@@ -400,86 +407,6 @@ fn is_actionable_extension(event: &serde_json::Value) -> bool {
         event.get("method").and_then(|value| value.as_str()),
         Some("notify" | "setStatus" | "setWidget" | "setTitle" | "set_editor_text")
     )
-}
-
-/// Build the OS-level command that launches pi in RPC mode.
-fn build_pi_command(pi_binary: &str, cwd: &str, extra_args: &[String]) -> Command {
-    if cfg!(windows) {
-        // `.cmd`/`.bat` shims cannot be launched with CreateProcess directly,
-        // so route through cmd.exe. `cmd /S /C` handles quoting for us.
-        // CREATE_NO_WINDOW suppresses the console popup.
-        let mut command_line = format!("{} --mode rpc", quote_cmd_arg(pi_binary));
-        for arg in extra_args {
-            command_line.push(' ');
-            command_line.push_str(&quote_cmd_arg(arg));
-        }
-        let mut command = Command::new("cmd.exe");
-        command.args(["/D", "/S", "/C", &command_line]);
-        command.current_dir(cwd);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-        command
-    } else {
-        let mut command = Command::new(pi_binary);
-        command.arg("--mode").arg("rpc").args(extra_args);
-        command.current_dir(cwd);
-        command
-    }
-}
-
-/// Build a non-interactive Pi command while preserving Windows npm-shim support.
-pub(crate) fn build_pi_print_command(
-    pi_binary: &str,
-    cwd: &str,
-    extra_args: &[String],
-    prompt: &str,
-) -> Command {
-    if cfg!(windows) {
-        let mut command_line = quote_cmd_arg(pi_binary);
-        for arg in extra_args {
-            command_line.push(' ');
-            command_line.push_str(&quote_cmd_arg(arg));
-        }
-        command_line.push_str(" -p ");
-        command_line.push_str(&quote_cmd_arg(prompt));
-        let mut command = Command::new("cmd.exe");
-        command.args(["/D", "/S", "/C", &command_line]);
-        command.current_dir(cwd);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-        command
-    } else {
-        let mut command = Command::new(pi_binary);
-        command.args(extra_args).arg("-p").arg(prompt);
-        command.current_dir(cwd);
-        command
-    }
-}
-
-/// Quote a CLI argument for safe inclusion in a `cmd /C` string.
-fn quote_cmd_arg(arg: &str) -> String {
-    if arg.is_empty()
-        || arg.contains(' ')
-        || arg.contains('\t')
-        || arg.contains('"')
-        || arg.contains('&')
-        || arg.contains('|')
-        || arg.contains('<')
-        || arg.contains('>')
-        || arg.contains('^')
-    {
-        format!("\"{}\"", arg.replace('"', "\"\""))
-    } else {
-        arg.to_string()
-    }
 }
 
 impl Drop for PiRpcClient {

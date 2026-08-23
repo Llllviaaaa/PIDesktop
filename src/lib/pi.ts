@@ -29,6 +29,7 @@ import type {
   WorkspaceFileContent,
   WorktreeInfo,
 } from "../types";
+import { decodePiEventEnvelope } from "./piProtocol";
 
 let sessionsRequest: Promise<SessionInfo[]> | null = null;
 const gitSnapshotRequests = new Map<string, Promise<GitSnapshot>>();
@@ -165,11 +166,6 @@ export interface PiRuntimeStatus {
   cwd?: string;
 }
 
-interface TaggedPiEvent {
-  runtimeId: string;
-  event: PiEvent;
-}
-
 interface TaggedPiLog {
   runtimeId: string;
   line: string;
@@ -179,11 +175,19 @@ export interface PiListeners {
   onEvent: (runtimeId: string, event: PiEvent) => void;
   onStatus: (status: PiRuntimeStatus) => void;
   onLog: (runtimeId: string, line: string) => void;
+  onProtocolError?: (message: string) => void;
 }
 
 export async function subscribeToPi(listeners: PiListeners): Promise<UnlistenFn> {
   const unlisteners = await Promise.all([
-    listen<TaggedPiEvent>("pi-event", (event) => listeners.onEvent(event.payload.runtimeId, event.payload.event)),
+    listen<unknown>("pi-event", (event) => {
+      const decoded = decodePiEventEnvelope(event.payload);
+      if (!decoded.ok) {
+        listeners.onProtocolError?.(decoded.error);
+        return;
+      }
+      listeners.onEvent(decoded.value.runtimeId, decoded.value.event);
+    }),
     listen<PiRuntimeStatus>(
       "pi-status",
       (event) => listeners.onStatus(event.payload),
@@ -215,9 +219,10 @@ export async function sendCommand(
       finish(() => reject(new Error(`Pi command '${command}' timed out`)));
     }, timeoutMs);
 
-    void listen<TaggedPiEvent>("pi-event", (event) => {
-      if (event.payload.runtimeId !== runtimeId) return;
-      const response = event.payload.event as RpcResponse;
+    void listen<unknown>("pi-event", (event) => {
+      const decoded = decodePiEventEnvelope(event.payload);
+      if (!decoded.ok || decoded.value.runtimeId !== runtimeId) return;
+      const response = decoded.value.event as RpcResponse;
       if (response.type !== "response" || response.id !== id) return;
       if (!response.success) {
         finish(() => reject(new Error(response.error || `Pi command '${command}' failed`)));
