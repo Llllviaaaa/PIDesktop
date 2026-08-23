@@ -1,0 +1,76 @@
+{
+  "name": "pid-desktop",
+  "private": true,
+  "version": "0.2.9",
+  "license": "Apache-2.0",
+  "description": "A local-first Windows desktop client for the Pi coding agent",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Llllviaaaa/PIDesktop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Llllviaaaa/PIDesktop/issues"
+  },
+  "homepage": "https://github.com/Llllviaaaa/PIDesktop#readme",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "test:rules": "tsx scripts/test-permission-rules.ts",
+    "test:rewind": "tsx scripts/test-message-rewind.ts",
+    "test:checkpoints": "tsx scripts/test-workspace-checkpoints.ts",
+    "test:managed-queue": "tsx scripts/test-managed-queue.ts",
+    "test:plan": "tsx scripts/test-plan-tracking.ts",
+    "test:hooks": "tsx scripts/test-hooks.ts",
+    "test:subagents": "tsx scripts/test-subagents.ts",
+    "test:memory-tool": "tsx scripts/test-memory-tool.ts",
+    "test:mcp-subscriptions": "node scripts/test-mcp-subscriptions.mjs",
+    "test:session-tree": "tsx scripts/test-session-tree.ts",
+    "test:git-diff": "tsx scripts/test-git-diff-stats.ts",
+    "test:history": "tsx scripts/test-message-history.ts",
+    "test:schedule": "tsx scripts/test-schedule.ts",
+    "test:model-switch": "tsx scripts/test-model-selection-extension.ts",
+    "test:runtime-disconnect": "tsx scripts/test-runtime-disconnect.ts",
+    "test:sidebar-order": "tsx scripts/test-sidebar-project-order.ts",
+    "test:session-title": "tsx scripts/test-session-title.ts",
+    "test:navigation-history": "tsx scripts/test-navigation-history.ts",
+    "test:pull-requests": "tsx scripts/test-pull-requests.ts",
+    "test:redaction": "tsx scripts/test-redaction.ts",
+    "test:public-hygiene": "node scripts/test-public-repo-hygiene.mjs",
+    "test:doc-links": "node scripts/test-doc-links.mjs",
+    "test:github-config": "node scripts/test-github-config.mjs",
+    "scan:secrets": "node scripts/scan-secrets.mjs",
+    "test:unit": "npm run test:rules && npm run test:rewind && npm run test:checkpoints && npm run test:managed-queue && npm run test:plan && npm run test:hooks && npm run test:subagents && npm run test:memory-tool && npm run test:mcp-subscriptions && npm run test:session-tree && npm run test:git-diff && npm run test:history && npm run test:schedule && npm run test:model-switch && npm run test:runtime-disconnect && npm run test:sidebar-order && npm run test:session-title && npm run test:navigation-history && npm run test:pull-requests && npm run test:redaction && npm run test:public-hygiene && npm run test:doc-links && npm run test:github-config"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-opener": "^2",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "highlight.js": "^11.11.1",
+    "lucide-react": "^1.30.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "tsx": "4.23.12",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4",
+    "yaml": "2.9.0"
+  }
+}
