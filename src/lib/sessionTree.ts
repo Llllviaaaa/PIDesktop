@@ -33,6 +33,12 @@ export interface FlatTreeNode {
   childCount: number;
 }
 
+export interface ActiveUserMessageEntry {
+  entryId: string;
+  parentId: string | null;
+  text: string;
+}
+
 export function buildGetTreeCommand(): { type: "get_tree" } {
   return { type: "get_tree" };
 }
@@ -91,6 +97,44 @@ export function flattenSessionTree(
 
   walk(Array.isArray(tree) ? tree : [], 0);
   return result;
+}
+
+/** User messages on the active root-to-leaf path, excluding abandoned branches. */
+export function activeUserMessageEntries(
+  tree: SessionTreeNode[] | undefined | null,
+  leafId: string | null | undefined,
+): ActiveUserMessageEntry[] {
+  if (!leafId) return [];
+  const entries = new Map<string, SessionTreeEntry>();
+
+  const collect = (nodes: SessionTreeNode[]) => {
+    for (const node of nodes) {
+      const entry = node.entry;
+      if (typeof entry?.id === "string") entries.set(entry.id, entry);
+      collect(Array.isArray(node.children) ? node.children : []);
+    }
+  };
+  collect(Array.isArray(tree) ? tree : []);
+
+  const path: SessionTreeEntry[] = [];
+  const visited = new Set<string>();
+  let cursor: string | null = leafId;
+  while (cursor && !visited.has(cursor)) {
+    visited.add(cursor);
+    const entry = entries.get(cursor);
+    if (!entry) break;
+    path.unshift(entry);
+    cursor = typeof entry.parentId === "string" ? entry.parentId : null;
+  }
+
+  return path.flatMap((entry) => {
+    if (entry.type !== "message" || entry.message?.role !== "user" || typeof entry.id !== "string") return [];
+    return [{
+      entryId: entry.id,
+      parentId: typeof entry.parentId === "string" ? entry.parentId : null,
+      text: textFromContent(entry.message.content),
+    }];
+  });
 }
 
 /** User/assistant message nodes that are sensible continue/fork targets. */

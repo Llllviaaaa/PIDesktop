@@ -4,18 +4,58 @@
  */
 
 export type PermissionMode = "read-only" | "ask" | "workspace-write" | "full-access";
+export type AgentMode = "agent" | "plan" | "ask";
+
+export function normalizeAgentMode(value: string | undefined | null): AgentMode {
+  return value === "plan" || value === "ask" ? value : "agent";
+}
+
+export function normalizePermissionMode(value: string | undefined | null): PermissionMode {
+  return value === "read-only" || value === "workspace-write" || value === "full-access" ? value : "ask";
+}
+
+export function permissionForAgentMode(agentMode: AgentMode, permissionMode: PermissionMode): PermissionMode {
+  return agentMode === "agent" ? permissionMode : "read-only";
+}
+
+export function agentModeSystemInstructions(mode: AgentMode): string {
+  if (mode === "ask") {
+    return "PIDesktop mode: Ask. Investigate with read-only tools and answer the user's question. Do not edit files, run shell commands, or perform side-effecting actions.";
+  }
+  if (mode === "plan") {
+    return "PIDesktop mode: Plan. Investigate with read-only tools, record the proposed ordered steps with update_plan, then produce an implementation-ready plan with affected files, key symbols, risks, and verification. Do not edit files, run shell commands, or perform side-effecting actions.";
+  }
+  return "";
+}
 
 export interface PermissionRules {
   alwaysConfirmShell: boolean;
   blockWriteOutsideWorkspace: boolean;
   /** Command prefixes that skip shell confirmation under ask / workspace-write. */
   shellAllowPrefixes: string[];
+  toolRules: ToolPermissionRule[];
+}
+
+export interface ToolPermissionRule {
+  id: string;
+  enabled: boolean;
+  toolPattern: string;
+  action: "allow" | "confirm" | "block";
+  commandPrefix: string;
+  pathPrefix: string;
 }
 
 export type ToolDecision =
   | { action: "allow" }
   | { action: "block"; reason: string }
   | { action: "confirm"; title: string; message: string };
+
+/** Keep web research inside Pi Desktop unless the caller explicitly requests a curator workflow. */
+export function applyDesktopToolDefaults(toolName: string, input: Record<string, unknown>): void {
+  if (toolName.toLowerCase() === "web_search" && input.workflow === undefined) {
+    input.workflow = "none";
+  }
+}
 
 export function normalizePath(value: string): string {
   return value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
@@ -91,6 +131,57 @@ export function commandMatchesAllowPrefix(command: string, prefixes: string[]): 
   });
 }
 
+export function toolPatternMatches(toolName: string, pattern: string): boolean {
+  const escaped = pattern.trim().toLowerCase().replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  if (!escaped) return false;
+  return new RegExp(`^${escaped}$`).test(toolName.toLowerCase());
+}
+
+export function parseToolRules(encoded: string | undefined | null): ToolPermissionRule[] {
+  if (!encoded) return [];
+  try {
+    const value = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
+    if (!Array.isArray(value)) return [];
+    return value.slice(0, 64).flatMap((item): ToolPermissionRule[] => {
+      if (!item || typeof item !== "object") return [];
+      const rule = item as Partial<ToolPermissionRule>;
+      if (typeof rule.id !== "string" || typeof rule.toolPattern !== "string") return [];
+      if (rule.action !== "allow" && rule.action !== "confirm" && rule.action !== "block") return [];
+      return [{
+        id: rule.id,
+        enabled: rule.enabled !== false,
+        toolPattern: rule.toolPattern.trim(),
+        action: rule.action,
+        commandPrefix: typeof rule.commandPrefix === "string" ? rule.commandPrefix.trim() : "",
+        pathPrefix: typeof rule.pathPrefix === "string" ? rule.pathPrefix.trim() : "",
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function matchingToolRule(options: {
+  rules: PermissionRules;
+  workspace: string;
+  toolName: string;
+  input: Record<string, unknown>;
+}): ToolPermissionRule | null {
+  const command = shellCommandFromInput(options.input);
+  const target = pathFromToolInput(options.input);
+  return (options.rules.toolRules ?? []).find((rule) => {
+    if (!rule.enabled || !toolPatternMatches(options.toolName, rule.toolPattern)) return false;
+    if (rule.commandPrefix && !commandMatchesAllowPrefix(command, [rule.commandPrefix])) return false;
+    if (rule.pathPrefix) {
+      if (!target) return false;
+      const candidate = resolveAgainstWorkspace(target, options.workspace);
+      const prefix = resolveAgainstWorkspace(rule.pathPrefix, options.workspace);
+      if (candidate !== prefix && !candidate.startsWith(`${prefix}/`)) return false;
+    }
+    return true;
+  }) ?? null;
+}
+
 export function pathFromToolInput(input: Record<string, unknown>): string | undefined {
   for (const key of ["path", "file", "filePath", "target"]) {
     if (typeof input[key] === "string" && (input[key] as string).trim()) {
@@ -111,7 +202,7 @@ export function shellCommandFromInput(input: Record<string, unknown>): string {
 
 /**
  * Decide whether a model tool call is allowed, blocked, or needs confirmation.
- * full-access short-circuits to allow (caller may still apply quick-chat blocks).
+ * Read-only is a hard cap. Explicit tool rules then apply before the mode defaults.
  */
 export function evaluateToolPermission(options: {
   mode: PermissionMode;
@@ -125,19 +216,59 @@ export function evaluateToolPermission(options: {
   const tool = options.toolName.toLowerCase();
   const isWrite = tool === "write" || tool === "edit" || tool === "apply_patch";
   const isShell = tool === "bash" || tool === "shell" || tool === "exec";
+  const action = typeof input.action === "string" ? input.action.toLowerCase() : "";
+  const isInteractiveBrowser = tool === "browser" && ["click", "type", "close"].includes(action);
+  const isInteractiveComputer = tool === "computer" && ["focus_window", "click", "type", "key"].includes(action);
+  const isMcpTool = tool.startsWith("mcp__");
+  const isSubagent = tool === "delegate_task";
+  const isMemoryWrite = tool === "desktop_memory" && action !== "read";
+  const subagentPermission = input.permission === "workspace-write" ? "workspace-write" : "read-only";
   const target = pathFromToolInput(input);
   const command = shellCommandFromInput(input);
 
-  if (options.quickChat && ["read", "write", "edit", "apply_patch", "grep", "find", "bash", "shell", "exec"].includes(tool)) {
+  if (options.quickChat && (["read", "write", "edit", "apply_patch", "grep", "find", "bash", "shell", "exec"].includes(tool) || isSubagent)) {
     return { action: "block", reason: "Quick chat does not use local project files or shell commands" };
+  }
+
+  if (mode === "read-only" && (isWrite || isShell || isInteractiveBrowser || isInteractiveComputer || isMcpTool || isMemoryWrite)) {
+    return { action: "block", reason: "Pi Desktop is in read-only mode" };
+  }
+
+  if (mode === "read-only" && isSubagent && subagentPermission !== "read-only") {
+    return { action: "block", reason: "Pi Desktop read-only mode only permits read-only subagents" };
+  }
+
+  const customRule = matchingToolRule({ rules, workspace, toolName: tool, input });
+  if (customRule) {
+    if (customRule.action === "allow") return { action: "allow" };
+    if (customRule.action === "block") {
+      return { action: "block", reason: `Blocked by tool rule: ${customRule.id}` };
+    }
+    return {
+      action: "confirm",
+      title: "Allow tool call?",
+      message: `${tool} matched rule ${customRule.id}`,
+    };
   }
 
   if (mode === "full-access") {
     return { action: "allow" };
   }
 
-  if (mode === "read-only" && (isWrite || isShell)) {
-    return { action: "block", reason: "Pi Desktop is in read-only mode" };
+  if (isMemoryWrite && (mode === "ask" || mode === "workspace-write")) {
+    return {
+      action: "confirm",
+      title: "Update local memory?",
+      message: action === "clear" ? "Clear the Pi Desktop memory file" : `Store a durable preference using ${action}`,
+    };
+  }
+
+  if ((mode === "ask" || mode === "workspace-write") && isSubagent && subagentPermission === "workspace-write") {
+    return {
+      action: "confirm",
+      title: "Allow a subagent to edit this workspace?",
+      message: "The delegated worker may use read, edit, and write in the current workspace. Shell access is disabled.",
+    };
   }
 
   if (isWrite && target && !insideWorkspace(target, workspace)) {
@@ -185,6 +316,7 @@ export function rulesFromEnv(env: {
   alwaysConfirmShell?: string;
   blockWriteOutsideWorkspace?: string;
   shellAllowPrefixes?: string;
+  toolRulesEncoded?: string;
 }): PermissionRules {
   const always = env.alwaysConfirmShell;
   const block = env.blockWriteOutsideWorkspace;
@@ -194,5 +326,6 @@ export function rulesFromEnv(env: {
     // Default on: block outside-workspace writes unless explicitly disabled
     blockWriteOutsideWorkspace: block !== "0" && block !== "false",
     shellAllowPrefixes: parseAllowPrefixes(env.shellAllowPrefixes),
+    toolRules: parseToolRules(env.toolRulesEncoded),
   };
 }

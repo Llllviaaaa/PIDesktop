@@ -106,4 +106,32 @@ assert(
   "thinking deltas were not streamed",
 );
 
+usePiStore.getState().handleEvent("stream-test", {
+  type: "message_end",
+  message: {
+    ...streamingMessage,
+    stopReason: "stop",
+    content: [
+      { type: "text", text: "Hello stream" },
+      { type: "toolCall", id: "call-1", name: "read", arguments: { path: "README.md" } },
+    ],
+  },
+});
+assert(
+  usePiStore.getState().messages.at(-1)?.thinking === "Reasoning stream",
+  "message_end without thinking blocks dropped streamed thinking",
+);
+
+usePiStore.setState({ runtimeId: "stream-test", messages: [], isStreaming: true });
+usePiStore.getState().handleEvent("stream-test", { type: "message_start", message: streamingMessage });
+usePiStore.getState().handleEvent("stream-test", {
+  type: "message_update",
+  assistantMessageEvent: { type: "thinking_end", contentIndex: 0, content: "Final thought" },
+});
+await new Promise((resolve) => setTimeout(resolve, 50));
+assert(
+  usePiStore.getState().messages.at(-1)?.thinking === "Final thought",
+  "thinking_end content was not applied",
+);
+
 console.log(`message-history: ${messageCount} messages converted in ${elapsedMs.toFixed(1)}ms; text/thinking streaming passed`);

@@ -1,8 +1,11 @@
 [package]
 name = "pid-desktop"
-version = "0.2.2"
+version = "0.2.9"
 description = "Pi Desktop - a Codex-style desktop client for the Pi coding agent"
 authors = ["PIDesktop"]
+license = "Apache-2.0"
+repository = "https://github.com/Llllviaaaa/PIDesktop"
+homepage = "https://github.com/Llllviaaaa/PIDesktop"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

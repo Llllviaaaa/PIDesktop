@@ -107,7 +107,14 @@ export function SideChatPanel({ cwd, parentSessionFile, showThinking, onClose }:
           let index = next.length - 1;
           while (index >= 0 && next[index].role !== "assistant") index -= 1;
           const completed = assistantToUi(completedMessage, index >= 0 ? next[index].id : undefined);
-          if (index >= 0 && next[index].isStreaming) next[index] = { ...next[index], ...completed, isStreaming: false };
+          if (index >= 0 && next[index].isStreaming) {
+            next[index] = {
+              ...next[index],
+              ...completed,
+              isStreaming: false,
+              thinking: completed.thinking || next[index].thinking,
+            };
+          }
           else next.push({ ...completed, isStreaming: false });
           return next;
         });

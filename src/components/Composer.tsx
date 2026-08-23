@@ -3,21 +3,24 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ChevronUp,
   File,
   Folder,
   GitBranch,
   Image as ImageIcon,
   MessageCircle,
+  ListOrdered,
   Monitor,
   Paperclip,
-  Pencil,
   Plus,
   Search,
   CircleCheck,
   Square,
+  CornerUpRight,
+  Trash2,
   X,
 } from "lucide-react";
-import type { AppSettings, AttachmentPayload, ModelInfo, SessionStats, SlashCommand } from "../types";
+import type { AppSettings, AttachmentPayload, ManagedQueuedMessage, ModelInfo, SessionStats, SlashCommand } from "../types";
 
 const THINKING_LABELS: Record<string, string> = {
   off: "关闭",
@@ -52,6 +55,7 @@ interface ComposerProps {
   thinkingLevels: string[];
   prefill?: string | null;
   pendingCount: number;
+  queuedMessages?: ManagedQueuedMessage[];
   requireCtrlEnter?: boolean;
   defaultFollowUpBehavior?: "steer" | "followUp";
   workspace?: string;
@@ -62,9 +66,9 @@ interface ComposerProps {
   quickChat?: boolean;
   permissionMode?: AppSettings["permissionMode"];
   permissionLabel?: string;
+  agentMode?: AppSettings["agentMode"];
   contextUsage?: SessionStats["contextUsage"];
   variant?: "task-start" | "follow-up";
-  editing?: boolean;
   onSend: (text: string, behavior?: "steer" | "followUp") => Promise<boolean | void> | boolean | void;
   onStop: () => void;
   onPickAttachments: () => void;
@@ -76,8 +80,11 @@ interface ComposerProps {
   onQuickChat?: () => void;
   onEnvironmentChange?: (environment: "local" | "worktree") => void;
   onPermissionChange?: (mode: AppSettings["permissionMode"]) => void | Promise<void>;
+  onAgentModeChange?: (mode: AppSettings["agentMode"]) => void | Promise<void>;
   onPrefillConsumed?: () => void;
-  onCancelEdit?: () => void;
+  onRemoveQueuedMessage?: (id: string) => void;
+  onMoveQueuedMessage?: (id: string, direction: -1 | 1) => void;
+  onSteerQueuedMessage?: (id: string) => void | Promise<void>;
 }
 
 export const Composer = memo(function Composer({
@@ -92,6 +99,7 @@ export const Composer = memo(function Composer({
   thinkingLevels,
   prefill,
   pendingCount,
+  queuedMessages = [],
   requireCtrlEnter = false,
   defaultFollowUpBehavior = "steer",
   workspace = "",
@@ -101,9 +109,9 @@ export const Composer = memo(function Composer({
   quickChat = false,
   permissionMode = "ask",
   permissionLabel = "先询问",
+  agentMode = "agent",
   contextUsage,
   variant = "follow-up",
-  editing = false,
   onSend,
   onStop,
   onPickAttachments,
@@ -115,8 +123,11 @@ export const Composer = memo(function Composer({
   onQuickChat,
   onEnvironmentChange,
   onPermissionChange,
+  onAgentModeChange,
   onPrefillConsumed,
-  onCancelEdit,
+  onRemoveQueuedMessage,
+  onMoveQueuedMessage,
+  onSteerQueuedMessage,
 }: ComposerProps) {
   const [text, setText] = useState("");
   const [streamingBehavior, setStreamingBehavior] = useState<"steer" | "followUp">(defaultFollowUpBehavior);
@@ -127,9 +138,9 @@ export const Composer = memo(function Composer({
   const [permissionOpen, setPermissionOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelQuery, setModelQuery] = useState("");
+  const [queueOpen, setQueueOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
-  const wasEditingRef = useRef(editing);
   const normalizedContextPercent = typeof contextUsage?.percent === "number" && Number.isFinite(contextUsage.percent)
     ? Math.min(100, Math.max(0, Math.round(contextUsage.percent)))
     : null;
@@ -153,11 +164,6 @@ export const Composer = memo(function Composer({
   }, [prefill, onPrefillConsumed]);
 
   useEffect(() => setStreamingBehavior(defaultFollowUpBehavior), [defaultFollowUpBehavior]);
-
-  useEffect(() => {
-    if (wasEditingRef.current && !editing) setText("");
-    wasEditingRef.current = editing;
-  }, [editing]);
 
   useEffect(() => {
     if (!workspaceOpen && !environmentOpen && !actionsOpen && !permissionOpen && !modelMenuOpen) return;
@@ -367,24 +373,6 @@ export const Composer = memo(function Composer({
           </div>
         )}
 
-        {editing && (
-          <div className="composer-editing-banner">
-            <Pencil size={13} strokeWidth={1.75} />
-            <span>编辑消息并重新发送</span>
-            <button
-              type="button"
-              title="取消编辑"
-              onClick={() => {
-                setText("");
-                onCancelEdit?.();
-                textareaRef.current?.focus();
-              }}
-            >
-              <X size={13} />
-            </button>
-          </div>
-        )}
-
         {attachments.length > 0 && (
           <div className="attachment-strip">
             {attachments.map((attachment) => (
@@ -428,6 +416,27 @@ export const Composer = memo(function Composer({
                 </button>
               </div>
             )}
+            <div className="agent-mode-segmented" role="radiogroup" aria-label="工作模式">
+              {([
+                ["agent", "执行"],
+                ["plan", "计划"],
+                ["ask", "问答"],
+              ] as const).map(([value, label]) => (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={agentMode === value}
+                  className={agentMode === value ? "active" : ""}
+                  key={value}
+                  title={value === "agent" ? "执行任务并按权限修改代码" : value === "plan" ? "只读调查并制定计划" : "只读调查并回答问题"}
+                  onClick={() => {
+                    if (agentMode !== value) void onAgentModeChange?.(value);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="permission-context-wrap">
               <button
                 type="button"
@@ -618,7 +627,47 @@ export const Composer = memo(function Composer({
           </div>
         </div>
       </div>
-      {pendingCount > 0 && <div className="composer-meta"><strong>{pendingCount} 条待处理</strong></div>}
+      {pendingCount > 0 && (
+        <div className={`composer-queue ${queueOpen ? "open" : ""}`}>
+          <button
+            type="button"
+            className="composer-queue-summary"
+            onClick={() => queuedMessages.length > 0 && setQueueOpen((value) => !value)}
+            aria-expanded={queuedMessages.length > 0 ? queueOpen : undefined}
+            title={queuedMessages.length > 0 ? "查看待处理消息" : "Pi 内部待处理消息"}
+          >
+            <ListOrdered size={14} />
+            <strong>{pendingCount} 条待处理</strong>
+            {queuedMessages.length > 0 && (queueOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />)}
+          </button>
+          {queueOpen && queuedMessages.length > 0 && (
+            <ol className="composer-queue-list" aria-label="待处理消息">
+              {queuedMessages.map((item, index) => (
+                <li key={item.id}>
+                  <span className="composer-queue-order">{index + 1}</span>
+                  <span className="composer-queue-copy" title={item.text || item.attachments.map((file) => file.fileName).join(", ")}>
+                    {item.text || item.attachments.map((file) => file.fileName).join(", ")}
+                  </span>
+                  <span className="composer-queue-actions">
+                    <button type="button" disabled={index === 0} onClick={() => onMoveQueuedMessage?.(item.id, -1)} title="上移">
+                      <ChevronUp size={14} />
+                    </button>
+                    <button type="button" disabled={index === queuedMessages.length - 1} onClick={() => onMoveQueuedMessage?.(item.id, 1)} title="下移">
+                      <ChevronDown size={14} />
+                    </button>
+                    <button type="button" onClick={() => void onSteerQueuedMessage?.(item.id)} title="立即作为调整发送">
+                      <CornerUpRight size={14} />
+                    </button>
+                    <button type="button" onClick={() => onRemoveQueuedMessage?.(item.id)} title="删除">
+                      <Trash2 size={14} />
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
     </div>
   );
 });

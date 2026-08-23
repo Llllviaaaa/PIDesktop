@@ -28,6 +28,15 @@ use scheduler::ScheduledRunRecord;
 
 const GUARD_EXTENSION: &str = include_str!("../resources/pidesktop-guard.ts");
 const RULES_MODULE: &str = include_str!("../resources/pidesktop-rules.ts");
+const CHECKPOINTS_MODULE: &str = include_str!("../resources/pidesktop-checkpoints.ts");
+const PLAN_CORE_MODULE: &str = include_str!("../resources/pidesktop-plan-core.ts");
+const PLAN_EXTENSION: &str = include_str!("../resources/pidesktop-plan.ts");
+const HOOKS_CORE_MODULE: &str = include_str!("../resources/pidesktop-hooks-core.ts");
+const HOOKS_EXTENSION: &str = include_str!("../resources/pidesktop-hooks.ts");
+const SUBAGENTS_CORE_MODULE: &str = include_str!("../resources/pidesktop-subagents-core.ts");
+const SUBAGENTS_EXTENSION: &str = include_str!("../resources/pidesktop-subagents.ts");
+const MEMORY_EXTENSION: &str = include_str!("../resources/pidesktop-memory.ts");
+const MEMORY_CORE_MODULE: &str = include_str!("../resources/pidesktop-memory-core.ts");
 const BROWSER_EXTENSION: &str = include_str!("../resources/pidesktop-browser.ts");
 const COMPUTER_EXTENSION: &str = include_str!("../resources/pidesktop-computer.ts");
 const MCP_EXTENSION: &str = include_str!("../resources/pidesktop-mcp.ts");
@@ -54,6 +63,7 @@ struct AppSettings {
     thinking_level: String,
     #[serde(alias = "session_dir")]
     session_dir: String,
+    agent_mode: String,
     #[serde(alias = "permission_mode")]
     permission_mode: String,
     /// When true, shell/bash/exec always requires confirmation (unless full-access).
@@ -62,6 +72,7 @@ struct AppSettings {
     block_write_outside_workspace: bool,
     /// Newline- or comma-separated command prefixes that skip shell confirmation under ask/workspace-write.
     shell_allow_prefixes: String,
+    tool_rules: Vec<ToolPermissionRule>,
     /// Default new-task environment: "local" or "worktree".
     default_task_environment: String,
     #[serde(alias = "show_thinking")]
@@ -90,6 +101,12 @@ struct AppSettings {
     custom_instructions: String,
     suggested_prompts: bool,
     memory_enabled: bool,
+    plan_tracking_enabled: bool,
+    hooks_enabled: bool,
+    hooks_inherit_environment: bool,
+    hooks: Vec<DesktopHookConfig>,
+    subagents_enabled: bool,
+    subagent_max_concurrency: u8,
     browser_enabled: bool,
     browser_headless: bool,
     browser_confirm_actions: bool,
@@ -130,6 +147,56 @@ struct McpServerConfig {
     trusted_read_only: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct DesktopHookConfig {
+    id: String,
+    name: String,
+    enabled: bool,
+    event: String,
+    command: String,
+    timeout_seconds: u16,
+    blocking: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct ToolPermissionRule {
+    id: String,
+    enabled: bool,
+    tool_pattern: String,
+    action: String,
+    command_prefix: String,
+    path_prefix: String,
+}
+
+impl Default for ToolPermissionRule {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            enabled: true,
+            tool_pattern: "*".to_string(),
+            action: "confirm".to_string(),
+            command_prefix: String::new(),
+            path_prefix: String::new(),
+        }
+    }
+}
+
+impl Default for DesktopHookConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            enabled: true,
+            event: "agent_settled".to_string(),
+            command: String::new(),
+            timeout_seconds: 30,
+            blocking: false,
+        }
+    }
+}
+
 const CODEX_UI_FONT: &str = "-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif";
 const CODEX_CODE_FONT: &str =
     "ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace";
@@ -163,10 +230,12 @@ impl Default for AppSettings {
             model: String::new(),
             thinking_level: "medium".to_string(),
             session_dir: String::new(),
+            agent_mode: "agent".to_string(),
             permission_mode: "ask".to_string(),
             always_confirm_shell: true,
             block_write_outside_workspace: true,
             shell_allow_prefixes: String::new(),
+            tool_rules: Vec::new(),
             default_task_environment: "local".to_string(),
             show_thinking: true,
             auto_connect: false,
@@ -192,6 +261,12 @@ impl Default for AppSettings {
             custom_instructions: String::new(),
             suggested_prompts: true,
             memory_enabled: true,
+            plan_tracking_enabled: true,
+            hooks_enabled: false,
+            hooks_inherit_environment: false,
+            hooks: Vec::new(),
+            subagents_enabled: true,
+            subagent_max_concurrency: 3,
             browser_enabled: true,
             browser_headless: true,
             browser_confirm_actions: true,
@@ -218,12 +293,18 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    // Extension paths remain explicit because each module is provisioned independently.
+    #[allow(clippy::too_many_arguments)]
     fn rpc_extra_args(
         &self,
         guard_extension: &Path,
         browser_extension: Option<&Path>,
         computer_extension: Option<&Path>,
         mcp_extension: Option<&Path>,
+        plan_extension: Option<&Path>,
+        hooks_extension: Option<&Path>,
+        subagents_extension: Option<&Path>,
+        memory_extension: Option<&Path>,
     ) -> Vec<String> {
         let mut args = vec![
             "-e".to_string(),
@@ -245,6 +326,30 @@ impl AppSettings {
             args.extend([
                 "-e".to_string(),
                 mcp_extension.to_string_lossy().to_string(),
+            ]);
+        }
+        if let Some(plan_extension) = plan_extension {
+            args.extend([
+                "-e".to_string(),
+                plan_extension.to_string_lossy().to_string(),
+            ]);
+        }
+        if let Some(hooks_extension) = hooks_extension {
+            args.extend([
+                "-e".to_string(),
+                hooks_extension.to_string_lossy().to_string(),
+            ]);
+        }
+        if let Some(subagents_extension) = subagents_extension {
+            args.extend([
+                "-e".to_string(),
+                subagents_extension.to_string_lossy().to_string(),
+            ]);
+        }
+        if let Some(memory_extension) = memory_extension {
+            args.extend([
+                "-e".to_string(),
+                memory_extension.to_string_lossy().to_string(),
             ]);
         }
         if !self.provider.is_empty() {
@@ -279,6 +384,14 @@ impl AppSettings {
         }
         if !self.memory_enabled {
             args.push("--no-context-files".to_string());
+        } else {
+            let memory = local_memory_path();
+            if memory.is_file() && fs::metadata(&memory).is_ok_and(|metadata| metadata.len() > 0) {
+                args.extend([
+                    "--append-system-prompt".to_string(),
+                    memory.to_string_lossy().to_string(),
+                ]);
+            }
         }
         args
     }
@@ -1004,7 +1117,7 @@ fn execute_scheduled_task(
         Ok(completed)
     })();
     if let Ok(Some(completed_task)) = &task_result {
-        emit_scheduled_task(app, &completed_task);
+        emit_scheduled_task(app, completed_task);
     }
     let _ = app.emit("scheduled-run-updated", &run);
     task_result?;
@@ -1189,8 +1302,13 @@ fn run_due_scheduled_tasks(app: &AppHandle) {
 }
 
 fn ensure_guard_extension() -> Result<PathBuf, String> {
-    // Rules helpers are imported by the guard extension; keep both files in sync on disk.
+    // Helper modules are imported by the guard extension; keep all files in sync on disk.
     ensure_bundled_extension("pidesktop-rules.ts", RULES_MODULE, "rules")?;
+    ensure_bundled_extension(
+        "pidesktop-checkpoints.ts",
+        CHECKPOINTS_MODULE,
+        "checkpoints",
+    )?;
     ensure_bundled_extension("pidesktop-guard.ts", GUARD_EXTENSION, "guard")
 }
 
@@ -1204,6 +1322,34 @@ fn ensure_computer_extension() -> Result<PathBuf, String> {
 
 fn ensure_mcp_extension() -> Result<PathBuf, String> {
     ensure_bundled_extension("pidesktop-mcp.ts", MCP_EXTENSION, "MCP")
+}
+
+fn ensure_plan_extension() -> Result<PathBuf, String> {
+    ensure_bundled_extension("pidesktop-plan-core.ts", PLAN_CORE_MODULE, "plan core")?;
+    ensure_bundled_extension("pidesktop-plan.ts", PLAN_EXTENSION, "plan")
+}
+
+fn ensure_hooks_extension() -> Result<PathBuf, String> {
+    ensure_bundled_extension("pidesktop-hooks-core.ts", HOOKS_CORE_MODULE, "hooks core")?;
+    ensure_bundled_extension("pidesktop-hooks.ts", HOOKS_EXTENSION, "hooks")
+}
+
+fn ensure_subagents_extension() -> Result<PathBuf, String> {
+    ensure_bundled_extension(
+        "pidesktop-subagents-core.ts",
+        SUBAGENTS_CORE_MODULE,
+        "subagents core",
+    )?;
+    ensure_bundled_extension("pidesktop-subagents.ts", SUBAGENTS_EXTENSION, "subagents")
+}
+
+fn ensure_memory_extension() -> Result<PathBuf, String> {
+    ensure_bundled_extension(
+        "pidesktop-memory-core.ts",
+        MEMORY_CORE_MODULE,
+        "memory core",
+    )?;
+    ensure_bundled_extension("pidesktop-memory.ts", MEMORY_EXTENSION, "memory")
 }
 
 fn ensure_bundled_extension(
@@ -1237,6 +1383,61 @@ fn ensure_personal_instructions(contents: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+fn local_memory_path() -> PathBuf {
+    app_config_dir().join("memory.md")
+}
+
+#[tauri::command]
+fn get_local_memory() -> Result<String, String> {
+    let path = local_memory_path();
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    fs::read_to_string(&path).map_err(|err| format!("failed to read local memory: {err}"))
+}
+
+#[tauri::command]
+fn set_local_memory(contents: String) -> Result<(), String> {
+    const MAX_MEMORY_BYTES: usize = 256 * 1024;
+    if contents.len() > MAX_MEMORY_BYTES {
+        return Err("local memory cannot exceed 256 KB".to_string());
+    }
+    let path = local_memory_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create local memory directory: {err}"))?;
+    }
+    fs::write(&path, contents).map_err(|err| format!("failed to write local memory: {err}"))
+}
+
+#[tauri::command]
+fn export_local_memory(destination: String) -> Result<String, String> {
+    let destination = PathBuf::from(destination.trim());
+    if destination.as_os_str().is_empty() {
+        return Err("memory export path is required".to_string());
+    }
+    let source = local_memory_path();
+    if !source.is_file() {
+        return Err("local memory is empty".to_string());
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create memory export directory: {err}"))?;
+    }
+    fs::copy(&source, &destination)
+        .map_err(|err| format!("failed to export local memory: {err}"))?;
+    Ok(destination.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn delete_local_memory() -> Result<(), String> {
+    let path = local_memory_path();
+    if !path.exists() {
+        return Ok(());
+    }
+    fs::remove_file(path).map_err(|err| format!("failed to delete local memory: {err}"))
+}
+
 struct PiLaunchConfig {
     extra_args: Vec<String>,
     environment: Vec<(String, String)>,
@@ -1262,6 +1463,22 @@ fn build_pi_launch_config(
         .mcp_enabled
         .then(ensure_mcp_extension)
         .transpose()?;
+    let plan_extension = settings
+        .plan_tracking_enabled
+        .then(ensure_plan_extension)
+        .transpose()?;
+    let hooks_extension = settings
+        .hooks_enabled
+        .then(ensure_hooks_extension)
+        .transpose()?;
+    let subagents_extension = settings
+        .subagents_enabled
+        .then(ensure_subagents_extension)
+        .transpose()?;
+    let memory_extension = settings
+        .memory_enabled
+        .then(ensure_memory_extension)
+        .transpose()?;
     let mcp_config = if settings.mcp_enabled {
         let mut raw = serde_json::to_vec(&settings.mcp_servers)
             .map_err(|err| format!("failed to serialize MCP runtime config: {err}"))?;
@@ -1271,20 +1488,43 @@ fn build_pi_launch_config(
     } else {
         String::new()
     };
+    let hooks_config = if settings.hooks_enabled {
+        base64::engine::general_purpose::STANDARD.encode(
+            serde_json::to_vec(&settings.hooks)
+                .map_err(|err| format!("failed to serialize hooks runtime config: {err}"))?,
+        )
+    } else {
+        String::new()
+    };
+    let tool_rules_config = base64::engine::general_purpose::STANDARD.encode(
+        serde_json::to_vec(&settings.tool_rules)
+            .map_err(|err| format!("failed to serialize tool rules: {err}"))?,
+    );
     let mut sensitive_values = runtime_secret_values(settings);
     if !mcp_config.is_empty() {
         sensitive_values.push(mcp_config.clone());
+    }
+    if !hooks_config.is_empty() {
+        sensitive_values.push(hooks_config.clone());
     }
     let extra_args = settings.rpc_extra_args(
         &guard_extension,
         browser_extension.as_deref(),
         computer_extension.as_deref(),
         mcp_extension.as_deref(),
+        plan_extension.as_deref(),
+        hooks_extension.as_deref(),
+        subagents_extension.as_deref(),
+        memory_extension.as_deref(),
     );
     let environment = vec![
         (
             "PIDESKTOP_PERMISSION_MODE".to_string(),
             permission_mode.to_string(),
+        ),
+        (
+            "PIDESKTOP_AGENT_MODE".to_string(),
+            settings.agent_mode.clone(),
         ),
         ("PIDESKTOP_WORKSPACE_ROOT".to_string(), cwd.to_string()),
         (
@@ -1309,6 +1549,7 @@ fn build_pi_launch_config(
             "PIDESKTOP_RULE_SHELL_ALLOWLIST".to_string(),
             settings.shell_allow_prefixes.clone(),
         ),
+        ("PIDESKTOP_TOOL_RULES_B64".to_string(), tool_rules_config),
         (
             "PIDESKTOP_QUICK_CHAT".to_string(),
             if is_quick_chat { "1" } else { "0" }.to_string(),
@@ -1347,6 +1588,40 @@ fn build_pi_launch_config(
                 .to_string(),
         ),
         ("PIDESKTOP_MCP_CONFIG_B64".to_string(), mcp_config),
+        ("PIDESKTOP_HOOKS_CONFIG_B64".to_string(), hooks_config),
+        (
+            "PIDESKTOP_HOOKS_INHERIT_ENV".to_string(),
+            if settings.hooks_inherit_environment {
+                "1"
+            } else {
+                "0"
+            }
+            .to_string(),
+        ),
+        (
+            "PIDESKTOP_GUARD_EXTENSION".to_string(),
+            guard_extension.to_string_lossy().to_string(),
+        ),
+        (
+            "PIDESKTOP_SUBAGENT_CONCURRENCY".to_string(),
+            settings.subagent_max_concurrency.clamp(1, 4).to_string(),
+        ),
+        (
+            "PIDESKTOP_SUBAGENT_PROVIDER".to_string(),
+            settings.provider.clone(),
+        ),
+        (
+            "PIDESKTOP_SUBAGENT_MODEL".to_string(),
+            settings.model.clone(),
+        ),
+        (
+            "PIDESKTOP_SUBAGENT_THINKING".to_string(),
+            settings.thinking_level.clone(),
+        ),
+        (
+            "PIDESKTOP_MEMORY_FILE".to_string(),
+            local_memory_path().to_string_lossy().to_string(),
+        ),
         (
             "PIDESKTOP_MCP_CONFIRM".to_string(),
             if settings.mcp_confirm_tools { "1" } else { "0" }.to_string(),
@@ -1638,9 +1913,7 @@ fn resolve_windows_executable(program: &str) -> Option<PathBuf> {
 fn github_cli_command() -> Command {
     #[cfg(windows)]
     {
-        return hidden_command(
-            resolve_windows_executable("gh").unwrap_or_else(|| PathBuf::from("gh")),
-        );
+        hidden_command(resolve_windows_executable("gh").unwrap_or_else(|| PathBuf::from("gh")))
     }
     #[cfg(not(windows))]
     {
@@ -1778,8 +2051,9 @@ fn validate_model_provider(provider: &ModelProviderInput) -> Result<(), String> 
     if provider.original_id.is_none() && provider.base_url.trim().is_empty() {
         return Err("新提供商需要 API 地址".to_string());
     }
-    if !provider.base_url.trim().is_empty()
-        && !(provider.base_url.starts_with("http://") || provider.base_url.starts_with("https://"))
+    if !(provider.base_url.trim().is_empty()
+        || provider.base_url.starts_with("http://")
+        || provider.base_url.starts_with("https://"))
     {
         return Err("API 地址必须以 http:// 或 https:// 开头".to_string());
     }
@@ -2200,6 +2474,63 @@ fn session_history_cmd(state: State<'_, AppState>, file: String) -> Result<Sessi
     session_history(&settings.session_dir, &file)
 }
 
+fn session_message_markdown(message: &serde_json::Value) -> Option<(String, String)> {
+    let role = message.get("role")?.as_str()?;
+    let heading = match role {
+        "user" => "User",
+        "assistant" => "Assistant",
+        _ => return None,
+    };
+    let content = message.get("content")?;
+    let text = match content {
+        serde_json::Value::String(value) => value.clone(),
+        serde_json::Value::Array(blocks) => blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(serde_json::Value::as_str) == Some("text"))
+            .filter_map(|block| block.get("text").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => String::new(),
+    };
+    (!text.trim().is_empty()).then(|| (heading.to_string(), text.trim().to_string()))
+}
+
+fn session_history_markdown(history: &SessionHistory) -> String {
+    let mut output = String::from("# PIDesktop conversation\n\n");
+    for message in &history.messages {
+        let Some((heading, text)) = session_message_markdown(message) else {
+            continue;
+        };
+        output.push_str(&format!("## {heading}\n\n{text}\n\n"));
+    }
+    output
+}
+
+#[tauri::command]
+fn export_session_markdown(
+    state: State<'_, AppState>,
+    file: String,
+    destination: String,
+) -> Result<String, String> {
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?
+        .clone();
+    let history = session_history(&settings.session_dir, &file)?;
+    let destination = PathBuf::from(destination.trim());
+    if destination.as_os_str().is_empty() {
+        return Err("conversation export path is required".to_string());
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create conversation export directory: {err}"))?;
+    }
+    fs::write(&destination, session_history_markdown(&history))
+        .map_err(|err| format!("failed to export conversation: {err}"))?;
+    Ok(destination.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn list_archived_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, String> {
     let settings = state
@@ -2270,6 +2601,9 @@ fn set_settings(state: State<'_, AppState>, mut settings: AppSettings) -> Result
     ) {
         return Err("invalid permission mode".to_string());
     }
+    if !matches!(settings.agent_mode.as_str(), "agent" | "plan" | "ask") {
+        return Err("invalid agent mode".to_string());
+    }
     if !matches!(
         settings.default_task_environment.as_str(),
         "local" | "worktree"
@@ -2278,6 +2612,9 @@ fn set_settings(state: State<'_, AppState>, mut settings: AppSettings) -> Result
     }
     if !(75..=150).contains(&settings.ui_scale) {
         return Err("UI scale must be between 75 and 150".to_string());
+    }
+    if !(1..=4).contains(&settings.subagent_max_concurrency) {
+        return Err("subagent concurrency must be between 1 and 4".to_string());
     }
     let mut mcp_ids = std::collections::HashSet::new();
     for server in &settings.mcp_servers {
@@ -2298,6 +2635,56 @@ fn set_settings(state: State<'_, AppState>, mut settings: AppSettings) -> Result
                 "MCP server {} requires an HTTP(S) URL",
                 server.name
             ));
+        }
+    }
+    if settings.hooks.len() > 32 {
+        return Err("at most 32 hooks may be configured".to_string());
+    }
+    if settings.tool_rules.len() > 64 {
+        return Err("at most 64 tool rules may be configured".to_string());
+    }
+    let mut rule_ids = std::collections::HashSet::new();
+    for rule in &settings.tool_rules {
+        if rule.id.trim().is_empty() || !rule_ids.insert(rule.id.trim().to_lowercase()) {
+            return Err("tool rule IDs must be non-empty and unique".to_string());
+        }
+        if rule.tool_pattern.trim().is_empty() {
+            return Err(format!("tool rule {} requires a tool pattern", rule.id));
+        }
+        if !matches!(rule.action.as_str(), "allow" | "confirm" | "block") {
+            return Err(format!("invalid action for tool rule {}", rule.id));
+        }
+    }
+    let mut hook_ids = std::collections::HashSet::new();
+    for hook in &settings.hooks {
+        if hook.id.trim().is_empty() || !hook_ids.insert(hook.id.trim().to_lowercase()) {
+            return Err("hook IDs must be non-empty and unique".to_string());
+        }
+        if !matches!(
+            hook.event.as_str(),
+            "session_start"
+                | "before_agent_start"
+                | "agent_end"
+                | "agent_settled"
+                | "tool_call"
+                | "tool_result"
+        ) {
+            return Err(format!("invalid event for hook {}", hook.name));
+        }
+        if hook.command.trim().is_empty() {
+            return Err(format!("hook {} requires a command", hook.name));
+        }
+        if hook.command.len() > 8192 {
+            return Err(format!("hook {} command is too long", hook.name));
+        }
+        if !(1..=300).contains(&hook.timeout_seconds) {
+            return Err(format!(
+                "hook {} timeout must be between 1 and 300 seconds",
+                hook.name
+            ));
+        }
+        if hook.blocking && hook.event != "tool_call" {
+            return Err(format!("only tool_call hooks may block: {}", hook.name));
         }
     }
     if !settings.custom_instructions.trim().is_empty() {
@@ -3478,12 +3865,16 @@ fn parse_git_status(output: &str) -> Vec<GitFileChange> {
             Some(GitFileChange {
                 path: path.to_string(),
                 status,
-                index_status: (index != ' ')
-                    .then(|| index.to_string())
-                    .unwrap_or_default(),
-                worktree_status: (worktree != ' ')
-                    .then(|| worktree.to_string())
-                    .unwrap_or_default(),
+                index_status: if index != ' ' {
+                    index.to_string()
+                } else {
+                    String::new()
+                },
+                worktree_status: if worktree != ' ' {
+                    worktree.to_string()
+                } else {
+                    String::new()
+                },
                 staged,
                 unstaged,
                 untracked,
@@ -4001,20 +4392,20 @@ fn open_workspace_in_file_manager(path: String) -> Result<(), String> {
 
     #[cfg(windows)]
     {
-        return hidden_command("explorer.exe")
+        hidden_command("explorer.exe")
             .arg(&workspace)
             .spawn()
             .map(|_| ())
-            .map_err(|err| format!("failed to open File Explorer: {err}"));
+            .map_err(|err| format!("failed to open File Explorer: {err}"))
     }
 
     #[cfg(target_os = "macos")]
     {
-        return Command::new("open")
+        Command::new("open")
             .arg(&workspace)
             .spawn()
             .map(|_| ())
-            .map_err(|err| format!("failed to open Finder: {err}"));
+            .map_err(|err| format!("failed to open Finder: {err}"))
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]
@@ -4097,6 +4488,7 @@ pub fn run() {
             run_scheduled_task_cmd,
             list_sessions_cmd,
             session_history_cmd,
+            export_session_markdown,
             session_message_timings_cmd,
             session_messages_cmd,
             list_archived_sessions_cmd,
@@ -4105,6 +4497,10 @@ pub fn run() {
             delete_session_cmd,
             get_settings,
             set_settings,
+            get_local_memory,
+            set_local_memory,
+            export_local_memory,
+            delete_local_memory,
             list_model_providers,
             save_model_provider,
             delete_model_provider,
@@ -4158,6 +4554,30 @@ pub fn run_computer_helper() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exports_conversation_as_readable_markdown() {
+        let history = SessionHistory {
+            messages: vec![
+                serde_json::json!({ "role": "user", "content": "Explain this" }),
+                serde_json::json!({
+                    "role": "assistant",
+                    "content": [
+                        { "type": "thinking", "thinking": "private" },
+                        { "type": "text", "text": "Here is the answer.\n\n```ts\nconst ok = true;\n```" }
+                    ]
+                }),
+                serde_json::json!({ "role": "toolResult", "content": [{ "type": "text", "text": "hidden tool output" }] }),
+            ],
+            timings: Vec::new(),
+        };
+        let markdown = session_history_markdown(&history);
+        assert!(markdown.contains("## User\n\nExplain this"));
+        assert!(markdown.contains("## Assistant\n\nHere is the answer."));
+        assert!(markdown.contains("```ts\nconst ok = true;\n```"));
+        assert!(!markdown.contains("private"));
+        assert!(!markdown.contains("hidden tool output"));
+    }
 
     #[test]
     fn parses_git_index_and_worktree_status_separately() {
@@ -4379,8 +4799,10 @@ mod tests {
 
     #[test]
     fn settings_reject_invalid_task_environment() {
-        let mut settings = AppSettings::default();
-        settings.default_task_environment = "cloud".to_string();
+        let settings = AppSettings {
+            default_task_environment: "cloud".to_string(),
+            ..Default::default()
+        };
         // Mirror set_settings validation without full AppState.
         assert!(!matches!(
             settings.default_task_environment.as_str(),

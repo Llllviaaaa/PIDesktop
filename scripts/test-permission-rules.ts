@@ -3,9 +3,13 @@
  * Run: npx --yes tsx scripts/test-permission-rules.ts
  */
 import {
+  applyDesktopToolDefaults,
+  agentModeSystemInstructions,
   commandMatchesAllowPrefix,
   evaluateToolPermission,
   insideWorkspace,
+  normalizeAgentMode,
+  permissionForAgentMode,
   resolveAgainstWorkspace,
   rulesFromEnv,
 } from "../src-tauri/resources/pidesktop-rules.ts";
@@ -15,6 +19,27 @@ function assert(condition: unknown, message: string): void {
 }
 
 const workspace = "D:/projects/demo";
+
+assert(normalizeAgentMode("plan") === "plan", "plan mode should be recognized");
+assert(normalizeAgentMode("unknown") === "agent", "unknown agent modes should fail closed to the normal agent mode");
+assert(permissionForAgentMode("ask", "full-access") === "read-only", "ask mode must override full-access permissions");
+assert(permissionForAgentMode("agent", "workspace-write") === "workspace-write", "agent mode should preserve its permission mode");
+assert(agentModeSystemInstructions("plan").includes("implementation-ready plan"), "plan mode should add concrete planning instructions");
+
+// PIDesktop web searches stay in-app by default, while explicit workflows are preserved.
+{
+  const defaults: Record<string, unknown> = { queries: ["Pi Desktop"] };
+  applyDesktopToolDefaults("web_search", defaults);
+  assert(defaults.workflow === "none", "web_search should default to the non-curator workflow");
+
+  const explicit: Record<string, unknown> = { query: "Pi Desktop", workflow: "summary-review" };
+  applyDesktopToolDefaults("web_search", explicit);
+  assert(explicit.workflow === "summary-review", "an explicit web_search workflow must be preserved");
+
+  const unrelated: Record<string, unknown> = { query: "Pi Desktop" };
+  applyDesktopToolDefaults("grok_search", unrelated);
+  assert(unrelated.workflow === undefined, "unrelated search tools must not be modified");
+}
 
 // outside workspace blocked when rule on
 {
@@ -31,6 +56,35 @@ const workspace = "D:/projects/demo";
     "block reason should mention outside workspace",
   );
 }
+
+// read-only mode blocks side-effecting custom tools while preserving browser inspection.
+const base = {
+  mode: "read-only" as const,
+  rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
+  workspace,
+};
+{
+  assert(evaluateToolPermission({ ...base, toolName: "browser", input: { action: "inspect" } }).action === "allow", "browser inspection should stay available in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "browser", input: { action: "click" } }).action === "block", "browser clicks should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "type" } }).action === "block", "computer input should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "mcp__demo__write", input: {} }).action === "block", "MCP tools should be blocked when their side effects cannot be classified");
+  assert(evaluateToolPermission({ ...base, toolName: "delegate_task", input: { permission: "read-only" } }).action === "allow", "read-only mode should permit read-only subagents");
+  assert(evaluateToolPermission({ ...base, toolName: "delegate_task", input: { permission: "workspace-write" } }).action === "block", "read-only mode should block writing subagents");
+  assert(evaluateToolPermission({ ...base, toolName: "desktop_memory", input: { action: "read" } }).action === "allow", "read-only mode should permit reading memory");
+  assert(evaluateToolPermission({ ...base, toolName: "desktop_memory", input: { action: "append", content: "x" } }).action === "block", "read-only mode should block memory writes");
+}
+assert(evaluateToolPermission({ ...base, mode: "ask", toolName: "desktop_memory", input: { action: "append", content: "x" } }).action === "confirm", "ask mode should confirm memory writes");
+
+const customRules = {
+  ...base.rules,
+  toolRules: [
+    { id: "deny-deploy", enabled: true, toolPattern: "bash", action: "block" as const, commandPrefix: "npm run deploy", pathPrefix: "" },
+    { id: "allow-tests", enabled: true, toolPattern: "bash", action: "allow" as const, commandPrefix: "npm test", pathPrefix: "" },
+  ],
+};
+assert(evaluateToolPermission({ ...base, mode: "full-access", rules: customRules, toolName: "bash", input: { command: "npm run deploy prod" } }).action === "block", "explicit deny rules should apply even in full-access");
+assert(evaluateToolPermission({ ...base, mode: "ask", rules: customRules, toolName: "bash", input: { command: "npm test -- --run" } }).action === "allow", "explicit allow rules should skip confirmation");
+assert(evaluateToolPermission({ ...base, mode: "read-only", rules: customRules, toolName: "bash", input: { command: "npm test" } }).action === "block", "read-only must remain a hard cap over allow rules");
 
 // outside workspace confirms when rule off
 {

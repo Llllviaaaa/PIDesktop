@@ -1,11 +1,10 @@
-import { createContext, useContext, type MouseEvent, type ReactNode } from "react";
+import { Children, createContext, isValidElement, useContext, useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
-import { FileText } from "lucide-react";
+import { Check, Copy, FileText } from "lucide-react";
 import { usePiStore } from "../store";
-import "highlight.js/styles/github-dark.css";
 
 /** When provided, file links open in the in-app document pane instead of the OS. */
 export type OpenWorkspaceFile = (path: string, line?: number) => void;
@@ -65,6 +64,93 @@ function openFileRef(event: MouseEvent, href: string) {
   }
 }
 
+const LANGUAGE_LABELS: Record<string, string> = {
+  bash: "Bash",
+  c: "C",
+  cpp: "C++",
+  cs: "C#",
+  csharp: "C#",
+  css: "CSS",
+  dart: "Dart",
+  diff: "Diff",
+  go: "Go",
+  html: "HTML",
+  java: "Java",
+  js: "JavaScript",
+  json: "JSON",
+  jsonc: "JSON",
+  jsx: "JSX",
+  kotlin: "Kotlin",
+  md: "Markdown",
+  markdown: "Markdown",
+  mjs: "JavaScript",
+  php: "PHP",
+  ps1: "PowerShell",
+  powershell: "PowerShell",
+  py: "Python",
+  python: "Python",
+  rb: "Ruby",
+  rs: "Rust",
+  rust: "Rust",
+  scss: "SCSS",
+  sh: "Shell",
+  sql: "SQL",
+  svelte: "Svelte",
+  swift: "Swift",
+  toml: "TOML",
+  ts: "TypeScript",
+  tsx: "TSX",
+  vue: "Vue",
+  xml: "XML",
+  yaml: "YAML",
+  yml: "YAML",
+  zsh: "Shell",
+};
+
+function nodeText(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(nodeText).join("");
+  if (isValidElement(node)) return nodeText((node.props as { children?: ReactNode }).children);
+  return "";
+}
+
+function CodeFence({ children }: { children?: ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  const codeEl = Children.toArray(children).find((child) => {
+    if (!isValidElement(child)) return false;
+    if (child.type === "code") return true;
+    const className = (child.props as { className?: string }).className || "";
+    return className.includes("language-") || className.includes("hljs");
+  }) as ReactElement<{ className?: string; children?: ReactNode }> | undefined;
+  const lang = /language-([\w+#.-]+)/.exec(codeEl?.props.className || "")?.[1]?.toLowerCase() || "";
+  const label = lang ? LANGUAGE_LABELS[lang] || lang : "";
+  const text = nodeText(codeEl?.props.children ?? children).replace(/\n$/, "");
+
+  return (
+    <div className="markdown-code">
+      <div className="markdown-code-bar">
+        <span>{label}</span>
+        <button
+          type="button"
+          className="markdown-code-copy"
+          title={copied ? "已复制" : "复制代码"}
+          aria-label={copied ? "已复制" : "复制代码"}
+          onClick={() => {
+            void navigator.clipboard.writeText(text).then(() => {
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1600);
+            }).catch(() => undefined);
+          }}
+        >
+          {copied ? <Check size={13} strokeWidth={1.75} /> : <Copy size={13} strokeWidth={1.75} />}
+        </button>
+      </div>
+      <pre>{children}</pre>
+    </div>
+  );
+}
+
 function FileRef({ href, children }: { href: string; children?: ReactNode }) {
   const openInApp = useContext(WorkspaceFileOpenContext);
   return (
@@ -100,6 +186,7 @@ export function Markdown({ content }: MarkdownProps) {
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
         components={{
+          pre: ({ children }) => <CodeFence>{children}</CodeFence>,
           a: ({ href, children }) => {
             if (href?.startsWith(FILE_SCHEME)) return <FileRef href={href}>{children}</FileRef>;
             return (

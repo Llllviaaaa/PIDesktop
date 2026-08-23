@@ -1,19 +1,15 @@
-# Codex UI reference (sourced, not guessed)
+# Codex UI reference
 
-Primary user reference: `docs/codex-ui-refs/user-screenshot-light.png`
-(Codex desktop light shell — 新对话 / 项目线程 / 四张建议卡 / 底部「随心输入」)
+Pi Desktop uses publicly documented Codex interaction patterns as design references. Third-party screenshots are not redistributed in this repository; follow the source links to inspect the current upstream UI.
 
-Additional docs images under `docs/codex-ui-refs/`:
+Primary references:
 
-| File | Source |
-| --- | --- |
-| `modes-dark.webp` / `modes-light.webp` | [Codex environments](https://learn.chatgpt.com/docs/environments/modes) — new chat composer |
-| `inline-code-review-dark.webp` | [Code review](https://learn.chatgpt.com/docs/code-review) — inline review comment on diff |
-| `approval_mode.png` | IDE approval mode control |
+- [Codex environments](https://learn.chatgpt.com/docs/environments/modes) - new chat composer and environment controls
+- [Code review](https://learn.chatgpt.com/docs/code-review) - inline review comments and diff presentation
 
 ## What the official composer actually looks like
 
-From `modes-dark.webp` (dark):
+From the documented dark-mode composer:
 
 1. **Near-black full bleed background** — not busy gradients.
 2. **One large rounded rectangle** (~22px radius), medium charcoal fill, soft border — not double-stacked chrome.
@@ -24,7 +20,7 @@ From `modes-dark.webp` (dark):
 
 ## Code review visual language
 
-From `inline-code-review-dark.webp`:
+From the documented inline code review UI:
 
 - Diff line numbers muted; **green gutter bar** on changed lines.
 - Comment is a **floating dark card** over the code with severity badge (`P1`), title, body, `Dismiss`.

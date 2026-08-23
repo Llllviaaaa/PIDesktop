@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
@@ -31,14 +31,14 @@ import {
 } from "lucide-react";
 import { pi, subscribeToPi } from "./lib/pi";
 import { aggregateDiffStats } from "./lib/gitDiffStats";
-import { sessionRecency, sessionTitle } from "./lib/sessionTitle";
+import { activeSessionTitle, sessionRecency, sessionTitle } from "./lib/sessionTitle";
 import { navigationKey, withoutArchivedSessions, type NavigationTarget as BaseNavigationTarget } from "./lib/navigationHistory";
 import { sameLocalPath } from "./lib/pathIdentity";
 import { usePiStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { Message } from "./components/Message";
 import { Composer } from "./components/Composer";
-import { SettingsModal, type SettingsPage } from "./components/SettingsModal";
+import type { SettingsPage } from "./components/SettingsModal";
 import { ExtensionDialog } from "./components/ExtensionDialog";
 import { InspectorPanel, type InspectorTab } from "./components/InspectorPanel";
 import { ToolRail, type WorkspaceTool } from "./components/ToolRail";
@@ -46,12 +46,14 @@ import { FileTreePanel } from "./components/FileTreePanel";
 import { DocumentPane } from "./components/DocumentPane";
 import { BrowserWorkspacePanel } from "./components/BrowserWorkspacePanel";
 import { SideChatPanel } from "./components/SideChatPanel";
-import { TerminalWorkspacePanel } from "./components/TerminalWorkspacePanel";
-import { PullRequestsPage } from "./components/PullRequestsPage";
-import { ScheduledTasksPage } from "./components/ScheduledTasksPage";
-import { PluginMarketplacePage } from "./components/PluginMarketplacePage";
 import { WorkspaceFileOpenContext } from "./components/Markdown";
 import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, ScheduledRunRecord, SessionInfo, UiMessage, WorkspaceEditorInfo } from "./types";
+
+const SettingsModal = lazy(() => import("./components/SettingsModal").then((module) => ({ default: module.SettingsModal })));
+const PullRequestsPage = lazy(() => import("./components/PullRequestsPage").then((module) => ({ default: module.PullRequestsPage })));
+const ScheduledTasksPage = lazy(() => import("./components/ScheduledTasksPage").then((module) => ({ default: module.ScheduledTasksPage })));
+const PluginMarketplacePage = lazy(() => import("./components/PluginMarketplacePage").then((module) => ({ default: module.PluginMarketplacePage })));
+const TerminalWorkspacePanel = lazy(() => import("./components/TerminalWorkspacePanel").then((module) => ({ default: module.TerminalWorkspacePanel })));
 
 function TelescopeIcon({ size = 18 }: { size?: number; strokeWidth?: number }) {
   return (
@@ -89,8 +91,6 @@ function WorkspaceCubeIcon({ size = 16 }: { size?: number }) {
 const ACTIVE_RUNTIME_KEY = "pid-desktop:active-runtime";
 const LAST_TASK_KEY = "pid-desktop:last-task";
 const WORKSPACE_CHAT_WIDTH_KEY = "pid-desktop:workspace-chat-width:v2";
-const INITIAL_RENDERED_MESSAGES = 16;
-const MESSAGE_RENDER_BATCH = 40;
 
 interface PersistedTask {
   cwd: string;
@@ -143,7 +143,11 @@ export default function App() {
     runtimes,
     toasts,
   } = store;
-  const [draftMode, setDraftMode] = useState(true);
+  const [draftMode, setDraftMode] = useState(() => {
+    if (!import.meta.env.DEV) return true;
+    const fixture = new URLSearchParams(window.location.search).get("fixture");
+    return fixture !== "thread" && fixture !== "performance" && fixture !== "stream" && fixture !== "queue" && fixture !== "title";
+  });
   const newTask = draftMode;
   const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth > 900);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -180,12 +184,19 @@ export default function App() {
   const [registeredProjects, setRegisteredProjects] = useState<ProjectConfig[]>([]);
   const [quickChat, setQuickChat] = useState(false);
   const [goalEditPrefill, setGoalEditPrefill] = useState<string | null>(null);
-  const [editingMessage, setEditingMessage] = useState<{ messageId: string; entryId: string } | null>(null);
-  const [renderedMessageLimit, setRenderedMessageLimit] = useState(INITIAL_RENDERED_MESSAGES);
+  const [editingMessage, setEditingMessage] = useState<{ messageId: string } | null>(null);
+
   const [runtimeRecoveryDone, setRuntimeRecoveryDone] = useState(false);
   const conversationScrollRef = useRef<HTMLDivElement>(null);
   const autoFollowConversationRef = useRef(true);
   const lastAutoScrollAtRef = useRef(0);
+  const resolvedThreadTitle = useMemo(() => activeSessionTitle({
+    sessions,
+    sessionFile,
+    sessionId,
+    sessionName,
+    firstMessage: messages.find((message) => message.role === "user")?.content,
+  }), [messages, sessionFile, sessionId, sessionName, sessions]);
   const navigationBackRef = useRef<NavigationTarget[]>([]);
   const navigationForwardRef = useRef<NavigationTarget[]>([]);
   const [navigationVersion, setNavigationVersion] = useState(0);
@@ -519,11 +530,10 @@ export default function App() {
   }, [connection, settings, settingsOpen, store.prepareNewTask, toggleWorkspaceSidebar]);
 
   useEffect(() => {
-    setTitleDraft(sessionName || (sessionId ? `任务 ${sessionId.slice(0, 8)}` : "新任务"));
-  }, [sessionId, sessionName]);
+    if (!editingTitle) setTitleDraft(resolvedThreadTitle);
+  }, [editingTitle, resolvedThreadTitle]);
 
   useEffect(() => {
-    setRenderedMessageLimit(INITIAL_RENDERED_MESSAGES);
     setEditingMessage(null);
     autoFollowConversationRef.current = true;
   }, [runtimeId, sessionFile]);
@@ -741,22 +751,7 @@ export default function App() {
     }
     return null;
   }, [messages]);
-  const hiddenMessageCount = Math.max(0, messages.length - renderedMessageLimit);
-  const visibleMessages = hiddenMessageCount > 0 ? messages.slice(hiddenMessageCount) : messages;
-  const threadElapsedLabel = useMemo(() => {
-    if (!messages.length) return null;
-    const stamps = messages.map((message) => message.timestamp).filter((value): value is number => typeof value === "number" && value > 0);
-    if (!stamps.length) return null;
-    const start = Math.min(...stamps);
-    const end = isStreaming ? Date.now() : Math.max(...stamps);
-    const seconds = Math.max(0, Math.round((end - start) / 1000));
-    if (seconds < 60) return isStreaming ? `已进行 ${seconds}s` : `耗时 ${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    const rem = seconds % 60;
-    return isStreaming
-      ? `已进行 ${minutes}m ${rem}s`
-      : `耗时 ${minutes}m ${rem}s`;
-  }, [isStreaming, messages]);
+
   const taskWorkspaceName = quickChat
     ? "快速对话"
     : draftWorkspace.split(/[\\/]/).filter(Boolean).pop() || "一个项目";
@@ -787,14 +782,6 @@ export default function App() {
       current = usePiStore.getState();
       if (current.connection !== "running") return false;
     }
-    if (editingMessage) {
-      const sent = await current.editAndResend(editingMessage.entryId, text, attachments);
-      if (sent) {
-        setEditingMessage(null);
-        setAttachments([]);
-      }
-      return sent;
-    }
     if (taskEnvironment === "worktree" && current.messages.length === 0 && !quickChat) {
       try {
         // Ensure git snapshot is available for base branch when possible.
@@ -818,7 +805,7 @@ export default function App() {
       setDraftMode(false);
     }
     return sent;
-  }, [attachments, draftWorkspace, editingMessage, quickChat, selectWorkspace, taskEnvironment]);
+  }, [attachments, draftWorkspace, quickChat, selectWorkspace, taskEnvironment]);
 
   const startNewTask = useCallback((asQuickChat = false) => {
     const current = usePiStore.getState();
@@ -1098,15 +1085,31 @@ export default function App() {
       current.showToast("请等待当前回复完成后再切换权限", "warning");
       return;
     }
+    const previous = current.settings.permissionMode;
     try {
+      await current.setRuntimePermissionMode(mode);
       await current.saveSettings({ ...current.settings, permissionMode: mode });
-      const latest = usePiStore.getState();
-      if (latest.connection === "running" && latest.cwd) {
-        await latest.connect(latest.cwd, latest.sessionFile ?? undefined);
-      }
       usePiStore.getState().showToast("权限模式已更新", "info");
     } catch (error) {
+      await usePiStore.getState().setRuntimePermissionMode(previous).catch(() => undefined);
       usePiStore.getState().showToast(`切换权限失败：${error instanceof Error ? error.message : String(error)}`, "error");
+    }
+  }, []);
+  const changeComposerAgentMode = useCallback(async (mode: AppSettings["agentMode"]) => {
+    const current = usePiStore.getState();
+    if (!current.settings || current.settings.agentMode === mode) return;
+    if (current.isStreaming) {
+      current.showToast("请等待当前回复完成后再切换工作模式", "warning");
+      return;
+    }
+    const previous = current.settings.agentMode;
+    try {
+      await current.setRuntimeAgentMode(mode);
+      await current.saveSettings({ ...current.settings, agentMode: mode });
+      usePiStore.getState().showToast(`已切换到${mode === "agent" ? "执行" : mode === "plan" ? "计划" : "问答"}模式`, "info");
+    } catch (error) {
+      await usePiStore.getState().setRuntimeAgentMode(previous).catch(() => undefined);
+      usePiStore.getState().showToast(`切换工作模式失败：${error instanceof Error ? error.message : String(error)}`, "error");
     }
   }, []);
   const consumeComposerPrefill = useCallback(() => {
@@ -1114,24 +1117,41 @@ export default function App() {
     usePiStore.getState().clearComposerPrefill();
   }, []);
 
-  const editUserMessage = useCallback(async (message: UiMessage) => {
+  const editUserMessage = useCallback((message: UiMessage) => {
     const current = usePiStore.getState();
     if (current.isStreaming) {
       current.showToast("请等待当前回复完成后再编辑消息", "warning");
       return;
     }
+    setEditingMessage({ messageId: message.id });
+  }, []);
+
+  const submitMessageEdit = useCallback(async (message: UiMessage, text: string) => {
+    const current = usePiStore.getState();
+    if (current.isStreaming) {
+      current.showToast("请等待当前回复完成后再编辑消息", "warning");
+      return false;
+    }
     const point = await current.resolveMessageForkPoint(message.id);
     if (!point) {
       current.showToast("无法定位这条消息的会话检查点", "warning");
-      return;
+      return false;
     }
-    setEditingMessage({ messageId: message.id, entryId: point.entryId });
-    setGoalEditPrefill(message.content);
+    const originalImages: AttachmentPayload[] = (message.images ?? []).map((image, index) => ({
+      path: `message-image-${message.id}-${index}`,
+      fileName: `image-${index + 1}.${image.mimeType.split("/")[1] || "png"}`,
+      mimeType: image.mimeType,
+      size: Math.floor(image.data.length * 0.75),
+      kind: "image",
+      data: image.data,
+    }));
+    const sent = await current.editAndResend(point.entryId, text, originalImages);
+    if (sent) setEditingMessage(null);
+    return sent;
   }, []);
 
   const cancelMessageEdit = useCallback(() => {
     setEditingMessage(null);
-    setGoalEditPrefill(null);
   }, []);
 
   const refreshSessionTree = useCallback(() => {
@@ -1159,6 +1179,26 @@ export default function App() {
     );
   }, []);
 
+  const exportConversationMarkdown = useCallback(async () => {
+    const current = usePiStore.getState();
+    if (!current.sessionFile) return;
+    const baseName = (current.sessionName || "pidesktop-conversation")
+      .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-")
+      .trim() || "pidesktop-conversation";
+    const destination = await saveDialog({
+      title: "导出当前对话",
+      defaultPath: `${baseName}.md`,
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (typeof destination !== "string") return;
+    try {
+      const path = await pi.exportSessionMarkdown(current.sessionFile, destination);
+      current.showToast(`已导出到 ${path}`, "info");
+    } catch (error) {
+      current.showToast(`导出失败：${error instanceof Error ? error.message : String(error)}`, "error");
+    }
+  }, []);
+
   const switchWorkspacePath = useCallback(async (path: string) => {
     if (!path) return;
     window.localStorage.setItem("pid-desktop:last-workspace", path);
@@ -1180,8 +1220,8 @@ export default function App() {
       thinkingLevel={thinkingLevel}
       thinkingLevels={availableThinkingLevels}
       prefill={goalEditPrefill ?? composerPrefill}
-      editing={Boolean(editingMessage)}
-      pendingCount={store.steeringQueue.length + store.followUpQueue.length}
+      pendingCount={store.steeringQueue.length + store.followUpQueue.length + store.managedFollowUpQueue.length}
+      queuedMessages={store.managedFollowUpQueue}
       requireCtrlEnter={settings?.requireCtrlEnter}
       defaultFollowUpBehavior={settings?.followUpBehavior}
       workspace={quickChat ? "" : draftWorkspace}
@@ -1191,6 +1231,7 @@ export default function App() {
       quickChat={quickChat}
       permissionMode={settings?.permissionMode ?? "ask"}
       permissionLabel={permissionLabel}
+      agentMode={settings?.agentMode ?? "agent"}
       contextUsage={variant === "follow-up" ? stats?.contextUsage : undefined}
       onSend={sendFromComposer}
       onStop={stopFromComposer}
@@ -1203,8 +1244,11 @@ export default function App() {
       onQuickChat={startQuickChatFromComposer}
       onEnvironmentChange={setTaskEnvironment}
       onPermissionChange={changeComposerPermission}
+      onAgentModeChange={changeComposerAgentMode}
       onPrefillConsumed={consumeComposerPrefill}
-      onCancelEdit={cancelMessageEdit}
+      onRemoveQueuedMessage={store.removeManagedFollowUp}
+      onMoveQueuedMessage={store.moveManagedFollowUp}
+      onSteerQueuedMessage={store.steerManagedFollowUp}
     />
   );
 
@@ -1244,7 +1288,8 @@ export default function App() {
               {appMenu === "file" && <>
                 <button onClick={() => { setAppMenu(null); navigateTo({ kind: "home", workspace: draftWorkspace || cwd }); }}>新对话</button>
                 <button onClick={() => { setAppMenu(null); void pickFolder(); }}>打开项目...</button>
-                <button disabled={!connected} onClick={() => { setAppMenu(null); void store.exportSession(); }}>导出当前对话</button>
+                <button disabled={!connected || !sessionFile} onClick={() => { setAppMenu(null); void exportConversationMarkdown(); }}>导出为 Markdown...</button>
+                <button disabled={!connected} onClick={() => { setAppMenu(null); void store.exportSession(); }}>导出为 HTML</button>
                 <div className="menu-separator" />
                 <button onClick={() => { setAppMenu(null); void appWindow?.close(); }}>退出</button>
               </>}
@@ -1355,14 +1400,14 @@ export default function App() {
                       onChange={(event) => setTitleDraft(event.target.value)}
                       onBlur={() => {
                         setEditingTitle(false);
-                        if (titleDraft.trim() !== sessionName) void store.setSessionName(titleDraft);
+                        if (titleDraft.trim() !== resolvedThreadTitle) void store.setSessionName(titleDraft);
                       }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") event.currentTarget.blur();
                         if (event.key === "Escape") {
                           event.preventDefault();
                           event.stopPropagation();
-                          setTitleDraft(sessionName || "新对话");
+                          setTitleDraft(resolvedThreadTitle);
                           setEditingTitle(false);
                         }
                       }}
@@ -1390,6 +1435,7 @@ export default function App() {
                         <button disabled={!connected || isStreaming} onClick={() => { setMoreOpen(false); void store.forkLatest(); }}>从最新检查点分叉</button>
                         <button disabled={!connected || isStreaming} onClick={() => { setMoreOpen(false); void store.compact(); }}>压缩上下文</button>
                         <button disabled={!connected} onClick={() => { setMoreOpen(false); void store.exportSession(); }}>导出为 HTML</button>
+                        <button disabled={!sessionFile} onClick={() => { setMoreOpen(false); void exportConversationMarkdown(); }}>导出为 Markdown...</button>
                         <button disabled={!sessionFile || isStreaming} onClick={() => {
                           setMoreOpen(false);
                           if (!sessionFile) return;
@@ -1533,6 +1579,7 @@ export default function App() {
         <div className={`work-split ${workspaceSidebarVisible ? "workspace-sidebar-open" : ""}${workspaceFocusMode ? " workspace-focus" : ""}`}>
         <WorkspaceFileOpenContext.Provider value={openPreviewFile}>
         <main className="main-stage">
+          <Suspense fallback={<div className="page-loading">正在加载…</div>}>
           {hubView === "pull-requests" ? (
             <PullRequestsPage
               cwd={draftWorkspace || cwd}
@@ -1635,13 +1682,8 @@ export default function App() {
                 </div>
               ) : (
                 <>
-                  {(threadElapsedLabel || isStreaming || gitDiffStats.additions > 0 || gitDiffStats.deletions > 0) && (
+                  {(gitDiffStats.additions > 0 || gitDiffStats.deletions > 0) && (
                     <div className="thread-meta-row">
-                      {(threadElapsedLabel || isStreaming) && (
-                        <span className="thread-status-chip" title={statusText}>
-                          {isStreaming ? statusText : threadElapsedLabel}
-                        </span>
-                      )}
                       {(gitDiffStats.additions > 0 || gitDiffStats.deletions > 0) && (
                         <button
                           type="button"
@@ -1660,23 +1702,18 @@ export default function App() {
                       )}
                     </div>
                   )}
-                  {hiddenMessageCount > 0 && (
-                    <button
-                      type="button"
-                      className="load-earlier-messages"
-                      onClick={() => setRenderedMessageLimit((value) => value + MESSAGE_RENDER_BATCH)}
-                    >
-                      加载更早消息（剩余 {hiddenMessageCount} 条）
-                    </button>
-                  )}
-                  {visibleMessages.map((message) => (
+                  {messages.map((message) => (
                     <Message
                       key={message.id}
                       message={message}
                       showThinking={settings?.showThinking ?? true}
                       isLastAssistant={message.id === lastAssistantId}
                       globalStreaming={isStreaming}
+                      workingLabel={message.id === lastAssistantId ? statusText : undefined}
+                      editing={editingMessage?.messageId === message.id}
                       onEdit={message.role === "user" ? editUserMessage : undefined}
+                      onCancelEdit={cancelMessageEdit}
+                      onSubmitEdit={submitMessageEdit}
                     />
                   ))}
                   {(git?.files.length ?? 0) > 0 && (
@@ -1688,7 +1725,7 @@ export default function App() {
                           onClick={() => setWorkspaceTool("review")}
                           title="查看变更"
                         >
-                          <span className="conversation-change-icon"><FileDiff size={17} strokeWidth={1.7} /></span>
+                          <span className="conversation-change-icon"><FileDiff size={15} strokeWidth={1.7} /></span>
                           <div>
                             <strong>
                               {git!.files.length === 1
@@ -1723,6 +1760,7 @@ export default function App() {
             </div>
           )}
           </>}
+          </Suspense>
         </main>
         </WorkspaceFileOpenContext.Provider>
         {workspaceSidebarVisible && !workspaceFocusMode && (
@@ -1779,11 +1817,13 @@ export default function App() {
           />
         )}
         {workspaceTool === "terminal" && (
-          <TerminalWorkspacePanel
-            cwd={workspaceCwd}
-            shellLabel={settings?.terminalShell || "PowerShell"}
-            onClose={() => setWorkspaceTool(null)}
-          />
+          <Suspense fallback={<div className="workspace-panel page-loading">正在加载终端…</div>}>
+            <TerminalWorkspacePanel
+              cwd={workspaceCwd}
+              shellLabel={settings?.terminalShell || "PowerShell"}
+              onClose={() => setWorkspaceTool(null)}
+            />
+          </Suspense>
         )}
         {workspaceTool === "files" && (
           previewFile && workspaceCwd ? (
@@ -1822,13 +1862,15 @@ export default function App() {
         </div>
 
         {bottomPanel && (
-          <TerminalWorkspacePanel
-            key="bottom-terminal"
-            cwd={workspaceCwd}
-            shellLabel={settings?.terminalShell || "PowerShell"}
-            placement="bottom"
-            onClose={() => setBottomPanel(false)}
-          />
+          <Suspense fallback={<div className="bottom-terminal page-loading">正在加载终端…</div>}>
+            <TerminalWorkspacePanel
+              key="bottom-terminal"
+              cwd={workspaceCwd}
+              shellLabel={settings?.terminalShell || "PowerShell"}
+              placement="bottom"
+              onClose={() => setBottomPanel(false)}
+            />
+          </Suspense>
         )}
 
         <div className="environment-flyout-layer" aria-hidden={!inspectorTab}>
@@ -1874,7 +1916,7 @@ export default function App() {
         </div>
       </div>
 
-      {settingsOpen && <SettingsModal initialPage={settingsPage} settings={settings} cwd={cwd} onSave={store.saveSettings} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}><SettingsModal initialPage={settingsPage} settings={settings} cwd={cwd} onSave={store.saveSettings} onClose={() => setSettingsOpen(false)} /></Suspense>}
 
       <div className="toast-stack">
         {toasts.map((toast) => (

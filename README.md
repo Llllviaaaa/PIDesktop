@@ -2,18 +2,22 @@
 
 Pi Desktop is a **local-only**, Codex-style Windows desktop client for the [Pi coding agent](https://pi.dev). It uses Pi's JSONL RPC mode as the execution engine and adds a project-oriented desktop workflow around it. The UI may follow Codex Desktop patterns; **Pi remains the runtime**, and extra capabilities ship as bundled or user extensions/skills/packages—not a cloud agent platform.
 
+Pi Desktop is an independent community project. It is not affiliated with or endorsed by OpenAI. References to Codex describe interaction patterns and compatibility goals, not product ownership.
+
 Roadmap under these constraints: [PRODUCT_PLAN.md](./PRODUCT_PLAN.md). Feature boundary vs Codex-style workflow: [CODEX_PARITY.md](./CODEX_PARITY.md).
 
 ## Current capabilities
 
-- Local workspaces with cross-repository session history, search, rename, archive/restore, recoverable deletion, clone, checkpoint fork, compaction, and HTML export
+- Local workspaces with cross-repository session history, search, rename, archive/restore, recoverable deletion, clone/fork, compaction, Markdown/HTML export, and message rewind with Git workspace restore
+- Execute/Plan/Ask modes, persistent step tracking, editable follow-up queues, lifecycle Hooks, and bounded local subagents
+- Ordered allow/confirm/block tool rules plus explicit local memory CRUD and approval-gated agent memory updates
 - Streaming text, reasoning, tool calls, tool output, retries, queue status, context usage, and cost/token metadata
 - Runtime model and thinking-level selection
 - Image inputs and local file references
 - Pi slash commands, skills, prompt templates, and extension commands discovered through RPC
 - Isolated Edge/Chrome browser automation for page inspection, interaction, and screenshots
 - Native Windows computer use for desktop screenshots, visible-window discovery, focus, mouse clicks, text input, and key combinations
-- MCP hosting for local STDIO and remote Streamable HTTP servers with dynamic tools, read-only resources, prompt templates, diagnostics, and approval gates
+- MCP hosting for local STDIO and remote Streamable HTTP servers with dynamic tools, live resource subscriptions, prompt templates, diagnostics, and approval gates
 - Extension UI requests: confirmation, selection, text input, editor input, notifications, status, and widgets
 - Codex-style permission modes backed by a Pi tool-interception extension
 - Git index/worktree summary, unified diff review, file stage/unstage/revert, line feedback into chat, and configurable Git instructions
@@ -43,19 +47,22 @@ The Rust layer owns process lifetime, settings, session discovery, attachments, 
 
 Prerequisites:
 
-- Node.js and npm
+- Node.js 22 or later and npm
 - Rust stable with the MSVC toolchain
 - WebView2
 - Pi available on `PATH`, or an absolute Pi executable configured in Settings
 
 ```powershell
-npm install
+npm ci
 npm run tauri -- dev
 ```
 
-Frontend-only checks:
+Required checks:
 
 ```powershell
+npm run scan:secrets
+npm audit --audit-level=high
+npm run test:unit
 npm run build
 ```
 
@@ -72,6 +79,8 @@ Set-Location src-tauri
 cargo test
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution requirements, [docs/DEPENDENCY_SECURITY.md](docs/DEPENDENCY_SECURITY.md) for the current audit baseline, and [docs/RELEASING.md](docs/RELEASING.md) for the release checklist.
+
 ## Security model
 
 Pi does not provide a built-in operating-system sandbox. Pi Desktop's `read-only`, `ask`, and `workspace-write` modes load a bundled Pi extension that blocks or confirms model-initiated tools, and project-local Pi resources require an explicit trust response through the desktop UI.
@@ -80,9 +89,11 @@ These approval gates are not an isolation boundary. Run untrusted or unattended 
 
 The bundled `computer` tool uses a native helper in the Pi Desktop executable. Screenshots and window listing are read-only; focusing windows, clicking, typing, and key presses use a separate approval gate by default and are blocked by `read-only` mode. Windows UIPI still prevents input into higher-integrity or protected windows, and Pi Desktop does not attempt to bypass it. Desktop screenshots can contain sensitive information.
 
-The bundled MCP host supports newline-framed STDIO servers and Streamable HTTP servers using the current stable MCP protocol revision. Discovered server tools become first-class Pi tools. Servers that only expose resources or prompts are supported too; Pi can list/read resources and list/resolve prompt templates, while users can inspect them with `/mcp-resources`, `/mcp-read`, and `/mcp-prompts`. STDIO inherits a credential-filtered environment by default, HTTP supports explicit request headers, and MCP calls can require approval. Server commands, environment values, and HTTP headers are stored locally; use a restricted account or external secret manager for higher-assurance deployments.
+The bundled MCP host supports newline-framed STDIO servers and Streamable HTTP servers using the current stable MCP protocol revision. Discovered server tools become first-class Pi tools. Servers that only expose resources or prompts are supported too; Pi can list/read and subscribe to resources, receive STDIO or HTTP SSE change notifications, and list/resolve prompt templates, while users can inspect them with `/mcp-resources`, `/mcp-read`, and `/mcp-prompts`. STDIO inherits a credential-filtered environment by default, HTTP supports explicit request headers, and MCP calls can require approval. Server commands, environment values, and HTTP headers are stored locally; use a restricted account or external secret manager for higher-assurance deployments.
 
 Scheduled tasks are intentionally local. They run only while the computer and Pi Desktop are running, never accept silent `full-access`, and store task/run metadata in `%APPDATA%\pid-desktop\scheduled-runs.sqlite3`.
+
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Do not include credentials, private workspace content, or exploit details in public issues.
 
 ## Important files
 
@@ -100,4 +111,8 @@ Scheduled tasks are intentionally local. They run only while the computer and Pi
 
 ## Known platform boundary
 
-The implemented scope covers the core local Codex-style coding workflow, including managed worktrees, local scheduling, multi-tab terminal sessions, isolated browser automation, approval-gated Windows computer use, and MCP tools/resources/prompts. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, account/billing features, MCP OAuth discovery, subscriptions/list-change notifications, and experimental MCP task flows remain out of scope or optional follow-up work. See [docs/LOCAL_CAPABILITIES.md](docs/LOCAL_CAPABILITIES.md) for the complete local boundary.
+The implemented scope covers the core local Codex-style coding workflow, including managed worktrees, local scheduling, multi-tab terminal sessions, isolated browser automation, approval-gated Windows computer use, and MCP tools/resources/prompts/subscriptions. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, account/billing features, MCP OAuth discovery, and experimental MCP task flows remain out of scope or optional follow-up work. See [docs/LOCAL_CAPABILITIES.md](docs/LOCAL_CAPABILITIES.md) for the complete local boundary.
+
+## License
+
+Pi Desktop is licensed under the [Apache License 2.0](LICENSE).

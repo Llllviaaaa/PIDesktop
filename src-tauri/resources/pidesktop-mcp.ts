@@ -91,6 +91,8 @@ interface ConnectedServer {
   capabilities: McpCapabilities;
 }
 
+type McpNotificationHandler = (message: JsonRpcMessage) => void | Promise<void>;
+
 interface ServerStatus {
   config: McpServerConfig;
   connected: boolean;
@@ -103,10 +105,13 @@ interface ServerStatus {
 
 interface McpClient {
   connect(): Promise<McpConnectResult>;
+  setNotificationHandler(handler: McpNotificationHandler): void;
   listTools(): Promise<McpTool[]>;
   callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<McpToolResult>;
   listResources(): Promise<McpResource[]>;
   readResource(uri: string): Promise<{ contents?: McpResourceContents[] }>;
+  subscribeResource(uri: string): Promise<void>;
+  unsubscribeResource(uri: string): Promise<void>;
   listPrompts(): Promise<McpPrompt[]>;
   getPrompt(name: string, args: Record<string, string>): Promise<McpPromptResult>;
   close(): void;
@@ -140,6 +145,7 @@ class StdioMcpClient implements McpClient {
   private decoder = new StringDecoder("utf8");
   private closing = false;
   private stderrTail = "";
+  private notificationHandler: McpNotificationHandler | undefined;
 
   constructor(private config: McpServerConfig) {}
 
@@ -164,7 +170,7 @@ class StdioMcpClient implements McpClient {
     const result = await this.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: "Pi Desktop", version: "0.2.0" },
+      clientInfo: { name: "Pi Desktop", version: "0.2.9" },
     }) as { protocolVersion?: string; capabilities?: McpCapabilities };
     const negotiated = result.protocolVersion || PROTOCOL_VERSION;
     if (!SUPPORTED_PROTOCOL_VERSIONS.has(negotiated)) {
@@ -190,12 +196,24 @@ class StdioMcpClient implements McpClient {
     return this.request("tools/call", { name, arguments: args }, 120_000, signal) as Promise<McpToolResult>;
   }
 
+  setNotificationHandler(handler: McpNotificationHandler): void {
+    this.notificationHandler = handler;
+  }
+
   async listResources(): Promise<McpResource[]> {
     return this.listPaginated<McpResource>("resources/list", "resources");
   }
 
   async readResource(uri: string): Promise<{ contents?: McpResourceContents[] }> {
     return this.request("resources/read", { uri }) as Promise<{ contents?: McpResourceContents[] }>;
+  }
+
+  async subscribeResource(uri: string): Promise<void> {
+    await this.request("resources/subscribe", { uri });
+  }
+
+  async unsubscribeResource(uri: string): Promise<void> {
+    await this.request("resources/unsubscribe", { uri });
   }
 
   async listPrompts(): Promise<McpPrompt[]> {
@@ -306,6 +324,12 @@ class StdioMcpClient implements McpClient {
       }
       if (message.id !== undefined && message.method) {
         this.send({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Pi Desktop does not support this MCP client request" } });
+        continue;
+      }
+      if (message.method && message.id === undefined) {
+        void Promise.resolve(this.notificationHandler?.(message)).catch((error) => {
+          console.error(`MCP notification handler failed: ${errorText(error)}`);
+        });
       }
     }
   }
@@ -323,6 +347,12 @@ class HttpMcpClient implements McpClient {
   private nextId = 1;
   private sessionId: string | undefined;
   private negotiatedVersion: string | undefined;
+  private notificationHandler: McpNotificationHandler | undefined;
+  private eventStreamAbort: AbortController | undefined;
+  private eventStreamTask: Promise<void> | undefined;
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  private reconnectWake: (() => void) | undefined;
+  private closing = false;
 
   constructor(private config: McpServerConfig) {}
 
@@ -330,14 +360,19 @@ class HttpMcpClient implements McpClient {
     const result = await this.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: "Pi Desktop", version: "0.2.0" },
+      clientInfo: { name: "Pi Desktop", version: "0.2.9" },
     }) as { protocolVersion?: string; capabilities?: McpCapabilities };
     this.negotiatedVersion = result.protocolVersion || PROTOCOL_VERSION;
     if (!SUPPORTED_PROTOCOL_VERSIONS.has(this.negotiatedVersion)) {
       throw new Error(`MCP server selected unsupported protocol version ${this.negotiatedVersion}`);
     }
     await this.notification("notifications/initialized");
+    this.startEventStream();
     return { protocolVersion: this.negotiatedVersion, capabilities: result.capabilities || {} };
+  }
+
+  setNotificationHandler(handler: McpNotificationHandler): void {
+    this.notificationHandler = handler;
   }
 
   async listTools(): Promise<McpTool[]> {
@@ -364,6 +399,14 @@ class HttpMcpClient implements McpClient {
     return this.request("resources/read", { uri }) as Promise<{ contents?: McpResourceContents[] }>;
   }
 
+  async subscribeResource(uri: string): Promise<void> {
+    await this.request("resources/subscribe", { uri });
+  }
+
+  async unsubscribeResource(uri: string): Promise<void> {
+    await this.request("resources/unsubscribe", { uri });
+  }
+
   async listPrompts(): Promise<McpPrompt[]> {
     return this.listPaginated<McpPrompt>("prompts/list", "prompts");
   }
@@ -373,6 +416,12 @@ class HttpMcpClient implements McpClient {
   }
 
   close(): void {
+    this.closing = true;
+    this.eventStreamAbort?.abort();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectWake?.();
+    this.reconnectTimer = undefined;
+    this.reconnectWake = undefined;
     if (!this.sessionId) return;
     const headers: Record<string, string> = { ...this.config.headers, "mcp-session-id": this.sessionId };
     if (this.negotiatedVersion) headers["mcp-protocol-version"] = this.negotiatedVersion;
@@ -384,6 +433,9 @@ class HttpMcpClient implements McpClient {
     const id = this.nextId++;
     const message: JsonRpcMessage = { jsonrpc: "2.0", id, method, params };
     const response = await this.post(message, signal, timeoutMs);
+    for (const entry of response) {
+      if (entry.method && entry.id === undefined) this.dispatchNotification(entry);
+    }
     const matched = response.find((entry) => entry.id === id);
     if (!matched) throw new Error(`MCP HTTP response did not include request ${id}`);
     if (matched.error) throw new Error(`MCP ${matched.error.code}: ${matched.error.message}`);
@@ -442,6 +494,77 @@ class HttpMcpClient implements McpClient {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", abort);
     }
+  }
+
+  private dispatchNotification(message: JsonRpcMessage): void {
+    void Promise.resolve(this.notificationHandler?.(message)).catch((error) => {
+      console.error(`MCP notification handler failed: ${errorText(error)}`);
+    });
+  }
+
+  private startEventStream(): void {
+    if (!this.sessionId || this.eventStreamTask || this.closing) return;
+    this.eventStreamTask = this.consumeEventStream().finally(() => {
+      this.eventStreamTask = undefined;
+    });
+  }
+
+  private async consumeEventStream(): Promise<void> {
+    let retryMs = 750;
+    while (!this.closing && this.sessionId) {
+      const controller = new AbortController();
+      this.eventStreamAbort = controller;
+      try {
+        const headers: Record<string, string> = {
+          accept: "text/event-stream",
+          ...this.config.headers,
+          "mcp-session-id": this.sessionId,
+        };
+        if (this.negotiatedVersion) headers["mcp-protocol-version"] = this.negotiatedVersion;
+        const response = await fetch(this.config.url, { method: "GET", headers, signal: controller.signal });
+        if (response.status === 404 || response.status === 405) return;
+        if (!response.ok) throw new Error(`MCP HTTP event stream returned ${response.status}`);
+        if (!(response.headers.get("content-type") || "").includes("text/event-stream") || !response.body) return;
+        retryMs = 750;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (!this.closing) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          while (true) {
+            const boundary = buffer.search(/\r?\n\r?\n/);
+            if (boundary < 0) break;
+            const separator = buffer.slice(boundary).match(/^\r?\n\r?\n/)?.[0] || "\n\n";
+            const event = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + separator.length);
+            for (const message of parseSse(`${event}\n\n`)) this.dispatchNotification(message);
+          }
+        }
+        buffer += decoder.decode();
+        for (const message of parseSse(buffer)) this.dispatchNotification(message);
+      } catch (error) {
+        if (this.closing || controller.signal.aborted) return;
+        console.error(`MCP HTTP event stream disconnected: ${errorText(error)}`);
+      } finally {
+        if (this.eventStreamAbort === controller) this.eventStreamAbort = undefined;
+      }
+      await this.waitForReconnect(retryMs);
+      retryMs = Math.min(retryMs * 2, 10_000);
+    }
+  }
+
+  private waitForReconnect(delayMs: number): Promise<void> {
+    if (this.closing) return Promise.resolve();
+    return new Promise((resolve) => {
+      this.reconnectWake = resolve;
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = undefined;
+        this.reconnectWake = undefined;
+        resolve();
+      }, delayMs);
+    });
   }
 }
 
@@ -551,6 +674,7 @@ export default async function (pi: ExtensionAPI) {
   const statuses: ServerStatus[] = [];
   const connected: ConnectedServer[] = [];
   const usedNames = new Set<string>();
+  const subscribedResources = new Map<string, Set<string>>();
   let configured: McpServerConfig[] = [];
 
   try {
@@ -566,6 +690,43 @@ export default async function (pi: ExtensionAPI) {
 
   const attempts = await Promise.all(configured.map(async (config) => {
     const client = createClient(config);
+    client.setNotificationHandler(async (message) => {
+      const label = config.name || config.id;
+      if (message.method === "notifications/resources/updated") {
+        const uri = typeof message.params?.uri === "string" ? message.params.uri : "";
+        if (!uri || !subscribedResources.get(config.id)?.has(uri)) return;
+        try {
+          const result = await client.readResource(uri);
+          pi.sendMessage({
+            customType: "pidesktop-mcp-resource-update",
+            content: resourceContent(result),
+            display: true,
+            details: { serverId: config.id, uri, notification: message.method },
+          }, { triggerTurn: false });
+        } catch (error) {
+          pi.sendMessage({
+            customType: "pidesktop-mcp-notification",
+            content: `MCP 资源更新读取失败 · ${label}\n\n\`${uri}\`\n\n${errorText(error)}`,
+            display: true,
+          }, { triggerTurn: false });
+        }
+        return;
+      }
+      const changeLabels: Record<string, string> = {
+        "notifications/resources/list_changed": "资源列表已变化，可重新调用 mcp_list_resources。",
+        "notifications/prompts/list_changed": "提示词列表已变化，可重新调用 mcp_list_prompts。",
+        "notifications/tools/list_changed": "工具列表已变化；请新建任务以重新发现并注册工具。",
+      };
+      const notice = message.method ? changeLabels[message.method] : undefined;
+      if (notice) {
+        pi.sendMessage({
+          customType: "pidesktop-mcp-notification",
+          content: `MCP 通知 · ${label}\n\n${notice}`,
+          display: true,
+          details: { serverId: config.id, notification: message.method },
+        }, { triggerTurn: false });
+      }
+    });
     try {
       const connection = await client.connect();
       const capabilitiesDeclared = Object.keys(connection.capabilities).length > 0;
@@ -639,6 +800,7 @@ export default async function (pi: ExtensionAPI) {
   }
 
   const resourceServers = connected.filter((server) => Boolean(server.capabilities.resources));
+  const subscribableResourceServers = resourceServers.filter((server) => server.capabilities.resources?.subscribe === true);
   const promptServers = connected.filter((server) => Boolean(server.capabilities.prompts));
   const resolveServer = (requestedId: string | undefined, candidates: ConnectedServer[], capability: string): ConnectedServer => {
     const requested = requestedId?.trim();
@@ -699,6 +861,62 @@ export default async function (pi: ExtensionAPI) {
         return { content: resourceContent(result), details: { serverId: server.config.id, uri: params.uri } };
       },
     });
+
+    if (subscribableResourceServers.length) {
+      pi.registerTool({
+        name: "mcp_subscribe_resource",
+        label: "订阅 MCP 资源",
+        description: "Subscribe to updates for a resource URI on an MCP server that advertises subscription support.",
+        promptSnippet: "Subscribe to a live MCP resource only when ongoing updates are useful",
+        parameters: Type.Object({
+          serverId: Type.Optional(Type.String({ description: "MCP server ID; optional when exactly one server supports subscriptions" })),
+          uri: Type.String({ description: "Exact resource URI to subscribe to" }),
+        }),
+        async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+          const server = resolveServer(params.serverId, subscribableResourceServers, "资源订阅");
+          if (permissionMode === "read-only" && !server.config.trustedReadOnly) {
+            throw new Error("只读模式只允许订阅已标记为受信任只读的 MCP 服务器");
+          }
+          if (confirmTools && !server.config.trustedReadOnly) {
+            const allowed = await ctx.ui.confirm("允许订阅 MCP 资源？", `${server.config.name || server.config.id}\n${params.uri}`);
+            if (!allowed) throw new Error("用户拒绝了 MCP 资源订阅");
+          }
+          await server.client.subscribeResource(params.uri);
+          const subscriptions = subscribedResources.get(server.config.id) || new Set<string>();
+          subscriptions.add(params.uri);
+          subscribedResources.set(server.config.id, subscriptions);
+          return {
+            content: [{ type: "text", text: `已订阅 MCP 资源：${server.config.name || server.config.id}\n${params.uri}` }],
+            details: { serverId: server.config.id, uri: params.uri, subscribed: true },
+          };
+        },
+      });
+
+      pi.registerTool({
+        name: "mcp_unsubscribe_resource",
+        label: "取消订阅 MCP 资源",
+        description: "Stop live updates for a previously subscribed MCP resource URI.",
+        promptSnippet: "Unsubscribe from an MCP resource when live updates are no longer needed",
+        parameters: Type.Object({
+          serverId: Type.Optional(Type.String({ description: "MCP server ID; optional when exactly one server supports subscriptions" })),
+          uri: Type.String({ description: "Exact subscribed resource URI" }),
+        }),
+        async execute(_toolCallId, params) {
+          const server = resolveServer(params.serverId, subscribableResourceServers, "资源订阅");
+          const subscriptions = subscribedResources.get(server.config.id);
+          if (!subscriptions?.has(params.uri)) {
+            return { content: [{ type: "text", text: `该资源当前未订阅：${params.uri}` }], details: { serverId: server.config.id, uri: params.uri, subscribed: false } };
+          }
+          await server.client.unsubscribeResource(params.uri);
+          subscriptions.delete(params.uri);
+          if (!subscriptions.size) subscribedResources.delete(server.config.id);
+          return {
+            content: [{ type: "text", text: `已取消订阅 MCP 资源：${server.config.name || server.config.id}\n${params.uri}` }],
+            details: { serverId: server.config.id, uri: params.uri, subscribed: false },
+          };
+        },
+      });
+    }
   }
 
   if (promptServers.length) {
@@ -820,6 +1038,50 @@ export default async function (pi: ExtensionAPI) {
         }, { triggerTurn: false });
       } catch (error) {
         ctx.ui.notify(`MCP 资源读取失败：${errorText(error)}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("mcp-subscribe", {
+    description: "订阅 MCP 资源更新：/mcp-subscribe <serverId> <uri>",
+    handler: async (args, ctx) => {
+      const match = args.trim().match(/^(\S+)\s+([\s\S]+)$/);
+      if (!match) {
+        ctx.ui.notify("用法：/mcp-subscribe <serverId> <uri>", "warning");
+        return;
+      }
+      try {
+        const server = resolveServer(match[1], subscribableResourceServers, "资源订阅");
+        const uri = match[2].trim();
+        await server.client.subscribeResource(uri);
+        const subscriptions = subscribedResources.get(server.config.id) || new Set<string>();
+        subscriptions.add(uri);
+        subscribedResources.set(server.config.id, subscriptions);
+        ctx.ui.notify(`已订阅 MCP 资源：${server.config.name || server.config.id}\n${uri}`, "info");
+      } catch (error) {
+        ctx.ui.notify(`MCP 资源订阅失败：${errorText(error)}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("mcp-unsubscribe", {
+    description: "取消 MCP 资源订阅：/mcp-unsubscribe <serverId> <uri>",
+    handler: async (args, ctx) => {
+      const match = args.trim().match(/^(\S+)\s+([\s\S]+)$/);
+      if (!match) {
+        ctx.ui.notify("用法：/mcp-unsubscribe <serverId> <uri>", "warning");
+        return;
+      }
+      try {
+        const server = resolveServer(match[1], subscribableResourceServers, "资源订阅");
+        const uri = match[2].trim();
+        if (subscribedResources.get(server.config.id)?.has(uri)) {
+          await server.client.unsubscribeResource(uri);
+          subscribedResources.get(server.config.id)?.delete(uri);
+        }
+        ctx.ui.notify(`已取消 MCP 资源订阅：${server.config.name || server.config.id}\n${uri}`, "info");
+      } catch (error) {
+        ctx.ui.notify(`取消 MCP 资源订阅失败：${errorText(error)}`, "error");
       }
     },
   });

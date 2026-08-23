@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Check, ChevronRight, CircleAlert, Copy, Info, Link2, Pencil, Share2, Terminal } from "lucide-react";
+import { ArrowUp, Check, CircleAlert, Copy, Info, Link2, Pencil, Share2, Terminal } from "lucide-react";
 import type { UiMessage, UiToolCall } from "../types";
 import { usePiStore } from "../store";
 import { Markdown } from "./Markdown";
@@ -30,8 +30,12 @@ export const Message = memo(function Message({
   showThinking = true,
   isLastAssistant = false,
   globalStreaming = false,
+  workingLabel,
   summaryMode = false,
+  editing = false,
   onEdit,
+  onCancelEdit,
+  onSubmitEdit,
 }: {
   message: UiMessage;
   showThinking?: boolean;
@@ -39,26 +43,23 @@ export const Message = memo(function Message({
   isLastAssistant?: boolean;
   /** App-level streaming flag; message.isStreaming is false during reasoning/tool phases. */
   globalStreaming?: boolean;
+  /** Current runtime status, rendered with the active assistant reply instead of above the thread. */
+  workingLabel?: string;
   /** Codex 摘要：收起工具轨迹，不展开工作日志。 */
   summaryMode?: boolean;
+  editing?: boolean;
   onEdit?: (message: UiMessage) => void;
+  onCancelEdit?: () => void;
+  onSubmitEdit?: (message: UiMessage, text: string) => Promise<boolean>;
 }) {
-  const [workOpen, setWorkOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editDraft, setEditDraft] = useState(message.content);
+  const [submittingEdit, setSubmittingEdit] = useState(false);
   const thinkingRef = useRef<HTMLDivElement>(null);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const assistantWorking = message.role === "assistant"
     && (message.isStreaming || (isLastAssistant && globalStreaming));
   const liveThinking = assistantWorking && showThinking && Boolean(message.thinking);
-
-  useEffect(() => {
-    if (summaryMode) {
-      setWorkOpen(false);
-    } else if (liveThinking) {
-      setWorkOpen(true);
-    } else if (!assistantWorking) {
-      setWorkOpen(false);
-    }
-  }, [assistantWorking, liveThinking, summaryMode]);
 
   useEffect(() => {
     if (!liveThinking) return;
@@ -69,7 +70,90 @@ export const Message = memo(function Message({
     return () => window.cancelAnimationFrame(frame);
   }, [liveThinking, message.thinking]);
 
+  useEffect(() => {
+    if (!editing) {
+      setSubmittingEdit(false);
+      return;
+    }
+    setEditDraft(message.content);
+    const frame = window.requestAnimationFrame(() => {
+      const textarea = editTextareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(280, Math.max(96, textarea.scrollHeight))}px`;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editing, message.content]);
+
+  const resizeEditTextarea = () => {
+    const textarea = editTextareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(280, Math.max(96, textarea.scrollHeight))}px`;
+  };
+
+  const submitEdit = async () => {
+    if (submittingEdit || !editDraft.trim() || !onSubmitEdit) return;
+    setSubmittingEdit(true);
+    const sent = await onSubmitEdit(message, editDraft);
+    if (!sent) setSubmittingEdit(false);
+  };
+
   if (message.role === "user") {
+    if (editing) {
+      return (
+        <article className="message-row user-message is-editing" id={`message-${message.id}`}>
+          <div className="message-edit-card">
+            {message.images && message.images.length > 0 && (
+              <div className="message-images">
+                {message.images.map((image, index) => (
+                  <img key={index} src={`data:${image.mimeType};base64,${image.data}`} alt={`附件 ${index + 1}`} />
+                ))}
+              </div>
+            )}
+            <textarea
+              ref={editTextareaRef}
+              className="message-edit-input"
+              aria-label="编辑消息"
+              value={editDraft}
+              disabled={submittingEdit}
+              onChange={(event) => {
+                setEditDraft(event.target.value);
+                window.requestAnimationFrame(resizeEditTextarea);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  onCancelEdit?.();
+                  return;
+                }
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  void submitEdit();
+                }
+              }}
+            />
+            <div className="message-edit-actions">
+              <button type="button" className="message-edit-cancel" disabled={submittingEdit} onClick={onCancelEdit}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="message-edit-submit"
+                disabled={submittingEdit || !editDraft.trim()}
+                onClick={() => void submitEdit()}
+                title="从此消息重新发送"
+              >
+                <ArrowUp size={14} strokeWidth={2} />
+                <span>{submittingEdit ? "发送中" : "发送"}</span>
+              </button>
+            </div>
+          </div>
+        </article>
+      );
+    }
     return (
       <article className="message-row user-message" id={`message-${message.id}`}>
         <div className="user-content">
@@ -84,7 +168,7 @@ export const Message = memo(function Message({
         </div>
         {message.content && onEdit && (
           <div className="user-message-actions">
-            <button type="button" className="message-copy" title="编辑并重新发送" onClick={() => onEdit(message)}>
+            <button type="button" className="message-copy" title="编辑消息" aria-label="编辑消息" onClick={() => onEdit(message)}>
               <Pencil size={13} strokeWidth={1.75} />
             </button>
           </div>
@@ -112,16 +196,18 @@ export const Message = memo(function Message({
   }
 
   const toolCalls = message.toolCalls ?? [];
-  const hasWork = (showThinking && Boolean(message.thinking)) || toolCalls.length > 0;
-  const duration = formatDuration(message.durationMs ?? 0) ?? formatWorkDuration(toolCalls);
+  const hasTools = toolCalls.length > 0;
+  const thinkingText = showThinking ? (message.thinking || "").trim() : "";
+  const hasThinking = Boolean(thinkingText);
   // B1: during reasoning/tool phases message.isStreaming is false while the agent is still working,
   // so the newest assistant reply also honors the app-level streaming flag.
   const working = assistantWorking;
-  const workLabel = working
-    ? "正在工作…"
+  const duration = formatDuration(message.durationMs ?? 0) ?? formatWorkDuration(toolCalls);
+  const thinkingLabel = working
+    ? workingLabel || "Pi 正在工作…"
     : duration
-      ? `耗时 ${duration}`
-      : "已处理";
+      ? `思考了 ${duration}`
+      : "思考过程";
 
   const timeLabel = typeof message.timestamp === "number" && message.timestamp > 0
     ? new Date(message.timestamp).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
@@ -162,44 +248,29 @@ export const Message = memo(function Message({
     }).catch(() => undefined);
   };
 
-  const showWorkBody = workOpen && !summaryMode;
-
   return (
     <article
-      className={`message-row assistant-message ${message.isError ? "error" : ""} ${!message.content && hasWork ? "work-only" : ""}`}
+      className={`message-row assistant-message ${message.isError ? "error" : ""} ${!message.content && (working || hasThinking || hasTools) ? "work-only" : ""}`}
       id={`message-${message.id}`}
     >
-      {hasWork && (
-        <div className="work-log">
-          <button
-            type="button"
-            className="work-log-toggle"
-            onClick={() => { if (!summaryMode) setWorkOpen((value) => !value); }}
-            disabled={summaryMode}
-            title={summaryMode ? "摘要模式下工具步骤已折叠" : undefined}
-          >
-            <span>{workLabel}</span>
-            <ChevronRight size={13} strokeWidth={1.75} className={showWorkBody ? "open" : ""} />
-          </button>
-          {showWorkBody && (
-            <div className="work-log-body">
-              {showThinking && message.thinking && (
-                <div
-                  ref={thinkingRef}
-                  className={`work-log-thinking ${working ? "streaming" : ""}`}
-                  role="log"
-                  aria-label="思考过程"
-                >
-                  {message.thinking}
-                </div>
-              )}
-              {toolCalls.length > 0 && (
-                <div className="tool-list">
-                  {toolCalls.map((call) => <ToolCall call={call} key={call.id} />)}
-                </div>
-              )}
+      {(working || hasThinking) && (
+        <div className="thinking-block">
+          <div className="thinking-caption">{thinkingLabel}</div>
+          {!summaryMode && hasThinking && (
+            <div
+              ref={thinkingRef}
+              className={`thinking-prose ${working ? "streaming" : ""}`}
+              role="log"
+              aria-label="思考过程"
+            >
+              {message.thinking}
             </div>
           )}
+        </div>
+      )}
+      {hasTools && (
+        <div className="tool-list">
+          {toolCalls.map((call) => <ToolCall call={call} key={call.id} />)}
         </div>
       )}
       {message.content && (

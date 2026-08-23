@@ -40,6 +40,8 @@ id_ed25519
 .vscode/*
 !.vscode/extensions.json
 .idea
+.claude/
+.gitnexus/
 .DS_Store
 *.suo
 *.ntvs*

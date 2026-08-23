@@ -3,6 +3,7 @@
  * Run: npx --yes tsx scripts/test-session-tree.ts
  */
 import {
+  activeUserMessageEntries,
   buildForkCommand,
   buildGetTreeCommand,
   flattenSessionTree,
@@ -92,5 +93,11 @@ assert(result.success && result.command === "fork", "continue path ends with for
 assert(sent.length === 2, "continue issues get_tree then fork");
 assert(sent[0].type === "get_tree", "first command is get_tree");
 assert(sent[1].type === "fork" && sent[1].entryId === "branch-user", "second command forks selected node");
+
+const activeUsers = activeUserMessageEntries(fixture, "leaf-user");
+assert(activeUsers.length === 2, "active path includes its two user messages");
+assert(activeUsers[0].entryId === "root-user" && activeUsers[0].parentId === null, "root user can rewind to an empty session");
+assert(activeUsers[1].entryId === "leaf-user" && activeUsers[1].parentId === "child-assistant", "nested user rewinds to its parent");
+assert(!activeUsers.some((entry) => entry.entryId === "branch-user"), "abandoned branch users are excluded from rewind targets");
 
 console.log("session-tree: all assertions passed");

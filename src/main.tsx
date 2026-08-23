@@ -1,15 +1,19 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { moveManagedQueueItem, removeManagedQueueItem } from "./lib/managedQueue";
 import { usePiStore } from "./store";
 import type { AssistantMessage, UiMessage } from "./types";
 import "./styles.css";
 
 const fixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("fixture") : null;
 
-if (fixture === "thread" || fixture === "performance") {
-  const cwd = "D:\\02_Lab\\Projects\\PIDesktop";
+if (fixture === "thread" || fixture === "performance" || fixture === "stream" || fixture === "queue" || fixture === "title") {
+  const cwd = "D:\\Projects\\PIDesktop";
   const performanceFixture = fixture === "performance";
+  const streamFixture = fixture === "stream";
+  const queueFixture = fixture === "queue";
+  const titleFixture = fixture === "title";
   const performanceMessages: UiMessage[] = Array.from({ length: 1_000 }, (_, index) => ({
     id: `performance-${index}`,
     role: index % 3 === 0 ? "user" : "assistant",
@@ -17,12 +21,12 @@ if (fixture === "thread" || fixture === "performance") {
     timestamp: Date.now() - (1_000 - index) * 1_000,
   }));
   usePiStore.setState({
-    runtimeId: performanceFixture ? "fixture-runtime" : null,
+    runtimeId: performanceFixture || streamFixture || queueFixture || titleFixture ? "fixture-runtime" : null,
     connection: "running",
     cwd,
     sessionFile: "fixture-session.jsonl",
     sessionId: "fixture-session",
-    sessionName: "修复 Pi Desktop 界面与启动性能",
+    sessionName: titleFixture ? null : "修复 Pi Desktop 界面与启动性能",
     stats: {
       sessionFile: "fixture-session.jsonl",
       sessionId: "fixture-session",
@@ -35,11 +39,33 @@ if (fixture === "thread" || fixture === "performance") {
       cost: 0,
       contextUsage: { tokens: 2_000, contextWindow: 100_000, percent: 2 },
     },
-    messages: performanceFixture ? performanceMessages : [
+    isStreaming: streamFixture || queueFixture,
+    messages: performanceFixture ? performanceMessages : (streamFixture || queueFixture) ? [
+      {
+        id: "fixture-stream-user",
+        role: "user",
+        content: "按照paseo",
+        timestamp: Date.now() - 1_000,
+      },
+      {
+        id: "fixture-stream-assistant",
+        role: "assistant",
+        content: "",
+        isStreaming: true,
+        timestamp: Date.now(),
+        toolCalls: [{
+          id: "fixture-ctx-execute",
+          name: "ctx_execute",
+          args: { code: "console.log('fixture')" },
+          running: true,
+          startedAt: Date.now() - 300,
+        }],
+      },
+    ] : [
       {
         id: "fixture-user",
         role: "user",
-        content: "对齐 Codex 的右上角控制、环境信息浮卡，并处理启动卡顿和反复弹窗。",
+        content: titleFixture ? "按照paseo" : "对齐 Codex 的右上角控制、环境信息浮卡，并处理启动卡顿和反复弹窗。",
         timestamp: Date.now() - 70_000,
       },
       {
@@ -61,23 +87,54 @@ if (fixture === "thread" || fixture === "performance") {
           "- **代码展示**：`src/components/Message.tsx` 等文件引用保持清晰。",
           "",
           "```ts",
-          "const streaming = { thinking: true, text: true };",
+          "const streaming = {",
+          "  thinking: true,",
+          "  text: true,",
+          "};",
           "```",
         ].join("\n"),
         thinking: "先检查消息容器的字号和行高，再分别校准 Markdown、思考过程与代码块，避免不同内容层级互相抢视觉焦点。",
         durationMs: 13_000,
         timestamp: Date.now() - 15_000,
+        toolCalls: [
+          {
+            id: "fixture-read",
+            name: "read",
+            args: { path: "src/components/Message.tsx" },
+            running: false,
+            startedAt: Date.now() - 25_000,
+            finishedAt: Date.now() - 18_000,
+          },
+        ],
       },
     ],
     sessions: [{
       file: "fixture-session.jsonl",
       sessionId: "fixture-session",
       cwd,
-      name: "修复 Pi Desktop 界面与启动性能",
-      firstMessage: "对齐 Codex 的右上角控制",
+      name: titleFixture ? undefined : "修复 Pi Desktop 界面与启动性能",
+      firstMessage: titleFixture ? "按照paseo" : "对齐 Codex 的右上角控制",
       messageCount: performanceFixture ? performanceMessages.length : 3,
       updatedAt: Date.now(),
     }],
+    managedFollowUpQueue: queueFixture ? [
+      { id: "queue-a", text: "先补充队列顺序测试，并保留当前修改", attachments: [], createdAt: Date.now() },
+      { id: "queue-b", text: "然后检查一个带有很长文本的待处理消息在窄屏上会不会挤压右侧操作按钮", attachments: [], createdAt: Date.now() + 1 },
+      { id: "queue-c", text: "最后运行完整回归", attachments: [], createdAt: Date.now() + 2 },
+    ] : [],
+    moveManagedFollowUp: (id, direction) => {
+      usePiStore.setState((state) => ({
+        managedFollowUpQueue: moveManagedQueueItem(state.managedFollowUpQueue, id, direction),
+      }));
+    },
+    removeManagedFollowUp: (id) => {
+      usePiStore.setState((state) => ({
+        managedFollowUpQueue: removeManagedQueueItem(state.managedFollowUpQueue, id).queue,
+      }));
+    },
+    steerManagedFollowUp: async (id) => {
+      usePiStore.getState().removeManagedFollowUp(id);
+    },
     git: {
       isRepository: true,
       branch: "agent/codex-parity-client",
@@ -97,7 +154,10 @@ if (fixture === "thread" || fixture === "performance") {
         "+const toolMenu = true;",
       ].join("\n"),
     },
-    resolveMessageForkPoint: async (messageId) => ({ entryId: `fixture-entry-${messageId}`, text: "" }),
+    resolveMessageForkPoint: async (messageId) => ({
+      entryId: `fixture-entry-${messageId}`,
+      text: messageId === "fixture-stream-user" ? "按照paseo" : "",
+    }),
     editAndResend: async (entryId, text) => {
       console.info(`[performance-fixture] edited resend ${entryId}: ${text}`);
       return true;
@@ -141,7 +201,7 @@ if (fixture === "thread" || fixture === "performance") {
     },
   });
 
-  if (performanceFixture) {
+  if (performanceFixture || streamFixture) {
     window.setTimeout(() => {
       let updateCount = 0;
       let messageCommits = 0;

@@ -12,6 +12,7 @@ const messages: Array<{
 }> = [];
 
 modelGuard({
+  registerCommand() {},
   on(event: string, handler: Handler) {
     handlers.set(event, handler);
   },

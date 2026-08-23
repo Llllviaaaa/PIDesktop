@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Pi Desktop",
-  "version": "0.2.2",
-  "identifier": "com.pidesktop.app",
+  "version": "0.2.9",
+  "identifier": "io.github.llllviaaaa.pidesktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src data: blob:; object-src 'none'; base-uri 'self'; form-action 'none'"
     }
   },
   "bundle": {

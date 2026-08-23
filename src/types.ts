@@ -275,6 +275,7 @@ export interface AppSettings {
   model: string;
   thinkingLevel: string;
   sessionDir: string;
+  agentMode: "agent" | "plan" | "ask";
   permissionMode: "read-only" | "ask" | "workspace-write" | "full-access";
   /** Shell/bash/exec always requires confirmation (unless full-access). */
   alwaysConfirmShell: boolean;
@@ -282,6 +283,7 @@ export interface AppSettings {
   blockWriteOutsideWorkspace: boolean;
   /** Newline- or comma-separated command prefixes that skip shell confirmation. */
   shellAllowPrefixes: string;
+  toolRules: ToolPermissionRule[];
   /** Default new-task environment when starting a coding task. */
   defaultTaskEnvironment: "local" | "worktree";
   showThinking: boolean;
@@ -308,6 +310,12 @@ export interface AppSettings {
   customInstructions: string;
   suggestedPrompts: boolean;
   memoryEnabled: boolean;
+  planTrackingEnabled: boolean;
+  hooksEnabled: boolean;
+  hooksInheritEnvironment: boolean;
+  hooks: DesktopHookConfig[];
+  subagentsEnabled: boolean;
+  subagentMaxConcurrency: number;
   browserEnabled: boolean;
   browserHeadless: boolean;
   browserConfirmActions: boolean;
@@ -357,6 +365,25 @@ export interface SessionInfo {
   updatedAt?: number;
 }
 
+export interface DesktopHookConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  event: "session_start" | "before_agent_start" | "agent_end" | "agent_settled" | "tool_call" | "tool_result";
+  command: string;
+  timeoutSeconds: number;
+  blocking: boolean;
+}
+
+export interface ToolPermissionRule {
+  id: string;
+  enabled: boolean;
+  toolPattern: string;
+  action: "allow" | "confirm" | "block";
+  commandPrefix: string;
+  pathPrefix: string;
+}
+
 export interface WorkspaceEditorInfo {
   id: "cursor" | "vscode" | "windsurf" | "antigravity";
   name: string;
@@ -381,6 +408,13 @@ export interface AttachmentPayload {
   kind: "image" | "text" | "file";
   data?: string;
   text?: string;
+}
+
+export interface ManagedQueuedMessage {
+  id: string;
+  text: string;
+  attachments: AttachmentPayload[];
+  createdAt: number;
 }
 
 export interface GitFileChange {

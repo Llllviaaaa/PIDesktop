@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { openPath } from "@tauri-apps/plugin-opener";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   Archive,
   BarChart3,
@@ -8,6 +9,7 @@ import {
   ChevronRight,
   CircleAlert,
   FileCode2,
+  FileDown,
   FolderGit2,
   GitBranch,
   Globe2,
@@ -20,6 +22,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Save,
   ServerCog,
   Settings2,
   Shield,
@@ -28,8 +31,11 @@ import {
   Sparkles,
   TerminalSquare,
   Trash2,
+  Workflow,
   Undo2,
   UserRound,
+  ArrowDown,
+  ArrowUp,
   X,
 } from "lucide-react";
 import { pi } from "../lib/pi";
@@ -59,6 +65,7 @@ export type SettingsPage =
   | "computer"
   | "review"
   | "environment"
+  | "hooks"
   | "git"
   | "worktrees"
   | "debug";
@@ -69,10 +76,12 @@ const DEFAULTS: AppSettings = {
   model: "",
   thinkingLevel: "medium",
   sessionDir: "",
+  agentMode: "agent",
   permissionMode: "ask",
   alwaysConfirmShell: true,
   blockWriteOutsideWorkspace: true,
   shellAllowPrefixes: "",
+  toolRules: [],
   defaultTaskEnvironment: "local",
   showThinking: true,
   autoConnect: false,
@@ -98,6 +107,12 @@ const DEFAULTS: AppSettings = {
   customInstructions: "",
   suggestedPrompts: true,
   memoryEnabled: true,
+  planTrackingEnabled: true,
+  hooksEnabled: false,
+  hooksInheritEnvironment: false,
+  hooks: [],
+  subagentsEnabled: true,
+  subagentMaxConcurrency: 3,
   browserEnabled: true,
   browserHeadless: true,
   browserConfirmActions: true,
@@ -150,6 +165,7 @@ const NAVIGATION: Array<{ label: string; items: Array<{ id: SettingsPage; label:
       { id: "review", label: "代码审查", icon: Shield, keywords: "review 检查 审阅 delivery" },
       { id: "git", label: "Git", icon: FolderGit2, keywords: "branches commit pull request force push" },
       { id: "environment", label: "环境", icon: TerminalSquare, keywords: "shell 输出 命令 local worktree output commands" },
+      { id: "hooks", label: "Hooks", icon: Workflow, keywords: "hooks lifecycle 自动 命令 tool session event" },
       { id: "worktrees", label: "Worktrees", icon: GitBranch, keywords: "并行 隔离 本地 检出 parallel isolated" },
     ],
   },
@@ -185,6 +201,8 @@ export function SettingsModal({
   const [providers, setProviders] = useState<ModelProviderConfig[]>([]);
   const [providersLoading, setProvidersLoading] = useState(true);
   const [providersError, setProvidersError] = useState("");
+  const [memoryText, setMemoryText] = useState("");
+  const [memoryState, setMemoryState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [loadingData, setLoadingData] = useState(true);
   const editedRef = useRef(false);
   const pendingSaveRef = useRef<AppSettings | null>(null);
@@ -213,12 +231,14 @@ export function SettingsModal({
       pi.listArchivedSessions(),
       pi.listResources(cwd),
       cwd ? pi.listWorktrees(cwd).catch(() => []) : Promise.resolve([]),
-    ]).then(([nextArchived, nextResources, nextWorktrees]) => {
+      pi.getLocalMemory().catch(() => ""),
+    ]).then(([nextArchived, nextResources, nextWorktrees, nextMemory]) => {
       if (cancelled) return;
       setArchived(nextArchived);
       setForm((current) => ({ ...current, archivedSessions: nextArchived.map((session) => session.file) }));
       setResources(nextResources);
       setWorktrees(nextWorktrees);
+      setMemoryText(nextMemory);
       setLoadingData(false);
     });
     void pi.usageSummary().then((summary) => { if (!cancelled) setUsage(summary); });
@@ -337,7 +357,48 @@ export function SettingsModal({
             {active === "general" && <GeneralPage form={form} update={update} />}
             {active === "appearance" && <AppearancePage form={form} update={update} />}
             {active === "agent" && <AgentPage form={form} update={update} providers={providers} />}
-            {active === "personalization" && <PersonalizationPage form={form} update={update} />}
+            {active === "personalization" && <PersonalizationPage
+              form={form}
+              update={update}
+              memoryText={memoryText}
+              memoryState={memoryState}
+              onMemoryChange={(value) => { setMemoryText(value); setMemoryState("idle"); }}
+              onMemorySave={async () => {
+                setMemoryState("saving");
+                try {
+                  await pi.setLocalMemory(memoryText);
+                  setMemoryState("saved");
+                } catch {
+                  setMemoryState("error");
+                }
+              }}
+              onMemoryExport={async () => {
+                const destination = await saveDialog({
+                  title: "导出本地记忆",
+                  defaultPath: "pidesktop-memory.md",
+                  filters: [{ name: "Markdown", extensions: ["md"] }],
+                });
+                if (typeof destination !== "string") return;
+                setMemoryState("saving");
+                try {
+                  await pi.setLocalMemory(memoryText);
+                  await pi.exportLocalMemory(destination);
+                  setMemoryState("saved");
+                } catch {
+                  setMemoryState("error");
+                }
+              }}
+              onMemoryDelete={async () => {
+                if (!window.confirm("删除 PIDesktop 本地记忆文件吗？此操作不能撤销。")) return;
+                try {
+                  await pi.deleteLocalMemory();
+                  setMemoryText("");
+                  setMemoryState("idle");
+                } catch {
+                  setMemoryState("error");
+                }
+              }}
+            />}
             {active === "shortcuts" && <ShortcutsPage form={form} update={update} />}
             {active === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
               await pi.restoreSession(session.file);
@@ -366,6 +427,7 @@ export function SettingsModal({
             {active === "computer" && <ComputerPage form={form} update={update} />}
             {active === "review" && <CodeReviewPage form={form} update={update} />}
             {active === "environment" && <EnvironmentPage form={form} update={update} />}
+            {active === "hooks" && <HooksPage form={form} update={update} />}
             {active === "git" && <GitPage form={form} update={update} />}
             {active === "worktrees" && <WorktreesPage cwd={cwd} worktrees={worktrees} loading={loadingData} onCreated={(item) => setWorktrees((items) => [...items, item])} />}
             {active === "debug" && <DebugPage form={form} update={update} />}
@@ -439,7 +501,25 @@ function AppearancePage({ form, update }: { form: AppSettings; update: Update })
   </>;
 }
 
-function PersonalizationPage({ form, update }: { form: AppSettings; update: Update }) {
+function PersonalizationPage({
+  form,
+  update,
+  memoryText,
+  memoryState,
+  onMemoryChange,
+  onMemorySave,
+  onMemoryExport,
+  onMemoryDelete,
+}: {
+  form: AppSettings;
+  update: Update;
+  memoryText: string;
+  memoryState: "idle" | "saving" | "saved" | "error";
+  onMemoryChange: (value: string) => void;
+  onMemorySave: () => Promise<void>;
+  onMemoryExport: () => Promise<void>;
+  onMemoryDelete: () => Promise<void>;
+}) {
   return <>
     <PageHeading title="个性化" description="为每个本地会话设置 Pi 的工作风格和长期指令。" />
     <Card title="交流风格">
@@ -448,7 +528,22 @@ function PersonalizationPage({ form, update }: { form: AppSettings; update: Upda
     <Card title="个人指令">
       <p className="card-description">重新连接后，这些指令会追加到 Pi 的系统提示词。项目中的 AGENTS.md 和 CLAUDE.md 仍按各自作用域加载。</p>
       <textarea className="large-settings-textarea" value={form.customInstructions} onChange={(event) => update("customInstructions", event.target.value)} placeholder="例如：优先使用 PowerShell，保留已有用户改动，并先运行针对性测试。" />
-      <Row title="项目记忆文件" description="加载 Pi 发现的 AGENTS.md 和 CLAUDE.md 上下文。"><Switch label="项目记忆文件" checked={form.memoryEnabled} onChange={(value) => update("memoryEnabled", value)} /></Row>
+      <Row title="加载记忆" description="把本地记忆和 Pi 发现的 AGENTS.md、CLAUDE.md 一起加入新任务上下文。"><Switch label="加载记忆" checked={form.memoryEnabled} onChange={(value) => update("memoryEnabled", value)} /></Row>
+    </Card>
+    <Card title="本地记忆">
+      <p className="card-description">只保存在当前 Windows 账户的 PIDesktop 配置目录中；保存后从新任务开始注入。</p>
+      <textarea
+        className="large-settings-textarea memory-textarea"
+        value={memoryText}
+        onChange={(event) => onMemoryChange(event.target.value)}
+        placeholder="记录长期有效的项目偏好、工作习惯和约定。"
+      />
+      <div className="memory-actions">
+        <span className={`memory-state ${memoryState}`}>{memoryState === "saving" ? "正在保存…" : memoryState === "saved" ? "已保存" : memoryState === "error" ? "操作失败" : ""}</span>
+        <button className="secondary-button" disabled={memoryState === "saving"} onClick={() => void onMemoryExport()}><FileDown size={14} />导出</button>
+        <button className="icon-button danger" disabled={!memoryText || memoryState === "saving"} title="删除本地记忆" onClick={() => void onMemoryDelete()}><Trash2 size={14} /></button>
+        <button className="primary-button" disabled={memoryState === "saving"} onClick={() => void onMemorySave()}><Save size={14} />保存记忆</button>
+      </div>
     </Card>
   </>;
 }
@@ -501,14 +596,88 @@ function AgentPage({ form, update, providers }: { form: AppSettings; update: Upd
       <Row title="推理等级"><select value={form.thinkingLevel} onChange={(event) => update("thinkingLevel", event.target.value)}>{["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => <option key={level} value={level}>{reasoningLabels[level]}</option>)}</select></Row>
     </Card>
     <Card title="权限">
+      <Row title="默认工作模式" description="执行可修改代码；计划和问答仅使用只读工具。"><select value={form.agentMode} onChange={(event) => update("agentMode", event.target.value as AppSettings["agentMode"])}><option value="agent">执行</option><option value="plan">计划</option><option value="ask">问答</option></select></Row>
       <Row title="审批与文件访问" description="控制 Pi 何时请求确认，以及允许访问的文件范围。"><select value={form.permissionMode} onChange={(event) => update("permissionMode", event.target.value as AppSettings["permissionMode"])}><option value="read-only">只读</option><option value="ask">先询问</option><option value="workspace-write">工作区写入</option><option value="full-access">完全访问</option></select></Row>
+    </Card>
+    <Card title="计划跟踪">
+      <Row title="启用持久计划" description="为新任务提供 update_plan 工具；步骤状态随会话分支保存，并显示在对话中。"><Switch label="启用持久计划" checked={form.planTrackingEnabled} onChange={(value) => update("planTrackingEnabled", value)} /></Row>
+    </Card>
+    <Card title="本地子 Agent">
+      <Row title="启用任务委派" description="提供 delegate_task 工具，用隔离上下文运行探索、计划、审查或 worker。"><Switch label="启用本地子 Agent" checked={form.subagentsEnabled} onChange={(value) => update("subagentsEnabled", value)} /></Row>
+      <Row title="最大并发" description="一次工具调用最多 8 个任务；实际同时运行数量限制为 1 到 4。"><input type="number" min="1" max="4" value={form.subagentMaxConcurrency} onChange={(event) => update("subagentMaxConcurrency", Math.max(1, Math.min(4, Number(event.target.value) || 1)))} /></Row>
     </Card>
     <Card title="Rules v1">
       <Row title="始终确认 Shell" description="bash / shell / exec 在执行前必须确认。"><Switch label="始终确认 Shell" checked={form.alwaysConfirmShell} onChange={(value) => update("alwaysConfirmShell", value)} /></Row>
       <Row title="阻止工作区外写入" description="直接拦截对工作区根目录之外路径的写入。"><Switch label="阻止工作区外写入" checked={form.blockWriteOutsideWorkspace} onChange={(value) => update("blockWriteOutsideWorkspace", value)} /></Row>
       <label className="stacked-setting"><span>Shell 允许前缀</span><textarea value={form.shellAllowPrefixes} onChange={(event) => update("shellAllowPrefixes", event.target.value)} placeholder={"git status\nnpm test\npnpm lint"} rows={4} /><small className="field-hint">每行或逗号分隔；仅在关闭“始终确认 Shell”后生效。</small></label>
     </Card>
-    <div className="settings-info"><Bot size={17} /><span>模型和审批设置会应用于新启动的 Pi 聊天；当前聊天仍使用启动时的配置。</span></div>
+    <Card title="工具规则">
+      <div className="tool-rules-heading"><span>按列表顺序匹配；只读与计划模式始终优先。</span><button type="button" className="secondary-button compact" onClick={() => update("toolRules", [...form.toolRules, { id: `rule-${Date.now().toString(36)}`, enabled: true, toolPattern: "bash", action: "confirm", commandPrefix: "", pathPrefix: "" }])}><Plus size={13} />添加规则</button></div>
+      {form.toolRules.length === 0 && <div className="settings-empty compact">没有自定义工具规则</div>}
+      <div className="tool-rule-list">{form.toolRules.map((rule, index) => {
+        const change = (patch: Partial<typeof rule>) => update("toolRules", form.toolRules.map((item) => item.id === rule.id ? { ...item, ...patch } : item));
+        const move = (direction: -1 | 1) => {
+          const target = index + direction;
+          if (target < 0 || target >= form.toolRules.length) return;
+          const next = [...form.toolRules];
+          [next[index], next[target]] = [next[target], next[index]];
+          update("toolRules", next);
+        };
+        return <div className="tool-rule-row" key={rule.id}>
+          <Switch label={`启用规则 ${rule.id}`} checked={rule.enabled} onChange={(enabled) => change({ enabled })} />
+          <input aria-label="工具模式" value={rule.toolPattern} onChange={(event) => change({ toolPattern: event.target.value })} placeholder="bash 或 mcp__github__*" />
+          <select aria-label="规则动作" value={rule.action} onChange={(event) => change({ action: event.target.value as typeof rule.action })}><option value="allow">允许</option><option value="confirm">询问</option><option value="block">阻止</option></select>
+          <input aria-label="命令前缀" value={rule.commandPrefix} onChange={(event) => change({ commandPrefix: event.target.value })} placeholder="命令前缀（可选）" />
+          <input aria-label="路径前缀" value={rule.pathPrefix} onChange={(event) => change({ pathPrefix: event.target.value })} placeholder="路径前缀（可选）" />
+          <span className="tool-rule-actions"><button type="button" className="icon-button" disabled={index === 0} onClick={() => move(-1)} title="上移"><ArrowUp size={13} /></button><button type="button" className="icon-button" disabled={index === form.toolRules.length - 1} onClick={() => move(1)} title="下移"><ArrowDown size={13} /></button><button type="button" className="icon-button danger" onClick={() => update("toolRules", form.toolRules.filter((item) => item.id !== rule.id))} title="删除规则"><Trash2 size={13} /></button></span>
+        </div>;
+      })}</div>
+    </Card>
+    <div className="settings-info"><Bot size={17} /><span>模型、计划工具和 Rules 设置应用于新启动的 Pi 聊天；工作模式与权限可在当前聊天的输入框中即时切换。</span></div>
+  </>;
+}
+
+const HOOK_EVENTS: Array<[AppSettings["hooks"][number]["event"], string]> = [
+  ["session_start", "会话启动"],
+  ["before_agent_start", "每轮开始前"],
+  ["agent_end", "模型运行结束"],
+  ["agent_settled", "任务完全结束"],
+  ["tool_call", "工具调用前"],
+  ["tool_result", "工具返回后"],
+];
+
+function HooksPage({ form, update }: { form: AppSettings; update: Update }) {
+  const addHook = () => update("hooks", [...form.hooks, {
+    id: `hook-${Date.now().toString(36)}`,
+    name: "新 Hook",
+    enabled: true,
+    event: "agent_settled",
+    command: "",
+    timeoutSeconds: 30,
+    blocking: false,
+  }]);
+  const changeHook = (id: string, patch: Partial<AppSettings["hooks"][number]>) => {
+    update("hooks", form.hooks.map((hook) => hook.id === id ? { ...hook, ...patch } : hook));
+  };
+  return <>
+    <PageHeading title="Hooks" description="在 Pi 生命周期事件上运行本机命令；事件数据以 JSON 写入标准输入。" />
+    <Card title="Hook 运行器">
+      <Row title="启用 Hooks" description="仅新启动的任务加载这些命令。"><Switch label="启用 Hooks" checked={form.hooksEnabled} onChange={(value) => update("hooksEnabled", value)} /></Row>
+      <Row title="继承完整环境" description="关闭时过滤 API key、令牌、密码、凭据、Authorization 和 Cookie。"><Switch label="Hooks 继承完整环境" checked={form.hooksInheritEnvironment} onChange={(value) => update("hooksInheritEnvironment", value)} /></Row>
+    </Card>
+    <div className="hook-toolbar"><button type="button" className="primary-button" onClick={addHook}><Plus size={14} />添加 Hook</button></div>
+    {form.hooks.length === 0 && <div className="settings-empty"><Workflow size={24} />尚未配置 Hook</div>}
+    {form.hooks.map((hook) => <section className="hook-editor" key={hook.id}>
+      <header><span><Workflow size={16} /><strong>{hook.name || hook.id}</strong></span><div><Switch label={`启用 ${hook.name || hook.id}`} checked={hook.enabled} onChange={(enabled) => changeHook(hook.id, { enabled })} /><button type="button" className="icon-button danger" title="删除 Hook" onClick={() => update("hooks", form.hooks.filter((item) => item.id !== hook.id))}><Trash2 size={15} /></button></div></header>
+      <div>
+        <Row title="名称"><input value={hook.name} onChange={(event) => changeHook(hook.id, { name: event.target.value })} /></Row>
+        <Row title="事件"><select value={hook.event} onChange={(event) => changeHook(hook.id, { event: event.target.value as typeof hook.event, blocking: false })}>{HOOK_EVENTS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Row>
+        <Row title="命令" description="Windows 使用 cmd.exe /c；macOS/Linux 使用 /bin/sh -lc。不要把凭据直接写进命令。"><textarea rows={3} value={hook.command} onChange={(event) => changeHook(hook.id, { command: event.target.value })} placeholder="npm test" /></Row>
+        <Row title="超时（秒）"><input type="number" min="1" max="300" value={hook.timeoutSeconds} onChange={(event) => changeHook(hook.id, { timeoutSeconds: Math.max(1, Math.min(300, Number(event.target.value) || 1)) })} /></Row>
+        <Row title="失败时阻断工具" description="其余事件失败会通知，但不改变任务结果。">{hook.event === "tool_call" ? <Switch label="Hook 失败时阻断工具" checked={hook.blocking} onChange={(blocking) => changeHook(hook.id, { blocking })} /> : <span className="setting-value-muted">仅“工具调用前”可用</span>}</Row>
+      </div>
+    </section>)}
+    <div className="security-note expanded"><ShieldAlert size={18} /><span><strong>Hooks 是你授权的本机代码。</strong>它们不经过模型工具审批。只配置你信任的命令，并保持“继承完整环境”关闭，除非命令确实需要凭据。</span></div>
   </>;
 }
 

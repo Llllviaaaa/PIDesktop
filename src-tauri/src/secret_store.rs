@@ -6,7 +6,7 @@ pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
         CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
 
-    let mut input = CRYPT_INTEGER_BLOB {
+    let input = CRYPT_INTEGER_BLOB {
         cbData: data
             .len()
             .try_into()
@@ -16,7 +16,7 @@ pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut output = CRYPT_INTEGER_BLOB::default();
     let ok = unsafe {
         CryptProtectData(
-            &mut input,
+            &input,
             null(),
             null(),
             null(),
@@ -49,7 +49,7 @@ pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
         CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
 
-    let mut input = CRYPT_INTEGER_BLOB {
+    let input = CRYPT_INTEGER_BLOB {
         cbData: data
             .len()
             .try_into()
@@ -59,7 +59,7 @@ pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut output = CRYPT_INTEGER_BLOB::default();
     let ok = unsafe {
         CryptUnprotectData(
-            &mut input,
+            &input,
             null_mut(),
             null(),
             null(),

@@ -46,7 +46,7 @@
 | Pi 原则 | Desktop 落地 |
 | --- | --- |
 | 核心小，能力外置 | 新能力优先 `src-tauri/resources/pidesktop-*.ts` 或用户 package |
-| 无内置 MCP / 子 agent / plan / todo | MCP 等保持**可选**；plan/todo 用文件 + 可选面板 |
+| Pi 核心不内置 MCP / 子 agent / plan / todo | Desktop 通过可关闭的 bundled extension 提供 MCP、持久计划、Hooks 与本地子 Agent，不改写 Pi agent loop |
 | 无内置 OS sandbox | 审批走 extension；强隔离用本机容器/Sandbox，诚实标注 |
 | 会话是本地 JSONL 树 | 桌面强化 tree：分支、回点、书签、export |
 | 可观测，不藏后台 | 多 runtime / 终端 / 调度任务过程可见 |
@@ -71,7 +71,7 @@
 | 本地 Scheduled | 已有 | App 运行期间触发，SQLite 记录，禁止静默 full-access |
 | 设置中心、通知、用量 | 已有 | — |
 
-**已知诚实缺口**（见 CODEX_PARITY）：权限不是 OS 隔离；MCP OAuth/订阅/tasks、细粒度 package filter UI 和完整本地 Memory 管理仍待做；云/账号明确不做。
+**已知诚实缺口**（见 CODEX_PARITY）：权限不是 OS 隔离；MCP OAuth 与实验性 tasks 仍待协议稳定后补充；云/账号明确不做。
 
 ---
 
@@ -107,7 +107,7 @@
 
 - 本机 `gh` 轻量 PR 评论拉取（纯本地 CLI，非 GitHub 产品化）  
 - 可选「在 Windows Sandbox / 容器中启动 Pi」向导  
-- Plan/Todo 面板（只读 `PLAN.md` / `TODO.md`）  
+- 更完整的计划面板（当前 `update_plan` 已通过桌面 widget 提供持久步骤）
 - Artifacts：常见文本/图片/HTML 用系统或简易预览  
 
 ---
@@ -177,7 +177,7 @@
 **出口标准**
 
 - [x] browser/computer/mcp 均有「一键关闭且核心聊天仍可用」
-- [ ] Memory 可导出/删除（纯文件）  
+- [x] Memory 可导出/删除（纯文件），并提供审批门保护的 agent 工具
 - [x] parity 与 README 安全模型无矛盾
 
 ---
@@ -188,7 +188,7 @@
 | --- | --- |
 | `gh` PR 评论只读/修复闭环 | 团队日常强依赖 GitHub PR |
 | 简易 Artifacts 预览 | 会话常产出 HTML/图片需内嵌 |
-| Plan 面板读 `PLAN.md` | 用户用文件计划且希望侧栏钉住 |
+| 独立 Plan 检查器 | 当前 widget 不足以承载依赖关系或大型计划时 |
 | 多仓库 project 视图 | 单窗管理多 cwd 成为痛点 |
 
 ---

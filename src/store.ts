@@ -2,6 +2,12 @@ import { create } from "zustand";
 import { pi, respondToExtension, sendCommand, type PiRuntimeStatus } from "./lib/pi";
 import { redactSensitiveText } from "./lib/redact";
 import {
+  appendManagedQueue,
+  insertManagedQueueItem,
+  moveManagedQueueItem,
+  removeManagedQueueItem,
+} from "./lib/managedQueue";
+import {
   buildForkCommand,
   buildGetTreeCommand,
   flattenSessionTree,
@@ -19,6 +25,7 @@ import type {
   ForkPoint,
   GitSnapshot,
   ImageContent,
+  ManagedQueuedMessage,
   ModelInfo,
   PiEvent,
   SessionInfo,
@@ -31,6 +38,10 @@ import type {
   UiMessage,
   UiToolCall,
 } from "./types";
+
+const PIDESKTOP_REWIND_COMMAND = "pidesktop-rewind";
+const PIDESKTOP_MODE_COMMAND = "pidesktop-mode";
+const PIDESKTOP_PERMISSION_COMMAND = "pidesktop-permission";
 
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -56,10 +67,28 @@ function imagesFromContent(content: unknown): ImageContent[] | undefined {
 function thinkingFromContent(content: unknown): string | undefined {
   if (!Array.isArray(content)) return undefined;
   const value = content
-    .filter((block) => block && typeof block === "object" && (block as { type?: string }).type === "thinking")
-    .map((block) => (block as { thinking?: string }).thinking ?? "")
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      const item = block as { type?: string; thinking?: string; text?: string; reasoning?: string };
+      if (item.type !== "thinking" && item.type !== "reasoning" && item.type !== "thought") return "";
+      return item.thinking || item.text || item.reasoning || "";
+    })
     .join("");
   return value || undefined;
+}
+
+function mergeAssistantUi(previous: UiMessage, incoming: UiMessage): UiMessage {
+  const previousCalls = new Map(previous.toolCalls?.map((call) => [call.id, call]));
+  const toolCalls = incoming.toolCalls?.length
+    ? incoming.toolCalls.map((call) => ({ ...previousCalls.get(call.id), ...call }))
+    : previous.toolCalls;
+  return {
+    ...previous,
+    ...incoming,
+    id: previous.id,
+    thinking: incoming.thinking || previous.thinking,
+    toolCalls,
+  };
 }
 
 function toolCallsFromContent(content: unknown, startedAt?: number): UiToolCall[] | undefined {
@@ -330,6 +359,7 @@ interface PiState {
   stats: SessionStats | null;
   steeringQueue: unknown[];
   followUpQueue: unknown[];
+  managedFollowUpQueue: ManagedQueuedMessage[];
   sessions: SessionInfo[];
   settings: AppSettings | null;
   git: GitSnapshot | null;
@@ -356,6 +386,9 @@ interface PiState {
   handleLog: (runtimeId: string, line: string) => void;
   appendLog: (line: string) => void;
   sendMessage: (text: string, attachments?: AttachmentPayload[], behavior?: "steer" | "followUp") => Promise<boolean>;
+  removeManagedFollowUp: (id: string) => void;
+  moveManagedFollowUp: (id: string, direction: -1 | 1) => void;
+  steerManagedFollowUp: (id: string) => Promise<void>;
   resolveMessageForkPoint: (messageId: string) => Promise<ForkPoint | null>;
   editAndResend: (entryId: string, text: string, attachments?: AttachmentPayload[]) => Promise<boolean>;
   abort: () => Promise<void>;
@@ -369,6 +402,8 @@ interface PiState {
   exportSession: () => Promise<string | null>;
   setModel: (model: ModelInfo) => Promise<void>;
   setThinkingLevel: (level: string) => Promise<void>;
+  setRuntimeAgentMode: (mode: AppSettings["agentMode"]) => Promise<void>;
+  setRuntimePermissionMode: (mode: AppSettings["permissionMode"]) => Promise<void>;
   setSessionName: (name: string) => Promise<void>;
   refreshSessions: () => Promise<void>;
   refreshGit: () => Promise<void>;
@@ -389,6 +424,7 @@ export const usePiStore = create<PiState>((set, get) => {
     message?: AssistantMessage;
     textDelta: string;
     thinkingDelta: string;
+    thinkingReplace?: string;
     toolCalls: UiToolCall[];
   } | null = null;
   let assistantUpdateTimer: number | null = null;
@@ -405,6 +441,9 @@ export const usePiStore = create<PiState>((set, get) => {
   const workspaceWarmups = new Map<string, Promise<void>>();
   let preferredWarmupKey = "";
   let activeTurnStartedAt: number | null = null;
+  const managedFollowUpsByRuntime = new Map<string, ManagedQueuedMessage[]>();
+  const managedDrainInFlight = new Set<string>();
+  const suppressManagedDrainFor = new Set<string>();
 
   const workspaceKey = (cwd: string) => cwd.trim().replace(/[\\/]+$/, "").toLowerCase();
 
@@ -446,10 +485,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (index < 0 || !messages[index].isStreaming) {
         messages.push(next);
       } else {
-        const previous = messages[index];
-        const previousCalls = new Map(previous.toolCalls?.map((call) => [call.id, call]));
-        next.toolCalls = next.toolCalls?.map((call) => ({ ...previousCalls.get(call.id), ...call }));
-        messages[index] = { ...previous, ...next, id: previous.id };
+        messages[index] = mergeAssistantUi(messages[index], next);
       }
       return { messages, isStreaming: true };
     });
@@ -466,7 +502,7 @@ export const usePiStore = create<PiState>((set, get) => {
           id: `stream-${Date.now()}`,
           role: "assistant",
           content: pending.textDelta,
-          thinking: pending.thinkingDelta || undefined,
+          thinking: pending.thinkingReplace || pending.thinkingDelta || undefined,
           toolCalls: pending.toolCalls.length ? pending.toolCalls : undefined,
           isStreaming: true,
           timestamp: Date.now(),
@@ -480,7 +516,9 @@ export const usePiStore = create<PiState>((set, get) => {
         messages[index] = {
           ...previous,
           content: previous.content + pending.textDelta,
-          thinking: `${previous.thinking ?? ""}${pending.thinkingDelta}` || undefined,
+          thinking: pending.thinkingReplace
+            || `${previous.thinking ?? ""}${pending.thinkingDelta}`
+            || undefined,
           toolCalls: toolCalls.size ? [...toolCalls.values()] : undefined,
           isStreaming: true,
         };
@@ -492,14 +530,18 @@ export const usePiStore = create<PiState>((set, get) => {
   const queueAssistantUpdate = (
     runtimeId: string,
     message: AssistantMessage | undefined,
-    update: { type: string; delta?: string; toolCall?: { id: string; name: string; arguments: Record<string, unknown> } },
+    update: { type: string; delta?: string; content?: string; toolCall?: { id: string; name: string; arguments: Record<string, unknown> } },
   ) => {
     if (!pendingAssistantUpdate || pendingAssistantUpdate.runtimeId !== runtimeId) {
       pendingAssistantUpdate = { runtimeId, textDelta: "", thinkingDelta: "", toolCalls: [] };
     }
     if (message) pendingAssistantUpdate.message = message;
-    if (update.type === "text_delta" && update.delta) pendingAssistantUpdate.textDelta += update.delta;
-    if (update.type === "thinking_delta" && update.delta) pendingAssistantUpdate.thinkingDelta += update.delta;
+    const chunk = update.delta || (update.type.endsWith("_delta") && update.content) || "";
+    if (update.type === "text_delta" && chunk) pendingAssistantUpdate.textDelta += chunk;
+    if (update.type === "thinking_delta" && chunk) pendingAssistantUpdate.thinkingDelta += chunk;
+    if (update.type === "thinking_end" && typeof update.content === "string" && update.content) {
+      pendingAssistantUpdate.thinkingReplace = update.content;
+    }
     if (update.type === "toolcall_end" && update.toolCall) {
       pendingAssistantUpdate.toolCalls.push({
         id: update.toolCall.id,
@@ -515,7 +557,13 @@ export const usePiStore = create<PiState>((set, get) => {
       pendingAssistantUpdate = null;
       if (!pending) return;
       if (pending.message) applyAssistantUpdate(pending.runtimeId, pending.message);
-      else applyAssistantDelta(pending);
+      if (!pending.message) {
+        applyAssistantDelta(pending);
+        return;
+      }
+      if (pending.thinkingDelta || pending.thinkingReplace) {
+        applyAssistantDelta({ ...pending, textDelta: "", toolCalls: [] });
+      }
     }, 32);
   };
 
@@ -555,6 +603,34 @@ export const usePiStore = create<PiState>((set, get) => {
         },
       };
     });
+  };
+
+  const setManagedQueueForRuntime = (runtimeId: string, queue: ManagedQueuedMessage[]) => {
+    if (queue.length > 0) managedFollowUpsByRuntime.set(runtimeId, queue);
+    else managedFollowUpsByRuntime.delete(runtimeId);
+    if (get().runtimeId === runtimeId) set({ managedFollowUpQueue: queue });
+  };
+
+  const drainManagedFollowUp = async (runtimeId: string) => {
+    if (suppressManagedDrainFor.delete(runtimeId)) return;
+    if (managedDrainInFlight.has(runtimeId)) return;
+    const queue = managedFollowUpsByRuntime.get(runtimeId) ?? [];
+    const next = queue[0];
+    if (!next) return;
+
+    managedDrainInFlight.add(runtimeId);
+    setManagedQueueForRuntime(runtimeId, queue.slice(1));
+    try {
+      await sendCommand(runtimeId, "prompt", buildPromptPayload(next.text, next.attachments));
+    } catch (error) {
+      const current = managedFollowUpsByRuntime.get(runtimeId) ?? [];
+      setManagedQueueForRuntime(runtimeId, insertManagedQueueItem(current, next, 0));
+      if (get().runtimeId === runtimeId) {
+        toast(`发送待处理消息失败：${error instanceof Error ? error.message : String(error)}`, "error");
+      }
+    } finally {
+      managedDrainInFlight.delete(runtimeId);
+    }
   };
 
   const syncSession = async (expectedVersion = connectionVersion) => {
@@ -610,7 +686,7 @@ export const usePiStore = create<PiState>((set, get) => {
     set({
       availableModels: models.data?.models ?? [],
       availableThinkingLevels: levels.data?.levels ?? ["off"],
-      commands: commands.data?.commands ?? [],
+      commands: (commands.data?.commands ?? []).filter((item) => item.name !== PIDESKTOP_REWIND_COMMAND),
     });
     await refreshStats(expectedVersion);
   };
@@ -650,6 +726,7 @@ export const usePiStore = create<PiState>((set, get) => {
     stats: null,
     steeringQueue: [],
     followUpQueue: [],
+    managedFollowUpQueue: [],
     sessions: [],
     settings: null,
     git: null,
@@ -691,6 +768,7 @@ export const usePiStore = create<PiState>((set, get) => {
           computer: null,
           git: null,
           lastError: null,
+          managedFollowUpQueue: [],
         });
         if (localHistory) {
           void localHistory.then(({ messages: history, timings }) => {
@@ -733,6 +811,7 @@ export const usePiStore = create<PiState>((set, get) => {
               },
             },
             extensionRequest: existing?.extensionRequest ?? null,
+            managedFollowUpQueue: managedFollowUpsByRuntime.get(runtimeId) ?? [],
           }));
           if (sessionFile && !started.sessionLoaded) {
             await sendCommand(runtimeId, "switch_session", { sessionPath: sessionFile }, 60_000);
@@ -870,6 +949,7 @@ export const usePiStore = create<PiState>((set, get) => {
           sessionFile: active.sessionFile ?? null,
           isStreaming: active.isStreaming,
           extensionRequest: active.pendingExtension ?? null,
+          managedFollowUpQueue: managedFollowUpsByRuntime.get(active.runtimeId) ?? [],
           lastError: null,
         });
         await syncSession(restoreVersion);
@@ -905,6 +985,9 @@ export const usePiStore = create<PiState>((set, get) => {
           throw error;
         }
         intentionalRuntimeStops.delete(runtimeId);
+        managedFollowUpsByRuntime.delete(runtimeId);
+        managedDrainInFlight.delete(runtimeId);
+        suppressManagedDrainFor.delete(runtimeId);
       }
       set((state) => {
         const runtimes = { ...state.runtimes };
@@ -917,6 +1000,7 @@ export const usePiStore = create<PiState>((set, get) => {
           isStreaming: false,
           isSwitchingModel: false,
           messages: [],
+          managedFollowUpQueue: [],
         };
       });
     },
@@ -945,6 +1029,7 @@ export const usePiStore = create<PiState>((set, get) => {
         extensionWidgets: {},
         steeringQueue: [],
         followUpQueue: [],
+        managedFollowUpQueue: [],
         terminal: { running: false, command: "", output: "", history: [] },
         lastError: null,
         sessionTree: [],
@@ -958,6 +1043,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (event.type === "agent_start") updateRuntime(runtimeId, { isStreaming: true });
       if (event.type === "agent_end" && !event.willRetry) updateRuntime(runtimeId, { isStreaming: false });
       if (event.type === "agent_settled") updateRuntime(runtimeId, { isStreaming: false });
+      if (event.type === "agent_settled") queueMicrotask(() => void drainManagedFollowUp(runtimeId));
       if (event.type === "extension_ui_request") {
         const request = event as ExtensionUIRequest;
         if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
@@ -990,7 +1076,9 @@ export const usePiStore = create<PiState>((set, get) => {
         case "agent_end":
           if (!event.willRetry) {
             set({ isStreaming: false });
-            notify("Pi 已完成", get().sessionName || "本地编码任务已完成，可以开始检查。" );
+            if ((managedFollowUpsByRuntime.get(runtimeId) ?? []).length === 0) {
+              notify("Pi 已完成", get().sessionName || "本地编码任务已完成，可以开始检查。" );
+            }
           }
           return;
         case "agent_settled":
@@ -1049,10 +1137,7 @@ export const usePiStore = create<PiState>((set, get) => {
               let index = messages.length - 1;
               while (index >= 0 && messages[index].role !== "assistant") index -= 1;
               if (index >= 0 && messages[index].isStreaming) {
-                const previous = messages[index];
-                const previousCalls = new Map(previous.toolCalls?.map((call) => [call.id, call]));
-                completed.toolCalls = completed.toolCalls?.map((call) => ({ ...previousCalls.get(call.id), ...call }));
-                messages[index] = { ...previous, ...completed, id: previous.id };
+                messages[index] = mergeAssistantUi(messages[index], completed);
               }
               return { messages };
             });
@@ -1243,8 +1328,12 @@ export const usePiStore = create<PiState>((set, get) => {
       const payload = buildPromptPayload(text, attachments);
       if (!payload.message && payload.images.length === 0) return false;
       try {
-        const response = await command("fork", { entryId }, 60_000);
-        if (response.data?.cancelled) return false;
+        const commandsResponse = await command("get_commands");
+        const rewindAvailable = (commandsResponse.data?.commands ?? [])
+          .some((item) => item.name === PIDESKTOP_REWIND_COMMAND);
+        if (!rewindAvailable) throw new Error("消息回退组件尚未加载，请重启当前任务后再试");
+
+        await command("prompt", { message: `/${PIDESKTOP_REWIND_COMMAND} ${entryId}` }, 60_000);
         await syncSession();
         await get().refreshSessions();
         return get().sendMessage(text, attachments);
@@ -1274,6 +1363,19 @@ export const usePiStore = create<PiState>((set, get) => {
         return false;
       }
       const wasStreaming = get().isStreaming;
+      if (wasStreaming && behavior === "followUp") {
+        const item: ManagedQueuedMessage = {
+          id: typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          text: payload.message,
+          attachments: attachments.map((attachment) => ({ ...attachment })),
+          createdAt: Date.now(),
+        };
+        const queue = managedFollowUpsByRuntime.get(runtimeId) ?? [];
+        setManagedQueueForRuntime(runtimeId, appendManagedQueue(queue, item));
+        return true;
+      }
       const optimistic = !wasStreaming && !payload.message.startsWith("/");
       if (!wasStreaming) activeTurnStartedAt = Date.now();
       if (optimistic) {
@@ -1323,10 +1425,42 @@ export const usePiStore = create<PiState>((set, get) => {
       }
     },
 
+    removeManagedFollowUp: (id) => {
+      const runtimeId = get().runtimeId;
+      if (!runtimeId) return;
+      const current = managedFollowUpsByRuntime.get(runtimeId) ?? [];
+      setManagedQueueForRuntime(runtimeId, removeManagedQueueItem(current, id).queue);
+    },
+
+    moveManagedFollowUp: (id, direction) => {
+      const runtimeId = get().runtimeId;
+      if (!runtimeId) return;
+      const current = managedFollowUpsByRuntime.get(runtimeId) ?? [];
+      setManagedQueueForRuntime(runtimeId, moveManagedQueueItem(current, id, direction));
+    },
+
+    steerManagedFollowUp: async (id) => {
+      const runtimeId = get().runtimeId;
+      if (!runtimeId) return;
+      const current = managedFollowUpsByRuntime.get(runtimeId) ?? [];
+      const removed = removeManagedQueueItem(current, id);
+      if (!removed.item) return;
+      setManagedQueueForRuntime(runtimeId, removed.queue);
+      const sent = await get().sendMessage(removed.item.text, removed.item.attachments, "steer");
+      if (!sent) {
+        const latest = managedFollowUpsByRuntime.get(runtimeId) ?? [];
+        setManagedQueueForRuntime(runtimeId, insertManagedQueueItem(latest, removed.item, removed.index));
+      }
+    },
+
     abort: async () => {
       const runtimeId = get().runtimeId;
+      if (runtimeId) suppressManagedDrainFor.add(runtimeId);
       try {
         await command("abort");
+      } catch (error) {
+        if (runtimeId) suppressManagedDrainFor.delete(runtimeId);
+        throw error;
       } finally {
         if (runtimeId) settleOptimisticPrompt(runtimeId);
         set({ isStreaming: false });
@@ -1513,6 +1647,16 @@ export const usePiStore = create<PiState>((set, get) => {
       if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新设置推理等级");
       await sendCommand(runtimeId, "set_thinking_level", { level });
       set({ thinkingLevel: level });
+    },
+
+    setRuntimeAgentMode: async (mode) => {
+      if (!get().runtimeId) return;
+      await command("prompt", { message: `/${PIDESKTOP_MODE_COMMAND} ${mode}` }, 30_000);
+    },
+
+    setRuntimePermissionMode: async (mode) => {
+      if (!get().runtimeId) return;
+      await command("prompt", { message: `/${PIDESKTOP_PERMISSION_COMMAND} ${mode}` }, 30_000);
     },
 
     setSessionName: async (name) => {

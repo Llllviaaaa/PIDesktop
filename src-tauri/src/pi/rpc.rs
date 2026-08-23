@@ -488,6 +488,36 @@ impl Drop for PiRpcClient {
     }
 }
 
+/// Kill a process and all of its descendants. On Windows `taskkill /T` tears
+/// down the whole cmd -> node -> shell tree; elsewhere we signal the direct child.
+fn kill_process_tree(pid: u32) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("taskkill");
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+        let output = command
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .output()
+            .map_err(|err| format!("taskkill failed: {err}"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "taskkill exited with {}: {}",
+                output.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&output.stderr)
+            ))
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -575,35 +605,5 @@ mod tests {
         );
 
         assert!(pending.lock().expect("pending extension lock").is_none());
-    }
-}
-
-/// Kill a process and all of its descendants. On Windows `taskkill /T` tears
-/// down the whole cmd → node → shell tree; elsewhere we signal the direct child.
-fn kill_process_tree(pid: u32) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        let mut command = Command::new("taskkill");
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-        let output = command
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .output()
-            .map_err(|err| format!("taskkill failed: {err}"))?;
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(format!(
-                "taskkill exited with {}: {}",
-                output.status.code().unwrap_or(-1),
-                String::from_utf8_lossy(&output.stderr)
-            ))
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
-        Ok(())
     }
 }
