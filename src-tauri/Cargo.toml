@@ -33,7 +33,7 @@ portable-pty = "0.9"
 regex = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-ureq = { version = "2.12", features = ["json"] }
+ureq = { version = "3.4", features = ["json"] }
 urlencoding = "2"
 
 [target.'cfg(windows)'.dependencies]
