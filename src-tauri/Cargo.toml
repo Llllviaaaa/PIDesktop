@@ -37,7 +37,7 @@ ureq = { version = "2.12", features = ["json"] }
 urlencoding = "2"
 
 [target.'cfg(windows)'.dependencies]
-png = "0.17"
+png = "0.18"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
