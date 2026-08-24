@@ -991,7 +991,7 @@ function DebugPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
     <PageHeading title="调试" description="查看并配置 Pi 进程、会话和诊断选项。" />
     <Card title="Pi 进程">
-      <Row title="可执行程序" description="PATH 中的命令或可执行程序绝对路径。"><input value={form.piBinary} onChange={(event) => update("piBinary", event.target.value)} placeholder="pi" /></Row>
+      <Row title="可执行程序" description="默认使用安装包内置 Pi；填写 PATH 命令或绝对路径可覆盖。"><input value={form.piBinary} onChange={(event) => update("piBinary", event.target.value)} placeholder="pi（内置）" /></Row>
       <Row title="会话目录" description="留空则使用 ~/.pi/agent/sessions。"><input value={form.sessionDir} onChange={(event) => update("sessionDir", event.target.value)} placeholder="~/.pi/agent/sessions" /></Row>
       <Row title="日志等级"><select value={form.logLevel} onChange={(event) => update("logLevel", event.target.value as AppSettings["logLevel"])}><option value="error">错误</option><option value="warn">警告</option><option value="info">信息</option><option value="debug">调试</option></select></Row>
     </Card>

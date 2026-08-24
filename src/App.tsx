@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -37,11 +38,12 @@ import { sameLocalPath } from "./lib/pathIdentity";
 import { ACTIVE_RUNTIME_KEY, LAST_TASK_KEY, readPersistedTask, useRuntimeBootstrap } from "./hooks/useRuntimeBootstrap";
 import { usePiStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
-import { Message } from "./components/Message";
 import { Composer } from "./components/Composer";
 import type { SettingsPage } from "./components/SettingsModal";
 import { ExtensionDialog } from "./components/ExtensionDialog";
-import { InspectorPanel, type InspectorTab } from "./components/InspectorPanel";
+import type { InspectorTab } from "./components/InspectorPanel";
+import { ConnectedInspectorPanel } from "./components/ConnectedInspectorPanel";
+import { ConversationMessages } from "./components/ConversationMessages";
 import { ToolRail, type WorkspaceTool } from "./components/ToolRail";
 import { FileTreePanel } from "./components/FileTreePanel";
 import { DocumentPane } from "./components/DocumentPane";
@@ -79,6 +81,12 @@ type HubView = "pull-requests" | "sites" | "scheduled" | "plugins";
 type AppMenu = "file" | "edit" | "view" | "help";
 type NavigationTarget = BaseNavigationTarget<HubView>;
 
+function selectAppShellState(state: ReturnType<typeof usePiStore.getState>) {
+  const { messages, ...shellState } = state;
+  void messages;
+  return shellState;
+}
+
 function WorkspaceCubeIcon({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -92,11 +100,10 @@ function WorkspaceCubeIcon({ size = 16 }: { size?: number }) {
 const WORKSPACE_CHAT_WIDTH_KEY = "pid-desktop:workspace-chat-width:v2";
 
 export default function App() {
-  const store = usePiStore();
+  const store = usePiStore(useShallow(selectAppShellState));
   const {
     connection,
     cwd,
-    messages,
     sessions,
     settings,
     sessionFile,
@@ -170,13 +177,14 @@ export default function App() {
   const conversationScrollRef = useRef<HTMLDivElement>(null);
   const autoFollowConversationRef = useRef(true);
   const lastAutoScrollAtRef = useRef(0);
+  const firstUserMessage = usePiStore((state) => state.messages.find((message) => message.role === "user")?.content);
   const resolvedThreadTitle = useMemo(() => activeSessionTitle({
     sessions,
     sessionFile,
     sessionId,
     sessionName,
-    firstMessage: messages.find((message) => message.role === "user")?.content,
-  }), [messages, sessionFile, sessionId, sessionName, sessions]);
+    firstMessage: firstUserMessage,
+  }), [firstUserMessage, sessionFile, sessionId, sessionName, sessions]);
   const navigationBackRef = useRef<NavigationTarget[]>([]);
   const navigationForwardRef = useRef<NavigationTarget[]>([]);
   const [navigationVersion, setNavigationVersion] = useState(0);
@@ -451,18 +459,6 @@ export default function App() {
   }, [runtimeId, sessionFile]);
 
   useEffect(() => {
-    if (!autoFollowConversationRef.current) return;
-    const now = performance.now();
-    if (isStreaming && now - lastAutoScrollAtRef.current < 80) return;
-    lastAutoScrollAtRef.current = now;
-    const frame = window.requestAnimationFrame(() => {
-      const scroller = conversationScrollRef.current;
-      if (scroller) scroller.scrollTop = scroller.scrollHeight;
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [isStreaming, messages.length, messages[messages.length - 1]?.content]);
-
-  useEffect(() => {
     if (draftWorkspace || sessions.length === 0) return;
     const firstProject = sessions.find((session) => !session.cwd.toLowerCase().endsWith("quick-chat"))?.cwd;
     if (firstProject) setDraftWorkspace(firstProject);
@@ -654,16 +650,6 @@ export default function App() {
     const { add, del } = aggregateDiffStats(git?.diff);
     return { additions: add, deletions: del };
   }, [git?.diff]);
-  // Last assistant reply of the current turn: gets Codex's persistent action row + streaming fold label.
-  const lastAssistantId = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const role = messages[index].role;
-      if (role === "assistant") return messages[index].id;
-      if (role === "user") return null;
-    }
-    return null;
-  }, [messages]);
-
   const taskWorkspaceName = quickChat
     ? "快速对话"
     : draftWorkspace.split(/[\\/]/).filter(Boolean).pop() || "一个项目";
@@ -1614,21 +1600,20 @@ export default function App() {
                       )}
                     </div>
                   )}
-                  {messages.map((message) => (
-                    <Message
-                      key={message.id}
-                      message={message}
-                      showThinking={settings?.showThinking ?? true}
-                      expectVisibleThinking={thinkingLevel !== "off" && model?.reasoning === true}
-                      isLastAssistant={message.id === lastAssistantId}
-                      globalStreaming={isStreaming}
-                      workingLabel={message.id === lastAssistantId ? statusText : undefined}
-                      editing={editingMessage?.messageId === message.id}
-                      onEdit={message.role === "user" ? editUserMessage : undefined}
-                      onCancelEdit={cancelMessageEdit}
-                      onSubmitEdit={submitMessageEdit}
-                    />
-                  ))}
+                  <ConversationMessages
+                    showThinking={settings?.showThinking ?? true}
+                    expectVisibleThinking={thinkingLevel !== "off" && model?.reasoning === true}
+                    isStreaming={isStreaming}
+                    statusText={statusText}
+                    editingMessageId={editingMessage?.messageId}
+                    onEdit={editUserMessage}
+                    onCancelEdit={cancelMessageEdit}
+                    onSubmitEdit={submitMessageEdit}
+                    scrollerRef={conversationScrollRef}
+                    autoFollowRef={autoFollowConversationRef}
+                    lastAutoScrollAtRef={lastAutoScrollAtRef}
+                    conversationKey={`${runtimeId ?? "none"}:${sessionFile ?? "new"}`}
+                  />
                   {(git?.files.length ?? 0) > 0 && (
                     <section className="conversation-change-card" aria-label="当前工作区变更">
                       <div className="conversation-change-heading">
@@ -1686,7 +1671,7 @@ export default function App() {
           />
         )}
         {workspaceTool === "review" && (
-          <InspectorPanel
+          <ConnectedInspectorPanel
             key={`dock-${workspaceTool}`}
             docked
             initialTab="changes"
@@ -1694,7 +1679,6 @@ export default function App() {
             onClose={() => setWorkspaceTool(null)}
             git={newTask ? draftGit : git}
             cwd={workspaceCwd}
-            messages={messages}
             environment={taskEnvironment}
             terminal={terminal}
             agentBrowser={agentBrowser}
@@ -1788,14 +1772,13 @@ export default function App() {
 
         <div className="environment-flyout-layer" aria-hidden={!inspectorTab}>
           {inspectorTab && (
-            <InspectorPanel
+            <ConnectedInspectorPanel
               initialTab={inspectorTab}
               openView={inspectorOpenView}
               onClose={() => { setInspectorTab(null); setInspectorOpenView(null); }}
               onError={(message) => store.showToast(message, "error")}
               git={newTask ? draftGit : git}
               cwd={newTask ? draftWorkspace : cwd}
-              messages={messages}
               environment={taskEnvironment}
               terminal={terminal}
               agentBrowser={agentBrowser}

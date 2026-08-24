@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, ExternalLink, File, Folder, Paperclip, RefreshCw, Search, X } from "lucide-react";
 import { pi } from "../lib/pi";
 import type { WorkspaceDirEntry } from "../types";
@@ -19,6 +19,7 @@ export function FileTreePanel({ cwd, activePath, onOpenFile, onAddToChat, onOpen
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const searchSequence = useRef(0);
 
   useEffect(() => {
     if (!cwd) {
@@ -50,14 +51,19 @@ export function FileTreePanel({ cwd, activePath, onOpenFile, onAddToChat, onOpen
       return;
     }
     let disposed = false;
+    const requestId = `workspace-search-${Date.now()}-${++searchSequence.current}`;
     setSearching(true);
     const timer = window.setTimeout(() => {
-      void pi.searchWorkspaceFiles(cwd, needle)
+      void pi.searchWorkspaceFiles(cwd, needle, requestId)
         .then((entries) => { if (!disposed) setMatches(entries); })
         .catch(() => { if (!disposed) setMatches([]); })
         .finally(() => { if (!disposed) setSearching(false); });
     }, 140);
-    return () => { disposed = true; window.clearTimeout(timer); };
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      void pi.cancelWorkspaceSearch(requestId).catch(() => undefined);
+    };
   }, [cwd, query, refreshKey]);
 
   const visible = useMemo(() => {

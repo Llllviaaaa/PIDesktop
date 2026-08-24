@@ -51,3 +51,7 @@ id_ed25519
 
 # Local UI comparison captures and driver artifacts
 docs/codex-ui-refs/live-compare/
+
+# Generated during desktop builds from pinned npm dependencies
+/src-tauri/resources/pi-runtime/
+/src-tauri/resources/.pi-runtime-staging-*/

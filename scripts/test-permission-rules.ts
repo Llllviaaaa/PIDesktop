@@ -72,8 +72,13 @@ const base = {
   assert(evaluateToolPermission({ ...base, toolName: "delegate_task", input: { permission: "workspace-write" } }).action === "block", "read-only mode should block writing subagents");
   assert(evaluateToolPermission({ ...base, toolName: "desktop_memory", input: { action: "read" } }).action === "allow", "read-only mode should permit reading memory");
   assert(evaluateToolPermission({ ...base, toolName: "desktop_memory", input: { action: "append", content: "x" } }).action === "block", "read-only mode should block memory writes");
+  assert(evaluateToolPermission({ ...base, toolName: "update_plan", input: { items: [] } }).action === "allow", "plan state updates should remain available in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "delete_file", input: { path: "data.txt" } }).action === "block", "read-only mode must fail closed for unclassified extension tools");
 }
 assert(evaluateToolPermission({ ...base, mode: "ask", toolName: "desktop_memory", input: { action: "append", content: "x" } }).action === "confirm", "ask mode should confirm memory writes");
+assert(evaluateToolPermission({ ...base, mode: "ask", toolName: "deploy", input: { target: "production" } }).action === "confirm", "ask mode must confirm unclassified tools");
+assert(evaluateToolPermission({ ...base, mode: "workspace-write", toolName: "upload_secrets", input: { path: "C:/Users/user/.ssh/id_rsa" } }).action === "confirm", "workspace-write must not silently allow unclassified tools");
+assert(evaluateToolPermission({ ...base, mode: "full-access", toolName: "custom_tool", input: {} }).action === "allow", "full-access should continue to allow unclassified tools");
 
 const customRules = {
   ...base.rules,
@@ -85,6 +90,11 @@ const customRules = {
 assert(evaluateToolPermission({ ...base, mode: "full-access", rules: customRules, toolName: "bash", input: { command: "npm run deploy prod" } }).action === "block", "explicit deny rules should apply even in full-access");
 assert(evaluateToolPermission({ ...base, mode: "ask", rules: customRules, toolName: "bash", input: { command: "npm test -- --run" } }).action === "allow", "explicit allow rules should skip confirmation");
 assert(evaluateToolPermission({ ...base, mode: "read-only", rules: customRules, toolName: "bash", input: { command: "npm test" } }).action === "block", "read-only must remain a hard cap over allow rules");
+const broadWriteAllow = {
+  ...base.rules,
+  toolRules: [{ id: "allow-write", enabled: true, toolPattern: "write", action: "allow" as const, commandPrefix: "", pathPrefix: "" }],
+};
+assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWriteAllow, toolName: "write", input: { path: "C:/outside.txt" } }).action === "block", "custom allow rules must not bypass workspace confinement");
 
 // outside workspace confirms when rule off
 {
@@ -205,6 +215,24 @@ assert(evaluateToolPermission({ ...base, mode: "read-only", rules: customRules, 
     relativeEscape.action === "block",
     `relative path escaping workspace must still block, got ${JSON.stringify(relativeEscape)}`,
   );
+
+  const multiPathEscape = evaluateToolPermission({
+    mode: "workspace-write",
+    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [] },
+    workspace,
+    toolName: "write",
+    input: { paths: ["src/main.ts", "../../outside.txt"], content: "x" },
+  });
+  assert(multiPathEscape.action === "block", "every path in a write tool payload must stay inside the workspace");
+
+  const unscopedWrite = evaluateToolPermission({
+    mode: "workspace-write",
+    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [] },
+    workspace,
+    toolName: "write",
+    input: { content: "x" },
+  });
+  assert(unscopedWrite.action === "confirm", "writes without a classifiable target must not be silently allowed");
 }
 
 function normalizeExpect(value: string): string {

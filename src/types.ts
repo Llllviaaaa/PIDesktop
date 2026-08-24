@@ -466,10 +466,11 @@ export interface ScheduledTask {
   minute: number;
   weekday: number;
   permissionMode: ScheduledPermissionMode;
+  timeoutMinutes?: number | null;
   enabled: boolean;
   lastRunAt?: number | null;
   nextRunAt?: number | null;
-  lastStatus: "" | "running" | "success" | "error" | "interrupted";
+  lastStatus: "" | "running" | "success" | "error" | "interrupted" | "cancelled" | "timed-out";
   lastMessage: string;
 }
 
@@ -481,7 +482,7 @@ export interface ScheduledRunRecord {
   prompt: string;
   permissionMode: ScheduledPermissionMode;
   trigger: "manual" | "scheduled";
-  status: "running" | "success" | "error" | "interrupted";
+  status: "running" | "success" | "error" | "interrupted" | "cancelled" | "timed-out";
   startedAt: number;
   finishedAt?: number | null;
   durationMs?: number | null;

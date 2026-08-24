@@ -4,28 +4,28 @@ mod pi;
 mod scheduler;
 mod secret_store;
 mod terminal;
+mod workspace_files;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
-#[cfg(windows)]
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use pi::process::run_pi_print;
+use pi::process::{run_pi_print, PiPrintLimits};
 use pi::rpc::PiRpcClient;
 use pi::sessions::{
     list_sessions, parse_session_file, session_history, session_message_timings, session_messages,
     trash_session, validate_session_path, SessionHistory, SessionInfo, SessionMessageTiming,
 };
 use scheduler::ScheduledRunRecord;
+use workspace_files::WorkspaceDirEntry;
 
 const GUARD_EXTENSION: &str = include_str!("../resources/pidesktop-guard.ts");
 const RULES_MODULE: &str = include_str!("../resources/pidesktop-rules.ts");
@@ -525,6 +525,7 @@ pub(crate) struct ScheduledTask {
     weekday: u8,
     #[serde(default = "default_scheduled_permission_mode")]
     permission_mode: String,
+    timeout_minutes: Option<u16>,
     enabled: bool,
     last_run_at: Option<u64>,
     next_run_at: Option<u64>,
@@ -574,10 +575,21 @@ struct PullRequestCollection {
 struct AppState {
     runtimes: Mutex<HashMap<String, PiRuntime>>,
     settings: Mutex<AppSettings>,
+    bundled_pi_binary: Option<PathBuf>,
     projects: Mutex<Vec<ProjectConfig>>,
     scheduled_tasks: Mutex<Vec<ScheduledTask>>,
-    running_scheduled_tasks: Mutex<HashSet<String>>,
+    running_scheduled_tasks: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    workspace_searches: Mutex<HashMap<String, Arc<AtomicBool>>>,
     terminal_sessions: terminal::TerminalSessions,
+}
+
+fn effective_pi_binary(settings: &AppSettings, state: &AppState) -> String {
+    let configured =
+        pi::runtime::resolve_pi_binary(&settings.pi_binary, state.bundled_pi_binary.as_deref());
+    #[cfg(windows)]
+    return resolve_windows_pi_binary(&configured);
+    #[cfg(not(windows))]
+    configured
 }
 
 fn app_config_dir() -> PathBuf {
@@ -942,8 +954,15 @@ fn truncate_scheduled_output(value: &str, limit: usize) -> String {
 }
 
 struct ScheduledTaskRunGuard<'a> {
-    running: &'a Mutex<HashSet<String>>,
+    running: &'a Mutex<HashMap<String, Arc<AtomicBool>>>,
     id: String,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl ScheduledTaskRunGuard<'_> {
+    fn cancellation(&self) -> &AtomicBool {
+        &self.cancelled
+    }
 }
 
 impl Drop for ScheduledTaskRunGuard<'_> {
@@ -965,12 +984,15 @@ fn reserve_scheduled_task<'a>(
     if running.len() >= MAX_CONCURRENT_SCHEDULED_RUNS {
         return Err("scheduled runner is at its concurrency limit".to_string());
     }
-    if !running.insert(id.to_string()) {
+    if running.contains_key(id) {
         return Err("scheduled task is already running".to_string());
     }
+    let cancelled = Arc::new(AtomicBool::new(false));
+    running.insert(id.to_string(), Arc::clone(&cancelled));
     Ok(ScheduledTaskRunGuard {
         running: &state.running_scheduled_tasks,
         id: id.to_string(),
+        cancelled,
     })
 }
 
@@ -1002,7 +1024,7 @@ fn execute_scheduled_task(
     id: &str,
     trigger: &str,
 ) -> Result<ScheduledRunResult, String> {
-    let _reservation = reserve_scheduled_task(state, id)?;
+    let reservation = reserve_scheduled_task(state, id)?;
     let started_at = current_time_ms();
     let task = {
         let tasks = state
@@ -1015,9 +1037,22 @@ fn execute_scheduled_task(
             .cloned()
             .ok_or_else(|| "scheduled task not found".to_string())?
     };
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?
+        .clone();
+    let pi_binary = effective_pi_binary(&settings, state);
+    let before_sessions: HashMap<String, Option<u64>> = list_sessions(&settings.session_dir)
+        .into_iter()
+        .filter(|session| normalize_path_key(&session.cwd) == normalize_path_key(&task.cwd))
+        .map(|session| (session.file, session.updated_at))
+        .collect();
     let mut run = scheduler::begin_run(&scheduled_runs_path(), &task, trigger, started_at)?;
 
-    let running_task = {
+    // Once begin_run succeeds, keep every later failure inside the run result so
+    // history cannot be left permanently in the `running` state.
+    let running_task_result = (|| -> Result<ScheduledTask, String> {
         let mut tasks = state
             .scheduled_tasks
             .lock()
@@ -1038,63 +1073,97 @@ fn execute_scheduled_task(
         entry.last_message.clear();
         let snapshot = entry.clone();
         save_json_list(&scheduled_tasks_path(), &tasks)?;
-        snapshot
-    };
-    emit_scheduled_task(app, &running_task);
+        Ok(snapshot)
+    })();
+    if let Ok(running_task) = &running_task_result {
+        emit_scheduled_task(app, running_task);
+    }
     let _ = app.emit("scheduled-run-updated", &run);
 
-    let settings = state
-        .settings
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
-        .clone();
-    let before_sessions: HashMap<String, Option<u64>> = list_sessions(&settings.session_dir)
-        .into_iter()
-        .filter(|session| normalize_path_key(&session.cwd) == normalize_path_key(&task.cwd))
-        .map(|session| (session.file, session.updated_at))
-        .collect();
     let permission_mode = if is_safe_scheduled_permission_mode(&task.permission_mode) {
         task.permission_mode.as_str()
     } else {
         "ask"
     };
-    let execution = (|| -> Result<std::process::Output, String> {
-        let launch = build_pi_launch_config(&settings, &task.cwd, permission_mode, false)?;
-        run_pi_print(
-            &settings.pi_binary,
-            &task.cwd,
-            &launch.extra_args,
-            &launch.environment,
-            &task.prompt,
-        )
-        .map_err(|err| format!("failed to run scheduled Pi task: {err}"))
-    })();
-    let (success, exit_code, message) = match execution {
+    let execution = match running_task_result {
+        Ok(_) => (|| {
+            let launch = build_pi_launch_config(&settings, &task.cwd, permission_mode, false)?;
+            run_pi_print(
+                &pi_binary,
+                &task.cwd,
+                &launch.extra_args,
+                &launch.environment,
+                &task.prompt,
+                reservation.cancellation(),
+                PiPrintLimits {
+                    timeout: Duration::from_secs(
+                        u64::from(task.timeout_minutes.unwrap_or(30).clamp(1, 240)) * 60,
+                    ),
+                    output_bytes: 128 * 1024,
+                },
+            )
+            .map_err(|err| format!("failed to run scheduled Pi task: {err}"))
+        })(),
+        Err(err) => Err(format!("failed to mark scheduled task as running: {err}")),
+    };
+    let (run_status, success, exit_code, message) = match execution {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let success = output.status.success();
-            let message = if success {
+            let success = output
+                .status
+                .as_ref()
+                .is_some_and(|status| status.success())
+                && !output.cancelled
+                && !output.timed_out;
+            let mut message = if output.cancelled {
+                "PIDesktop cancelled this scheduled task.".to_string()
+            } else if output.timed_out {
+                format!(
+                    "Scheduled task exceeded its {} minute timeout.",
+                    task.timeout_minutes.unwrap_or(30).clamp(1, 240)
+                )
+            } else if success {
                 if stdout.is_empty() {
                     stderr
                 } else {
                     stdout
                 }
             } else if stderr.is_empty() {
-                format!("Pi exited with {}", output.status.code().unwrap_or(-1))
+                format!(
+                    "Pi exited with {}",
+                    output
+                        .status
+                        .as_ref()
+                        .and_then(|status| status.code())
+                        .unwrap_or(-1)
+                )
             } else {
                 stderr
             };
+            if output.output_truncated {
+                message.push_str("\n... output truncated by PIDesktop while the task was running");
+            }
             (
+                if output.cancelled {
+                    "cancelled"
+                } else if output.timed_out {
+                    "timed-out"
+                } else if success {
+                    "success"
+                } else {
+                    "error"
+                }
+                .to_string(),
                 success,
-                output.status.code(),
+                output.status.as_ref().and_then(|status| status.code()),
                 redact_runtime_output(&settings, &message),
             )
         }
-        Err(err) => (false, None, err),
+        Err(err) => ("error".to_string(), false, None, err),
     };
     let finished_at = current_time_ms();
-    run.status = if success { "success" } else { "error" }.to_string();
+    run.status = run_status;
     run.finished_at = Some(finished_at);
     run.duration_ms = Some(finished_at.saturating_sub(started_at));
     run.exit_code = exit_code;
@@ -1175,6 +1244,12 @@ fn save_scheduled_task_cmd(
             "scheduled task permission mode must be read-only, ask, or workspace-write".to_string(),
         );
     }
+    if task
+        .timeout_minutes
+        .is_some_and(|minutes| !(1..=240).contains(&minutes))
+    {
+        return Err("scheduled task timeout must be between 1 and 240 minutes".to_string());
+    }
     task.hour = task.hour.min(23);
     task.minute = task.minute.min(59);
     task.weekday = task.weekday.min(6);
@@ -1235,6 +1310,19 @@ async fn run_scheduled_task_cmd(
     })
     .await
     .map_err(|err| format!("scheduled task worker failed: {err}"))?
+}
+
+#[tauri::command]
+fn cancel_scheduled_task_cmd(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let cancellation = state
+        .running_scheduled_tasks
+        .lock()
+        .map_err(|_| "scheduled runner state lock poisoned".to_string())?
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| "scheduled task is not running".to_string())?;
+    cancellation.store(true, Ordering::Release);
+    Ok(())
 }
 
 fn initialize_scheduled_runner(app: &AppHandle) -> Result<(), String> {
@@ -1702,6 +1790,7 @@ fn pi_start(
         .lock()
         .map_err(|_| "state lock poisoned".to_string())?
         .clone();
+    let pi_binary = effective_pi_binary(&settings, &state);
     #[cfg(windows)]
     KEEP_AWAKE.store(settings.prevent_sleep, Ordering::Relaxed);
     let quick_root = app_config_dir().join("quick-chat");
@@ -1735,7 +1824,7 @@ fn pi_start(
     let client = PiRpcClient::spawn(
         app,
         &runtime_id,
-        &settings.pi_binary,
+        &pi_binary,
         &cwd,
         &launch.extra_args,
         &launch.environment,
@@ -2280,9 +2369,7 @@ fn check_model_provider(
         .lock()
         .map_err(|_| "state lock poisoned".to_string())?
         .clone();
-    let pi_binary = settings.pi_binary.clone();
-    #[cfg(windows)]
-    let pi_binary = resolve_windows_pi_binary(&pi_binary);
+    let pi_binary = effective_pi_binary(&settings, &state);
 
     #[cfg(windows)]
     let mut command = {
@@ -2357,16 +2444,20 @@ fn pi_send(state: State<'_, AppState>, runtime_id: String, line: String) -> Resu
 
 #[tauri::command]
 fn pi_stop(state: State<'_, AppState>, runtime_id: String) -> Result<(), String> {
-    let mut runtimes = state
-        .runtimes
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
-    if let Some(runtime) = runtimes.remove(&runtime_id) {
+    let runtime = {
+        let mut runtimes = state
+            .runtimes
+            .lock()
+            .map_err(|_| "state lock poisoned".to_string())?;
+        let runtime = runtimes.remove(&runtime_id);
+        #[cfg(windows)]
+        if runtimes.is_empty() {
+            KEEP_AWAKE.store(false, Ordering::Relaxed);
+        }
+        runtime
+    };
+    if let Some(runtime) = runtime {
         runtime.client.kill();
-    }
-    #[cfg(windows)]
-    if runtimes.is_empty() {
-        KEEP_AWAKE.store(false, Ordering::Relaxed);
     }
     Ok(())
 }
@@ -3091,14 +3182,6 @@ fn pi_package_detail(name: String) -> Result<PackageCatalogDetail, String> {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct WorkspaceDirEntry {
-    name: String,
-    path: String,
-    is_dir: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 struct WorkspaceFileContent {
     path: String,
     file_name: String,
@@ -3186,59 +3269,51 @@ fn list_workspace_dir(cwd: String, path: Option<String>) -> Result<Vec<Workspace
 }
 
 #[tauri::command]
-fn search_workspace_files(cwd: String, query: String) -> Result<Vec<WorkspaceDirEntry>, String> {
-    let needle = query.trim().to_ascii_lowercase();
-    if needle.is_empty() {
-        return Ok(Vec::new());
-    }
+async fn search_workspace_files(
+    state: State<'_, AppState>,
+    cwd: String,
+    query: String,
+    request_id: String,
+) -> Result<Vec<WorkspaceDirEntry>, String> {
     let (root, _) = confined_workspace_path(&cwd, "")?;
-    let mut pending = vec![root.clone()];
-    let mut matches = Vec::new();
-    while let Some(directory) = pending.pop() {
-        let Ok(entries) = fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            let is_dir = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
-            if is_dir {
-                if !matches!(
-                    name.as_str(),
-                    ".git" | "node_modules" | "target" | "dist" | ".next" | ".venv"
-                ) {
-                    pending.push(path);
-                }
-                continue;
-            }
-            let relative = path
-                .strip_prefix(&root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            if name.to_ascii_lowercase().contains(&needle)
-                || relative.to_ascii_lowercase().contains(&needle)
-            {
-                matches.push(WorkspaceDirEntry {
-                    name,
-                    path: relative,
-                    is_dir: false,
-                });
-                if matches.len() >= 200 {
-                    break;
-                }
-            }
-        }
-        if matches.len() >= 200 {
-            break;
+    let cancelled = Arc::new(AtomicBool::new(false));
+    {
+        let mut searches = state
+            .workspace_searches
+            .lock()
+            .map_err(|_| "workspace search state lock poisoned".to_string())?;
+        if let Some(previous) = searches.insert(request_id.clone(), Arc::clone(&cancelled)) {
+            previous.store(true, Ordering::Release);
         }
     }
-    matches.sort_by(|a, b| {
-        a.path
-            .to_ascii_lowercase()
-            .cmp(&b.path.to_ascii_lowercase())
-    });
-    Ok(matches)
+    let worker_cancelled = Arc::clone(&cancelled);
+    let worker = tauri::async_runtime::spawn_blocking(move || {
+        workspace_files::search(&root, &query, &worker_cancelled)
+    })
+    .await;
+    if let Ok(mut searches) = state.workspace_searches.lock() {
+        if searches
+            .get(&request_id)
+            .is_some_and(|active| Arc::ptr_eq(active, &cancelled))
+        {
+            searches.remove(&request_id);
+        }
+    }
+    worker.map_err(|err| format!("workspace search worker failed: {err}"))?
+}
+
+#[tauri::command]
+fn cancel_workspace_search(state: State<'_, AppState>, request_id: String) -> Result<(), String> {
+    if let Some(cancelled) = state
+        .workspace_searches
+        .lock()
+        .map_err(|_| "workspace search state lock poisoned".to_string())?
+        .get(&request_id)
+        .cloned()
+    {
+        cancelled.store(true, Ordering::Release);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -3318,6 +3393,7 @@ fn pi_package_action(
         .lock()
         .map_err(|_| "state lock poisoned".to_string())?
         .clone();
+    let pi_binary = effective_pi_binary(&settings, &state);
     let working_directory = cwd
         .filter(|value| Path::new(value).is_dir())
         .map(PathBuf::from)
@@ -3349,7 +3425,6 @@ fn pi_package_action(
 
     #[cfg(windows)]
     let mut command = {
-        let pi_binary = resolve_windows_pi_binary(&settings.pi_binary);
         let mut command = if let Some((node, cli)) = resolve_windows_pi_node_command(&pi_binary) {
             let mut command = Command::new(node);
             command.arg(cli).args(&arguments);
@@ -3379,7 +3454,7 @@ fn pi_package_action(
     };
     #[cfg(not(windows))]
     let mut command = {
-        let mut command = Command::new(&settings.pi_binary);
+        let mut command = Command::new(&pi_binary);
         command.args(&arguments);
         command
     };
@@ -4448,15 +4523,29 @@ pub fn run() {
         std::thread::sleep(std::time::Duration::from_secs(30));
     });
 
+    let bundled_pi_binary = pi::runtime::locate_bundled_pi_binary();
+    if let Some(path) = &bundled_pi_binary {
+        eprintln!(
+            "Pi Desktop is using bundled Pi runtime at {}",
+            path.display()
+        );
+    } else {
+        eprintln!(
+            "Pi Desktop bundled Pi runtime was not found; falling back to configured Pi command"
+        );
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             runtimes: Mutex::new(HashMap::new()),
             settings: Mutex::new(load_settings()),
+            bundled_pi_binary,
             projects: Mutex::new(load_json_list(&projects_path())),
             scheduled_tasks: Mutex::new(load_json_list(&scheduled_tasks_path())),
-            running_scheduled_tasks: Mutex::new(HashSet::new()),
+            running_scheduled_tasks: Mutex::new(HashMap::new()),
+            workspace_searches: Mutex::new(HashMap::new()),
             terminal_sessions: Mutex::new(HashMap::new()),
         })
         .setup(|app| {
@@ -4487,6 +4576,7 @@ pub fn run() {
             save_scheduled_task_cmd,
             delete_scheduled_task_cmd,
             run_scheduled_task_cmd,
+            cancel_scheduled_task_cmd,
             list_sessions_cmd,
             session_history_cmd,
             export_session_markdown,
@@ -4520,6 +4610,7 @@ pub fn run() {
             pi_package_detail,
             list_workspace_dir,
             search_workspace_files,
+            cancel_workspace_search,
             read_workspace_file,
             open_workspace_in_file_manager,
             list_workspace_editors,
@@ -4555,6 +4646,7 @@ pub fn run_computer_helper() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn confines_relative_and_absolute_files_to_the_workspace() {

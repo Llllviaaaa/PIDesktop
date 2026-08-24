@@ -1,5 +1,5 @@
 import { Children, createContext, isValidElement, useContext, useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
@@ -185,6 +185,7 @@ export function Markdown({ content }: MarkdownProps) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
+        urlTransform={(url) => url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url)}
         components={{
           pre: ({ children }) => <CodeFence>{children}</CodeFence>,
           a: ({ href, children }) => {
