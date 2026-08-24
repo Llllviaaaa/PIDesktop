@@ -915,9 +915,9 @@ function McpPage({ form, update }: { form: AppSettings; update: Update }) {
 
 function BrowserPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="浏览器" description="让 Pi 通过本机 Edge、Chrome 或 Chromium 检查和操作网页。" />
-    <Card title="浏览器工具">
-      <Row title="启用浏览器工具" description="为新启动的 Pi 任务注册 browser 工具。"><Switch label="启用浏览器工具" checked={form.browserEnabled} onChange={(value) => update("browserEnabled", value)} /></Row>
+    <PageHeading title="Agent 浏览器" description="让 Pi 通过独立的本机 Edge、Chrome 或 Chromium 会话检查和操作网页。" />
+    <Card title="Agent 浏览器工具">
+      <Row title="启用 Agent 浏览器" description="为新启动的 Pi 任务注册 browser 工具。"><Switch label="启用 Agent 浏览器" checked={form.browserEnabled} onChange={(value) => update("browserEnabled", value)} /></Row>
       <Row title="后台运行" description="使用无头浏览器并在 Pi Desktop 中显示页面结果和截图。"><Switch label="后台运行浏览器" checked={form.browserHeadless} onChange={(value) => update("browserHeadless", value)} /></Row>
       <Row title="操作前审批" description="打开页面、点击或输入内容前请求确认；检查和截图保持只读。"><Switch label="浏览器操作前审批" checked={form.browserConfirmActions} onChange={(value) => update("browserConfirmActions", value)} /></Row>
       <Row title="浏览器程序" description="留空时依次查找 Edge、Chrome 和 Chromium。"><input value={form.browserExecutable} onChange={(event) => update("browserExecutable", event.target.value)} placeholder="自动检测" /></Row>
@@ -991,7 +991,7 @@ function DebugPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
     <PageHeading title="调试" description="查看并配置 Pi 进程、会话和诊断选项。" />
     <Card title="Pi 进程">
-      <Row title="可执行程序" description="PATH 中的命令或可执行程序绝对路径。"><input value={form.piBinary} onChange={(event) => update("piBinary", event.target.value)} placeholder="pi" /></Row>
+      <Row title="可执行程序" description="默认使用安装包内置 Pi；填写 PATH 命令或绝对路径可覆盖。"><input value={form.piBinary} onChange={(event) => update("piBinary", event.target.value)} placeholder="pi（内置）" /></Row>
       <Row title="会话目录" description="留空则使用 ~/.pi/agent/sessions。"><input value={form.sessionDir} onChange={(event) => update("sessionDir", event.target.value)} placeholder="~/.pi/agent/sessions" /></Row>
       <Row title="日志等级"><select value={form.logLevel} onChange={(event) => update("logLevel", event.target.value as AppSettings["logLevel"])}><option value="error">错误</option><option value="warn">警告</option><option value="info">信息</option><option value="debug">调试</option></select></Row>
     </Card>

@@ -29,6 +29,7 @@ import type {
   WorkspaceFileContent,
   WorktreeInfo,
 } from "../types";
+import { rejectRuntimeCommands, sendPiCommand, subscribePiEvents } from "./piTransport";
 
 let sessionsRequest: Promise<SessionInfo[]> | null = null;
 const gitSnapshotRequests = new Map<string, Promise<GitSnapshot>>();
@@ -95,6 +96,7 @@ export const pi = {
   deleteScheduledTask: (id: string) => invoke<void>("delete_scheduled_task_cmd", { id }),
   runScheduledTask: (id: string, nextRunAt?: number | null) =>
     invoke<ScheduledRunResult>("run_scheduled_task_cmd", { id, nextRunAt: nextRunAt ?? null }),
+  cancelScheduledTask: (id: string) => invoke<void>("cancel_scheduled_task_cmd", { id }),
   listSessions,
   sessionHistory: (file: string) => invoke<SessionHistory>("session_history_cmd", { file }),
   exportSessionMarkdown: (file: string, destination: string) => invoke<string>("export_session_markdown", { file, destination }),
@@ -131,8 +133,10 @@ export const pi = {
   clearPackageCatalogCache,
   listWorkspaceDir: (cwd: string, path?: string) =>
     invoke<WorkspaceDirEntry[]>("list_workspace_dir", { cwd, path }),
-  searchWorkspaceFiles: (cwd: string, query: string) =>
-    invoke<WorkspaceDirEntry[]>("search_workspace_files", { cwd, query }),
+  searchWorkspaceFiles: (cwd: string, query: string, requestId: string) =>
+    invoke<WorkspaceDirEntry[]>("search_workspace_files", { cwd, query, requestId }),
+  cancelWorkspaceSearch: (requestId: string) =>
+    invoke<void>("cancel_workspace_search", { requestId }),
   readWorkspaceFile: (cwd: string, path: string) =>
     invoke<WorkspaceFileContent>("read_workspace_file", { cwd, path }),
   openWorkspaceInFileManager: (path: string) => invoke<void>("open_workspace_in_file_manager", { path }),
@@ -165,11 +169,6 @@ export interface PiRuntimeStatus {
   cwd?: string;
 }
 
-interface TaggedPiEvent {
-  runtimeId: string;
-  event: PiEvent;
-}
-
 interface TaggedPiLog {
   runtimeId: string;
   line: string;
@@ -179,14 +178,20 @@ export interface PiListeners {
   onEvent: (runtimeId: string, event: PiEvent) => void;
   onStatus: (status: PiRuntimeStatus) => void;
   onLog: (runtimeId: string, line: string) => void;
+  onProtocolError?: (message: string) => void;
 }
 
 export async function subscribeToPi(listeners: PiListeners): Promise<UnlistenFn> {
   const unlisteners = await Promise.all([
-    listen<TaggedPiEvent>("pi-event", (event) => listeners.onEvent(event.payload.runtimeId, event.payload.event)),
+    subscribePiEvents({ onEvent: listeners.onEvent, onProtocolError: listeners.onProtocolError }),
     listen<PiRuntimeStatus>(
       "pi-status",
-      (event) => listeners.onStatus(event.payload),
+      (event) => {
+        if (event.payload.status === "exited") {
+          rejectRuntimeCommands(event.payload.runtimeId, "Pi runtime exited before the command completed");
+        }
+        listeners.onStatus(event.payload);
+      },
     ),
     listen<TaggedPiLog>("pi-log", (event) => listeners.onLog(event.payload.runtimeId, event.payload.line)),
   ]);
@@ -199,42 +204,7 @@ export async function sendCommand(
   payload: Record<string, unknown> = {},
   timeoutMs = 30_000,
 ): Promise<RpcResponse> {
-  const id = `req-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
-  return new Promise<RpcResponse>((resolve, reject) => {
-    let cleanup: UnlistenFn | undefined;
-    let settled = false;
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      cleanup?.();
-      fn();
-    };
-    const timeout = window.setTimeout(() => {
-      finish(() => reject(new Error(`Pi command '${command}' timed out`)));
-    }, timeoutMs);
-
-    void listen<TaggedPiEvent>("pi-event", (event) => {
-      if (event.payload.runtimeId !== runtimeId) return;
-      const response = event.payload.event as RpcResponse;
-      if (response.type !== "response" || response.id !== id) return;
-      if (!response.success) {
-        finish(() => reject(new Error(response.error || `Pi command '${command}' failed`)));
-      } else {
-        finish(() => resolve(response));
-      }
-    })
-      .then((unlisten) => {
-        cleanup = unlisten;
-        if (settled) {
-          unlisten();
-          return;
-        }
-        return pi.sendRaw(runtimeId, JSON.stringify({ id, type: command, ...payload }));
-      })
-      .catch((error) => finish(() => reject(error)));
-  });
+  return sendPiCommand(pi.sendRaw, runtimeId, command, payload, timeoutMs);
 }
 
 export function respondToExtension(

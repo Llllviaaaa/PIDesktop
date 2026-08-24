@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Check,
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  ExternalLink,
   FilePenLine,
   FileSearch,
   Globe2,
@@ -14,9 +16,15 @@ import {
   Wrench,
 } from "lucide-react";
 import type { UiToolCall } from "../types";
+import { isWebSearchTool, webSearchQuery, webSearchSources } from "../lib/webAccess";
 
 function summary(call: UiToolCall): string {
   const name = call.name.toLowerCase();
+  if (isWebSearchTool(name)) {
+    const label = call.running ? "正在搜索网页" : call.isError ? "网页搜索失败" : "已搜索网页";
+    const query = webSearchQuery(call.args);
+    return query ? `${label} · ${query}` : label;
+  }
   if (name === "bash" || name === "exec" || name === "shell") {
     return "运行了命令";
   }
@@ -45,6 +53,7 @@ function summary(call: UiToolCall): string {
 
 function ToolIcon({ call }: { call: UiToolCall }) {
   const name = call.name.toLowerCase();
+  if (isWebSearchTool(name)) return <Globe2 size={14} />;
   if (name === "bash" || name === "exec" || name === "shell") return <Terminal size={14} />;
   if (name === "write" || name === "edit") return <FilePenLine size={14} />;
   if (name === "read" || name === "grep" || name === "find") return <FileSearch size={14} />;
@@ -56,6 +65,9 @@ function ToolIcon({ call }: { call: UiToolCall }) {
 
 export function ToolCall({ call }: { call: UiToolCall }) {
   const [expanded, setExpanded] = useState(false);
+  const isWebSearch = isWebSearchTool(call.name);
+  const query = isWebSearch ? webSearchQuery(call.args) : undefined;
+  const sources = isWebSearch ? webSearchSources(call.details, call.result) : [];
   const duration = call.startedAt && call.finishedAt
     ? `${((call.finishedAt - call.startedAt) / 1000).toFixed(1)}s`
     : null;
@@ -70,6 +82,7 @@ export function ToolCall({ call }: { call: UiToolCall }) {
       >
         <span className="tool-icon"><ToolIcon call={call} /></span>
         <span className="tool-summary">{summary(call)}</span>
+        {!call.running && sources.length > 0 && <small>{sources.length} 个来源</small>}
         {duration && <small>{duration}</small>}
         {call.running ? (
           <LoaderCircle className="spin" size={13} />
@@ -82,11 +95,32 @@ export function ToolCall({ call }: { call: UiToolCall }) {
       </button>
       {expanded && (
         <div className="tool-drawer">
-          <div className="tool-section-label">输入</div>
-          <pre>{JSON.stringify(call.args, null, 2)}</pre>
+          <div className="tool-section-label">{isWebSearch ? "查询" : "输入"}</div>
+          {query ? <div className="tool-search-query">{query}</div> : <pre>{JSON.stringify(call.args, null, 2)}</pre>}
+          {sources.length > 0 && (
+            <>
+              <div className="tool-section-label">来源</div>
+              <div className="tool-search-sources">
+                {sources.map((source) => (
+                  <a
+                    key={source.url}
+                    href={source.url}
+                    title={source.url}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void openUrl(source.url);
+                    }}
+                  >
+                    <span>{source.title}</span>
+                    <ExternalLink size={12} strokeWidth={1.7} />
+                  </a>
+                ))}
+              </div>
+            </>
+          )}
           {call.result !== undefined && (
             <>
-              <div className="tool-section-label">输出</div>
+              <div className="tool-section-label">{isWebSearch ? "搜索结果" : "输出"}</div>
               <pre>{call.result}</pre>
             </>
           )}

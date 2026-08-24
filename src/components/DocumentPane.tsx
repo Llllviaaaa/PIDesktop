@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Code2, ExternalLink, FileText, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Code2, ExternalLink, Eye, FileText, PanelRightClose, X } from "lucide-react";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { pi } from "../lib/pi";
 import { Markdown } from "./Markdown";
@@ -22,6 +22,10 @@ function isMarkdown(path: string): boolean {
 
 function isDelimited(path: string): boolean {
   return /\.(csv|tsv)$/i.test(path);
+}
+
+function isHtml(path: string): boolean {
+  return /\.html?$/i.test(path);
 }
 
 function parseDelimited(text: string, path: string): string[][] {
@@ -55,6 +59,7 @@ export function DocumentPane({ cwd, path, line, tabs = [], onSelectTab, onCloseT
   const project = cwd.split(/[\\/]/).filter(Boolean).pop() || "项目";
   const markdown = isMarkdown(path);
   const delimited = isDelimited(path);
+  const html = isHtml(path);
   const table = file?.text && delimited ? parseDelimited(file.text, path) : [];
 
   useEffect(() => {
@@ -113,26 +118,39 @@ export function DocumentPane({ cwd, path, line, tabs = [], onSelectTab, onCloseT
           </nav>
         )}
         <div className="document-pane-actions">
-          {(markdown || delimited) && (
+          {(markdown || delimited || html) && (
             <button
               type="button"
-              className={`text-button ${source ? "active" : ""}`}
+              className={`icon-button document-action ${source ? "active" : ""}`}
               onClick={() => setSource((value) => !value)}
+              title={source ? "查看预览" : "查看源代码"}
+              aria-label={source ? "查看预览" : "查看源代码"}
+              aria-pressed={source}
             >
-              <Code2 size={13} strokeWidth={1.7} />
-              {source ? "查看预览" : "查看源代码"}
+              {source ? <Eye size={15} strokeWidth={1.75} /> : <Code2 size={15} strokeWidth={1.75} />}
             </button>
           )}
-          <button type="button" className="text-button" onClick={openExternally} title="用系统应用打开">
-            <ExternalLink size={13} strokeWidth={1.7} />
-            打开
+          <button
+            type="button"
+            className="icon-button document-action"
+            onClick={openExternally}
+            title="用系统应用打开"
+            aria-label="用系统应用打开"
+          >
+            <ExternalLink size={15} strokeWidth={1.75} />
           </button>
-          <button type="button" className="icon-button" title="关闭文件面板" onClick={onClose}>
-            <X size={14} strokeWidth={1.7} />
+          <button
+            type="button"
+            className="icon-button document-action document-pane-close"
+            title="关闭文件面板"
+            aria-label="关闭文件面板"
+            onClick={onClose}
+          >
+            <PanelRightClose size={15} strokeWidth={1.75} />
           </button>
         </div>
       </header>
-      <div className="document-pane-body">
+      <div className={`document-pane-body ${html && !source ? "html-preview-mode" : ""}`}>
         {error && <div className="panel-empty">{error}</div>}
         {!error && !file && <div className="panel-empty">正在读取…</div>}
         {file?.mimeType?.startsWith("image/") && file.data && (
@@ -161,6 +179,14 @@ export function DocumentPane({ cwd, path, line, tabs = [], onSelectTab, onCloseT
             <div className="document-markdown">
               <Markdown content={file.text} />
             </div>
+          ) : html && !source ? (
+            <iframe
+              className="document-html-preview"
+              srcDoc={file.text}
+              sandbox=""
+              referrerPolicy="no-referrer"
+              title={fileName}
+            />
           ) : (
             <pre className="document-source">{file.text}{file.truncated ? "\n\n…（已截断，文件超过 512 KB）" : ""}</pre>
           )

@@ -9,6 +9,7 @@ Pi Desktop is a Windows desktop application with security-sensitive local capabi
 - `CHANGELOG.md` describes the release.
 - CI, secret scanning, dependency review, and Rust advisory scanning pass.
 - Any bundled visual or media asset has documented redistribution rights.
+- `THIRD_PARTY_NOTICES.md` and generated Pi runtime license metadata match the pinned runtime dependencies.
 
 ## Version consistency
 
@@ -29,6 +30,7 @@ npm run scan:secrets
 npm audit --audit-level=high
 npm run test:unit
 npm run build
+npm run prepare:pi-runtime
 
 Set-Location src-tauri
 cargo fmt --all -- --check
@@ -42,9 +44,11 @@ npm run tauri -- build
 
 Verify the executable product version and calculate SHA-256 hashes for the executable, MSI, and NSIS installer. Publish hashes with the release notes.
 
+Extract or administratively expand one installer and run `pi-runtime/pi.exe --version`. It must match the pinned `@earendil-works/pi-coding-agent` version, and the desktop must connect with a sanitized `PATH` that does not expose a system `pi` command.
+
 ## Signing
 
-Public Windows binaries should be Authenticode-signed with a protected signing identity. Keep signing credentials outside the repository and CI logs. Configure CI signing only through encrypted repository or environment secrets with restricted release permissions.
+Public Windows binaries should be Authenticode-signed with a protected signing identity. Sign both `pid-desktop.exe` and the generated `pi-runtime/pi.exe` before producing the signed installer. Keep signing credentials outside the repository and CI logs. Configure CI signing only through encrypted repository or environment secrets with restricted release permissions.
 
 Unsigned development builds may be shared for testing only when clearly labeled as unsigned.
 

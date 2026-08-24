@@ -50,7 +50,7 @@ export type ToolDecision =
   | { action: "block"; reason: string }
   | { action: "confirm"; title: string; message: string };
 
-/** Keep web research inside Pi Desktop unless the caller explicitly requests a curator workflow. */
+/** Keep web search inline unless the caller explicitly requests a curator workflow. */
 export function applyDesktopToolDefaults(toolName: string, input: Record<string, unknown>): void {
   if (toolName.toLowerCase() === "web_search" && input.workflow === undefined) {
     input.workflow = "none";
@@ -183,12 +183,24 @@ function matchingToolRule(options: {
 }
 
 export function pathFromToolInput(input: Record<string, unknown>): string | undefined {
+  return pathsFromToolInput(input)[0];
+}
+
+export function pathsFromToolInput(input: Record<string, unknown>): string[] {
+  const paths: string[] = [];
   for (const key of ["path", "file", "filePath", "target"]) {
     if (typeof input[key] === "string" && (input[key] as string).trim()) {
-      return input[key] as string;
+      paths.push((input[key] as string).trim());
     }
   }
-  return undefined;
+  for (const key of ["paths", "files", "targets"]) {
+    const values = input[key];
+    if (!Array.isArray(values)) continue;
+    for (const value of values) {
+      if (typeof value === "string" && value.trim()) paths.push(value.trim());
+    }
+  }
+  return [...new Set(paths)];
 }
 
 export function shellCommandFromInput(input: Record<string, unknown>): string {
@@ -223,8 +235,36 @@ export function evaluateToolPermission(options: {
   const isSubagent = tool === "delegate_task";
   const isMemoryWrite = tool === "desktop_memory" && action !== "read";
   const subagentPermission = input.permission === "workspace-write" ? "workspace-write" : "read-only";
-  const target = pathFromToolInput(input);
+  const targets = pathsFromToolInput(input);
+  const target = targets[0];
+  const outsideTarget = isWrite ? targets.find((candidate) => !insideWorkspace(candidate, workspace)) : undefined;
   const command = shellCommandFromInput(input);
+  const knownReadOnlyTools = new Set([
+    "read",
+    "grep",
+    "find",
+    "glob",
+    "ls",
+    "view_image",
+    "web_search",
+    "web_fetch",
+    "fetch",
+    "update_plan",
+    "mcp_list_resources",
+    "mcp_read_resource",
+    "mcp_subscribe_resource",
+    "mcp_unsubscribe_resource",
+    "mcp_list_prompts",
+    "mcp_get_prompt",
+  ]);
+  const isKnownTool = isWrite
+    || isShell
+    || tool === "browser"
+    || tool === "computer"
+    || isMcpTool
+    || isSubagent
+    || tool === "desktop_memory"
+    || knownReadOnlyTools.has(tool);
 
   if (options.quickChat && (["read", "write", "edit", "apply_patch", "grep", "find", "bash", "shell", "exec"].includes(tool) || isSubagent)) {
     return { action: "block", reason: "Quick chat does not use local project files or shell commands" };
@@ -236,6 +276,20 @@ export function evaluateToolPermission(options: {
 
   if (mode === "read-only" && isSubagent && subagentPermission !== "read-only") {
     return { action: "block", reason: "Pi Desktop read-only mode only permits read-only subagents" };
+  }
+
+  if (mode === "read-only" && !isKnownTool) {
+    return { action: "block", reason: `Pi Desktop read-only mode blocks unclassified tool: ${tool}` };
+  }
+
+  // Workspace confinement is a hard cap, like read-only mode. A broad custom
+  // allow rule must not silently override it.
+  if (outsideTarget && rules.blockWriteOutsideWorkspace && mode !== "full-access") {
+    const resolved = resolveAgainstWorkspace(outsideTarget, workspace);
+    return {
+      action: "block",
+      reason: `Write outside workspace blocked by rule: ${outsideTarget} → ${resolved}`,
+    };
   }
 
   const customRule = matchingToolRule({ rules, workspace, toolName: tool, input });
@@ -271,18 +325,20 @@ export function evaluateToolPermission(options: {
     };
   }
 
-  if (isWrite && target && !insideWorkspace(target, workspace)) {
-    const resolved = resolveAgainstWorkspace(target, workspace);
-    if (rules.blockWriteOutsideWorkspace) {
-      return {
-        action: "block",
-        reason: `Write outside workspace blocked by rule: ${target} → ${resolved}`,
-      };
-    }
+  if (isWrite && outsideTarget) {
+    const resolved = resolveAgainstWorkspace(outsideTarget, workspace);
     return {
       action: "confirm",
       title: "Write outside workspace?",
-      message: `${tool}: ${target}\nResolved: ${resolved}\n\nWorkspace: ${workspace}`,
+      message: `${tool}: ${outsideTarget}\nResolved: ${resolved}\n\nWorkspace: ${workspace}`,
+    };
+  }
+
+  if (isWrite && targets.length === 0 && (mode === "ask" || mode === "workspace-write")) {
+    return {
+      action: "confirm",
+      title: "Allow unscoped file change?",
+      message: `${tool}: ${JSON.stringify(input)}`,
     };
   }
 
@@ -307,6 +363,14 @@ export function evaluateToolPermission(options: {
         message: command,
       };
     }
+  }
+
+  if (!isKnownTool && (mode === "ask" || mode === "workspace-write")) {
+    return {
+      action: "confirm",
+      title: "Allow unclassified tool call?",
+      message: `${tool}: ${JSON.stringify(input).slice(0, 1800)}`,
+    };
   }
 
   return { action: "allow" };

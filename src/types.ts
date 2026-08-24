@@ -466,10 +466,11 @@ export interface ScheduledTask {
   minute: number;
   weekday: number;
   permissionMode: ScheduledPermissionMode;
+  timeoutMinutes?: number | null;
   enabled: boolean;
   lastRunAt?: number | null;
   nextRunAt?: number | null;
-  lastStatus: "" | "running" | "success" | "error" | "interrupted";
+  lastStatus: "" | "running" | "success" | "error" | "interrupted" | "cancelled" | "timed-out";
   lastMessage: string;
 }
 
@@ -481,7 +482,7 @@ export interface ScheduledRunRecord {
   prompt: string;
   permissionMode: ScheduledPermissionMode;
   trigger: "manual" | "scheduled";
-  status: "running" | "success" | "error" | "interrupted";
+  status: "running" | "success" | "error" | "interrupted" | "cancelled" | "timed-out";
   startedAt: number;
   finishedAt?: number | null;
   durationMs?: number | null;
@@ -623,7 +624,7 @@ export interface UiToolCall {
   finishedAt?: number;
 }
 
-export interface BrowserState {
+export interface AgentBrowserState {
   url: string;
   title: string;
   screenshot?: ImageContent;
@@ -642,6 +643,8 @@ export interface ComputerState {
 
 export interface UiMessage {
   id: string;
+  /** Stable Pi session-tree entry for branch navigation and rewind. */
+  entryId?: string;
   role: "user" | "assistant" | "terminal" | "notice";
   content: string;
   images?: ImageContent[];

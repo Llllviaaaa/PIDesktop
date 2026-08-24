@@ -14,7 +14,7 @@ const ITEMS: Array<{
 }> = [
   { id: "review", label: "审阅", shortcut: "Ctrl+Shift+G", Icon: FileDiff },
   { id: "terminal", label: "终端", shortcut: "", Icon: SquareTerminal },
-  { id: "browser", label: "浏览器", shortcut: "Ctrl+T", Icon: Globe2 },
+  { id: "browser", label: "应用内浏览器", shortcut: "Ctrl+T", Icon: Globe2 },
   { id: "files", label: "文件", shortcut: "Ctrl+P", Icon: Folder },
   { id: "side-chat", label: "侧边聊天", shortcut: "Ctrl+Alt+S", Icon: MessageSquare },
 ];

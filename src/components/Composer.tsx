@@ -447,7 +447,8 @@ export const Composer = memo(function Composer({
                   setActionsOpen(false);
                   setPermissionOpen((value) => !value);
                 }}
-                title="选择权限模式"
+                title={`权限模式：${permissionLabel}`}
+                aria-label={`权限模式：${permissionLabel}`}
                 aria-haspopup="menu"
                 aria-expanded={permissionOpen}
               >

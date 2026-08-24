@@ -15,6 +15,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Square,
   Trash2,
   X,
 } from "lucide-react";
@@ -39,6 +40,7 @@ const EMPTY_TASK: ScheduledTask = {
   minute: 0,
   weekday: 1,
   permissionMode: "ask",
+  timeoutMinutes: 30,
   enabled: true,
   lastRunAt: null,
   nextRunAt: null,
@@ -65,6 +67,8 @@ function runStatusLabel(status: ScheduledRunRecord["status"] | ScheduledTask["la
   if (status === "success") return "成功";
   if (status === "error") return "失败";
   if (status === "interrupted") return "已中断";
+  if (status === "cancelled") return "已取消";
+  if (status === "timed-out") return "已超时";
   return "未运行";
 }
 
@@ -97,7 +101,7 @@ function formatDuration(duration?: number | null): string {
 function RunStatusIcon({ status }: { status: ScheduledRunRecord["status"] }) {
   if (status === "running") return <LoaderCircle size={15} className="spinner-icon" />;
   if (status === "success") return <CheckCircle2 size={15} />;
-  if (status === "error") return <AlertCircle size={15} />;
+  if (status === "error" || status === "timed-out") return <AlertCircle size={15} />;
   return <CircleDashed size={15} />;
 }
 
@@ -115,6 +119,7 @@ export function ScheduledTasksPage({
   const [draft, setDraft] = useState<ScheduledTask>(EMPTY_TASK);
   const [saving, setSaving] = useState(false);
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
@@ -197,7 +202,7 @@ export function ScheduledTasksPage({
     setRunningId(task.id);
     try {
       const result = await pi.runScheduledTask(task.id);
-      if (!result.success) onError(result.output || "计划任务执行失败");
+      if (!result.success && result.run.status !== "cancelled") onError(result.output || "计划任务执行失败");
       await load(false);
       onTasksChanged();
       setExpandedRunId(result.run.id);
@@ -205,6 +210,18 @@ export function ScheduledTasksPage({
       onError(error instanceof Error ? error.message : String(error));
     } finally {
       setRunningId(null);
+    }
+  };
+
+  const cancel = async (task: ScheduledTask) => {
+    setCancellingId(task.id);
+    try {
+      await pi.cancelScheduledTask(task.id);
+      await load(false);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCancellingId(null);
     }
   };
 
@@ -243,7 +260,7 @@ export function ScheduledTasksPage({
               <div className="scheduled-task-copy">
                 <div><strong>{task.name}</strong><span className={`run-status ${task.lastStatus || "idle"}`}>{task.lastStatus === "running" ? "运行中" : task.lastStatus ? `上次${runStatusLabel(task.lastStatus)}` : "未运行"}</span></div>
                 <p>{task.prompt}</p>
-                <small>{workspaceName(task.cwd)} · {permissionLabel(task.permissionMode)} · {scheduleSummary(task)} · 下次 {formatScheduleTime(task.nextRunAt)}</small>
+                <small>{workspaceName(task.cwd)} · {permissionLabel(task.permissionMode)} · 超时 {task.timeoutMinutes ?? 30} 分钟 · {scheduleSummary(task)} · 下次 {formatScheduleTime(task.nextRunAt)}</small>
               </div>
               <div className="scheduled-task-actions">
                 {deleteConfirmId === task.id ? (
@@ -253,9 +270,11 @@ export function ScheduledTasksPage({
                   </>
                 ) : (
                   <>
-                    <button type="button" className="secondary-button" disabled={task.lastStatus === "running" || runningId === task.id} onClick={() => void runNow(task)}>{task.lastStatus === "running" || runningId === task.id ? <LoaderCircle size={14} className="spinner-icon" /> : <Play size={14} />}立即运行</button>
-                    <button type="button" className="icon-button" title="编辑" onClick={() => openEdit(task)}><Pencil size={15} /></button>
-                    <button type="button" className="icon-button danger" title="删除" onClick={() => setDeleteConfirmId(task.id)}><Trash2 size={15} /></button>
+                    {task.lastStatus === "running" || runningId === task.id
+                      ? <button type="button" className="secondary-button danger-text-button" disabled={cancellingId === task.id} onClick={() => void cancel(task)}>{cancellingId === task.id ? <LoaderCircle size={14} className="spinner-icon" /> : <Square size={13} />}停止</button>
+                      : <button type="button" className="secondary-button" onClick={() => void runNow(task)}><Play size={14} />立即运行</button>}
+                    <button type="button" className="icon-button" title="编辑" disabled={task.lastStatus === "running"} onClick={() => openEdit(task)}><Pencil size={15} /></button>
+                    <button type="button" className="icon-button danger" title="删除" disabled={task.lastStatus === "running"} onClick={() => setDeleteConfirmId(task.id)}><Trash2 size={15} /></button>
                   </>
                 )}
               </div>
@@ -307,6 +326,7 @@ export function ScheduledTasksPage({
               {draft.frequency === "weekly" && <label><span>星期</span><select value={draft.weekday} onChange={(event) => setDraft((current) => ({ ...current, weekday: Number(event.target.value) }))}>{["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"].map((label, index) => <option key={label} value={index}>{label}</option>)}</select></label>}
               {draft.frequency !== "hourly" && <label><span>小时</span><input type="number" min={0} max={23} value={draft.hour} onChange={(event) => setDraft((current) => ({ ...current, hour: Number(event.target.value) }))} /></label>}
               <label><span>分钟</span><input type="number" min={0} max={59} value={draft.minute} onChange={(event) => setDraft((current) => ({ ...current, minute: Number(event.target.value) }))} /></label>
+              <label><span>超时（分钟）</span><input type="number" min={1} max={240} value={draft.timeoutMinutes ?? 30} onChange={(event) => setDraft((current) => ({ ...current, timeoutMinutes: Number(event.target.value) }))} /></label>
             </div>
             <footer><button type="button" className="secondary-button" onClick={() => setEditorOpen(false)}>取消</button><button type="submit" className="primary-button" disabled={saving || !draft.name.trim() || !draft.prompt.trim() || !draft.cwd}>{saving && <LoaderCircle size={14} className="spinner-icon" />}保存任务</button></footer>
           </form>

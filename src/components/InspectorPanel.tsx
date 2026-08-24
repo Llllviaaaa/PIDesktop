@@ -31,7 +31,7 @@ import { parseDiffRows } from "../lib/diffView";
 import { aggregateDiffStats, perFileDiffStats } from "../lib/gitDiffStats";
 import { pi } from "../lib/pi";
 import type {
-  BrowserState,
+  AgentBrowserState,
   ComputerState,
   GitBranchInfo,
   GitSnapshot,
@@ -84,7 +84,7 @@ export function InspectorPanel({
   messages,
   environment,
   terminal,
-  browser,
+  agentBrowser,
   computer,
   logs,
   sessionTree,
@@ -127,7 +127,7 @@ export function InspectorPanel({
     exitCode?: number;
     history: Array<{ command: string; output: string; exitCode?: number }>;
   };
-  browser: BrowserState | null;
+  agentBrowser: AgentBrowserState | null;
   computer: ComputerState | null;
   logs: string[];
   sessionTree: SessionTreeNodeView[];
@@ -225,7 +225,7 @@ export function InspectorPanel({
           : view === "agents" ? "子智能体"
             : view === "tree" ? "会话树"
               : view === "terminal" ? "终端"
-                : view === "browser" ? "浏览器"
+                : view === "browser" ? "Agent 浏览器"
                   : view === "computer" ? "计算机"
                     : "日志";
 
@@ -400,10 +400,10 @@ export function InspectorPanel({
                     <ListTree size={15} />
                     <span>查看全部来源</span>
                   </button>
-                  {browser && (
+                  {agentBrowser && (
                     <button type="button" className="env-menu-item" role="menuitem" onClick={() => { setMenu(null); setView("browser"); }}>
                       <Globe2 size={15} />
-                      <span>浏览器来源</span>
+                      <span>Agent 浏览器来源</span>
                     </button>
                   )}
                   {computer && (
@@ -566,8 +566,9 @@ export function InspectorPanel({
                 <div key={source.id} className={`env-row static ${source.kind === "pi" ? "env-row-brand" : ""}`} title={source.detail || source.label}>
                   {source.kind === "pi" ? <PiMark />
                     : source.kind === "file" ? <FileText size={16} strokeWidth={1.7} />
-                      : source.kind === "web" || source.kind === "browser" ? <Globe2 size={16} strokeWidth={1.7} />
-                        : source.kind === "search" ? <Search size={16} strokeWidth={1.7} />
+                      : source.kind === "web-search" ? <Search size={16} strokeWidth={1.7} />
+                        : source.kind === "agent-browser" ? <Globe2 size={16} strokeWidth={1.7} />
+                          : source.kind === "search" ? <Search size={16} strokeWidth={1.7} />
                           : <Sparkles size={16} strokeWidth={1.7} />}
                   <span className={`env-row-label ${source.kind === "pi" || source.kind === "search" ? "brand" : ""}`}>{source.label}</span>
                 </div>
@@ -577,10 +578,10 @@ export function InspectorPanel({
               <ListTree size={16} strokeWidth={1.7} />
               <span className="env-row-label">查看全部</span>
             </button>
-            {browser && (
-              <button type="button" className="env-row" onClick={() => setView("browser")} title={browser.url}>
+            {agentBrowser && (
+              <button type="button" className="env-row" onClick={() => setView("browser")} title={agentBrowser.url}>
                 <Globe2 size={16} strokeWidth={1.7} />
-                <span className="env-row-label">{browser.title || browser.url}</span>
+                <span className="env-row-label">Agent 浏览器 · {agentBrowser.title || agentBrowser.url}</span>
               </button>
             )}
             {computer && (
@@ -903,17 +904,17 @@ export function InspectorPanel({
           <div className="browser-frame">
             <div className="browser-chrome">
               <Globe2 size={14} strokeWidth={1.7} />
-              <div className="browser-address" title={browser?.url || browser?.title || ""}>
-                {browser?.url || browser?.title || "about:blank"}
+              <div className="browser-address" title={agentBrowser?.url || agentBrowser?.title || ""}>
+                {agentBrowser?.url || agentBrowser?.title || "about:blank"}
               </div>
             </div>
             <div className="browser-viewport">
-              {browser?.screenshot ? (
-                <img src={`data:${browser.screenshot.mimeType};base64,${browser.screenshot.data}`} alt={browser.title || "页面"} />
+              {agentBrowser?.screenshot ? (
+                <img src={`data:${agentBrowser.screenshot.mimeType};base64,${agentBrowser.screenshot.data}`} alt={agentBrowser.title || "页面"} />
               ) : (
                 <div className="panel-empty browser-empty">
                   <Globe2 size={22} strokeWidth={1.5} />
-                  <span>{browser ? "此页暂无预览" : "尚未打开页面"}</span>
+                  <span>{agentBrowser ? "此页暂无预览" : "Agent 尚未打开页面"}</span>
                 </div>
               )}
             </div>

@@ -1,12 +1,15 @@
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use regex::Regex;
 use tauri::{AppHandle, Emitter};
 
+use super::process::{build_pi_rpc_command, kill_process_tree};
+
 const REDACTED: &str = "[REDACTED]";
+const PIDESKTOP_PROTOCOL_VERSION: u8 = 1;
 
 fn known_credential_pattern() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
@@ -141,10 +144,13 @@ impl SecretRedactor {
 /// `pi-log` (plain lines), and commands coming from the frontend are written
 /// verbatim to pi's stdin. The frontend owns all protocol logic.
 pub struct PiRpcClient {
+    pid: u32,
     child: Arc<Mutex<Child>>,
     stdin: Mutex<ChildStdin>,
+    is_running: Arc<AtomicBool>,
     is_streaming: Arc<AtomicBool>,
     pending_extension: Arc<Mutex<Option<serde_json::Value>>>,
+    stop_requested: AtomicBool,
 }
 
 impl PiRpcClient {
@@ -159,7 +165,7 @@ impl PiRpcClient {
         sensitive_values: &[String],
     ) -> Result<Self, String> {
         let redactor = SecretRedactor::new(sensitive_values);
-        let mut command = build_pi_command(pi_binary, cwd, extra_args);
+        let mut command = build_pi_rpc_command(pi_binary, cwd, extra_args);
         command.envs(environment.iter().map(|(key, value)| (key, value)));
         command
             .stdout(Stdio::piped())
@@ -183,7 +189,9 @@ impl PiRpcClient {
             .take()
             .ok_or_else(|| "failed to open pi stderr".to_string())?;
 
+        let pid = child.id();
         let child = Arc::new(Mutex::new(child));
+        let is_running = Arc::new(AtomicBool::new(true));
         let is_streaming = Arc::new(AtomicBool::new(false));
         let pending_extension = Arc::new(Mutex::new(None));
 
@@ -194,6 +202,7 @@ impl PiRpcClient {
             let app = app.clone();
             let status_cwd = cwd.to_string();
             let runtime_id = runtime_id.to_string();
+            let runtime_running = Arc::clone(&is_running);
             let runtime_streaming = Arc::clone(&is_streaming);
             let runtime_extension = Arc::clone(&pending_extension);
             let redactor = redactor.clone();
@@ -222,7 +231,11 @@ impl PiRpcClient {
                                     );
                                     let _ = app.emit(
                                         "pi-event",
-                                        serde_json::json!({ "runtimeId": runtime_id, "event": value }),
+                                        serde_json::json!({
+                                            "protocolVersion": PIDESKTOP_PROTOCOL_VERSION,
+                                            "runtimeId": runtime_id,
+                                            "event": value,
+                                        }),
                                     );
                                 }
                                 Err(_) => {
@@ -244,11 +257,21 @@ impl PiRpcClient {
                     }
                 }
 
-                let exit_code = child
-                    .lock()
-                    .ok()
-                    .and_then(|mut guarded| guarded.wait().ok())
-                    .and_then(|status| status.code());
+                // Never hold the child mutex across a blocking wait. A process is
+                // allowed to close stdout before it exits; polling keeps stop and
+                // status operations available in that state.
+                let exit_code = loop {
+                    let status = match child.lock() {
+                        Ok(mut guarded) => guarded.try_wait(),
+                        Err(_) => break None,
+                    };
+                    match status {
+                        Ok(Some(status)) => break status.code(),
+                        Ok(None) => std::thread::sleep(std::time::Duration::from_millis(25)),
+                        Err(_) => break None,
+                    }
+                };
+                runtime_running.store(false, Ordering::Release);
                 runtime_streaming.store(false, Ordering::Relaxed);
                 if let Ok(mut pending) = runtime_extension.lock() {
                     pending.take();
@@ -294,10 +317,13 @@ impl PiRpcClient {
         );
 
         Ok(PiRpcClient {
+            pid,
             child,
             stdin: Mutex::new(stdin),
+            is_running,
             is_streaming,
             pending_extension,
+            stop_requested: AtomicBool::new(false),
         })
     }
 
@@ -336,11 +362,7 @@ impl PiRpcClient {
     }
 
     pub fn is_running(&self) -> bool {
-        self.child
-            .lock()
-            .ok()
-            .and_then(|mut child| child.try_wait().ok())
-            .is_some_and(|status| status.is_none())
+        self.is_running.load(Ordering::Acquire)
     }
 
     pub fn is_streaming(&self) -> bool {
@@ -356,11 +378,29 @@ impl PiRpcClient {
 
     /// Terminate the pi process tree (cmd wrapper + node + any child shells).
     pub fn kill(&self) {
-        if let Ok(mut guarded) = self.child.lock() {
-            let pid = guarded.id();
-            let _ = kill_process_tree(pid);
-            let _ = guarded.kill();
-            let _ = guarded.wait();
+        if !self.is_running.load(Ordering::Acquire) {
+            self.stop_requested.store(true, Ordering::Release);
+            return;
+        }
+        if self.stop_requested.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        // Reap an already-exited process before targeting its PID. This avoids a
+        // stale PID kill if the watcher has not published the exit snapshot yet.
+        if let Ok(mut guarded) = self.child.try_lock() {
+            if matches!(guarded.try_wait(), Ok(Some(_))) {
+                self.is_running.store(false, Ordering::Release);
+                return;
+            }
+        }
+
+        if kill_process_tree(self.pid).is_err() {
+            // Best-effort direct-child fallback. Do not wait here; the watcher
+            // owns reaping and will publish the final status event.
+            if let Ok(mut guarded) = self.child.try_lock() {
+                let _ = guarded.kill();
+            }
         }
     }
 }
@@ -402,119 +442,9 @@ fn is_actionable_extension(event: &serde_json::Value) -> bool {
     )
 }
 
-/// Build the OS-level command that launches pi in RPC mode.
-fn build_pi_command(pi_binary: &str, cwd: &str, extra_args: &[String]) -> Command {
-    if cfg!(windows) {
-        // `.cmd`/`.bat` shims cannot be launched with CreateProcess directly,
-        // so route through cmd.exe. `cmd /S /C` handles quoting for us.
-        // CREATE_NO_WINDOW suppresses the console popup.
-        let mut command_line = format!("{} --mode rpc", quote_cmd_arg(pi_binary));
-        for arg in extra_args {
-            command_line.push(' ');
-            command_line.push_str(&quote_cmd_arg(arg));
-        }
-        let mut command = Command::new("cmd.exe");
-        command.args(["/D", "/S", "/C", &command_line]);
-        command.current_dir(cwd);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-        command
-    } else {
-        let mut command = Command::new(pi_binary);
-        command.arg("--mode").arg("rpc").args(extra_args);
-        command.current_dir(cwd);
-        command
-    }
-}
-
-/// Build a non-interactive Pi command while preserving Windows npm-shim support.
-pub(crate) fn build_pi_print_command(
-    pi_binary: &str,
-    cwd: &str,
-    extra_args: &[String],
-    prompt: &str,
-) -> Command {
-    if cfg!(windows) {
-        let mut command_line = quote_cmd_arg(pi_binary);
-        for arg in extra_args {
-            command_line.push(' ');
-            command_line.push_str(&quote_cmd_arg(arg));
-        }
-        command_line.push_str(" -p ");
-        command_line.push_str(&quote_cmd_arg(prompt));
-        let mut command = Command::new("cmd.exe");
-        command.args(["/D", "/S", "/C", &command_line]);
-        command.current_dir(cwd);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-        command
-    } else {
-        let mut command = Command::new(pi_binary);
-        command.args(extra_args).arg("-p").arg(prompt);
-        command.current_dir(cwd);
-        command
-    }
-}
-
-/// Quote a CLI argument for safe inclusion in a `cmd /C` string.
-fn quote_cmd_arg(arg: &str) -> String {
-    if arg.is_empty()
-        || arg.contains(' ')
-        || arg.contains('\t')
-        || arg.contains('"')
-        || arg.contains('&')
-        || arg.contains('|')
-        || arg.contains('<')
-        || arg.contains('>')
-        || arg.contains('^')
-    {
-        format!("\"{}\"", arg.replace('"', "\"\""))
-    } else {
-        arg.to_string()
-    }
-}
-
 impl Drop for PiRpcClient {
     fn drop(&mut self) {
         self.kill();
-    }
-}
-
-/// Kill a process and all of its descendants. On Windows `taskkill /T` tears
-/// down the whole cmd -> node -> shell tree; elsewhere we signal the direct child.
-fn kill_process_tree(pid: u32) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        let mut command = Command::new("taskkill");
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-        let output = command
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .output()
-            .map_err(|err| format!("taskkill failed: {err}"))?;
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(format!(
-                "taskkill exited with {}: {}",
-                output.status.code().unwrap_or(-1),
-                String::from_utf8_lossy(&output.stderr)
-            ))
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
-        Ok(())
     }
 }
 

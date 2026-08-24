@@ -43,6 +43,8 @@ pi --mode rpc
 
 The Rust layer owns process lifetime, settings, session discovery, attachments, Git inspection, and event forwarding. The frontend owns RPC correlation and the conversation/UI state machine.
 
+Windows installers include a pinned standalone Pi runtime. The default `pi` process setting selects that bundled runtime, so end users do not need Node.js or a global Pi installation. An explicit command or executable path in Settings overrides the bundled version. npm-backed Pi package installation still requires a compatible package manager on the machine.
+
 ## Development
 
 Prerequisites:
@@ -50,7 +52,8 @@ Prerequisites:
 - Node.js 22 or later and npm
 - Rust stable with the MSVC toolchain
 - WebView2
-- Pi available on `PATH`, or an absolute Pi executable configured in Settings
+
+`npm ci` installs the pinned Pi sources and Bun compiler. Tauri dev/build commands prepare the standalone runtime automatically; a system Pi installation is only needed when testing the custom executable override.
 
 ```powershell
 npm ci
@@ -103,6 +106,8 @@ Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Do 
 - `src/components/` - chat, composer, sessions, review, terminal, settings, and permission UI
 - `src-tauri/src/lib.rs` - Tauri commands and persisted settings
 - `src-tauri/src/pi/rpc.rs` - Pi process and JSONL transport
+- `src-tauri/src/pi/runtime.rs` - bundled Pi discovery and custom executable override
+- `scripts/prepare-pi-runtime.mjs` - reproducible standalone Pi runtime builder and validator
 - `src-tauri/src/pi/sessions.rs` - session metadata and recoverable deletion
 - `src-tauri/src/computer.rs` - native Windows screenshot, window, mouse, and keyboard bridge
 - `src-tauri/resources/pidesktop-guard.ts` - project trust and permission gates
