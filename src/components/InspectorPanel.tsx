@@ -1,35 +1,52 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Activity,
+  Bot,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
+  Circle,
   ExternalLink,
   FileDiff,
   FileText,
+  FolderOpen,
   GitBranch,
   GitCommitHorizontal,
-  GitPullRequest,
   Globe2,
   Laptop,
+  ListChecks,
   ListTree,
   LoaderCircle,
+  MessageSquare,
+  MessageSquarePlus,
   Minus,
   MonitorCog,
-  MessageSquarePlus,
   Plus,
   RefreshCw,
   RotateCcw,
   Search,
   SearchCheck,
-  Sparkles,
   Square,
+  SquareTerminal,
   Undo2,
+  Wrench,
   X,
 } from "lucide-react";
-import { deriveEnvSources, summarizeToolAgents } from "../lib/envSources";
+import {
+  deriveEnvSources,
+  deriveSubagentActivities,
+  deriveTaskOutputs,
+  deriveTaskPlan,
+  summarizeSubagents,
+  type EnvSourceItem,
+  type SubagentStatus,
+  type TaskPlanStatus,
+} from "../lib/envSources";
 import { parseDiffRows } from "../lib/diffView";
 import { aggregateDiffStats, perFileDiffStats } from "../lib/gitDiffStats";
 import { pi } from "../lib/pi";
+import type { WorkspaceTool } from "./ToolRail";
 import type {
   AgentBrowserState,
   ComputerState,
@@ -40,7 +57,7 @@ import type {
   WorktreeInfo,
 } from "../types";
 
-export type InspectorTab = "changes" | "tree" | "terminal" | "browser" | "computer" | "logs" | "compare" | "agents";
+export type InspectorTab = "changes" | "tree" | "terminal" | "browser" | "computer" | "logs" | "compare" | "agents" | "sources" | "plan" | "outputs" | "processes";
 
 type MenuKind = "local" | "branch" | "sources" | null;
 
@@ -49,17 +66,6 @@ function GithubMark({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d="M12 .5C5.65.5.5 5.66.5 12.03c0 5.1 3.29 9.42 7.86 10.95.58.11.79-.25.79-.56 0-.27-.01-1.18-.02-2.13-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.26.72-1.55-2.55-.29-5.24-1.28-5.24-5.71 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.77.11 3.06.74.81 1.19 1.84 1.19 3.1 0 4.44-2.7 5.42-5.27 5.7.41.36.78 1.06.78 2.14 0 1.55-.01 2.79-.01 3.17 0 .31.21.67.8.55A11.53 11.53 0 0 0 23.5 12.03C23.5 5.66 18.35.5 12 .5Z" />
-    </svg>
-  );
-}
-
-function PiMark() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" className="env-pi-mark">
-      <circle cx="5" cy="5" r="2.15" fill="#6366f1" />
-      <circle cx="11" cy="5" r="2.15" fill="#818cf8" />
-      <circle cx="5" cy="11" r="2.15" fill="#a5b4fc" />
-      <circle cx="11" cy="11" r="2.15" fill="#c7d2fe" />
     </svg>
   );
 }
@@ -105,6 +111,8 @@ export function InspectorPanel({
   onAbortCommand,
   onRefreshTree,
   onContinueFromNode,
+  onOpenWorkspaceTool,
+  onOpenFile,
   docked = false,
   onClose,
   onError,
@@ -148,8 +156,10 @@ export function InspectorPanel({
   onAbortCommand: () => void;
   onRefreshTree: () => void;
   onContinueFromNode: (entryId: string) => void;
+  onOpenWorkspaceTool?: (tool: Exclude<WorkspaceTool, "summary">) => void;
+  onOpenFile?: (path: string) => void;
 }) {
-  const homeTabs: InspectorTab[] = ["changes", "tree", "terminal", "browser", "computer", "logs", "compare", "agents"];
+  const homeTabs: InspectorTab[] = ["changes", "tree", "terminal", "browser", "computer", "logs", "compare", "agents", "sources", "plan", "outputs", "processes"];
   const [view, setView] = useState<InspectorTab | null>(
     openView ?? (initialTab === "changes" ? null : homeTabs.includes(initialTab) ? initialTab : null),
   );
@@ -165,6 +175,7 @@ export function InspectorPanel({
   const [commentDraft, setCommentDraft] = useState("");
   const [indexBusy, setIndexBusy] = useState<string | null>(null);
   const [command, setCommand] = useState("");
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -207,8 +218,11 @@ export function InspectorPanel({
   const compareFileStats = useMemo(() => normalizeStatMap(perFileDiffStats(compareSnap?.diff)), [compareSnap?.diff]);
   const branch = git?.isRepository ? (git.branch || "游离 HEAD") : "非 Git 仓库";
   const hasChanges = (git?.files.length ?? 0) > 0;
-  const sources = useMemo(() => deriveEnvSources(messages), [messages]);
-  const agents = useMemo(() => summarizeToolAgents(messages), [messages]);
+  const sources = useMemo(() => deriveEnvSources(messages, 80), [messages]);
+  const outputs = useMemo(() => deriveTaskOutputs(messages), [messages]);
+  const plan = useMemo(() => deriveTaskPlan(messages), [messages]);
+  const subagents = useMemo(() => deriveSubagentActivities(messages), [messages]);
+  const agents = useMemo(() => summarizeSubagents(subagents), [subagents]);
   const isWorktreeCwd = useMemo(
     () => worktrees.some((item) => !item.isMain && samePath(item.path, cwd)),
     [worktrees, cwd],
@@ -219,10 +233,14 @@ export function InspectorPanel({
     ? selectedFile.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || selectedFile
     : null;
   const title =
-    view === null ? "环境信息"
+    view === null ? "任务摘要"
       : view === "changes" ? (selectedFileName ?? "变更")
         : view === "compare" ? "比较分支"
           : view === "agents" ? "子智能体"
+            : view === "sources" ? "来源"
+              : view === "plan" ? "计划"
+                : view === "outputs" ? "产出"
+                  : view === "processes" ? "后台进程"
             : view === "tree" ? "会话树"
               : view === "terminal" ? "终端"
                 : view === "browser" ? "Agent 浏览器"
@@ -396,8 +414,8 @@ export function InspectorPanel({
               </button>
               {menu === "sources" && (
                 <div className="env-menu env-source-menu" role="menu">
-                  <button type="button" className="env-menu-item" role="menuitem" onClick={() => { setMenu(null); setView("tree"); }}>
-                    <ListTree size={15} />
+                  <button type="button" className="env-menu-item" role="menuitem" onClick={() => { setMenu(null); setView("sources"); }}>
+                    <FileText size={15} />
                     <span>查看全部来源</span>
                   </button>
                   {agentBrowser && (
@@ -424,10 +442,24 @@ export function InspectorPanel({
         </div>
       </header>
 
+      {docked && view === null && onOpenWorkspaceTool && (
+        <nav className="env-tool-strip" aria-label="右侧栏功能">
+          <button type="button" title="文件" aria-label="文件" onClick={() => onOpenWorkspaceTool("files")}><FolderOpen size={15} /></button>
+          <button type="button" title="审阅" aria-label="审阅" onClick={() => onOpenWorkspaceTool("review")}><FileDiff size={15} /></button>
+          <button type="button" title="浏览器" aria-label="浏览器" onClick={() => onOpenWorkspaceTool("browser")}><Globe2 size={15} /></button>
+          <button type="button" title="终端" aria-label="终端" onClick={() => onOpenWorkspaceTool("terminal")}><SquareTerminal size={15} /></button>
+          <button type="button" title="侧边聊天" aria-label="侧边聊天" onClick={() => onOpenWorkspaceTool("side-chat")}><MessageSquare size={15} /></button>
+        </nav>
+      )}
+
       {view === null && (
         <div className="inspector-content env-home">
           <section className="env-section">
-            <button type="button" className="env-row" onClick={() => { setSelectedFile(null); setView("changes"); }}>
+            <div className="env-section-label">环境</div>
+            <button type="button" className="env-row" onClick={() => {
+              if (onOpenWorkspaceTool) onOpenWorkspaceTool("review");
+              else { setSelectedFile(null); setView("changes"); }
+            }}>
               <FileDiff size={16} strokeWidth={1.7} />
               <span className="env-row-label">变更</span>
               <span className="env-row-meta">
@@ -519,11 +551,6 @@ export function InspectorPanel({
               <span className="env-row-label">提交或推送</span>
             </button>
 
-            <div className="env-row static muted-row">
-              <GitPullRequest size={16} strokeWidth={1.7} />
-              <span className="env-row-label">无法获取拉取请求状态</span>
-            </div>
-
             <button
               type="button"
               className="env-row"
@@ -539,58 +566,92 @@ export function InspectorPanel({
             </button>
           </section>
 
-          <section className="env-section">
-            <div className="env-section-label">子智能体</div>
-            <button type="button" className="env-row" onClick={() => setView("agents")}>
-              <AgentMarks running={agents.running + (isStreaming ? 1 : 0)} completed={agents.completed} />
-              <span className="env-row-label">
-                {agents.running > 0 ? `${agents.running} 个运行中` : isStreaming ? "1 个运行中" : "无运行中"}
-              </span>
-              {(agents.completed > 0 || agents.running > 0) && (
-                <span className="env-row-meta">
-                  <em className="muted">{agents.completed} 完成</em>
-                </span>
-              )}
-            </button>
-          </section>
+          {plan && (
+            <section className="env-section">
+              <div className="env-section-label">计划</div>
+              <button type="button" className="env-row" onClick={() => setView("plan")}>
+                <ListChecks size={16} strokeWidth={1.7} />
+                <span className="env-row-label">{plan.steps.find((step) => step.status === "in_progress")?.text || "计划已完成"}</span>
+                <span className="env-row-meta"><em className="muted">{plan.completed}/{plan.steps.length}</em></span>
+              </button>
+            </section>
+          )}
 
-          <section className="env-section">
-            <div className="env-section-label">来源</div>
-            {sources.length === 0 ? (
-              <div className="env-row static muted-row">
-                <Sparkles size={16} strokeWidth={1.7} />
-                <span className="env-row-label">对话开始后显示引用</span>
-              </div>
-            ) : (
-              sources.slice(0, 3).map((source) => (
-                <div key={source.id} className={`env-row static ${source.kind === "pi" ? "env-row-brand" : ""}`} title={source.detail || source.label}>
-                  {source.kind === "pi" ? <PiMark />
-                    : source.kind === "file" ? <FileText size={16} strokeWidth={1.7} />
-                      : source.kind === "web-search" ? <Search size={16} strokeWidth={1.7} />
-                        : source.kind === "agent-browser" ? <Globe2 size={16} strokeWidth={1.7} />
-                          : source.kind === "search" ? <Search size={16} strokeWidth={1.7} />
-                          : <Sparkles size={16} strokeWidth={1.7} />}
-                  <span className={`env-row-label ${source.kind === "pi" || source.kind === "search" ? "brand" : ""}`}>{source.label}</span>
-                </div>
-              ))
-            )}
-            <button type="button" className="env-row quiet-link" onClick={() => setView("tree")}>
-              <ListTree size={16} strokeWidth={1.7} />
-              <span className="env-row-label">查看全部</span>
-            </button>
-            {agentBrowser && (
-              <button type="button" className="env-row" onClick={() => setView("browser")} title={agentBrowser.url}>
-                <Globe2 size={16} strokeWidth={1.7} />
-                <span className="env-row-label">Agent 浏览器 · {agentBrowser.title || agentBrowser.url}</span>
+          {outputs.length > 0 && (
+            <section className="env-section">
+              <div className="env-section-label">产出</div>
+              {outputs.slice(0, 3).map((output) => (
+                <button key={output.id} type="button" className="env-row" onClick={() => onOpenFile ? onOpenFile(output.path) : setView("outputs")} title={output.path}>
+                  <FileText size={16} strokeWidth={1.7} />
+                  <span className="env-row-label">{output.label}</span>
+                  <span className="env-row-meta"><em className="muted">{output.running ? "写入中" : outputActivityLabel(output.activity)}</em></span>
+                </button>
+              ))}
+              {outputs.length > 3 && (
+                <button type="button" className="env-row quiet-link" onClick={() => setView("outputs")}>
+                  <FolderOpen size={16} strokeWidth={1.7} />
+                  <span className="env-row-label">查看全部</span>
+                  <span className="env-row-meta"><em className="muted">{outputs.length}</em></span>
+                </button>
+              )}
+            </section>
+          )}
+
+          {agents.total > 0 && (
+            <section className="env-section">
+              <div className="env-section-label">子智能体</div>
+              <button type="button" className="env-row" onClick={() => setView("agents")}>
+                <AgentMarks running={agents.running} completed={agents.completed + agents.failed} />
+                <span className="env-row-label">
+                  {agents.running > 0 ? `${agents.running} 个运行中` : agents.queued > 0 ? `${agents.queued} 个等待中` : "无运行中"}
+                </span>
+                <span className="env-row-meta">
+                  <em className="muted">{agents.completed} 完成{agents.failed > 0 ? ` · ${agents.failed} 失败` : ""}</em>
+                </span>
               </button>
-            )}
-            {computer && (
-              <button type="button" className="env-row" onClick={() => setView("computer")}>
-                <MonitorCog size={16} strokeWidth={1.7} />
-                <span className="env-row-label">桌面 {computer.width}×{computer.height}</span>
+            </section>
+          )}
+
+          {terminal.running && (
+            <section className="env-section">
+              <div className="env-section-label">后台进程</div>
+              <button type="button" className="env-row" onClick={() => onOpenWorkspaceTool ? onOpenWorkspaceTool("terminal") : setView("processes")} title={terminal.command}>
+                <Activity size={16} strokeWidth={1.7} className="env-agent-live" />
+                <span className="env-row-label">{terminal.command || "终端命令"}</span>
+                <span className="env-row-meta"><em className="muted">运行中</em></span>
               </button>
-            )}
-          </section>
+            </section>
+          )}
+
+          {(sources.length > 0 || agentBrowser || computer) && (
+            <section className="env-section">
+              <div className="env-section-label">来源</div>
+              {sources.slice(0, 3).map((source) => (
+                <button key={source.id} type="button" className="env-row" onClick={() => openSource(source, setView, onOpenWorkspaceTool, onOpenFile)} title={source.detail || source.label}>
+                  <SourceIcon source={source} />
+                  <span className={`env-row-label ${source.kind === "search" ? "brand" : ""}`}>{source.label}</span>
+                  <span className="env-row-meta"><em className="muted">{sourceActivityLabel(source.activity)}{source.count > 1 ? ` · ${source.count}` : ""}</em></span>
+                </button>
+              ))}
+              <button type="button" className="env-row quiet-link" onClick={() => setView("sources")}>
+                <FileText size={16} strokeWidth={1.7} />
+                <span className="env-row-label">查看全部</span>
+                {sources.length > 0 && <span className="env-row-meta"><em className="muted">{sources.length}</em></span>}
+              </button>
+              {agentBrowser && !sources.some((source) => source.kind === "agent-browser") && (
+                <button type="button" className="env-row" onClick={() => onOpenWorkspaceTool ? onOpenWorkspaceTool("browser") : setView("browser")} title={agentBrowser.url}>
+                  <Globe2 size={16} strokeWidth={1.7} />
+                  <span className="env-row-label">Agent 浏览器 · {agentBrowser.title || agentBrowser.url}</span>
+                </button>
+              )}
+              {computer && (
+                <button type="button" className="env-row" onClick={() => setView("computer")}>
+                  <MonitorCog size={16} strokeWidth={1.7} />
+                  <span className="env-row-label">桌面 {computer.width}×{computer.height}</span>
+                </button>
+              )}
+            </section>
+          )}
         </div>
       )}
 
@@ -784,26 +845,109 @@ export function InspectorPanel({
         </div>
       )}
 
+      {view === "plan" && (
+        <div className="inspector-content env-detail-panel">
+          <div className="changes-summary">
+            <span><ListChecks size={15} /> {plan ? `${plan.completed}/${plan.steps.length} 已完成` : "无计划"}</span>
+          </div>
+          {plan ? (
+            <>
+              {plan.explanation && <p className="env-detail-note">{plan.explanation}</p>}
+              <div className="env-detail-list">
+                {plan.steps.map((step) => (
+                  <div key={step.id} className={`env-detail-item plan-${step.status}`}>
+                    <PlanStatusIcon status={step.status} />
+                    <span>{step.text}</span>
+                    <em>{planStatusLabel(step.status)}</em>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : <div className="panel-empty">当前任务没有计划记录。</div>}
+        </div>
+      )}
+
+      {view === "outputs" && (
+        <div className="inspector-content env-detail-panel">
+          <div className="changes-summary"><span><FolderOpen size={15} /> {outputs.length} 个文件产出</span></div>
+          {outputs.length === 0 ? <div className="panel-empty">当前任务没有文件产出。</div> : (
+            <div className="env-detail-list">
+              {outputs.map((output) => (
+                <button key={output.id} type="button" className="env-detail-item actionable" onClick={() => onOpenFile?.(output.path)} disabled={!onOpenFile} title={output.path}>
+                  <FileText size={15} />
+                  <span><strong>{output.label}</strong><small>{output.path}</small></span>
+                  <em>{output.running ? "写入中" : outputActivityLabel(output.activity)}{output.count > 1 ? ` · ${output.count}` : ""}</em>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === "sources" && (
+        <div className="inspector-content env-detail-panel">
+          <div className="changes-summary"><span><FileText size={15} /> {sources.length} 个来源</span></div>
+          {sources.length === 0 ? <div className="panel-empty">当前任务没有可追溯的来源。</div> : (
+            <div className="env-detail-list">
+              {sources.map((source) => (
+                <button key={source.id} type="button" className="env-detail-item actionable" onClick={() => openSource(source, setView, onOpenWorkspaceTool, onOpenFile)} title={source.detail || source.label}>
+                  <SourceIcon source={source} />
+                  <span><strong>{source.label}</strong>{source.detail && <small>{source.detail}</small>}</span>
+                  <em>{source.running ? "使用中" : source.failed ? "失败" : sourceActivityLabel(source.activity)}{source.count > 1 ? ` · ${source.count}` : ""}</em>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === "processes" && (
+        <div className="inspector-content env-detail-panel">
+          <div className="changes-summary">
+            <span><Activity size={15} /> {terminal.running ? "1 个运行中" : "无运行中"}</span>
+            {terminal.running && <button type="button" className="secondary-button compact" onClick={onAbortCommand}><Square size={11} fill="currentColor" />停止</button>}
+          </div>
+          {terminal.running ? (
+            <div className="env-detail-list">
+              <button type="button" className="env-detail-item actionable" onClick={() => onOpenWorkspaceTool?.("terminal")} disabled={!onOpenWorkspaceTool}>
+                <SquareTerminal size={15} />
+                <span><strong>{terminal.command || "终端命令"}</strong><small>{cwd}</small></span>
+                <em>运行中</em>
+              </button>
+            </div>
+          ) : <div className="panel-empty">当前没有后台进程。</div>}
+        </div>
+      )}
+
       {view === "agents" && (
         <div className="inspector-content session-tree-panel">
           <div className="changes-summary">
             <span>
-              <AgentMarks running={agents.running} completed={agents.completed} />
-              {agents.running} 运行中 · {agents.completed} 完成
+              <AgentMarks running={agents.running} completed={agents.completed + agents.failed} />
+              {agents.running} 运行中 · {agents.queued} 等待 · {agents.completed} 完成 · {agents.failed} 失败
             </span>
           </div>
-          {messages.flatMap((message) => message.toolCalls ?? []).length === 0 ? (
-            <div className="panel-empty">当前会话还没有工具/子任务记录。</div>
+          {subagents.length === 0 ? (
+            <div className="panel-empty">当前会话没有调用子智能体。</div>
           ) : (
             <div className="session-tree-list">
-              {messages.flatMap((message) => message.toolCalls ?? []).slice(-40).reverse().map((call) => (
-                <div key={call.id} className={`session-tree-node ${call.running ? "leaf" : ""}`}>
+              {subagents.slice(-40).reverse().map((agent) => (
+                <button
+                  type="button"
+                  key={agent.id}
+                  className={`session-tree-node env-agent-item ${agent.status === "running" ? "leaf" : ""}`}
+                  onClick={() => setSelectedAgent((current) => current === agent.id ? null : agent.id)}
+                  aria-expanded={selectedAgent === agent.id}
+                >
                   <div className="session-tree-meta">
-                    <code>{call.name}</code>
-                    {call.running ? <span className="tree-leaf-badge">运行中</span> : call.isError ? <span className="tree-leaf-badge">失败</span> : <span className="tree-leaf-badge">完成</span>}
+                    <code><Bot size={12} />{agent.label} · {subagentRoleLabel(agent.role)}</code>
+                    <span className={`tree-leaf-badge status-${agent.status}`}>{subagentStatusLabel(agent.status)}</span>
                   </div>
-                  <p title={summarizeArgs(call.args)}>{summarizeArgs(call.args)}</p>
-                </div>
+                  <p title={agent.task}>{agent.task}</p>
+                  {selectedAgent === agent.id && (agent.output || agent.error) && (
+                    <pre className={agent.error ? "env-agent-result error" : "env-agent-result"}>{agent.error || agent.output}</pre>
+                  )}
+                </button>
               ))}
             </div>
           )}
@@ -959,20 +1103,68 @@ function normalizeStatMap(input: Map<string, { add: number; del: number }>): Map
   return result;
 }
 
-function summarizeArgs(args: Record<string, unknown>): string {
-  const path = typeof args.path === "string" ? args.path
-    : typeof args.file === "string" ? args.file
-      : typeof args.url === "string" ? args.url
-        : typeof args.query === "string" ? args.query
-          : typeof args.command === "string" ? args.command
-            : "";
-  if (path) return path;
-  try {
-    const text = JSON.stringify(args);
-    return text.length > 120 ? `${text.slice(0, 117)}…` : text;
-  } catch {
-    return "";
+function subagentRoleLabel(role: "explorer" | "planner" | "reviewer" | "worker"): string {
+  if (role === "planner") return "规划";
+  if (role === "reviewer") return "审查";
+  if (role === "worker") return "执行";
+  return "探索";
+}
+
+function subagentStatusLabel(status: SubagentStatus): string {
+  if (status === "queued") return "等待";
+  if (status === "running") return "运行中";
+  if (status === "failed") return "失败";
+  return "完成";
+}
+
+function sourceActivityLabel(activity: EnvSourceItem["activity"]): string {
+  if (activity === "read") return "已读取";
+  if (activity === "searched") return "已搜索";
+  if (activity === "opened") return "已打开";
+  if (activity === "written") return "已写入";
+  if (activity === "updated") return "已更新";
+  return "已使用";
+}
+
+function outputActivityLabel(activity: "written" | "updated"): string {
+  return activity === "written" ? "已写入" : "已更新";
+}
+
+function planStatusLabel(status: TaskPlanStatus): string {
+  if (status === "completed") return "完成";
+  if (status === "in_progress") return "进行中";
+  return "待处理";
+}
+
+function PlanStatusIcon({ status }: { status: TaskPlanStatus }) {
+  if (status === "completed") return <CheckCircle2 size={15} />;
+  if (status === "in_progress") return <LoaderCircle className="spin" size={15} />;
+  return <Circle size={15} />;
+}
+
+function SourceIcon({ source }: { source: EnvSourceItem }) {
+  if (source.kind === "file") return <FileText size={16} strokeWidth={1.7} />;
+  if (source.kind === "agent-browser") return <Globe2 size={16} strokeWidth={1.7} />;
+  if (source.kind === "web-search" || source.kind === "search") return <Search size={16} strokeWidth={1.7} />;
+  return <Wrench size={16} strokeWidth={1.7} />;
+}
+
+function openSource(
+  source: EnvSourceItem,
+  setView: (view: InspectorTab) => void,
+  onOpenWorkspaceTool?: (tool: Exclude<WorkspaceTool, "summary">) => void,
+  onOpenFile?: (path: string) => void,
+) {
+  if (source.kind === "file" && source.detail && onOpenFile) {
+    onOpenFile(source.detail);
+    return;
   }
+  if (source.kind === "agent-browser") {
+    if (onOpenWorkspaceTool) onOpenWorkspaceTool("browser");
+    else setView("browser");
+    return;
+  }
+  setView("sources");
 }
 
 function extractFileDiff(diff: string, filePath: string): string {

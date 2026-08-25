@@ -220,7 +220,7 @@ export default function App() {
     }
     setInspectorTab(null);
     setInspectorOpenView(null);
-    setWorkspaceTool(null);
+    setWorkspaceTool("summary");
     setPreviewFile(null);
     setWorkspaceSidebarOpen(true);
   }, [workspaceSidebarVisible]);
@@ -1670,6 +1670,45 @@ export default function App() {
             onMouseDown={beginWorkspaceResize}
           />
         )}
+        {workspaceTool === "summary" && (
+          <ConnectedInspectorPanel
+            key="dock-summary"
+            docked
+            initialTab="changes"
+            openView={null}
+            onClose={() => setWorkspaceTool(null)}
+            onError={(message) => store.showToast(message, "error")}
+            git={newTask ? draftGit : git}
+            cwd={workspaceCwd}
+            environment={taskEnvironment}
+            terminal={terminal}
+            agentBrowser={agentBrowser}
+            computer={computer}
+            logs={piLog}
+            sessionTree={store.sessionTree}
+            sessionTreeLoading={store.sessionTreeLoading}
+            sessionTreeError={store.sessionTreeError}
+            sessionTreeLeafId={store.sessionTreeLeafId}
+            isStreaming={isStreaming}
+            onRefreshGit={() => void (newTask ? refreshDraftGit() : store.refreshGit())}
+            onReview={() => void requestReview()}
+            onReviewComment={(path, line, comment) => void sendFromComposer(
+              `请处理这条代码审阅意见：\n\n文件：${path}${line ? `\n行号：${line}` : ""}\n意见：${comment}`,
+            )}
+            onCommitOrPush={() => void requestCommitOrPush()}
+            onRestoreFiles={(paths) => void restoreGitFiles(paths)}
+            onStageFiles={(paths) => updateGitIndex("stage", paths)}
+            onUnstageFiles={(paths) => updateGitIndex("unstage", paths)}
+            onEnvironmentChange={setTaskEnvironment}
+            onSwitchWorkspace={(path) => void switchWorkspacePath(path)}
+            onRunCommand={(command, exclude) => void store.runBash(command, exclude)}
+            onAbortCommand={() => void store.abortBash()}
+            onRefreshTree={refreshSessionTree}
+            onContinueFromNode={continueFromTreeNode}
+            onOpenWorkspaceTool={(tool) => toggleWorkspaceTool(tool)}
+            onOpenFile={(path) => openPreviewFile(path)}
+          />
+        )}
         {workspaceTool === "review" && (
           <ConnectedInspectorPanel
             key={`dock-${workspaceTool}`}
@@ -1804,6 +1843,8 @@ export default function App() {
               onAbortCommand={() => void store.abortBash()}
               onRefreshTree={refreshSessionTree}
               onContinueFromNode={continueFromTreeNode}
+              onOpenWorkspaceTool={(tool) => toggleWorkspaceTool(tool)}
+              onOpenFile={(path) => openPreviewFile(path)}
             />
           )}
         </div>
