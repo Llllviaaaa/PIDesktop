@@ -4,6 +4,15 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+## 0.2.15 - 2026-08-25
+
+- Count and display only real `delegate_task` child agents in the inspector, with per-task queued, running, completed, and failed states.
+- Replace placeholder inspector rows with a real task summary for plans, outputs, background processes, sources, and workspace tool navigation.
+
+## 0.2.14 - 2026-08-25
+
+- Replace the application icon with a compact geometric Pi and terminal-cursor mark that remains legible at Windows taskbar sizes.
+
 ## 0.2.13 - 2026-08-24
 
 - Bundle Pi 0.84.0 as a validated standalone runtime so core desktop workflows no longer require a global Node.js or Pi installation.

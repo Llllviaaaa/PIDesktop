@@ -33,6 +33,10 @@ interface ChildResult {
   error: string;
 }
 
+interface ChildProgress extends SubagentTask {
+  status: "queued" | "running" | "completed" | "failed";
+}
+
 function invocation(args: string[]): { command: string; args: string[] } {
   const currentScript = process.argv[1];
   if (currentScript && !currentScript.startsWith("/$bunfs/root/") && fs.existsSync(currentScript)) {
@@ -117,13 +121,13 @@ async function runChild(
   });
 }
 
-async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
     while (next < items.length) {
       const index = next++;
-      results[index] = await fn(items[index]);
+      results[index] = await fn(items[index], index);
     }
   }));
   return results;
@@ -150,21 +154,26 @@ export default function (pi: ExtensionAPI) {
           : [];
       const tasks = normalizeSubagentTasks(rawTasks);
       const permission: SubagentPermission = params.permission === "workspace-write" ? "workspace-write" : "read-only";
+      const progress: ChildProgress[] = tasks.map((task) => ({ ...task, status: "queued" }));
       let done = 0;
-      const results = await mapWithConcurrency(tasks, concurrency, async (task) => {
+      const publishProgress = () => onUpdate?.({
+        content: [{ type: "text", text: `Subagents: ${done}/${tasks.length} finished` }],
+        details: { permission, completed: done, total: tasks.length, tasks: progress.map((task) => ({ ...task })) },
+      });
+      const results = await mapWithConcurrency(tasks, concurrency, async (task, index) => {
+        progress[index] = { ...progress[index], status: "running" };
+        publishProgress();
         const result = await runChild(task, permission, ctx.cwd, signal);
+        progress[index] = { ...progress[index], status: result.ok ? "completed" : "failed" };
         done += 1;
-        onUpdate?.({
-          content: [{ type: "text", text: `Subagents: ${done}/${tasks.length} finished` }],
-          details: { permission, completed: done, total: tasks.length },
-        });
+        publishProgress();
         return result;
       });
       const successful = results.filter((result) => result.ok).length;
       const text = results.map((result) => `### ${result.label} (${result.role}) - ${result.ok ? "completed" : "failed"}\n\n${result.ok ? result.output : result.error}`).join("\n\n---\n\n");
       return {
         content: [{ type: "text" as const, text: `${successful}/${results.length} subagents completed.\n\n${text}` }],
-        details: { permission, results },
+        details: { permission, completed: done, total: tasks.length, tasks: progress.map((task) => ({ ...task })), results },
         isError: successful === 0,
       };
     },
