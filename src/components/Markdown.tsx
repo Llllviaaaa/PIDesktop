@@ -5,6 +5,7 @@ import rehypeHighlight from "rehype-highlight";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { Check, Copy, FileText } from "lucide-react";
 import { usePiStore } from "../store";
+import { stripCodeReviewDirectives } from "../lib/codeReview";
 
 /** When provided, file links open in the in-app document pane instead of the OS. */
 export type OpenWorkspaceFile = (path: string, line?: number) => void;
@@ -180,6 +181,7 @@ interface MarkdownProps {
 }
 
 export function Markdown({ content }: MarkdownProps) {
+  const visibleContent = stripCodeReviewDirectives(content);
   return (
     <div className="markdown-body">
       <ReactMarkdown
@@ -217,7 +219,7 @@ export function Markdown({ content }: MarkdownProps) {
           },
         }}
       >
-        {linkifyFilePaths(content)}
+        {linkifyFilePaths(visibleContent)}
       </ReactMarkdown>
     </div>
   );

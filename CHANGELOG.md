@@ -4,6 +4,28 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+## 0.2.22 - 2026-08-26
+
+- Rebuild the Windows distribution from the current Review workspace implementation and bundled Pi Runtime.
+
+## 0.2.21 - 2026-08-26
+
+- Rebuild Review as a Codex-style Git workspace with uncommitted, staged, unstaged, branch, and commit sources, persistent file navigation, diff controls, and working stage/unstage/revert actions.
+- Add separate model review actions for uncommitted changes and base-branch comparisons, plus parsed inline `code-comment` findings that link review feedback to exact files and lines.
+
+## 0.2.20 - 2026-08-26
+
+- Rebuild side chat as a full Pi conversation with attachments, model and thinking controls, permission and work modes, tool output, and context usage.
+- Keep temporary side chats alive while the right panel is hidden, support multiple side chats per task, and expose their real status in the task summary.
+- Filter side-chat sessions out of normal task history and clean their recoverable session files when a side chat closes or the app exits.
+- Add explicit starting, failed, and expired states while preserving parent-task context without changing the main conversation.
+
+## 0.2.19 - 2026-08-26
+
+- Keep side chat available when its parent session file has been moved or removed by opening an independent temporary conversation instead.
+- Track and clean up every temporary side-chat session, including sessions that were not forked from a parent conversation.
+- Align the MCP client handshake version with the desktop release version.
+
 ## 0.2.15 - 2026-08-25
 
 - Count and display only real `delegate_task` child agents in the inspector, with per-task queued, running, completed, and failed states.

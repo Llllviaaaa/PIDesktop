@@ -48,7 +48,8 @@ import { ToolRail, type WorkspaceTool } from "./components/ToolRail";
 import { FileTreePanel } from "./components/FileTreePanel";
 import { DocumentPane } from "./components/DocumentPane";
 import { BrowserWorkspacePanel } from "./components/BrowserWorkspacePanel";
-import { SideChatPanel } from "./components/SideChatPanel";
+import { SideChatPanel, type SideChatMeta } from "./components/SideChatPanel";
+import { ReviewPanel, type ReviewTarget } from "./components/ReviewPanel";
 import { WorkspaceFileOpenContext } from "./components/Markdown";
 import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, ScheduledRunRecord, SessionInfo, UiMessage, WorkspaceEditorInfo } from "./types";
 
@@ -81,6 +82,13 @@ type HubView = "pull-requests" | "sites" | "scheduled" | "plugins";
 type AppMenu = "file" | "edit" | "view" | "help";
 type NavigationTarget = BaseNavigationTarget<HubView>;
 
+interface SideChatInstance extends SideChatMeta {
+  id: string;
+  cwd: string;
+  parentSessionFile: string;
+  createdAt: number;
+}
+
 function selectAppShellState(state: ReturnType<typeof usePiStore.getState>) {
   const { messages, ...shellState } = state;
   void messages;
@@ -97,7 +105,8 @@ function WorkspaceCubeIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-const WORKSPACE_CHAT_WIDTH_KEY = "pid-desktop:workspace-chat-width:v2";
+const SIDEBAR_WIDTH_KEY = "pid-desktop:sidebar-width:v2";
+const WORKSPACE_PANEL_WIDTH_KEY = "pid-desktop:workspace-panel-width:v5";
 
 export default function App() {
   const store = usePiStore(useShallow(selectAppShellState));
@@ -138,13 +147,14 @@ export default function App() {
   });
   const newTask = draftMode;
   const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth > 900);
+  const [sidebarHoverPreview, setSidebarHoverPreview] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const stored = Number(window.localStorage.getItem("pid-desktop:sidebar-width"));
-    return Number.isFinite(stored) && stored >= 200 && stored <= 380 ? stored : 250;
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    return Number.isFinite(stored) && stored >= 200 && stored <= 380 ? stored : 240;
   });
-  const [workspaceChatWidth, setWorkspaceChatWidth] = useState(() => {
-    const stored = Number(window.localStorage.getItem(WORKSPACE_CHAT_WIDTH_KEY));
-    return Number.isFinite(stored) && stored >= 360 && stored <= 520 ? stored : 462;
+  const [workspacePanelWidth, setWorkspacePanelWidth] = useState(() => {
+    const stored = Number(window.localStorage.getItem(WORKSPACE_PANEL_WIDTH_KEY));
+    return Number.isFinite(stored) && stored >= 320 && stored <= 720 ? stored : 420;
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("general");
@@ -155,6 +165,8 @@ export default function App() {
   const [workspaceSidebarOpen, setWorkspaceSidebarOpen] = useState(false);
   const [workspaceFocusMode, setWorkspaceFocusMode] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool | null>(null);
+  const [sideChats, setSideChats] = useState<SideChatInstance[]>([]);
+  const [activeSideChatId, setActiveSideChatId] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<{ path: string; line?: number } | null>(null);
   const [openFileTabs, setOpenFileTabs] = useState<Array<{ path: string; line?: number }>>([]);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -187,6 +199,7 @@ export default function App() {
   }), [firstUserMessage, sessionFile, sessionId, sessionName, sessions]);
   const navigationBackRef = useRef<NavigationTarget[]>([]);
   const navigationForwardRef = useRef<NavigationTarget[]>([]);
+  const sidebarHoverCloseTimerRef = useRef<number | null>(null);
   const [navigationVersion, setNavigationVersion] = useState(0);
   const isTauri = "__TAURI_INTERNALS__" in window;
   const { runtimeRecoveryDone, startupAutoConnectRef } = useRuntimeBootstrap({
@@ -202,7 +215,105 @@ export default function App() {
     onDraftWorkspaceChange: setDraftWorkspace,
   });
   const appWindow = isTauri ? getCurrentWindow() : null;
-  const workspaceSidebarVisible = workspaceSidebarOpen || Boolean(workspaceTool || previewFile);
+  const workspaceCwd = newTask ? draftWorkspace : cwd;
+  const workspaceSidebarVisible = workspaceSidebarOpen || Boolean(workspaceTool || previewFile || inspectorTab);
+  const sidebarRendered = sidebarVisible || sidebarHoverPreview;
+  const currentSideChats = useMemo(
+    () => sessionFile ? sideChats.filter((chat) => sameLocalPath(chat.parentSessionFile, sessionFile)) : [],
+    [sessionFile, sideChats],
+  );
+
+  const createSideChat = useCallback(() => {
+    if (newTask || !sessionFile || !workspaceCwd) {
+      usePiStore.getState().showToast("请先开始当前任务，再创建侧边聊天", "warning");
+      return null;
+    }
+    const id = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `side-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const next: SideChatInstance = {
+      id,
+      cwd: workspaceCwd,
+      parentSessionFile: sessionFile,
+      createdAt: Date.now(),
+      title: "侧边聊天",
+      phase: "starting",
+      isStreaming: false,
+    };
+    setSideChats((current) => [...current, next]);
+    setActiveSideChatId(id);
+    setInspectorTab(null);
+    setInspectorOpenView(null);
+    setPreviewFile(null);
+    setWorkspaceSidebarOpen(true);
+    setWorkspaceTool("side-chat");
+    return id;
+  }, [newTask, sessionFile, workspaceCwd]);
+
+  const openSideChat = useCallback((id: string) => {
+    const target = sideChats.find((chat) => chat.id === id);
+    if (!target || !sessionFile || !sameLocalPath(target.parentSessionFile, sessionFile)) return;
+    setActiveSideChatId(id);
+    setInspectorTab(null);
+    setInspectorOpenView(null);
+    setPreviewFile(null);
+    setWorkspaceSidebarOpen(true);
+    setWorkspaceTool("side-chat");
+  }, [sessionFile, sideChats]);
+
+  const updateSideChatMeta = useCallback((id: string, meta: SideChatMeta) => {
+    setSideChats((current) => {
+      let changed = false;
+      const next = current.map((chat) => {
+        if (chat.id !== id) return chat;
+        if (chat.title === meta.title && chat.phase === meta.phase && chat.isStreaming === meta.isStreaming) return chat;
+        changed = true;
+        return { ...chat, ...meta };
+      });
+      return changed ? next : current;
+    });
+  }, []);
+
+  const showErrorToast = useCallback((message: string) => {
+    usePiStore.getState().showToast(message, "error");
+  }, []);
+
+  const deleteSideChat = useCallback((id: string) => {
+    const remaining = sideChats.filter((chat) => chat.id !== id);
+    setSideChats(remaining);
+    if (activeSideChatId !== id) return;
+    const replacement = sessionFile
+      ? [...remaining].reverse().find((chat) => sameLocalPath(chat.parentSessionFile, sessionFile))
+      : undefined;
+    setActiveSideChatId(replacement?.id ?? null);
+    if (!replacement) setWorkspaceTool(null);
+  }, [activeSideChatId, sessionFile, sideChats]);
+
+  const toggleWorkspaceTool = useCallback((tool: WorkspaceTool) => {
+    if (tool === "side-chat") {
+      if (workspaceTool === "side-chat") {
+        setWorkspaceTool(null);
+        return;
+      }
+      if (newTask || !sessionFile || !workspaceCwd) {
+        usePiStore.getState().showToast("请先开始当前任务，再创建侧边聊天", "warning");
+        return;
+      }
+      const active = currentSideChats.find((chat) => chat.id === activeSideChatId)
+        ?? currentSideChats[currentSideChats.length - 1];
+      if (!active) {
+        createSideChat();
+        return;
+      }
+      openSideChat(active.id);
+      return;
+    }
+    setInspectorTab(null);
+    setInspectorOpenView(null);
+    setPreviewFile(tool === "files" ? (openFileTabs[openFileTabs.length - 1] ?? null) : null);
+    setWorkspaceSidebarOpen(true);
+    setWorkspaceTool((current) => (current === tool ? null : tool));
+  }, [activeSideChatId, createSideChat, currentSideChats, newTask, openFileTabs, openSideChat, sessionFile, workspaceCwd, workspaceTool]);
   const preferredWorkspaceEditor = useMemo(() => {
     const preferredId = settings?.defaultFileOpener;
     const configured = workspaceEditors.find((editor) => editor.id === preferredId);
@@ -216,21 +327,64 @@ export default function App() {
       setWorkspaceSidebarOpen(false);
       setWorkspaceTool(null);
       setPreviewFile(null);
+      setInspectorTab(null);
+      setInspectorOpenView(null);
       return;
     }
     setInspectorTab(null);
     setInspectorOpenView(null);
-    setWorkspaceTool("summary");
+    setWorkspaceTool(null);
     setPreviewFile(null);
     setWorkspaceSidebarOpen(true);
   }, [workspaceSidebarVisible]);
+
+  const cancelSidebarHoverClose = useCallback(() => {
+    if (sidebarHoverCloseTimerRef.current === null) return;
+    window.clearTimeout(sidebarHoverCloseTimerRef.current);
+    sidebarHoverCloseTimerRef.current = null;
+  }, []);
+
+  const showSidebarHoverPreview = useCallback(() => {
+    if (sidebarVisible) return;
+    cancelSidebarHoverClose();
+    setSidebarHoverPreview(true);
+  }, [cancelSidebarHoverClose, sidebarVisible]);
+
+  const scheduleSidebarHoverClose = useCallback(() => {
+    if (sidebarVisible) return;
+    cancelSidebarHoverClose();
+    sidebarHoverCloseTimerRef.current = window.setTimeout(() => {
+      setSidebarHoverPreview(false);
+      sidebarHoverCloseTimerRef.current = null;
+    }, 160);
+  }, [cancelSidebarHoverClose, sidebarVisible]);
+
+  const togglePrimarySidebar = useCallback(() => {
+    cancelSidebarHoverClose();
+    setSidebarHoverPreview(false);
+    setSidebarVisible((value) => !value);
+  }, [cancelSidebarHoverClose]);
+
+  const pinPrimarySidebar = useCallback(() => {
+    cancelSidebarHoverClose();
+    setSidebarHoverPreview(false);
+    setSidebarVisible(true);
+  }, [cancelSidebarHoverClose]);
+
+  useEffect(() => {
+    if (!sidebarVisible) return;
+    cancelSidebarHoverClose();
+    setSidebarHoverPreview(false);
+  }, [cancelSidebarHoverClose, sidebarVisible]);
+
+  useEffect(() => () => cancelSidebarHoverClose(), [cancelSidebarHoverClose]);
 
   useEffect(() => {
     if (!workspaceSidebarVisible) setWorkspaceFocusMode(false);
   }, [workspaceSidebarVisible]);
 
   useEffect(() => {
-    if (!inspectorTab && !toolsMenuOpen && !moreOpen && !appMenu && !workspaceFocusMode) return;
+    if (!toolsMenuOpen && !moreOpen && !appMenu && !workspaceFocusMode) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
       if (!target) return;
@@ -239,10 +393,6 @@ export default function App() {
       }
       if (moreOpen && !target.closest(".title-actions")) setMoreOpen(false);
       if (appMenu && !target.closest(".app-menu-bar, .app-menu-dropdown")) setAppMenu(null);
-      if (inspectorTab && !target.closest(".env-panel, .codex-layout-chrome, .title-diff-chip")) {
-        setInspectorTab(null);
-        setInspectorOpenView(null);
-      }
     };
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || settingsOpen) return;
@@ -250,10 +400,6 @@ export default function App() {
       else if (moreOpen) setMoreOpen(false);
       else if (appMenu) setAppMenu(null);
       else if (workspaceFocusMode) setWorkspaceFocusMode(false);
-      else if (inspectorTab) {
-        setInspectorTab(null);
-        setInspectorOpenView(null);
-      }
     };
     document.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onEscape);
@@ -261,7 +407,7 @@ export default function App() {
       document.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onEscape);
     };
-  }, [appMenu, inspectorTab, moreOpen, settingsOpen, toolsMenuOpen, workspaceFocusMode]);
+  }, [appMenu, moreOpen, settingsOpen, toolsMenuOpen, workspaceFocusMode]);
 
   useEffect(() => {
     const narrowWindow = window.matchMedia("(max-width: 900px)");
@@ -379,9 +525,18 @@ export default function App() {
         setSettingsOpen(false);
         return;
       }
-      if (ctrl && !event.altKey && !event.shiftKey && (event.key.toLowerCase() === "j" || event.code === "Backquote" || event.key === "`")) {
+      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "j") {
         event.preventDefault();
         setBottomPanel((value) => !value);
+        return;
+      }
+      if (ctrl && !event.altKey && !event.shiftKey && (event.code === "Backquote" || event.key === "`")) {
+        event.preventDefault();
+        setInspectorTab(null);
+        setInspectorOpenView(null);
+        setPreviewFile(null);
+        setWorkspaceSidebarOpen(true);
+        setWorkspaceTool((current) => (current === "terminal" ? null : "terminal"));
         return;
       }
       if (ctrl && event.altKey && !event.shiftKey && event.key.toLowerCase() === "b") {
@@ -417,11 +572,7 @@ export default function App() {
       }
       if (ctrl && event.altKey && !event.shiftKey && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        setInspectorTab(null);
-        setInspectorOpenView(null);
-        setWorkspaceSidebarOpen(true);
-        setWorkspaceTool((current) => (current === "side-chat" ? null : "side-chat"));
-        setPreviewFile(null);
+        toggleWorkspaceTool("side-chat");
         return;
       }
       if (shortcut === normalize(shortcuts.newChat) && connection === "running") {
@@ -442,12 +593,12 @@ export default function App() {
         setWorkspaceTool((value) => (value === "review" ? null : "review"));
       } else if (shortcut === normalize(shortcuts.toggleSidebar)) {
         event.preventDefault();
-        setSidebarVisible((value) => !value);
+        togglePrimarySidebar();
       }
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [connection, settings, settingsOpen, store.prepareNewTask, toggleWorkspaceSidebar]);
+  }, [connection, settings, settingsOpen, store.prepareNewTask, togglePrimarySidebar, toggleWorkspaceSidebar, toggleWorkspaceTool]);
 
   useEffect(() => {
     if (!editingTitle) setTitleDraft(resolvedThreadTitle);
@@ -457,6 +608,19 @@ export default function App() {
     setEditingMessage(null);
     autoFollowConversationRef.current = true;
   }, [runtimeId, sessionFile]);
+
+  useEffect(() => {
+    if (workspaceTool !== "side-chat") return;
+    if (!sessionFile || newTask) {
+      setWorkspaceTool(null);
+      return;
+    }
+    const activeMatches = currentSideChats.some((chat) => chat.id === activeSideChatId);
+    if (activeMatches) return;
+    const replacement = currentSideChats[currentSideChats.length - 1];
+    if (replacement) setActiveSideChatId(replacement.id);
+    else setWorkspaceTool(null);
+  }, [activeSideChatId, currentSideChats, newTask, sessionFile, workspaceTool]);
 
   useEffect(() => {
     if (draftWorkspace || sessions.length === 0) return;
@@ -568,14 +732,6 @@ export default function App() {
     });
   }, [store.appendLog]);
 
-  const toggleWorkspaceTool = useCallback((tool: WorkspaceTool) => {
-    setInspectorTab(null);
-    setInspectorOpenView(null);
-    setPreviewFile(tool === "files" ? (openFileTabs[openFileTabs.length - 1] ?? null) : null);
-    setWorkspaceSidebarOpen(true);
-    setWorkspaceTool((current) => (current === tool ? null : tool));
-  }, [openFileTabs]);
-
   const openPreviewFile = useCallback((path: string, line?: number) => {
     setHubView(null);
     setInspectorTab(null);
@@ -615,7 +771,6 @@ export default function App() {
         ? "完全访问"
         : "先询问";
   const connected = connection === "running";
-  const workspaceCwd = newTask ? draftWorkspace : cwd;
   const workspaceFilePath = useCallback((path: string) => (
     /^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)
       ? path
@@ -881,7 +1036,7 @@ export default function App() {
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       setSidebarWidth((current) => {
-        window.localStorage.setItem("pid-desktop:sidebar-width", String(current));
+        window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(current));
         return current;
       });
     };
@@ -894,19 +1049,20 @@ export default function App() {
   const beginWorkspaceResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     const startX = event.clientX;
-    const startWidth = workspaceChatWidth;
+    const startWidth = workspaceTool === "review" ? Math.max(820, workspacePanelWidth) : workspacePanelWidth;
     const onMove = (move: MouseEvent) => {
-      const available = window.innerWidth - (sidebarVisible ? sidebarWidth : 0) - 440;
-      const next = Math.min(520, Math.min(Math.max(360, available), Math.max(360, startWidth + move.clientX - startX)));
-      setWorkspaceChatWidth(next);
+      const available = window.innerWidth - (sidebarVisible ? sidebarWidth : 0) - 500;
+      const maxWidth = Math.max(320, Math.min(720, available));
+      const next = Math.min(maxWidth, Math.max(320, startWidth + startX - move.clientX));
+      setWorkspacePanelWidth(next);
     };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      setWorkspaceChatWidth((current) => {
-        window.localStorage.setItem(WORKSPACE_CHAT_WIDTH_KEY, String(current));
+      setWorkspacePanelWidth((current) => {
+        window.localStorage.setItem(WORKSPACE_PANEL_WIDTH_KEY, String(current));
         return current;
       });
     };
@@ -914,7 +1070,7 @@ export default function App() {
     document.body.style.userSelect = "none";
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [sidebarVisible, sidebarWidth, workspaceChatWidth]);
+  }, [sidebarVisible, sidebarWidth, workspacePanelWidth, workspaceTool]);
 
   const restoreGitFiles = useCallback(async (paths?: string[]) => {
     const workspace = workspaceCwd;
@@ -1060,15 +1216,25 @@ export default function App() {
     void usePiStore.getState().continueFromTreeNode(entryId);
   }, []);
 
-  const requestReview = useCallback(async () => {
+  const requestReview = useCallback(async (target: ReviewTarget = { mode: "uncommitted" }) => {
     if (settings?.reviewDelivery === "detached") {
       const current = usePiStore.getState();
       const workspace = current.cwd;
       current.prepareNewTask();
       if (workspace) await usePiStore.getState().connect(workspace);
     }
-    const sent = await usePiStore.getState().sendMessage("检查当前 Git 更改的正确性、回归风险、安全问题和缺失测试。按严重程度列出发现，并提供准确的文件引用。");
-    if (sent) setDraftMode(false);
+    const scope = target.mode === "base-branch"
+      ? `审查当前分支相对于基线分支 ${target.baseBranch} 的代码更改。先运行 git merge-base HEAD ${target.baseBranch}，再检查从合并基点到 HEAD 的差异。`
+      : "审查当前未提交的代码更改，包括已暂存、未暂存和未跟踪文件。";
+    const sent = await usePiStore.getState().sendMessage([
+      scope,
+      "只报告由这些更改引入、作者明确会修复的离散问题，重点检查正确性、回归风险、安全性和缺失测试；按严重程度列出发现。没有可操作问题时请直接说明。",
+      "需要定位到具体改动行的意见，请另起一行输出 ::code-comment{title=\"[P1] 简短标题\" body=\"问题、触发场景和修复方向\" file=\"相对或绝对文件路径\" start=行号 end=行号 priority=1}。正文保持普通 Markdown，不要输出 JSON。",
+    ].join("\n\n"));
+    if (sent) {
+      setDraftMode(false);
+      setWorkspaceTool(null);
+    }
   }, [settings?.reviewDelivery]);
 
   const requestCommitOrPush = useCallback(async () => {
@@ -1158,7 +1324,9 @@ export default function App() {
           <button
             type="button"
             className="window-nav-button"
-            onClick={() => setSidebarVisible((value) => !value)}
+            onClick={togglePrimarySidebar}
+            onMouseEnter={showSidebarHoverPreview}
+            onMouseLeave={scheduleSidebarHoverClose}
             title={sidebarVisible ? "隐藏侧栏" : "显示侧栏"}
           >
             <PanelLeft size={17} strokeWidth={1.65} />
@@ -1198,11 +1366,11 @@ export default function App() {
                 <button onClick={() => { setAppMenu(null); document.execCommand("selectAll"); }}>全选</button>
               </>}
               {appMenu === "view" && <>
-                <button onClick={() => { setAppMenu(null); setSidebarVisible((value) => !value); }}>{sidebarVisible ? "隐藏侧栏" : "显示侧栏"}</button>
+                <button onClick={() => { setAppMenu(null); togglePrimarySidebar(); }}>{sidebarVisible ? "隐藏侧栏" : "显示侧栏"}</button>
                 <button onClick={() => { setAppMenu(null); setWorkspaceSidebarOpen(false); setWorkspaceTool(null); setPreviewFile(null); setInspectorTab("changes"); setInspectorOpenView(null); }}>显示环境信息</button>
-                <button onClick={() => { setAppMenu(null); toggleWorkspaceTool("review"); }}>审阅</button>
+                <button onClick={() => { setAppMenu(null); toggleWorkspaceTool("review"); }}>审查</button>
                 <button onClick={() => { setAppMenu(null); setBottomPanel((value) => !value); }}>{bottomPanel ? "隐藏终端" : "打开终端"}</button>
-                <button onClick={() => { setAppMenu(null); toggleWorkspaceTool("browser"); }}>应用内浏览器</button>
+                <button onClick={() => { setAppMenu(null); toggleWorkspaceTool("browser"); }}>浏览器</button>
                 <button onClick={() => { setAppMenu(null); toggleWorkspaceTool("files"); }}>文件</button>
                 <button onClick={() => { setAppMenu(null); openSettingsPage("appearance"); }}>外观设置</button>
               </>}
@@ -1227,10 +1395,23 @@ export default function App() {
       </div>
       <div className="workspace-shell" style={{
         ["--sidebar-width" as string]: `${sidebarWidth}px`,
-        ["--workspace-chat-width" as string]: `${workspaceChatWidth}px`,
+        ["--workspace-panel-width" as string]: `${workspaceTool === "review" ? Math.max(820, workspacePanelWidth) : workspacePanelWidth}px`,
       }}>
-        {sidebarVisible && (
-          <Sidebar
+        {!sidebarVisible && (
+          <div
+            aria-hidden="true"
+            className="sidebar-hover-zone"
+            onMouseEnter={showSidebarHoverPreview}
+            onMouseLeave={scheduleSidebarHoverClose}
+          />
+        )}
+        <div
+          className={`primary-sidebar-panel${sidebarRendered ? " open" : ""}${sidebarHoverPreview ? " hover-preview" : ""}`}
+          data-panel
+          data-sidebar-panel-state={sidebarVisible ? "pinned" : sidebarHoverPreview ? "preview" : "closed"}
+        >
+          {sidebarRendered && (
+            <Sidebar
             sessions={sessions}
             currentSessionFile={sessionFile}
             runningSessionFiles={runningSessionFiles}
@@ -1265,10 +1446,13 @@ export default function App() {
               `已归档 ${projectSessions.length} 个对话`,
             )}
             onOpenSettings={() => openSettingsPage("general")}
-            onOpenHelp={() => void openUrl("https://pi.dev")}
             onPickFolder={() => void pickFolder()}
-          />
-        )}
+            hoverPreview={!sidebarVisible}
+            onHoverEnter={cancelSidebarHoverClose}
+            onHoverLeave={scheduleSidebarHoverClose}
+            />
+          )}
+        </div>
         {sidebarVisible && (
           <div
             className="sidebar-resizer"
@@ -1280,11 +1464,17 @@ export default function App() {
         )}
 
         <div className="work-surface">
-        <div className={`stage-canvas ${inspectorTab ? "env-visible" : ""}`}>
+        <div className="stage-canvas">
         <header className="topbar" data-tauri-drag-region>
           <div className="topbar-left" data-tauri-drag-region>
             {!sidebarVisible && (
-              <button className="icon-button" onClick={() => setSidebarVisible(true)} title="显示侧栏"><Menu size={17} /></button>
+              <button
+                className="icon-button"
+                onClick={pinPrimarySidebar}
+                onMouseEnter={showSidebarHoverPreview}
+                onMouseLeave={scheduleSidebarHoverClose}
+                title="显示侧栏"
+              ><Menu size={17} /></button>
             )}
             {/* Codex: thread title + … live on the left; not a window-chrome ⋯ on the right */}
             {!newTask && !hubView && (
@@ -1503,7 +1693,7 @@ export default function App() {
               workspaces={workspaceOptions}
               onTasksChanged={() => void store.refreshSessions()}
               onOpenSession={(workspace, file) => navigateTo({ kind: "session", cwd: workspace, file })}
-              onError={(message) => store.showToast(message, "error")}
+              onError={showErrorToast}
             />
           ) : hubView === "plugins" ? (
             <PluginMarketplacePage cwd={draftWorkspace || cwd} />
@@ -1638,7 +1828,7 @@ export default function App() {
                           </div>
                         </button>
                         <button type="button" className="change-card-secondary" onClick={() => void restoreGitFiles()}>撤销</button>
-                        <button type="button" onClick={() => void requestReview()}>审核</button>
+                        <button type="button" onClick={() => void requestReview({ mode: "uncommitted" })}>审核</button>
                       </div>
                     </section>
                   )}
@@ -1670,79 +1860,25 @@ export default function App() {
             onMouseDown={beginWorkspaceResize}
           />
         )}
-        {workspaceTool === "summary" && (
-          <ConnectedInspectorPanel
-            key="dock-summary"
-            docked
-            initialTab="changes"
-            openView={null}
-            onClose={() => setWorkspaceTool(null)}
-            onError={(message) => store.showToast(message, "error")}
-            git={newTask ? draftGit : git}
-            cwd={workspaceCwd}
-            environment={taskEnvironment}
-            terminal={terminal}
-            agentBrowser={agentBrowser}
-            computer={computer}
-            logs={piLog}
-            sessionTree={store.sessionTree}
-            sessionTreeLoading={store.sessionTreeLoading}
-            sessionTreeError={store.sessionTreeError}
-            sessionTreeLeafId={store.sessionTreeLeafId}
-            isStreaming={isStreaming}
-            onRefreshGit={() => void (newTask ? refreshDraftGit() : store.refreshGit())}
-            onReview={() => void requestReview()}
-            onReviewComment={(path, line, comment) => void sendFromComposer(
-              `请处理这条代码审阅意见：\n\n文件：${path}${line ? `\n行号：${line}` : ""}\n意见：${comment}`,
-            )}
-            onCommitOrPush={() => void requestCommitOrPush()}
-            onRestoreFiles={(paths) => void restoreGitFiles(paths)}
-            onStageFiles={(paths) => updateGitIndex("stage", paths)}
-            onUnstageFiles={(paths) => updateGitIndex("unstage", paths)}
-            onEnvironmentChange={setTaskEnvironment}
-            onSwitchWorkspace={(path) => void switchWorkspacePath(path)}
-            onRunCommand={(command, exclude) => void store.runBash(command, exclude)}
-            onAbortCommand={() => void store.abortBash()}
-            onRefreshTree={refreshSessionTree}
-            onContinueFromNode={continueFromTreeNode}
-            onOpenWorkspaceTool={(tool) => toggleWorkspaceTool(tool)}
-            onOpenFile={(path) => openPreviewFile(path)}
-          />
-        )}
         {workspaceTool === "review" && (
-          <ConnectedInspectorPanel
+          <ReviewPanel
             key={`dock-${workspaceTool}`}
-            docked
-            initialTab="changes"
-            openView="changes"
             onClose={() => setWorkspaceTool(null)}
             git={newTask ? draftGit : git}
             cwd={workspaceCwd}
-            environment={taskEnvironment}
-            terminal={terminal}
-            agentBrowser={agentBrowser}
-            computer={computer}
-            logs={piLog}
-            sessionTree={store.sessionTree}
-            sessionTreeLoading={store.sessionTreeLoading}
-            sessionTreeError={store.sessionTreeError}
-            sessionTreeLeafId={store.sessionTreeLeafId}
             isStreaming={isStreaming}
             onRefreshGit={() => void (newTask ? refreshDraftGit() : store.refreshGit())}
-            onReview={() => void requestReview()}
+            onReview={(target) => void requestReview(target)}
             onReviewComment={(path, line, comment) => void sendFromComposer(
               `请处理这条代码审阅意见：\n\n文件：${path}${line ? `\n行号：${line}` : ""}\n意见：${comment}`,
             )}
             onCommitOrPush={() => void requestCommitOrPush()}
+            onOpenTool={(tool) => setWorkspaceTool(tool)}
             onRestoreFiles={(paths) => void restoreGitFiles(paths)}
             onStageFiles={(paths) => updateGitIndex("stage", paths)}
             onUnstageFiles={(paths) => updateGitIndex("unstage", paths)}
-            onEnvironmentChange={setTaskEnvironment}
-            onSwitchWorkspace={(path) => void switchWorkspacePath(path)}
-            onRunCommand={(command, exclude) => void store.runBash(command, exclude)}
-            onAbortCommand={() => void store.abortBash()}
-            onRefreshTree={refreshSessionTree}
-            onContinueFromNode={continueFromTreeNode}
+            onOpenFile={(path, line) => openPreviewFile(path, line)}
+            onError={showErrorToast}
           />
         )}
         {workspaceTool === "browser" && (
@@ -1784,15 +1920,64 @@ export default function App() {
             />
           )
         )}
-        {workspaceTool === "side-chat" && (
+        {sideChats.map((chat) => (
           <SideChatPanel
-            cwd={workspaceCwd}
-            parentSessionFile={sessionFile}
+            key={chat.id}
+            chatId={chat.id}
+            cwd={chat.cwd}
+            parentSessionFile={chat.parentSessionFile}
+            hidden={workspaceTool !== "side-chat" || activeSideChatId !== chat.id}
             showThinking={settings?.showThinking ?? true}
+            settings={settings}
             onClose={() => setWorkspaceTool(null)}
+            onDelete={() => deleteSideChat(chat.id)}
+            onNew={() => { createSideChat(); }}
+            onStateChange={updateSideChatMeta}
+            onError={showErrorToast}
           />
+        ))}
+        {inspectorTab && !workspaceTool && !previewFile && (
+          <ConnectedInspectorPanel
+            key={`dock-inspector-${inspectorTab}-${inspectorOpenView ?? "home"}`}
+            docked
+            initialTab={inspectorTab}
+            openView={inspectorOpenView}
+            onClose={() => { setInspectorTab(null); setInspectorOpenView(null); }}
+            onError={showErrorToast}
+            git={newTask ? draftGit : git}
+            cwd={workspaceCwd}
+            environment={taskEnvironment}
+            terminal={terminal}
+            agentBrowser={agentBrowser}
+            computer={computer}
+            logs={piLog}
+            sessionTree={store.sessionTree}
+            sessionTreeLoading={store.sessionTreeLoading}
+            sessionTreeError={store.sessionTreeError}
+            sessionTreeLeafId={store.sessionTreeLeafId}
+            isStreaming={isStreaming}
+            onRefreshGit={() => void (newTask ? refreshDraftGit() : store.refreshGit())}
+            onReview={() => void requestReview()}
+            onReviewComment={(path, line, comment) => void sendFromComposer(
+              `请处理这条代码审阅意见：\n\n文件：${path}${line ? `\n行号：${line}` : ""}\n意见：${comment}`,
+            )}
+            onCommitOrPush={() => void requestCommitOrPush()}
+            onRestoreFiles={(paths) => void restoreGitFiles(paths)}
+            onStageFiles={(paths) => updateGitIndex("stage", paths)}
+            onUnstageFiles={(paths) => updateGitIndex("unstage", paths)}
+            onEnvironmentChange={setTaskEnvironment}
+            onSwitchWorkspace={(path) => void switchWorkspacePath(path)}
+            onRunCommand={(command, exclude) => void store.runBash(command, exclude)}
+            onAbortCommand={() => void store.abortBash()}
+            onRefreshTree={refreshSessionTree}
+             onContinueFromNode={continueFromTreeNode}
+             onOpenWorkspaceTool={(tool) => toggleWorkspaceTool(tool)}
+             sideChats={currentSideChats}
+             onOpenSideChat={openSideChat}
+             onOpenFile={(path) => openPreviewFile(path)}
+           />
         )}
-        {workspaceSidebarVisible && !workspaceTool && !previewFile && (
+        {workspaceSidebarVisible && !workspaceTool && !previewFile && !inspectorTab && (
           <ToolRail onSelect={toggleWorkspaceTool} />
         )}
         </div>
@@ -1809,45 +1994,6 @@ export default function App() {
           </Suspense>
         )}
 
-        <div className="environment-flyout-layer" aria-hidden={!inspectorTab}>
-          {inspectorTab && (
-            <ConnectedInspectorPanel
-              initialTab={inspectorTab}
-              openView={inspectorOpenView}
-              onClose={() => { setInspectorTab(null); setInspectorOpenView(null); }}
-              onError={(message) => store.showToast(message, "error")}
-              git={newTask ? draftGit : git}
-              cwd={newTask ? draftWorkspace : cwd}
-              environment={taskEnvironment}
-              terminal={terminal}
-              agentBrowser={agentBrowser}
-              computer={computer}
-              logs={piLog}
-              sessionTree={store.sessionTree}
-              sessionTreeLoading={store.sessionTreeLoading}
-              sessionTreeError={store.sessionTreeError}
-              sessionTreeLeafId={store.sessionTreeLeafId}
-              isStreaming={isStreaming}
-              onRefreshGit={() => void (newTask ? refreshDraftGit() : store.refreshGit())}
-              onReview={() => void requestReview()}
-              onReviewComment={(path, line, comment) => void sendFromComposer(
-                `请处理这条代码审阅意见：\n\n文件：${path}${line ? `\n行号：${line}` : ""}\n意见：${comment}`,
-              )}
-              onCommitOrPush={() => void requestCommitOrPush()}
-              onRestoreFiles={(paths) => void restoreGitFiles(paths)}
-              onStageFiles={(paths) => updateGitIndex("stage", paths)}
-              onUnstageFiles={(paths) => updateGitIndex("unstage", paths)}
-              onEnvironmentChange={setTaskEnvironment}
-              onSwitchWorkspace={(path) => void switchWorkspacePath(path)}
-              onRunCommand={(command, exclude) => void store.runBash(command, exclude)}
-              onAbortCommand={() => void store.abortBash()}
-              onRefreshTree={refreshSessionTree}
-              onContinueFromNode={continueFromTreeNode}
-              onOpenWorkspaceTool={(tool) => toggleWorkspaceTool(tool)}
-              onOpenFile={(path) => openPreviewFile(path)}
-            />
-          )}
-        </div>
         </div>
         </div>
         </div>

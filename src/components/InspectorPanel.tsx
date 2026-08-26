@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   Circle,
   ExternalLink,
   FileDiff,
@@ -51,6 +52,7 @@ import type {
   AgentBrowserState,
   ComputerState,
   GitBranchInfo,
+  GitFileChange,
   GitSnapshot,
   SessionTreeNodeView,
   UiMessage,
@@ -81,7 +83,7 @@ function AgentMarks({ running, completed }: { running: number; completed: number
   );
 }
 
-/** Codex-style inline 环境信息 right column with real Local/branch/changes/sources actions. */
+/** Codex-style docked task detail panel with real Local/branch/changes/sources actions. */
 export function InspectorPanel({
   initialTab,
   openView = null,
@@ -112,6 +114,8 @@ export function InspectorPanel({
   onRefreshTree,
   onContinueFromNode,
   onOpenWorkspaceTool,
+  sideChats = [],
+  onOpenSideChat,
   onOpenFile,
   docked = false,
   onClose,
@@ -120,7 +124,7 @@ export function InspectorPanel({
   initialTab: InspectorTab;
   /** When set, open this sub-view instead of the 环境信息 home list. */
   openView?: InspectorTab | null;
-  /** Right-column dock (审阅 / 浏览器), not the floating 环境信息 card. */
+  /** Right-column dock used by summary, review, and environment detail views. */
   docked?: boolean;
   onClose?: () => void;
   onError?: (message: string) => void;
@@ -156,7 +160,14 @@ export function InspectorPanel({
   onAbortCommand: () => void;
   onRefreshTree: () => void;
   onContinueFromNode: (entryId: string) => void;
-  onOpenWorkspaceTool?: (tool: Exclude<WorkspaceTool, "summary">) => void;
+  onOpenWorkspaceTool?: (tool: WorkspaceTool) => void;
+  sideChats?: Array<{
+    id: string;
+    title: string;
+    phase: "starting" | "ready" | "error" | "expired";
+    isStreaming: boolean;
+  }>;
+  onOpenSideChat?: (id: string) => void;
   onOpenFile?: (path: string) => void;
 }) {
   const homeTabs: InspectorTab[] = ["changes", "tree", "terminal", "browser", "computer", "logs", "compare", "agents", "sources", "plan", "outputs", "processes"];
@@ -345,8 +356,7 @@ export function InspectorPanel({
 
   const selectedStats = selectedFile ? fileStats.get(normalizePath(selectedFile)) : undefined;
   const selectedChange = selectedFile ? git?.files.find((file) => file.path === selectedFile) : undefined;
-  const stagedPaths = useMemo(() => git?.files.filter((file) => file.staged).map((file) => file.path) ?? [], [git?.files]);
-  const unstagedPaths = useMemo(() => git?.files.filter((file) => file.unstaged).map((file) => file.path) ?? [], [git?.files]);
+  const selectedFileIndex = selectedFile ? (git?.files.findIndex((file) => file.path === selectedFile) ?? -1) : -1;
 
   const updateIndex = async (mode: "stage" | "unstage", paths: string[]) => {
     if (!paths.length || indexBusy) return;
@@ -359,11 +369,19 @@ export function InspectorPanel({
     }
   };
 
+  const selectAdjacentFile = (offset: number) => {
+    const next = git?.files[selectedFileIndex + offset];
+    if (!next) return;
+    setSelectedFile(next.path);
+    setCommentTarget(null);
+    setCommentDraft("");
+  };
+
   const diffRows = useMemo(() => parseDiffRows(selectedDiff), [selectedDiff]);
 
   return (
     <aside
-      className={`inspector-panel env-panel${docked ? " workspace-dock-panel" : ""}`}
+      className={`inspector-panel env-panel${docked ? " workspace-dock-panel" : ""}${docked && view === "changes" ? " review-dock-panel" : ""}`}
       ref={menuRef}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !menu) return;
@@ -396,7 +414,7 @@ export function InspectorPanel({
               <ChevronLeft size={16} strokeWidth={1.75} />
             </button>
           )}
-          <strong className="env-title">{docked && view === "changes" ? "审阅" : title}</strong>
+          <strong className="env-title">{docked && view === "changes" ? "审查" : title}</strong>
         </div>
         <div className="env-header-actions">
           {view === null && !docked && (
@@ -445,7 +463,7 @@ export function InspectorPanel({
       {docked && view === null && onOpenWorkspaceTool && (
         <nav className="env-tool-strip" aria-label="右侧栏功能">
           <button type="button" title="文件" aria-label="文件" onClick={() => onOpenWorkspaceTool("files")}><FolderOpen size={15} /></button>
-          <button type="button" title="审阅" aria-label="审阅" onClick={() => onOpenWorkspaceTool("review")}><FileDiff size={15} /></button>
+          <button type="button" title="审查" aria-label="审查" onClick={() => onOpenWorkspaceTool("review")}><FileDiff size={15} /></button>
           <button type="button" title="浏览器" aria-label="浏览器" onClick={() => onOpenWorkspaceTool("browser")}><Globe2 size={15} /></button>
           <button type="button" title="终端" aria-label="终端" onClick={() => onOpenWorkspaceTool("terminal")}><SquareTerminal size={15} /></button>
           <button type="button" title="侧边聊天" aria-label="侧边聊天" onClick={() => onOpenWorkspaceTool("side-chat")}><MessageSquare size={15} /></button>
@@ -612,6 +630,39 @@ export function InspectorPanel({
             </section>
           )}
 
+          {sideChats.length > 0 && (
+            <section className="env-section">
+              <div className="env-section-label">侧边聊天</div>
+              {sideChats.map((chat) => (
+                <button
+                  key={chat.id}
+                  type="button"
+                  className="env-row"
+                  onClick={() => onOpenSideChat?.(chat.id)}
+                  title={chat.title}
+                >
+                  {chat.isStreaming || chat.phase === "starting"
+                    ? <LoaderCircle size={16} strokeWidth={1.7} className="spin env-agent-live" />
+                    : <MessageSquarePlus size={16} strokeWidth={1.7} />}
+                  <span className="env-row-label">{chat.title}</span>
+                  <span className="env-row-meta">
+                    <em className="muted">
+                      {chat.isStreaming
+                        ? "运行中"
+                        : chat.phase === "starting"
+                          ? "正在创建"
+                          : chat.phase === "error"
+                            ? "创建失败"
+                            : chat.phase === "expired"
+                              ? "已过期"
+                              : "临时"}
+                    </em>
+                  </span>
+                </button>
+              ))}
+            </section>
+          )}
+
           {terminal.running && (
             <section className="env-section">
               <div className="env-section-label">后台进程</div>
@@ -657,86 +708,93 @@ export function InspectorPanel({
 
       {view === "changes" && !selectedFile && (
         <div className="inspector-content changes-panel">
-          <div className="changes-summary">
-            <span>
-              <FileDiff size={15} />
-              {hasChanges ? (
-                <>
-                  {diffStats.add > 0 && <em className="diff-add-stat">+{diffStats.add.toLocaleString()}</em>}
-                  {diffStats.del > 0 && <em className="diff-del-stat">-{diffStats.del.toLocaleString()}</em>}
-                </>
-              ) : (git?.isRepository ? "无未提交更改" : "不是 Git 仓库")}
+          <div className="review-overview">
+            <span className="review-overview-icon"><FileDiff size={18} strokeWidth={1.7} /></span>
+            <span className="review-overview-copy">
+              <strong>{hasChanges ? `已编辑 ${git!.files.length} 个文件` : (git?.isRepository ? "没有未提交更改" : "不是 Git 仓库")}</strong>
+              <small title={branch}>{git?.isRepository ? branch : "打开 Git 工作区以审查更改"}</small>
             </span>
-            <div className="changes-actions">
-              <button className="icon-button" disabled={!unstagedPaths.length || Boolean(indexBusy)} onClick={() => void updateIndex("stage", unstagedPaths)} title="暂存全部更改">
-                {indexBusy?.startsWith("stage:") ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}
-              </button>
-              <button className="icon-button" disabled={!stagedPaths.length || Boolean(indexBusy)} onClick={() => void updateIndex("unstage", stagedPaths)} title="取消暂存全部">
-                {indexBusy?.startsWith("unstage:") ? <LoaderCircle className="spin" size={13} /> : <Minus size={13} />}
-              </button>
-              <button className="secondary-button compact" disabled={!hasChanges} onClick={() => onRestoreFiles()} title="撤销全部本地更改">
-                <Undo2 size={13} /> 撤销
-              </button>
-              <button className="secondary-button compact" disabled={!hasChanges} onClick={onReview} title="让 Pi 审查当前差异">
-                <SearchCheck size={13} /> 审核
-              </button>
-              <button className="icon-button" onClick={onRefreshGit} title="刷新更改"><RefreshCw size={14} /></button>
+            {hasChanges && (
+              <span className="review-overview-stats" aria-label={`新增 ${diffStats.add} 行，删除 ${diffStats.del} 行`}>
+                {diffStats.add > 0 && <em className="diff-add-stat">+{diffStats.add.toLocaleString()}</em>}
+                {diffStats.del > 0 && <em className="diff-del-stat">-{diffStats.del.toLocaleString()}</em>}
+              </span>
+            )}
+          </div>
+          <div className="review-toolbar" aria-label="审查操作">
+            <div className="review-toolbar-group">
+              <button className="review-icon-button" disabled={!hasChanges} onClick={() => onRestoreFiles()} title="撤销全部本地更改" aria-label="撤销全部本地更改"><Undo2 size={14} /></button>
+              <button className="review-icon-button" onClick={onRefreshGit} title="刷新更改" aria-label="刷新更改"><RefreshCw size={14} /></button>
             </div>
+            <button className="review-primary-button" disabled={!hasChanges || isStreaming} onClick={onReview} title="让 Pi 审查当前差异">
+              {isStreaming ? <LoaderCircle className="spin" size={14} /> : <SearchCheck size={14} />}
+              <span>{isStreaming ? "审查中" : "审查更改"}</span>
+            </button>
           </div>
           {hasChanges ? (
-            <div className="changed-file-list env-file-list">
+            <section className="review-file-section">
+              <div className="review-section-heading"><span>更改</span><small>{git!.files.length}</small></div>
+              <div className="changed-file-list review-file-list">
               {git!.files.map((file) => {
                 const stats = fileStats.get(normalizePath(file.path));
+                const fileName = reviewFileName(file.path);
+                const directory = reviewFileDirectory(file.path);
                 return (
                   <div
                     key={`${file.status}-${file.path}`}
-                    className="env-file-row"
+                    className="review-file-row"
                   >
-                    <button type="button" className="env-file-open" title={`${file.path} · 查看差异`} onClick={() => setSelectedFile(file.path)}>
-                      <span className={`git-status status-${file.status.trim().charAt(0).toLowerCase() || "u"}`}>{file.status || "?"}</span>
-                      <span className="env-file-path">{file.path}</span>
-                      <span className="env-file-state" title={file.staged && file.unstaged ? "包含已暂存和未暂存更改" : file.staged ? "已暂存" : file.untracked ? "未跟踪" : "未暂存"}>
-                        {file.staged && <em>S</em>}{file.unstaged && <em>{file.untracked ? "U" : "M"}</em>}
+                    <button type="button" className="review-file-open" title={`${file.path} · 查看差异`} onClick={() => setSelectedFile(file.path)}>
+                      <span className={`review-file-status status-${file.status.trim().charAt(0).toLowerCase() || "u"}`}>{reviewFileStatus(file)}</span>
+                      <span className="review-file-copy">
+                        <strong>{fileName}</strong>
+                        <small>{directory || reviewFileState(file)}</small>
                       </span>
-                      <span className="env-file-stats">
+                      <span className="review-file-stats">
                         {stats && stats.add > 0 && <em className="diff-add-stat">+{stats.add}</em>}
                         {stats && stats.del > 0 && <em className="diff-del-stat">-{stats.del}</em>}
                       </span>
+                      <ChevronRight className="review-file-chevron" size={15} strokeWidth={1.7} />
                     </button>
-                    <span className="env-file-index-actions">
-                      {file.unstaged && <button type="button" disabled={Boolean(indexBusy)} title="暂存此文件" onClick={() => void updateIndex("stage", [file.path])}><Plus size={12} /></button>}
-                      {file.staged && <button type="button" disabled={Boolean(indexBusy)} title="取消暂存此文件" onClick={() => void updateIndex("unstage", [file.path])}><Minus size={12} /></button>}
-                      <button type="button" className="danger" title="撤销此文件" onClick={() => onRestoreFiles([file.path])}><RotateCcw size={12} /></button>
+                    <span className="review-file-index-actions">
+                      {file.unstaged && <button type="button" disabled={Boolean(indexBusy)} title="暂存此文件" aria-label={`暂存 ${fileName}`} onClick={() => void updateIndex("stage", [file.path])}><Plus size={13} /></button>}
+                      {file.staged && <button type="button" disabled={Boolean(indexBusy)} title="取消暂存此文件" aria-label={`取消暂存 ${fileName}`} onClick={() => void updateIndex("unstage", [file.path])}><Minus size={13} /></button>}
+                      <button type="button" className="danger" title="撤销此文件" aria-label={`撤销 ${fileName}`} onClick={() => onRestoreFiles([file.path])}><RotateCcw size={13} /></button>
                     </span>
                   </div>
                 );
               })}
-            </div>
+              </div>
+            </section>
           ) : (
-            <div className="panel-empty">{git?.isRepository ? "工作区没有未提交更改" : "打开 Git 工作区以检查更改"}</div>
+            <div className="panel-empty review-empty"><CheckCircle2 size={24} strokeWidth={1.5} /><strong>{git?.isRepository ? "工作区是干净的" : "没有可审查的仓库"}</strong><span>{git?.isRepository ? "新的文件改动会显示在这里。" : "打开 Git 工作区后可查看代码差异。"}</span></div>
           )}
         </div>
       )}
 
       {view === "changes" && selectedFile && (
         <div className="inspector-content changes-panel">
-          <div className="changes-summary">
-            <span title={selectedFile}>
-              <FileDiff size={15} />
-              {selectedStats ? (
-                <>
-                  {selectedStats.add > 0 && <em className="diff-add-stat">+{selectedStats.add.toLocaleString()}</em>}
-                  {selectedStats.del > 0 && <em className="diff-del-stat">-{selectedStats.del.toLocaleString()}</em>}
-                </>
-              ) : "差异"}
+          <div className="review-detail-heading">
+            <span className={`review-file-status status-${selectedChange?.status.trim().charAt(0).toLowerCase() || "u"}`}>{selectedChange ? reviewFileStatus(selectedChange) : "M"}</span>
+            <span className="review-file-copy" title={selectedFile}>
+              <strong>{reviewFileName(selectedFile)}</strong>
+              <small>{reviewFileDirectory(selectedFile) || reviewFileState(selectedChange)}</small>
             </span>
-            <div className="changes-actions">
-              {selectedChange?.unstaged && <button className="secondary-button compact" disabled={Boolean(indexBusy)} onClick={() => void updateIndex("stage", [selectedFile])} title="暂存此文件"><Plus size={13} /> 暂存</button>}
-              {selectedChange?.staged && <button className="secondary-button compact" disabled={Boolean(indexBusy)} onClick={() => void updateIndex("unstage", [selectedFile])} title="取消暂存此文件"><Minus size={13} /> 取消暂存</button>}
-              <button className="secondary-button compact" onClick={() => onRestoreFiles([selectedFile])} title="撤销此文件的本地更改">
-                <Undo2 size={13} /> 撤销
-              </button>
-              <button className="icon-button" onClick={onRefreshGit} title="刷新更改"><RefreshCw size={14} /></button>
+            <span className="review-file-stats">
+              {selectedStats && selectedStats.add > 0 && <em className="diff-add-stat">+{selectedStats.add.toLocaleString()}</em>}
+              {selectedStats && selectedStats.del > 0 && <em className="diff-del-stat">-{selectedStats.del.toLocaleString()}</em>}
+            </span>
+          </div>
+          <div className="review-detail-toolbar">
+            <div className="review-file-navigation" aria-label="切换审查文件">
+              <button className="review-icon-button" disabled={selectedFileIndex <= 0} onClick={() => selectAdjacentFile(-1)} title="上一个文件" aria-label="上一个文件"><ChevronLeft size={14} /></button>
+              <span className="review-file-position">{selectedFileIndex + 1} / {git?.files.length ?? 0}</span>
+              <button className="review-icon-button" disabled={selectedFileIndex < 0 || selectedFileIndex >= (git?.files.length ?? 0) - 1} onClick={() => selectAdjacentFile(1)} title="下一个文件" aria-label="下一个文件"><ChevronRight size={14} /></button>
+            </div>
+            <div className="review-detail-actions">
+              {onOpenFile && <button className="review-icon-button" onClick={() => onOpenFile(selectedFile)} title="打开文件" aria-label="打开文件"><ExternalLink size={14} /></button>}
+              <button className="review-icon-button" onClick={() => onRestoreFiles([selectedFile])} title="撤销此文件的本地更改" aria-label="撤销此文件的本地更改"><Undo2 size={14} /></button>
+              <button className="review-icon-button" onClick={onRefreshGit} title="刷新更改" aria-label="刷新更改"><RefreshCw size={14} /></button>
             </div>
           </div>
           {selectedDiff ? (
@@ -1093,6 +1151,32 @@ function samePath(a: string, b: string): boolean {
   return a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
 }
 
+function reviewFileName(path: string): string {
+  return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
+}
+
+function reviewFileDirectory(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const separator = normalized.lastIndexOf("/");
+  return separator > 0 ? normalized.slice(0, separator) : "";
+}
+
+function reviewFileStatus(file: GitFileChange): string {
+  if (file.untracked) return "U";
+  if (file.status.includes("A")) return "A";
+  if (file.status.includes("D")) return "D";
+  if (file.status.includes("R")) return "R";
+  return "M";
+}
+
+function reviewFileState(file?: GitFileChange): string {
+  if (!file) return "已修改";
+  if (file.staged && file.unstaged) return "已暂存和未暂存";
+  if (file.staged) return "已暂存";
+  if (file.untracked) return "未跟踪";
+  return "未暂存";
+}
+
 function normalizePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\.\//, "");
 }
@@ -1152,7 +1236,7 @@ function SourceIcon({ source }: { source: EnvSourceItem }) {
 function openSource(
   source: EnvSourceItem,
   setView: (view: InspectorTab) => void,
-  onOpenWorkspaceTool?: (tool: Exclude<WorkspaceTool, "summary">) => void,
+  onOpenWorkspaceTool?: (tool: WorkspaceTool) => void,
   onOpenFile?: (path: string) => void,
 ) {
   if (source.kind === "file" && source.detail && onOpenFile) {

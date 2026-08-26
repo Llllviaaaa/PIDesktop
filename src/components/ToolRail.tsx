@@ -1,6 +1,6 @@
-import { FileDiff, Folder, Globe2, ListTree, MessageSquare, SquareTerminal } from "lucide-react";
+import { FileDiff, Folders, Globe2, MessageSquarePlus, SquareTerminal } from "lucide-react";
 
-export type WorkspaceTool = "summary" | "review" | "terminal" | "browser" | "files" | "side-chat";
+export type WorkspaceTool = "review" | "terminal" | "browser" | "files" | "side-chat";
 
 interface ToolRailProps {
   onSelect: (tool: WorkspaceTool) => void;
@@ -12,12 +12,11 @@ const ITEMS: Array<{
   shortcut: string;
   Icon: typeof FileDiff;
 }> = [
-  { id: "summary", label: "任务摘要", shortcut: "Ctrl+Alt+B", Icon: ListTree },
-  { id: "review", label: "审阅", shortcut: "Ctrl+Shift+G", Icon: FileDiff },
-  { id: "terminal", label: "终端", shortcut: "", Icon: SquareTerminal },
-  { id: "browser", label: "应用内浏览器", shortcut: "Ctrl+T", Icon: Globe2 },
-  { id: "files", label: "文件", shortcut: "Ctrl+P", Icon: Folder },
-  { id: "side-chat", label: "侧边聊天", shortcut: "Ctrl+Alt+S", Icon: MessageSquare },
+  { id: "review", label: "审查", shortcut: "Ctrl+Shift+G", Icon: FileDiff },
+  { id: "terminal", label: "终端", shortcut: "Ctrl+`", Icon: SquareTerminal },
+  { id: "browser", label: "浏览器", shortcut: "Ctrl+T", Icon: Globe2 },
+  { id: "files", label: "文件", shortcut: "Ctrl+P", Icon: Folders },
+  { id: "side-chat", label: "侧边聊天", shortcut: "Ctrl+Alt+S", Icon: MessageSquarePlus },
 ];
 
 export function ToolRail({ onSelect }: ToolRailProps) {

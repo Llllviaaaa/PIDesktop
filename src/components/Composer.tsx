@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowUp,
+  Bot,
   Check,
   ChevronDown,
   ChevronUp,
@@ -9,6 +10,8 @@ import {
   GitBranch,
   Image as ImageIcon,
   MessageCircle,
+  MessageCircleQuestion,
+  ListChecks,
   ListOrdered,
   Monitor,
   Paperclip,
@@ -410,37 +413,40 @@ export const Composer = memo(function Composer({
               <Plus size={18} strokeWidth={1.75} />
             </button>
             {actionsOpen && (
-              <div className="composer-actions-menu">
+              <div className="composer-actions-menu" role="menu">
                 <button type="button" onClick={() => { setActionsOpen(false); onPickAttachments(); }}>
                   <Paperclip size={14} /><span>添加文件或图片</span>
                 </button>
+                <div className="composer-actions-separator" role="separator" />
+                <div className="composer-actions-heading">工作模式</div>
+                {([
+                  ["agent", "执行", Bot],
+                  ["plan", "计划", ListChecks],
+                  ["ask", "问答", MessageCircleQuestion],
+                ] as const).map(([value, label, Icon]) => (
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={agentMode === value}
+                    className={agentMode === value ? "active" : ""}
+                    key={value}
+                    onClick={() => {
+                      setActionsOpen(false);
+                      if (agentMode !== value) void onAgentModeChange?.(value);
+                    }}
+                  >
+                    <Icon size={14} />
+                    <span>{label}</span>
+                    {agentMode === value && <Check size={14} />}
+                  </button>
+                ))}
               </div>
             )}
-            <div className="agent-mode-segmented" role="radiogroup" aria-label="工作模式">
-              {([
-                ["agent", "执行"],
-                ["plan", "计划"],
-                ["ask", "问答"],
-              ] as const).map(([value, label]) => (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={agentMode === value}
-                  className={agentMode === value ? "active" : ""}
-                  key={value}
-                  title={value === "agent" ? "执行任务并按权限修改代码" : value === "plan" ? "只读调查并制定计划" : "只读调查并回答问题"}
-                  onClick={() => {
-                    if (agentMode !== value) void onAgentModeChange?.(value);
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
             <div className="permission-context-wrap">
               <button
                 type="button"
                 className={`chip chip-permission ${permissionOpen ? "active" : ""}`}
+                disabled={disabled}
                 onClick={() => {
                   setWorkspaceOpen(false);
                   setEnvironmentOpen(false);

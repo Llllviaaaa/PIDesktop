@@ -439,6 +439,14 @@ export interface GitBranchInfo {
   current: boolean;
 }
 
+export interface GitCommitInfo {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  author: string;
+  timestamp: number;
+}
+
 export interface WorktreeInfo {
   path: string;
   head?: string;
