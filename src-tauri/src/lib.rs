@@ -4177,8 +4177,7 @@ fn git_review_snapshot(cwd: String, filter: String) -> Result<GitSnapshot, Strin
         )
         .unwrap_or_default()
     } else {
-        run_git(&root, &["diff", "--no-ext-diff", "--unified=3", "--"])
-            .unwrap_or_default()
+        run_git(&root, &["diff", "--no-ext-diff", "--unified=3", "--"]).unwrap_or_default()
     };
     Ok(GitSnapshot {
         is_repository: true,
@@ -4242,7 +4241,14 @@ fn git_commit_snapshot(cwd: String, commit: String) -> Result<GitSnapshot, Strin
         .map(|value| value.trim().to_string());
     let name_status = run_git(
         &root,
-        &["show", "--format=", "--name-status", "--find-renames", commit, "--"],
+        &[
+            "show",
+            "--format=",
+            "--name-status",
+            "--find-renames",
+            commit,
+            "--",
+        ],
     )?;
     let files = name_status
         .lines()
@@ -4273,7 +4279,14 @@ fn git_commit_snapshot(cwd: String, commit: String) -> Result<GitSnapshot, Strin
         .collect();
     let diff = run_git(
         &root,
-        &["show", "--format=", "--no-ext-diff", "--unified=3", commit, "--"],
+        &[
+            "show",
+            "--format=",
+            "--no-ext-diff",
+            "--unified=3",
+            commit,
+            "--",
+        ],
     )?;
     Ok(GitSnapshot {
         is_repository: true,
