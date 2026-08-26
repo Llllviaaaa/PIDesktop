@@ -2608,6 +2608,37 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .codex-shot .message-time { color: #a1a1aa; font-size: 12px; }
 .codex-shot .feature-hub { background: transparent; }
 
+/* Environment and task summary stay as an overlay and never resize the conversation. */
+.codex-shot .inspector-panel.env-panel:not(.workspace-dock-panel) {
+  position: absolute;
+  z-index: 45;
+  top: 4px;
+  right: 12px;
+  bottom: auto;
+  width: 312px;
+  min-width: 0;
+  max-width: calc(100% - 24px);
+  flex: none;
+  height: auto;
+  max-height: calc(100% - 20px);
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(24, 28, 36, .08);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(24, 28, 36, .04), 0 12px 32px rgba(24, 28, 36, .08);
+  overflow: hidden;
+}
+.codex-shot .environment-flyout-layer {
+  position: absolute;
+  z-index: 44;
+  inset: 0;
+  pointer-events: none;
+}
+.codex-shot .environment-flyout-layer > .env-panel {
+  pointer-events: auto;
+}
+
 .codex-shot .inspector-header,
 .codex-shot .env-header {
   height: 44px;
@@ -3269,6 +3300,7 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   border-right: 0;
   position: relative;
   overflow: visible;
+  z-index: 51;
   background: #f9f0f2;
 }
 .codex-shot .sidebar-brand-row {
@@ -3391,35 +3423,113 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   box-shadow: 0 8px 20px rgba(31, 35, 41, .1);
 }
 .codex-shot .sidebar-notifications {
-  right: 10px;
-  width: 228px;
+  left: calc(100% - 52px);
+  right: auto;
+  width: 336px;
+  max-width: calc(100vw - var(--sidebar-width, 250px) + 38px);
+  max-height: min(520px, calc(100vh - 96px));
   padding: 5px;
+  overflow: auto;
 }
 .codex-shot .sidebar-popover-heading {
-  padding: 7px 9px 8px;
+  min-height: 34px;
+  padding: 3px 5px 5px 9px;
   color: #71717a;
   font-size: 12px;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
-.codex-shot .sidebar-notification-empty { padding: 16px 9px 18px; color: #a1a1aa; font-size: 12.5px; text-align: center; }
-.codex-shot .sidebar-notification-row {
-  width: 100%;
-  min-height: 42px;
+.codex-shot .sidebar-popover-heading > strong { color: #3f3f46; font-size: 13px; }
+.codex-shot .sidebar-popover-heading > button {
+  height: 26px;
+  padding: 0 6px;
   border: 0;
   border-radius: 6px;
   background: transparent;
+  color: #777b83;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 11.5px/1 var(--ui-font);
+  cursor: pointer;
+}
+.codex-shot .sidebar-popover-heading > button:hover { background: #f1f2f4; color: #3f3f46; }
+.codex-shot .sidebar-notification-empty { padding: 16px 9px 18px; color: #a1a1aa; font-size: 12.5px; text-align: center; }
+.codex-shot .sidebar-notification-row {
+  position: relative;
+  width: 100%;
+  min-height: 56px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  display: flex;
+}
+.codex-shot .sidebar-notification-row.unread { background: #f7f7f8; border-color: #eeeff1; }
+.codex-shot .sidebar-notification-row:hover { background: #f1f2f4; }
+.codex-shot .sidebar-notification-open {
+  min-width: 0;
+  flex: 1;
+  padding: 7px 30px 7px 7px;
+  border: 0;
+  background: transparent;
   color: #3f3f46;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 9px;
-  padding: 6px 9px;
   text-align: left;
   cursor: pointer;
 }
-.codex-shot .sidebar-notification-row:hover { background: #f1f2f4; }
-.codex-shot .sidebar-notification-row > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.codex-shot .sidebar-notification-row strong { overflow: hidden; color: #3f3f46; font-size: 12.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.codex-shot .sidebar-notification-row small { color: #9a9da4; font-size: 11px; }
+.codex-shot .sidebar-notification-icon {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+}
+.codex-shot .sidebar-notification-icon.completion { background: #e8f5ec; color: #278044; }
+.codex-shot .sidebar-notification-icon.approval { background: #fff3dc; color: #a16207; }
+.codex-shot .sidebar-notification-icon.question { background: #edf2ff; color: #4169b2; }
+.codex-shot .sidebar-notification-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.codex-shot .sidebar-notification-copy strong,
+.codex-shot .sidebar-notification-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.codex-shot .sidebar-notification-copy strong { color: #3f3f46; font-size: 12.5px; font-weight: 550; }
+.codex-shot .sidebar-notification-copy small { color: #777b83; font-size: 11px; }
+.codex-shot .sidebar-notification-copy time { color: #a1a1aa; font-size: 10px; }
+.codex-shot .sidebar-notification-dismiss {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #a1a1aa;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  cursor: pointer;
+}
+.codex-shot .sidebar-notification-row:hover .sidebar-notification-dismiss,
+.codex-shot .sidebar-notification-dismiss:focus-visible { opacity: 1; }
+.codex-shot .sidebar-notification-dismiss:hover { background: #e4e5e8; color: #52525b; }
+
+@media (max-width: 520px) {
+  .codex-shot .sidebar-notifications {
+    left: 12px;
+    width: calc(100vw - 24px);
+    max-width: none;
+  }
+}
 
 .codex-shot .project-header-row {
   position: relative;
@@ -3896,6 +4006,13 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   .codex-shot .starter-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 620px; }
   .codex-shot .starter-card { min-height: 96px; }
   .codex-shot .new-task-heading { font-size: 29px; margin-bottom: 26px; }
+  .codex-shot .environment-flyout-layer > .env-panel {
+    top: 8px;
+    right: 8px;
+    width: min(312px, calc(100% - 16px));
+    max-width: none;
+    max-height: calc(100% - 16px);
+  }
 }
 
 @media (max-height: 760px) {
@@ -5034,6 +5151,16 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 :root[data-theme="dark"] .codex-shot .sidebar-notification-row strong { color: #e4e4e7; }
 :root[data-theme="dark"] .codex-shot .sidebar-brand-menu button:hover,
 :root[data-theme="dark"] .codex-shot .sidebar-notification-row:hover { background: #2a2a2f; }
+:root[data-theme="dark"] .codex-shot .sidebar-notification-row.unread { background: #26262b; border-color: #34343a; }
+:root[data-theme="dark"] .codex-shot .sidebar-popover-heading > strong,
+:root[data-theme="dark"] .codex-shot .sidebar-notification-copy strong { color: #e4e4e7; }
+:root[data-theme="dark"] .codex-shot .sidebar-popover-heading > button,
+:root[data-theme="dark"] .codex-shot .sidebar-notification-copy small { color: #a1a1aa; }
+:root[data-theme="dark"] .codex-shot .sidebar-popover-heading > button:hover,
+:root[data-theme="dark"] .codex-shot .sidebar-notification-dismiss:hover { background: #34343a; color: #e4e4e7; }
+:root[data-theme="dark"] .codex-shot .sidebar-notification-icon.completion { background: #173b26; color: #65c786; }
+:root[data-theme="dark"] .codex-shot .sidebar-notification-icon.approval { background: #493519; color: #e8b85d; }
+:root[data-theme="dark"] .codex-shot .sidebar-notification-icon.question { background: #263554; color: #8dabee; }
 :root[data-theme="dark"] .codex-shot .sidebar-popover-separator { background: #303036; }
 :root[data-theme="dark"] .codex-shot .session-search.sidebar-search-popover input { color: #e4e4e7; }
 :root[data-theme="dark"] .codex-shot .sidebar-scroll { scrollbar-color: #45464d transparent; }

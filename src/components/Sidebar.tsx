@@ -11,6 +11,7 @@ import {
   AtSign,
   Bell,
   Check,
+  CheckCircle2,
   ChevronDown,
   Clock3,
   Folder,
@@ -21,19 +22,21 @@ import {
   Pin,
   Search,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   SquarePen,
+  MessageCircleQuestion,
   X,
 } from "lucide-react";
 import { pi } from "../lib/pi";
-import type { ProjectConfig, SessionInfo } from "../types";
+import type { AppNotification, ProjectConfig, SessionInfo } from "../types";
 import { sessionTitle } from "../lib/sessionTitle";
 import {
   reconcileSidebarSessionOrder,
   sortSidebarProjectGroups,
   sortSidebarSessions,
 } from "../lib/sidebarProjectOrder";
-import { normalizeLocalPath, sameLocalPath } from "../lib/pathIdentity";
+import { sameLocalPath } from "../lib/pathIdentity";
 
 type SidebarHub = "pull-requests" | "scheduled" | "plugins" | null;
 
@@ -42,6 +45,7 @@ interface SidebarProps {
   currentSessionFile: string | null;
   runningSessionFiles: string[];
   approvalSessionFiles: string[];
+  notifications: AppNotification[];
   cwd: string;
   newTaskActive: boolean;
   activeHub: SidebarHub;
@@ -50,6 +54,9 @@ interface SidebarProps {
   onOpenScheduled: () => void;
   onOpenPlugins: () => void;
   onOpenSession: (session: SessionInfo) => void;
+  onOpenNotification: (notification: AppNotification) => void;
+  onMarkAllNotificationsRead: () => void;
+  onDismissNotification: (id: string) => void;
   onOpenProject: (workspace: string) => void;
   onNewProjectSession: (workspace: string) => void;
   onArchiveSession: (session: SessionInfo) => void | Promise<void>;
@@ -124,6 +131,7 @@ export function Sidebar({
   currentSessionFile,
   runningSessionFiles,
   approvalSessionFiles,
+  notifications,
   cwd,
   newTaskActive,
   activeHub,
@@ -132,6 +140,9 @@ export function Sidebar({
   onOpenScheduled,
   onOpenPlugins,
   onOpenSession,
+  onOpenNotification,
+  onMarkAllNotificationsRead,
+  onDismissNotification,
   onOpenProject,
   onNewProjectSession,
   onArchiveSession,
@@ -226,15 +237,10 @@ export function Sidebar({
     return sortSidebarProjectGroups([...result.entries()], projectConfigs, stableSessionOrder);
   }, [pinnedSessionFiles, projectConfigs, query, sessions, stableSessionOrder]);
 
-  const notifications = useMemo(() => {
-    const byFile = new Map(sessions.map((session) => [normalizeLocalPath(session.file), session]));
-    return [
-      ...approvalSessionFiles.map((file) => ({ file, kind: "approval" as const, session: byFile.get(normalizeLocalPath(file)) })),
-      ...runningSessionFiles
-        .filter((file) => !approvalSessionFiles.some((approvalFile) => sameLocalPath(approvalFile, file)))
-        .map((file) => ({ file, kind: "running" as const, session: byFile.get(normalizeLocalPath(file)) })),
-    ].filter((item): item is typeof item & { session: SessionInfo } => Boolean(item.session));
-  }, [approvalSessionFiles, runningSessionFiles, sessions]);
+  const unreadNotificationCount = useMemo(
+    () => notifications.reduce((count, item) => count + Number(!item.read), 0),
+    [notifications],
+  );
 
   const closePopovers = () => {
     setBrandMenuOpen(false);
@@ -423,7 +429,7 @@ export function Sidebar({
             }}
           >
             <Bell size={17} strokeWidth={1.7} />
-            {notifications.length > 0 && <span className="notification-dot" />}
+            {unreadNotificationCount > 0 && <span className="notification-dot" />}
           </button>
         </div>
       </div>
@@ -457,22 +463,52 @@ export function Sidebar({
 
       {notificationsOpen && (
         <div className="sidebar-popover sidebar-notifications" data-sidebar-popover>
-          <div className="sidebar-popover-heading">通知</div>
+          <div className="sidebar-popover-heading">
+            <strong>通知</strong>
+            {unreadNotificationCount > 0 && (
+              <button type="button" onClick={onMarkAllNotificationsRead} title="全部标为已读">
+                <Check size={13} />全部已读
+              </button>
+            )}
+          </div>
           {notifications.length === 0 ? (
             <div className="sidebar-notification-empty">暂无新通知</div>
-          ) : notifications.map(({ file, kind, session }) => (
-            <button
-              type="button"
-              key={`${kind}:${file}`}
-              className="sidebar-notification-row"
-              onClick={() => {
-                setNotificationsOpen(false);
-                onOpenSession(session);
-              }}
+          ) : notifications.map((notification) => (
+            <div
+              key={notification.id}
+              className={`sidebar-notification-row${notification.read ? "" : " unread"}`}
             >
-              <span className={`thread-dot ${kind}`} />
-              <span><strong>{sessionTitle(session)}</strong><small>{kind === "approval" ? "等待审批" : "正在运行"}</small></span>
-            </button>
+              <button
+                type="button"
+                className="sidebar-notification-open"
+                onClick={() => {
+                  setNotificationsOpen(false);
+                  onOpenNotification(notification);
+                }}
+              >
+                <span className={`sidebar-notification-icon ${notification.kind}`}>
+                  {notification.kind === "completion"
+                    ? <CheckCircle2 size={15} />
+                    : notification.kind === "approval"
+                      ? <ShieldCheck size={15} />
+                      : <MessageCircleQuestion size={15} />}
+                </span>
+                <span className="sidebar-notification-copy">
+                  <strong>{notification.title}</strong>
+                  <small>{notification.body}</small>
+                  <time>{new Date(notification.createdAt).toLocaleString()}</time>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="sidebar-notification-dismiss"
+                title="移除通知"
+                aria-label="移除通知"
+                onClick={() => onDismissNotification(notification.id)}
+              >
+                <X size={13} />
+              </button>
+            </div>
           ))}
         </div>
       )}

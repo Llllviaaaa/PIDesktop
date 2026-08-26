@@ -339,6 +339,19 @@ export interface AppSettings {
   archivedSessions: string[];
 }
 
+export type AppNotificationKind = "completion" | "approval" | "question";
+
+export interface AppNotification {
+  id: string;
+  kind: AppNotificationKind;
+  title: string;
+  body: string;
+  cwd: string;
+  sessionFile: string | null;
+  createdAt: number;
+  read: boolean;
+}
+
 export interface McpServerConfig {
   id: string;
   name: string;

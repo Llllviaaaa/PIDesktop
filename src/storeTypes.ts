@@ -1,6 +1,7 @@
 import type { PiRuntimeStatus } from "./lib/pi";
 import type {
   AgentBrowserState,
+  AppNotification,
   AppSettings,
   AttachmentPayload,
   ComputerState,
@@ -72,6 +73,7 @@ export interface PiState {
   extensionWidgets: Record<string, string[]>;
   composerPrefill: string | null;
   toasts: Toast[];
+  notifications: AppNotification[];
   sessionTree: SessionTreeNodeView[];
   sessionTreeLeafId: string | null;
   sessionTreeError: string | null;
@@ -115,6 +117,10 @@ export interface PiState {
   resetTerminal: () => void;
   answerExtension: (response: { value?: string; confirmed?: boolean; cancelled?: true }) => Promise<void>;
   showToast: (message: string, kind?: Toast["kind"]) => void;
+  addNotification: (notification: Omit<AppNotification, "createdAt" | "read"> & { createdAt?: number; read?: boolean }) => void;
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: () => void;
+  dismissNotification: (id: string) => void;
   clearComposerPrefill: () => void;
   dismissToast: (id: string) => void;
 }
