@@ -92,6 +92,8 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
           "  text: true,",
           "};",
           "```",
+          "",
+          "::code-comment{title=\"[P1] 状态更新可能过期\" body=\"该变量在工作区切换后仍可能引用旧状态，请从当前 store 读取。\" file=\"src/App.tsx\" start=2 end=2 priority=1}",
         ].join("\n"),
         thinking: "先检查消息容器的字号和行高，再分别校准 Markdown、思考过程与代码块，避免不同内容层级互相抢视觉焦点。",
         durationMs: 13_000,

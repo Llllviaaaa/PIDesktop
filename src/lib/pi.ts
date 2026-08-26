@@ -6,6 +6,7 @@ import type {
   AttachmentPayload,
   ExtensionUIRequest,
   GitBranchInfo,
+  GitCommitInfo,
   GitSnapshot,
   ModelProviderCheckResult,
   ModelProviderConfig,
@@ -125,6 +126,10 @@ export const pi = {
   gitListBranches: (cwd: string) => invoke<GitBranchInfo[]>("git_list_branches", { cwd }),
   gitCheckoutBranch: (cwd: string, branch: string) => invoke<void>("git_checkout_branch", { cwd, branch }),
   gitCompare: (cwd: string, base: string) => invoke<GitSnapshot>("git_compare", { cwd, base }),
+  gitReviewSnapshot: (cwd: string, filter: "uncommitted" | "unstaged" | "staged") =>
+    invoke<GitSnapshot>("git_review_snapshot", { cwd, filter }),
+  gitListCommits: (cwd: string, limit = 50) => invoke<GitCommitInfo[]>("git_list_commits", { cwd, limit }),
+  gitCommitSnapshot: (cwd: string, commit: string) => invoke<GitSnapshot>("git_commit_snapshot", { cwd, commit }),
   listPullRequests: (cwd: string) => invoke<PullRequestCollection>("list_pull_requests", { cwd }),
   checkoutPullRequest: (cwd: string, number: number) => invoke<void>("checkout_pull_request", { cwd, number }),
   listResources: (cwd: string) => invoke<ResourceItem[]>("list_resources", { cwd }),
@@ -152,6 +157,7 @@ export const pi = {
 export interface PiStartResult {
   runtimeId: string;
   sessionLoaded: boolean;
+  sessionForked: boolean;
 }
 
 export interface PiRuntimeInfo {

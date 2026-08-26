@@ -402,6 +402,7 @@ struct PiRuntime {
     client: PiRpcClient,
     cwd: String,
     session_file: Option<String>,
+    isolated: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -501,6 +502,7 @@ struct ModelProviderCheckResult {
 struct PiStartResult {
     runtime_id: String,
     session_loaded: bool,
+    session_forked: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -581,6 +583,27 @@ struct AppState {
     running_scheduled_tasks: Mutex<HashMap<String, Arc<AtomicBool>>>,
     workspace_searches: Mutex<HashMap<String, Arc<AtomicBool>>>,
     terminal_sessions: terminal::TerminalSessions,
+}
+
+impl Drop for AppState {
+    fn drop(&mut self) {
+        let session_dir = self
+            .settings
+            .get_mut()
+            .map(|settings| settings.session_dir.clone())
+            .unwrap_or_default();
+        let Ok(runtimes) = self.runtimes.get_mut() else {
+            return;
+        };
+        for (_, runtime) in runtimes.drain() {
+            runtime.client.kill();
+            if runtime.isolated {
+                if let Some(file) = runtime.session_file {
+                    let _ = trash_session(&session_dir, &file);
+                }
+            }
+        }
+    }
 }
 
 fn effective_pi_binary(settings: &AppSettings, state: &AppState) -> String {
@@ -1749,6 +1772,7 @@ fn pi_start(
                 return Ok(PiStartResult {
                     runtime_id: runtime_id.clone(),
                     session_loaded: true,
+                    session_forked: false,
                 });
             }
             if let Some((runtime_id, _)) = runtimes.iter().find(|(_, runtime)| {
@@ -1760,6 +1784,7 @@ fn pi_start(
                 return Ok(PiStartResult {
                     runtime_id: runtime_id.clone(),
                     session_loaded: false,
+                    session_forked: false,
                 });
             }
             if let Some((runtime_id, _)) = runtimes.iter().find(|(_, runtime)| {
@@ -1770,6 +1795,7 @@ fn pi_start(
                 return Ok(PiStartResult {
                     runtime_id: runtime_id.clone(),
                     session_loaded: false,
+                    session_forked: false,
                 });
             }
         } else if let Some((runtime_id, _)) = runtimes.iter().find(|(_, runtime)| {
@@ -1781,6 +1807,7 @@ fn pi_start(
             return Ok(PiStartResult {
                 runtime_id: runtime_id.clone(),
                 session_loaded: false,
+                session_forked: false,
             });
         }
     }
@@ -1803,17 +1830,22 @@ fn pi_start(
         build_pi_launch_config(&settings, &cwd, &settings.permission_mode, is_quick_chat)?;
     let mut initial_session_file = None;
     let mut session_loaded = false;
+    let mut session_forked = false;
     if let Some(requested_session) = session_file.as_deref() {
-        let validated = validate_session_path(&settings.session_dir, requested_session)?;
-        let validated = validated.to_string_lossy().to_string();
-        if is_isolated {
-            launch.extra_args.extend(["--fork".to_string(), validated]);
-        } else {
-            launch
-                .extra_args
-                .extend(["--session".to_string(), validated.clone()]);
-            initial_session_file = Some(validated);
-            session_loaded = true;
+        if let Some(validated) =
+            resolve_session_for_launch(&settings.session_dir, requested_session, is_isolated)?
+        {
+            let validated = validated.to_string_lossy().to_string();
+            if is_isolated {
+                launch.extra_args.extend(["--fork".to_string(), validated]);
+                session_forked = true;
+            } else {
+                launch
+                    .extra_args
+                    .extend(["--session".to_string(), validated.clone()]);
+                initial_session_file = Some(validated);
+                session_loaded = true;
+            }
         }
     }
     let runtime_id = format!(
@@ -1841,12 +1873,25 @@ fn pi_start(
                 client,
                 cwd,
                 session_file: initial_session_file,
+                isolated: is_isolated,
             },
         );
     Ok(PiStartResult {
         runtime_id,
         session_loaded,
+        session_forked,
     })
+}
+
+fn resolve_session_for_launch(
+    configured_root: &str,
+    requested_session: &str,
+    is_isolated: bool,
+) -> Result<Option<PathBuf>, String> {
+    if is_isolated && !Path::new(requested_session).is_file() {
+        return Ok(None);
+    }
+    validate_session_path(configured_root, requested_session).map(Some)
 }
 
 fn pi_agent_dir() -> PathBuf {
@@ -2457,7 +2502,20 @@ fn pi_stop(state: State<'_, AppState>, runtime_id: String) -> Result<(), String>
         runtime
     };
     if let Some(runtime) = runtime {
+        let ephemeral_session = runtime
+            .isolated
+            .then(|| runtime.session_file.clone())
+            .flatten();
         runtime.client.kill();
+        if let Some(file) = ephemeral_session {
+            let session_dir = state
+                .settings
+                .lock()
+                .map_err(|_| "state lock poisoned".to_string())?
+                .session_dir
+                .clone();
+            let _ = trash_session(&session_dir, &file);
+        }
     }
     Ok(())
 }
@@ -2523,11 +2581,25 @@ fn list_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, Str
     let settings = state
         .settings
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
+        .map_err(|_| "state lock poisoned".to_string())?
+        .clone();
+    let ephemeral_sessions = state
+        .runtimes
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?
+        .values()
+        .filter(|runtime| runtime.isolated)
+        .filter_map(|runtime| runtime.session_file.clone())
+        .collect::<Vec<_>>();
     let archived = &settings.archived_sessions;
     Ok(list_sessions(&settings.session_dir)
         .into_iter()
         .filter(|session| !archived.iter().any(|file| file == &session.file))
+        .filter(|session| {
+            !ephemeral_sessions
+                .iter()
+                .any(|file| paths_equal(file, &session.file))
+        })
         .collect())
 }
 
@@ -3908,6 +3980,16 @@ struct GitBranchInfo {
     current: bool,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitCommitInfo {
+    sha: String,
+    short_sha: String,
+    subject: String,
+    author: String,
+    timestamp: i64,
+}
+
 fn parse_git_status(output: &str) -> Vec<GitFileChange> {
     output
         .lines()
@@ -4054,6 +4136,158 @@ fn git_compare(cwd: String, base: String) -> Result<GitSnapshot, String> {
         .collect();
     let diff =
         run_git(&root, &["diff", "--no-ext-diff", "--unified=3", &range]).unwrap_or_default();
+    Ok(GitSnapshot {
+        is_repository: true,
+        branch,
+        files,
+        diff,
+    })
+}
+
+#[tauri::command]
+fn git_review_snapshot(cwd: String, filter: String) -> Result<GitSnapshot, String> {
+    if filter == "uncommitted" {
+        return git_snapshot(cwd);
+    }
+    let root = PathBuf::from(&cwd);
+    if !root.is_dir() {
+        return Err("workspace no longer exists".to_string());
+    }
+    if filter != "staged" && filter != "unstaged" {
+        return Err("unsupported review filter".to_string());
+    }
+    let branch = run_git(&root, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .ok()
+        .map(|value| value.trim().to_string());
+    let status = run_git(
+        &root,
+        &["status", "--porcelain=v1", "--untracked-files=all"],
+    )
+    .unwrap_or_default();
+    let mut files = parse_git_status(&status);
+    if filter == "staged" {
+        files.retain(|file| file.staged);
+    } else {
+        files.retain(|file| file.unstaged);
+    }
+    let diff = if filter == "staged" {
+        run_git(
+            &root,
+            &["diff", "--cached", "--no-ext-diff", "--unified=3", "--"],
+        )
+        .unwrap_or_default()
+    } else {
+        run_git(&root, &["diff", "--no-ext-diff", "--unified=3", "--"]).unwrap_or_default()
+    };
+    Ok(GitSnapshot {
+        is_repository: true,
+        branch,
+        files,
+        diff,
+    })
+}
+
+#[tauri::command]
+fn git_list_commits(cwd: String, limit: Option<usize>) -> Result<Vec<GitCommitInfo>, String> {
+    let root = PathBuf::from(&cwd);
+    if !root.is_dir() {
+        return Err("workspace no longer exists".to_string());
+    }
+    let count = limit.unwrap_or(50).clamp(1, 200);
+    let count_arg = format!("--max-count={count}");
+    let output = run_git(
+        &root,
+        &[
+            "log",
+            &count_arg,
+            "--pretty=format:%H%x1f%h%x1f%s%x1f%an%x1f%ct",
+        ],
+    )?;
+    Ok(output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\x1f');
+            let sha = parts.next()?.trim();
+            let short_sha = parts.next()?.trim();
+            let subject = parts.next()?.trim();
+            let author = parts.next()?.trim();
+            let timestamp = parts.next()?.trim().parse::<i64>().ok()?;
+            if sha.is_empty() || short_sha.is_empty() {
+                return None;
+            }
+            Some(GitCommitInfo {
+                sha: sha.to_string(),
+                short_sha: short_sha.to_string(),
+                subject: subject.to_string(),
+                author: author.to_string(),
+                timestamp,
+            })
+        })
+        .collect())
+}
+
+#[tauri::command]
+fn git_commit_snapshot(cwd: String, commit: String) -> Result<GitSnapshot, String> {
+    let root = PathBuf::from(&cwd);
+    if !root.is_dir() {
+        return Err("workspace no longer exists".to_string());
+    }
+    let commit = commit.trim();
+    if !(7..=40).contains(&commit.len()) || !commit.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err("invalid commit id".to_string());
+    }
+    let branch = run_git(&root, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .ok()
+        .map(|value| value.trim().to_string());
+    let name_status = run_git(
+        &root,
+        &[
+            "show",
+            "--format=",
+            "--name-status",
+            "--find-renames",
+            commit,
+            "--",
+        ],
+    )?;
+    let files = name_status
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() < 2 {
+                return None;
+            }
+            let status = parts[0]
+                .chars()
+                .next()
+                .map(|ch| ch.to_string())
+                .unwrap_or_else(|| "?".to_string());
+            let path = parts[parts.len() - 1].trim();
+            if path.is_empty() {
+                return None;
+            }
+            Some(GitFileChange {
+                path: path.to_string(),
+                status,
+                index_status: String::new(),
+                worktree_status: String::new(),
+                staged: false,
+                unstaged: false,
+                untracked: false,
+            })
+        })
+        .collect();
+    let diff = run_git(
+        &root,
+        &[
+            "show",
+            "--format=",
+            "--no-ext-diff",
+            "--unified=3",
+            commit,
+            "--",
+        ],
+    )?;
     Ok(GitSnapshot {
         is_repository: true,
         branch,
@@ -4605,6 +4839,9 @@ pub fn run() {
             git_list_branches,
             git_checkout_branch,
             git_compare,
+            git_review_snapshot,
+            git_list_commits,
+            git_commit_snapshot,
             list_resources,
             search_pi_packages,
             pi_package_detail,
@@ -4647,6 +4884,44 @@ pub fn run_computer_helper() -> i32 {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn isolated_side_chat_falls_back_when_parent_session_is_missing() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "pid-desktop-side-chat-session-{}-{stamp}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("temporary session directory should be created");
+        let missing = root.join("missing.jsonl");
+
+        assert!(resolve_session_for_launch(
+            &root.to_string_lossy(),
+            &missing.to_string_lossy(),
+            true,
+        )
+        .expect("isolated launch should accept a missing parent")
+        .is_none());
+        assert!(resolve_session_for_launch(
+            &root.to_string_lossy(),
+            &missing.to_string_lossy(),
+            false,
+        )
+        .is_err());
+
+        let existing = root.join("existing.jsonl");
+        fs::write(&existing, "{}\n").expect("temporary session should be written");
+        let resolved =
+            resolve_session_for_launch(&root.to_string_lossy(), &existing.to_string_lossy(), true)
+                .expect("existing isolated parent should be validated")
+                .expect("existing isolated parent should be used");
+        assert_eq!(resolved, fs::canonicalize(&existing).unwrap());
+
+        fs::remove_dir_all(root).expect("temporary session directory should be removed");
+    }
 
     #[test]
     fn confines_relative_and_absolute_files_to_the_workspace() {
@@ -4766,10 +5041,24 @@ mod tests {
         let paths = vec!["tracked.txt".to_string()];
         let working = git_snapshot(cwd.clone()).expect("working snapshot should load");
         assert!(working.files[0].unstaged);
+        let unstaged_review = git_review_snapshot(cwd.clone(), "unstaged".to_string())
+            .expect("unstaged review should load");
+        assert_eq!(unstaged_review.files.len(), 1);
+        assert!(unstaged_review.diff.contains("-first"));
         git_stage_files(cwd.clone(), paths.clone()).expect("file should stage");
         let staged = git_snapshot(cwd.clone()).expect("staged snapshot should load");
         assert!(staged.files[0].staged);
         assert!(!staged.files[0].unstaged);
+        let staged_review = git_review_snapshot(cwd.clone(), "staged".to_string())
+            .expect("staged review should load");
+        assert_eq!(staged_review.files.len(), 1);
+        assert!(staged_review.diff.contains("+second"));
+        let commits = git_list_commits(cwd.clone(), Some(5)).expect("commits should load");
+        assert_eq!(commits.len(), 1);
+        let commit_review = git_commit_snapshot(cwd.clone(), commits[0].sha.clone())
+            .expect("commit review should load");
+        assert_eq!(commit_review.files.len(), 1);
+        assert!(commit_review.diff.contains("+first"));
         git_unstage_files(cwd.clone(), paths).expect("file should unstage");
         let unstaged = git_snapshot(cwd).expect("unstaged snapshot should load");
         assert!(!unstaged.files[0].staged);

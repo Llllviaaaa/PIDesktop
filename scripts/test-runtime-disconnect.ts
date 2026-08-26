@@ -80,4 +80,17 @@ usePiStore.getState().handleStatus({
 assert.equal(usePiStore.getState().connection, "exited");
 assert.match(usePiStore.getState().toasts[0]?.message ?? "", /Pi 已退出/);
 
+usePiStore.setState({ toasts: [] });
+let toastUpdates = 0;
+const unsubscribeToastUpdates = usePiStore.subscribe(() => {
+  toastUpdates += 1;
+});
+usePiStore.getState().showToast("相同错误", "error");
+usePiStore.getState().showToast("相同错误", "error");
+assert.equal(usePiStore.getState().toasts.length, 1, "identical active toasts must be deduplicated");
+assert.equal(toastUpdates, 1, "a duplicate toast must not trigger another store update");
+usePiStore.getState().showToast("相同错误", "warning");
+assert.equal(usePiStore.getState().toasts.length, 2, "toast severity remains part of the deduplication key");
+unsubscribeToastUpdates();
+
 console.log("runtime-disconnect: intentional stops are quiet and unexpected exits still alert");

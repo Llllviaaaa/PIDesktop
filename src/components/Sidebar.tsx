@@ -12,7 +12,6 @@ import {
   Bell,
   Check,
   ChevronDown,
-  CircleHelp,
   Clock3,
   Folder,
   FolderOpen,
@@ -58,8 +57,10 @@ interface SidebarProps {
   onCreateWorktree: (workspace: string) => void | Promise<void>;
   onArchiveProject: (workspace: string, sessions: SessionInfo[]) => void | Promise<void>;
   onOpenSettings: () => void;
-  onOpenHelp: () => void;
   onPickFolder: () => void;
+  hoverPreview?: boolean;
+  onHoverEnter?: () => void;
+  onHoverLeave?: () => void;
 }
 
 interface PositionedProjectMenu {
@@ -138,8 +139,10 @@ export function Sidebar({
   onCreateWorktree,
   onArchiveProject,
   onOpenSettings,
-  onOpenHelp,
   onPickFolder,
+  hoverPreview = false,
+  onHoverEnter,
+  onHoverLeave,
 }: SidebarProps) {
   const sidebarRef = useRef<HTMLElement>(null);
   const previewCloseTimer = useRef<number | null>(null);
@@ -367,7 +370,13 @@ export function Sidebar({
   }, [currentSessionFile, sessions, setProjectCollapsed]);
 
   return (
-    <aside className="sidebar codex-sidebar" ref={sidebarRef}>
+    <aside
+      className={`sidebar codex-sidebar${hoverPreview ? " sidebar-hover-preview" : ""}`}
+      data-sidebar-mode={hoverPreview ? "preview" : "pinned"}
+      onMouseEnter={onHoverEnter}
+      onMouseLeave={onHoverLeave}
+      ref={sidebarRef}
+    >
       <div className="sidebar-brand-row">
         <button
           type="button"
@@ -679,10 +688,7 @@ export function Sidebar({
       <div className="sidebar-footer codex-footer">
         <button type="button" className="footer-account" onClick={onOpenSettings} title="账户与设置">
           <Settings size={15} strokeWidth={1.75} />
-          <span>Pi Desktop</span>
-        </button>
-        <button type="button" className="icon-button footer-help" onClick={onOpenHelp} title="帮助" aria-label="帮助">
-          <CircleHelp size={17} strokeWidth={1.7} />
+          <span>PiDesktop</span>
         </button>
       </div>
     </aside>

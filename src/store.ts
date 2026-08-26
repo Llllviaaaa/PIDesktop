@@ -203,8 +203,14 @@ export const usePiStore = create<PiState>((set, get) => {
 
   const toast = (message: string, kind: Toast["kind"] = "info") => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    set((state) => ({ toasts: [...state.toasts.slice(-3), { id, message: redactSensitiveText(message), kind }] }));
-    window.setTimeout(() => get().dismissToast(id), 5500);
+    const safeMessage = redactSensitiveText(message);
+    let added = false;
+    set((state) => {
+      if (state.toasts.some((item) => item.kind === kind && item.message === safeMessage)) return state;
+      added = true;
+      return { toasts: [...state.toasts.slice(-3), { id, message: safeMessage, kind }] };
+    });
+    if (added) window.setTimeout(() => get().dismissToast(id), 5500);
   };
 
   const notify = (title: string, body: string, approval = false) => {
