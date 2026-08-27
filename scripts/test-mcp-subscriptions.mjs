@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = process.cwd();
 const extension = path.join(root, "src-tauri", "resources", "pidesktop-mcp.ts");
 const server = path.join(root, "scripts", "fixtures", "fake-mcp-subscription-server.mjs");
 const piCli = process.env.PIDESKTOP_PI_CLI
-  || path.join(path.dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))), "cli.js");
+  || path.join(root, "src-tauri", "resources", "pi-runtime", "pi.exe");
+const piExecutable = /\.exe$/i.test(piCli) ? piCli : process.execPath;
+const piPrefixArgs = piExecutable === piCli ? [] : [piCli];
 const config = [{
   id: "fixture",
   name: "Subscription fixture",
@@ -23,7 +24,7 @@ const config = [{
   trustedReadOnly: true,
 }];
 
-const child = spawn(process.execPath, [piCli, "--offline", "--approve", "--mode", "rpc", "--no-extensions", "-e", extension, "--no-session"], {
+const child = spawn(piExecutable, [...piPrefixArgs, "--offline", "--approve", "--mode", "rpc", "--no-extensions", "-e", extension, "--no-session"], {
   cwd: root,
   env: {
     ...process.env,

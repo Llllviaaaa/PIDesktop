@@ -10,7 +10,6 @@ import {
   Bug,
   Check,
   ChevronDown,
-  Code2,
   FileDiff,
   Folder,
   FolderOpen,
@@ -95,14 +94,39 @@ function selectAppShellState(state: ReturnType<typeof usePiStore.getState>) {
   return shellState;
 }
 
-function WorkspaceCubeIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M8 1.4 14 4.85 8 8.3 2 4.85 8 1.4Z" fill="#f7f7f7" />
-      <path d="M2 4.85 8 8.3v6.3l-6-3.45v-6.3Z" fill="#a7a7a7" />
-      <path d="M14 4.85 8 8.3v6.3l6-3.45v-6.3Z" fill="#d7d7d7" />
-    </svg>
-  );
+const ANTIGRAVITY_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAALlSURBVFhH7dbZS1RxGMbxtj8m6q5odNQ0jYLSFipDxDAiqDAvijCihWzDObPokDZaWZGVaEk7XbRDi0EbUUGLF0abZFakjjnOfMOkXzPPzEmjueiiz+X5Pe/7MGc4nDNq1H//KmA0SaK7hwVs0SV/SztsARt1OFm0Kw4wRoeSTTtjABEdsPP25Hi6aibQs2Ey35amQmTEo8e119CkndYbGTw8l86L+kze7cjhS0k2wYJsjdkZ0F5Dk3aars/n1Ll8rjYU8shXyKuyhXQtm0PvrAyNJqS9hgYT8d0qpuLyarxn17P/2GZO12yitXwNL0uX86FoscYT0l5DgyocCbP2Shmrzrsoaalj/ZEGvHUNNLprubZhF09WrCV4/6GOxdFeQ4PKe6+OwjN+FjQ3sujoRYoO3KIk0Mp23xXqy09wYV2Auyu36Vgc7TU0qPLPVjO7qYUZh24wY99TcmvbWbi7nRWVbWxyPaBm6yVayhp1LI72GhpUM5tOknXwNlPrXpJZ3UGW/wszq7qZ5/tEsec9ZRXP8W67o2NxtNfQoMo40Ep6oA2n/yOp3h5SrH6cVogsd4hcdy9LPJ9ZY71my9bHOhpDew0NRpu87ybOQBupVR9xuPtIsQboHxg6m1geYaoVJtfTT1FlN6W+Th2Pob2GBqM5al/g8HcyxR2ktDmsxz9MsyLk+QYo8vcRThz5QXsNDUZzVHfg8PWQ4g7pkbH9PGS7I8ytDFO8xz6nvYYGf0oLvMHp/4rD0z/syyLdFSHHE2Fulf0t0F5Dgz9N2/OZtMo+nG77pdHSXDDdo1d/0V5Dg4Ny67vIqQ6S5rW/pWrSTsiwYLpPT4Zor6HBjq9h8vb2ku0P/cHbdsiUCki3IMcbP6i9hgaXHA6SFwgRjt8xIqkuyPLC0kMxC0Laa0SnBn+xdXFk//nvPOvQKyzS3hiaTjbtS0iHkmicdtnSySQYqx3DApoHv+F00x8YfHYLdO9//5TvWpRbXvydcf8AAAAASUVORK5CYII=";
+
+function WorkspaceEditorIcon({ editorId, size = 16 }: { editorId?: WorkspaceEditorInfo["id"]; size?: number }) {
+  if (editorId === "cursor") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+        <rect width="24" height="24" rx="5.5" fill="#202124" />
+        <path d="M12 5.4 18 8.85 12 12.3 6 8.85 12 5.4Z" fill="#f7f7f7" />
+        <path d="M6 8.85 12 12.3v6.3l-6-3.45v-6.3Z" fill="#a7a7a7" />
+        <path d="M18 8.85 12 12.3v6.3l6-3.45v-6.3Z" fill="#d7d7d7" />
+      </svg>
+    );
+  }
+  if (editorId === "vscode") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden>
+        <path d="M96.461 10.796 75.857.876c-2.385-1.149-5.235-.664-7.107 1.207L1.299 63.583c-1.815 1.654-1.813 4.511.004 6.162l5.51 5.009c1.485 1.35 3.722 1.45 5.321.237l81.227-61.621c2.725-2.067 6.639-.124 6.639 3.297v-.239c0-2.402-1.375-4.59-3.539-5.632Z" fill="#0065A9" />
+        <path d="M96.461 89.204 75.857 99.124c-2.385 1.149-5.235.665-7.107-1.207L1.299 36.417c-1.815-1.654-1.813-4.511.004-6.162l5.51-5.009c1.485-1.35 3.722-1.45 5.321-.236l81.227 61.62c2.725 2.067 6.639.124 6.639-3.297v.24c0 2.401-1.375 4.59-3.539 5.631Z" fill="#007ACC" />
+        <path d="M75.858 99.126c-2.386 1.148-5.236.663-7.108-1.209 2.306 2.306 6.25.673 6.25-2.589V4.672c0-3.262-3.944-4.895-6.25-2.589C70.622.211 73.472-.274 75.858.874l20.601 9.907C98.623 11.822 100 14.011 100 16.413v67.174c0 2.402-1.377 4.592-3.541 5.633L75.858 99.126Z" fill="#1F9CF0" />
+      </svg>
+    );
+  }
+  if (editorId === "windsurf") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 1024 1024" fill="none" aria-hidden>
+        <path d="M897.246 286.869h-7.427c-39.084-.061-70.802 31.591-70.802 70.67v158.05c0 31.561-26.087 57.127-57.135 57.127-18.446 0-36.862-9.283-47.789-24.866L552.673 317.304c-13.393-19.144-35.187-30.557-58.778-30.557-36.801 0-69.919 31.287-69.919 69.91v158.962c0 31.562-25.873 57.127-57.134 57.127-18.507 0-36.893-9.283-47.821-24.865L138.395 289.882c-4.079-5.844-13.241-2.952-13.241 4.17v137.84c0 6.97 2.131 13.727 6.118 19.448l177.765 253.86c10.502 15.004 25.996 26.144 43.863 30.192 44.716 10.165 85.87-24.257 85.87-68.114V508.406c0-31.561 25.569-57.127 57.134-57.127h.091c19.025 0 36.862 9.283 47.79 24.866l161.45 230.516c13.424 19.174 34.092 30.557 58.748 30.557 37.623 0 69.858-31.318 69.858-69.91V508.376c0-31.561 25.569-57.127 57.134-57.127h6.301c3.957 0 7.154-3.196 7.154-7.152V294.021c0-3.956-3.197-7.152-7.154-7.152h-.03Z" fill="currentColor" />
+      </svg>
+    );
+  }
+  if (editorId === "antigravity") {
+    return <img src={ANTIGRAVITY_ICON} width={size} height={size} alt="" aria-hidden />;
+  }
+  return <FolderOpen size={size} strokeWidth={1.8} aria-hidden />;
 }
 
 const SIDEBAR_WIDTH_KEY = "pid-desktop:sidebar-width:v2";
@@ -921,6 +945,16 @@ export default function App() {
     });
   }, []);
 
+  const selectWorkspaceEditor = useCallback((workspace: string, editor: WorkspaceEditorInfo) => {
+    if (!workspace) return;
+    revealWorkspaceInEditor(workspace, editor);
+    const current = usePiStore.getState();
+    if (!current.settings || current.settings.defaultFileOpener === editor.id) return;
+    void current.saveSettings({ ...current.settings, defaultFileOpener: editor.id }).catch((error) => {
+      current.showToast(`无法保存默认打开应用：${String(error)}`, "error");
+    });
+  }, [revealWorkspaceInEditor]);
+
   const openWorkspaceWithPreferredApp = useCallback((workspace: string) => {
     if (preferredWorkspaceEditor) {
       revealWorkspaceInEditor(workspace, preferredWorkspaceEditor);
@@ -1590,7 +1624,9 @@ export default function App() {
                         openWorkspaceWithPreferredApp(workspaceCwd);
                       }}
                     >
-                      <span className="workspace-tools-mark" aria-hidden><WorkspaceCubeIcon /></span>
+                      <span className={`workspace-tools-mark workspace-editor-${preferredWorkspaceEditor?.id ?? "explorer"}`} aria-hidden>
+                        <WorkspaceEditorIcon editorId={preferredWorkspaceEditor?.id} size={18} />
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -1610,9 +1646,9 @@ export default function App() {
                         <button role="menuitem" key={editor.id} disabled={!workspaceCwd} onClick={() => {
                           setToolsMenuOpen(false);
                           if (!workspaceCwd) return;
-                          revealWorkspaceInEditor(workspaceCwd, editor);
+                          selectWorkspaceEditor(workspaceCwd, editor);
                         }}>
-                          <Code2 size={15} /><span>在 {editor.name} 中打开</span>
+                          <WorkspaceEditorIcon editorId={editor.id} size={16} /><span>在 {editor.name} 中打开</span>
                           {preferredWorkspaceEditor?.id === editor.id && <Check className="workspace-editor-selected" size={14} />}
                         </button>
                       ))}

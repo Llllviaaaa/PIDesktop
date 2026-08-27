@@ -1743,14 +1743,15 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   width: 20px;
   height: 20px;
   border-radius: 5px;
-  background: #202124;
-  color: #fff;
+  background: transparent;
+  color: #202124;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 20px;
 }
 .codex-shot .workspace-tools-mark svg { width: 13px; height: 13px; }
+.codex-shot .workspace-tools-mark img { width: 16px; height: 16px; display: block; }
 .codex-shot .workspace-tools-popover {
   top: 34px;
   right: 0;
@@ -3292,6 +3293,10 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .codex-shot .workspace-launch-control .workspace-tools-mark svg {
   width: 16px;
   height: 16px;
+}
+.codex-shot .workspace-launch-control .workspace-tools-mark img {
+  width: 18px;
+  height: 18px;
 }
 
 .codex-shot .sidebar.codex-sidebar {
@@ -5209,6 +5214,7 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 :root[data-theme="dark"] .codex-shot .workspace-launch-control:hover { background: #19191c; color: #a1a1aa; }
 :root[data-theme="dark"] .codex-shot .workspace-launch-control button:hover:not(:disabled),
 :root[data-theme="dark"] .codex-shot .workspace-launch-control.active .workspace-tools-trigger { background: #29292d; color: #f4f4f5; }
+:root[data-theme="dark"] .codex-shot .workspace-tools-mark { color: #f4f4f5; }
 :root[data-theme="dark"] .codex-shot .workspace-tools-separator { background: #2f3035; }
 :root[data-theme="dark"] .codex-shot .panel-toggle.active {
   background: #29292d;

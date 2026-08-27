@@ -318,6 +318,7 @@ export interface AppSettings {
   subagentMaxConcurrency: number;
   browserEnabled: boolean;
   browserHeadless: boolean;
+  browserProfileMode: "temporary" | "persistent";
   browserConfirmActions: boolean;
   browserExecutable: string;
   computerEnabled: boolean;
