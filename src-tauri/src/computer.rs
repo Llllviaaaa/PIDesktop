@@ -1,6 +1,8 @@
 use std::io::{self, Read};
 use std::mem::{size_of, zeroed};
 use std::ptr::null_mut;
+use std::thread;
+use std::time::Duration;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -16,9 +18,9 @@ use windows_sys::Win32::UI::HiDpi::{
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, VkKeyScanW, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
-    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-    MOUSEINPUT,
+    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
+    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN,
+    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetSystemMetrics, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
@@ -32,6 +34,11 @@ struct Request {
     action: String,
     x: Option<i32>,
     y: Option<i32>,
+    end_x: Option<i32>,
+    end_y: Option<i32>,
+    delta_x: Option<i32>,
+    delta_y: Option<i32>,
+    duration_ms: Option<u64>,
     button: Option<String>,
     count: Option<u32>,
     text: Option<String>,
@@ -108,7 +115,7 @@ fn read_request() -> Result<Request, String> {
 
 fn handle(request: Request) -> Result<Response, String> {
     match request.action.as_str() {
-        "screenshot" => capture_screen().map(Response::Capture),
+        "screenshot" => capture_screen(request.window_title.as_deref()).map(Response::Capture),
         "list_windows" => Ok(Response::Windows {
             windows: list_windows()?,
         }),
@@ -116,12 +123,42 @@ fn handle(request: Request) -> Result<Response, String> {
             focus_window(request.window_title.as_deref().unwrap_or_default())?;
             Ok(Response::Ok { ok: true })
         }
-        "click" => {
+        "click" | "double_click" => {
             click(
                 request.x.ok_or("click requires x")?,
                 request.y.ok_or("click requires y")?,
                 request.button.as_deref().unwrap_or("left"),
-                request.count.unwrap_or(1).clamp(1, 2),
+                if request.action == "double_click" {
+                    2
+                } else {
+                    request.count.unwrap_or(1).clamp(1, 2)
+                },
+            )?;
+            Ok(Response::Ok { ok: true })
+        }
+        "move" => {
+            move_pointer(
+                request.x.ok_or("move requires x")?,
+                request.y.ok_or("move requires y")?,
+            )?;
+            Ok(Response::Ok { ok: true })
+        }
+        "scroll" => {
+            scroll(
+                request.x,
+                request.y,
+                request.delta_x.unwrap_or_default(),
+                request.delta_y.unwrap_or_default(),
+            )?;
+            Ok(Response::Ok { ok: true })
+        }
+        "drag" => {
+            drag(
+                request.x.ok_or("drag requires x")?,
+                request.y.ok_or("drag requires y")?,
+                request.end_x.ok_or("drag requires endX")?,
+                request.end_y.ok_or("drag requires endY")?,
+                request.duration_ms.unwrap_or(500).clamp(50, 5_000),
             )?;
             Ok(Response::Ok { ok: true })
         }
@@ -129,7 +166,7 @@ fn handle(request: Request) -> Result<Response, String> {
             type_text(request.text.as_deref().ok_or("type requires text")?)?;
             Ok(Response::Ok { ok: true })
         }
-        "key" => {
+        "key" | "keypress" => {
             press_combo(request.key.as_deref().ok_or("key requires key")?)?;
             Ok(Response::Ok { ok: true })
         }
@@ -137,11 +174,22 @@ fn handle(request: Request) -> Result<Response, String> {
     }
 }
 
-fn capture_screen() -> Result<Capture, String> {
-    let left = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
-    let top = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
-    let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
-    let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
+fn capture_screen(window_title: Option<&str>) -> Result<Capture, String> {
+    let virtual_left = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
+    let virtual_top = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+    let virtual_width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
+    let virtual_height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
+    let (left, top, width, height) =
+        if let Some(title) = window_title.filter(|title| !title.trim().is_empty()) {
+            let window = find_window(title)?;
+            let right = (window.x + window.width).min(virtual_left + virtual_width);
+            let bottom = (window.y + window.height).min(virtual_top + virtual_height);
+            let left = window.x.max(virtual_left);
+            let top = window.y.max(virtual_top);
+            (left, top, right - left, bottom - top)
+        } else {
+            (virtual_left, virtual_top, virtual_width, virtual_height)
+        };
     if width <= 0 || height <= 0 {
         return Err("Windows reported an invalid virtual-screen size".to_string());
     }
@@ -296,14 +344,7 @@ fn list_windows() -> Result<Vec<WindowInfo>, String> {
 }
 
 fn focus_window(fragment: &str) -> Result<(), String> {
-    if fragment.trim().is_empty() {
-        return Err("focus_window requires a window title".to_string());
-    }
-    let query = fragment.to_lowercase();
-    let window = list_windows()?
-        .into_iter()
-        .find(|window| window.title.to_lowercase().contains(&query))
-        .ok_or_else(|| format!("No visible window matches: {fragment}"))?;
+    let window = find_window(fragment)?;
     let handle = window
         .handle
         .parse::<usize>()
@@ -318,11 +359,23 @@ fn focus_window(fragment: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn mouse_input(flags: u32) -> INPUT {
+fn find_window(fragment: &str) -> Result<WindowInfo, String> {
+    if fragment.trim().is_empty() {
+        return Err("window title must not be empty".to_string());
+    }
+    let query = fragment.to_lowercase();
+    list_windows()?
+        .into_iter()
+        .find(|window| window.title.to_lowercase().contains(&query))
+        .ok_or_else(|| format!("No visible window matches: {fragment}"))
+}
+
+fn mouse_input(flags: u32, mouse_data: u32) -> INPUT {
     INPUT {
         r#type: INPUT_MOUSE,
         Anonymous: INPUT_0 {
             mi: MOUSEINPUT {
+                mouseData: mouse_data,
                 dwFlags: flags,
                 ..Default::default()
             },
@@ -361,9 +414,7 @@ fn submit(inputs: &[INPUT]) -> Result<(), String> {
 }
 
 fn click(x: i32, y: i32, button: &str, count: u32) -> Result<(), String> {
-    if unsafe { SetCursorPos(x, y) } == 0 {
-        return Err("Windows could not move the pointer".to_string());
-    }
+    move_pointer(x, y)?;
     let (down, up) = match button {
         "left" => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
         "right" => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
@@ -371,9 +422,65 @@ fn click(x: i32, y: i32, button: &str, count: u32) -> Result<(), String> {
         _ => return Err(format!("Unsupported mouse button: {button}")),
     };
     for _ in 0..count {
-        submit(&[mouse_input(down), mouse_input(up)])?;
+        submit(&[mouse_input(down, 0), mouse_input(up, 0)])?;
     }
     Ok(())
+}
+
+fn move_pointer(x: i32, y: i32) -> Result<(), String> {
+    if unsafe { SetCursorPos(x, y) } == 0 {
+        return Err("Windows could not move the pointer".to_string());
+    }
+    Ok(())
+}
+
+fn scroll(x: Option<i32>, y: Option<i32>, delta_x: i32, delta_y: i32) -> Result<(), String> {
+    match (x, y) {
+        (Some(x), Some(y)) => move_pointer(x, y)?,
+        (None, None) => {}
+        _ => return Err("scroll requires both x and y when positioning the pointer".to_string()),
+    }
+    if delta_x == 0 && delta_y == 0 {
+        return Err("scroll requires a non-zero deltaX or deltaY".to_string());
+    }
+    let mut inputs = Vec::with_capacity(2);
+    if delta_y != 0 {
+        // The tool protocol uses positive Y for scrolling down; Win32 uses positive for up.
+        inputs.push(mouse_input(
+            MOUSEEVENTF_WHEEL,
+            delta_y.saturating_neg().clamp(-12_000, 12_000) as u32,
+        ));
+    }
+    if delta_x != 0 {
+        inputs.push(mouse_input(
+            MOUSEEVENTF_HWHEEL,
+            delta_x.clamp(-12_000, 12_000) as u32,
+        ));
+    }
+    submit(&inputs)
+}
+
+fn drag(
+    start_x: i32,
+    start_y: i32,
+    end_x: i32,
+    end_y: i32,
+    duration_ms: u64,
+) -> Result<(), String> {
+    move_pointer(start_x, start_y)?;
+    submit(&[mouse_input(MOUSEEVENTF_LEFTDOWN, 0)])?;
+    let steps = (duration_ms / 16).clamp(2, 120);
+    for step in 1..=steps {
+        let progress = step as f64 / steps as f64;
+        let x = start_x + ((end_x - start_x) as f64 * progress).round() as i32;
+        let y = start_y + ((end_y - start_y) as f64 * progress).round() as i32;
+        if let Err(error) = move_pointer(x, y) {
+            let _ = submit(&[mouse_input(MOUSEEVENTF_LEFTUP, 0)]);
+            return Err(error);
+        }
+        thread::sleep(Duration::from_millis((duration_ms / steps).max(1)));
+    }
+    submit(&[mouse_input(MOUSEEVENTF_LEFTUP, 0)])
 }
 
 fn type_text(text: &str) -> Result<(), String> {

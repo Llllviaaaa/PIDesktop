@@ -66,7 +66,12 @@ const base = {
 {
   assert(evaluateToolPermission({ ...base, toolName: "browser", input: { action: "inspect" } }).action === "allow", "browser inspection should stay available in read-only mode");
   assert(evaluateToolPermission({ ...base, toolName: "browser", input: { action: "click" } }).action === "block", "browser clicks should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "browser", input: { action: "press" } }).action === "block", "browser keypresses should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "browser", input: { action: "select" } }).action === "block", "browser form selection should be blocked in read-only mode");
   assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "type" } }).action === "block", "computer input should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "drag" } }).action === "block", "computer drag should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "scroll" } }).action === "block", "computer scroll should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "wait" } }).action === "allow", "computer wait should remain available in read-only mode");
   assert(evaluateToolPermission({ ...base, toolName: "mcp__demo__write", input: {} }).action === "block", "MCP tools should be blocked when their side effects cannot be classified");
   assert(evaluateToolPermission({ ...base, toolName: "delegate_task", input: { permission: "read-only" } }).action === "allow", "read-only mode should permit read-only subagents");
   assert(evaluateToolPermission({ ...base, toolName: "delegate_task", input: { permission: "workspace-write" } }).action === "block", "read-only mode should block writing subagents");
@@ -215,6 +220,24 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
     relativeEscape.action === "block",
     `relative path escaping workspace must still block, got ${JSON.stringify(relativeEscape)}`,
   );
+
+  const browserDownloadEscape = evaluateToolPermission({
+    mode: "workspace-write",
+    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
+    workspace,
+    toolName: "browser",
+    input: { action: "download", path: "../../outside" },
+  });
+  assert(browserDownloadEscape.action === "block", "browser downloads outside the workspace must be blocked");
+
+  const readOnlyUpload = evaluateToolPermission({
+    mode: "read-only",
+    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
+    workspace,
+    toolName: "browser",
+    input: { action: "upload", paths: ["upload.txt"] },
+  });
+  assert(readOnlyUpload.action === "block", "browser uploads must be blocked in read-only mode");
 
   const multiPathEscape = evaluateToolPermission({
     mode: "workspace-write",

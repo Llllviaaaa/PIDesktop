@@ -318,6 +318,7 @@ export interface AppSettings {
   subagentMaxConcurrency: number;
   browserEnabled: boolean;
   browserHeadless: boolean;
+  browserProfileMode: "temporary" | "persistent";
   browserConfirmActions: boolean;
   browserExecutable: string;
   computerEnabled: boolean;
@@ -337,6 +338,19 @@ export interface AppSettings {
   shortcutChanges: string;
   shortcutToggleSidebar: string;
   archivedSessions: string[];
+}
+
+export type AppNotificationKind = "completion" | "approval" | "question";
+
+export interface AppNotification {
+  id: string;
+  kind: AppNotificationKind;
+  title: string;
+  body: string;
+  cwd: string;
+  sessionFile: string | null;
+  createdAt: number;
+  read: boolean;
 }
 
 export interface McpServerConfig {
