@@ -75,6 +75,10 @@ const base = {
   assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "type" } }).action === "block", "computer input should be blocked in read-only mode");
   assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "drag" } }).action === "block", "computer drag should be blocked in read-only mode");
   assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "scroll" } }).action === "block", "computer scroll should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "invoke", ref: "uia:1:2" } }).action === "block", "semantic computer actions should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "batch", actions: [{ action: "wait" }, { action: "click", x: 1, y: 1 }] } }).action === "block", "computer batches must not hide interactive actions in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "observe" } }).action === "allow", "computer observation should remain available in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "batch", actions: [{ action: "wait" }] } }).action === "allow", "read-only computer batches should remain available");
   assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "wait" } }).action === "allow", "computer wait should remain available in read-only mode");
   assert(evaluateToolPermission({ ...base, toolName: "mcp__demo__write", input: {} }).action === "block", "MCP tools should be blocked when their side effects cannot be classified");
   assert(evaluateToolPermission({ ...base, toolName: "delegate_task", input: { permission: "read-only" } }).action === "allow", "read-only mode should permit read-only subagents");

@@ -238,7 +238,28 @@ export function evaluateToolPermission(options: {
   const action = typeof input.action === "string" ? input.action.toLowerCase() : "";
   const isInteractiveBrowser = tool === "browser" && ["open", "new_tab", "close_tab", "click", "type", "press", "select", "upload", "download", "close"].includes(action);
   const isBrowserDownload = tool === "browser" && action === "download";
-  const isInteractiveComputer = tool === "computer" && ["focus_window", "move", "click", "double_click", "drag", "scroll", "type", "key", "keypress"].includes(action);
+  const computerActions = action === "batch" && Array.isArray(input.actions)
+    ? input.actions.flatMap((item) => item && typeof item === "object" && typeof (item as { action?: unknown }).action === "string"
+      ? [(item as { action: string }).action.toLowerCase()]
+      : [])
+    : [action];
+  const isInteractiveComputer = tool === "computer" && computerActions.some((computerAction) => [
+    "focus_window",
+    "move",
+    "click",
+    "double_click",
+    "drag",
+    "scroll",
+    "type",
+    "key",
+    "keypress",
+    "invoke",
+    "set_value",
+    "toggle",
+    "select",
+    "focus_element",
+    "scroll_element",
+  ].includes(computerAction));
   const isMcpTool = tool.startsWith("mcp__");
   const isSubagent = tool === "delegate_task";
   const isMemoryWrite = tool === "desktop_memory" && action !== "read";

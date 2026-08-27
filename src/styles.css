@@ -325,6 +325,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .browser-panel-heading strong { font-size: 11px; }
 .browser-panel-heading small { color: var(--text-3); font-size: 9px; }
 .browser-panel > img { width: 100%; margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.computer-observation-error { margin-top: 8px; color: var(--warning, #b7791f); font-size: 10px; line-height: 1.45; }
+.computer-elements { display: grid; gap: 2px; margin-top: 9px; border-top: 1px solid var(--border); padding-top: 7px; }
+.computer-elements-heading { display: flex; justify-content: space-between; color: var(--text-3); font-size: 9px; text-transform: uppercase; }
+.computer-element { min-width: 0; display: grid; grid-template-columns: minmax(48px, auto) minmax(80px, 1fr); align-items: center; gap: 3px 7px; padding: 4px 2px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); font-size: 10px; }
+.computer-element-role { color: var(--text-3); }
+.computer-element-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.computer-element code { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 8.5px; }
 .browser-empty { min-height: 220px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 9px; text-align: center; }
 .response-waiting { height: 20px; display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); }
 .response-waiting i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: response-pulse 1.05s ease-in-out infinite; }

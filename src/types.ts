@@ -659,8 +659,31 @@ export interface ComputerState {
   height: number;
   left: number;
   top: number;
+  imageWidth?: number;
+  imageHeight?: number;
+  scaleX?: number;
+  scaleY?: number;
+  captureBackend?: string;
+  frameId?: string;
+  stable?: boolean;
+  windowTitle?: string;
+  windowHandle?: string;
+  elements?: ComputerElementState[];
+  observationError?: string;
   screenshot?: ImageContent;
   updatedAt: number;
+}
+
+export interface ComputerElementState {
+  ref: string;
+  role: string;
+  name: string;
+  value?: string;
+  bounds: { x: number; y: number; width: number; height: number };
+  enabled: boolean;
+  focused: boolean;
+  focusable: boolean;
+  patterns: string[];
 }
 
 export interface UiMessage {

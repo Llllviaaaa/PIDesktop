@@ -1129,11 +1129,25 @@ export function InspectorPanel({
           {computer ? <>
             <div className="browser-panel-heading">
               <MonitorCog size={15} />
-              <span><strong>Windows 桌面</strong><small>{computer.width}×{computer.height} · 原点 ({computer.left}, {computer.top}) · {computer.action}</small></span>
+              <span>
+                <strong>{computer.windowTitle || "Windows 桌面"}</strong>
+                <small>
+                  {computer.width}×{computer.height} · 原点 ({computer.left}, {computer.top}) · {computer.captureBackend || "capture"} · {computer.stable === false ? "仍在变化" : "稳定帧"} · {computer.action}
+                </small>
+              </span>
             </div>
             {computer.screenshot
               ? <img src={`data:${computer.screenshot.mimeType};base64,${computer.screenshot.data}`} alt="Windows 桌面截图" />
               : <div className="panel-empty">最近一次操作没有返回桌面截图。</div>}
+            {computer.observationError && <div className="computer-observation-error">UI Automation：{computer.observationError}</div>}
+            {computer.elements && computer.elements.length > 0 && <div className="computer-elements">
+              <div className="computer-elements-heading">可操作元素 <span>{computer.elements.length}</span></div>
+              {computer.elements.slice(0, 80).map((element) => <div className="computer-element" key={element.ref}>
+                <span className="computer-element-role">{element.role}</span>
+                <span className="computer-element-name">{element.name || element.value || "未命名"}</span>
+                <code>{element.ref}</code>
+              </div>)}
+            </div>}
           </> : <div className="panel-empty browser-empty"><MonitorCog size={24} />让 Pi 使用 computer 工具截图；最新桌面画面会显示在这里。</div>}
         </div>
       )}
