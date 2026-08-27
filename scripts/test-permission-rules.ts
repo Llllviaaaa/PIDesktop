@@ -12,6 +12,7 @@ import {
   permissionForAgentMode,
   resolveAgainstWorkspace,
   rulesFromEnv,
+  shouldConfirmInteractiveAction,
 } from "../src-tauri/resources/pidesktop-rules.ts";
 
 function assert(condition: unknown, message: string): void {
@@ -25,6 +26,9 @@ assert(normalizeAgentMode("unknown") === "agent", "unknown agent modes should fa
 assert(permissionForAgentMode("ask", "full-access") === "read-only", "ask mode must override full-access permissions");
 assert(permissionForAgentMode("agent", "workspace-write") === "workspace-write", "agent mode should preserve its permission mode");
 assert(agentModeSystemInstructions("plan").includes("implementation-ready plan"), "plan mode should add concrete planning instructions");
+assert(!shouldConfirmInteractiveAction("full-access", true), "full-access must skip per-action computer approval");
+assert(shouldConfirmInteractiveAction("ask", true), "ask mode must preserve per-action computer approval");
+assert(!shouldConfirmInteractiveAction("ask", false), "disabled computer approval must skip per-action confirmation");
 
 // PIDesktop web searches stay in-app by default, while explicit workflows are preserved.
 {

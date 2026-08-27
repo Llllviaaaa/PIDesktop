@@ -3143,8 +3143,17 @@ fn npm_registry_json(url: &str) -> Result<serde_json::Value, String> {
         .map_err(|err| format!("npm Registry 返回了无效数据: {err}"))
 }
 
-#[tauri::command]
-fn search_pi_packages(
+async fn run_marketplace_request<T, F>(request: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(request)
+        .await
+        .map_err(|err| format!("插件市场后台任务失败: {err}"))?
+}
+
+fn search_pi_packages_blocking(
     query: String,
     page: Option<u32>,
     page_size: Option<u32>,
@@ -3216,7 +3225,15 @@ fn search_pi_packages(
 }
 
 #[tauri::command]
-fn pi_package_detail(name: String) -> Result<PackageCatalogDetail, String> {
+async fn search_pi_packages(
+    query: String,
+    page: Option<u32>,
+    page_size: Option<u32>,
+) -> Result<PackageCatalogPage, String> {
+    run_marketplace_request(move || search_pi_packages_blocking(query, page, page_size)).await
+}
+
+fn pi_package_detail_blocking(name: String) -> Result<PackageCatalogDetail, String> {
     let name = npm_package_name(&name).ok_or_else(|| "无效的 npm 软件包名称".to_string())?;
     if name.chars().count() > 214 {
         return Err("npm 软件包名称过长".to_string());
@@ -3278,6 +3295,11 @@ fn pi_package_detail(name: String) -> Result<PackageCatalogDetail, String> {
             .unwrap_or(0),
         integrity: json_string(value.pointer("/dist/integrity")),
     })
+}
+
+#[tauri::command]
+async fn pi_package_detail(name: String) -> Result<PackageCatalogDetail, String> {
+    run_marketplace_request(move || pi_package_detail_blocking(name)).await
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -5298,6 +5320,16 @@ mod tests {
         );
         assert!(safe_external_url("javascript:alert(1)").is_none());
         assert!(safe_external_url("file:///C:/private.txt").is_none());
+    }
+
+    #[test]
+    fn marketplace_requests_run_off_the_command_thread() {
+        let command_thread = std::thread::current().id();
+        let worker_thread = tauri::async_runtime::block_on(run_marketplace_request(|| {
+            Ok::<_, String>(std::thread::current().id())
+        }))
+        .expect("marketplace worker should complete");
+        assert_ne!(command_thread, worker_thread);
     }
 
     #[test]

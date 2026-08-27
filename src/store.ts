@@ -15,6 +15,7 @@ import {
   moveManagedQueueItem,
   removeManagedQueueItem,
 } from "./lib/managedQueue";
+import { persistModelCatalog, readStoredModelCatalog } from "./lib/modelCatalogCache";
 import {
   buildForkCommand,
   buildGetTreeCommand,
@@ -57,6 +58,7 @@ import type {
 const PIDESKTOP_REWIND_COMMAND = "pidesktop-rewind";
 const PIDESKTOP_MODE_COMMAND = "pidesktop-mode";
 const PIDESKTOP_PERMISSION_COMMAND = "pidesktop-permission";
+const cachedModelCatalog = readStoredModelCatalog();
 
 export const usePiStore = create<PiState>((set, get) => {
   let pendingAssistantUpdate: {
@@ -84,6 +86,11 @@ export const usePiStore = create<PiState>((set, get) => {
   const managedFollowUpsByRuntime = new Map<string, ManagedQueuedMessage[]>();
   const managedDrainInFlight = new Set<string>();
   const suppressManagedDrainFor = new Set<string>();
+
+  const persistCurrentModelCatalog = () => {
+    const state = get();
+    persistModelCatalog({ models: state.availableModels, selected: state.model });
+  };
 
   const workspaceKey = (cwd: string) => cwd.trim().replace(/[\\/]+$/, "").toLowerCase();
 
@@ -308,6 +315,23 @@ export const usePiStore = create<PiState>((set, get) => {
     if (!runtimeId) return;
     const stateRequest = sendCommand(runtimeId, "get_state");
     const historyRequest = sendCommand(runtimeId, "get_messages");
+    const modelCatalogRequest = Promise.all([
+      sendCommand(runtimeId, "get_available_models"),
+      sendCommand(runtimeId, "get_available_thinking_levels"),
+      sendCommand(runtimeId, "get_commands"),
+    ]).then(([models, levels, commands]) => {
+      if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
+      set({
+        availableModels: models.data?.models ?? [],
+        availableThinkingLevels: levels.data?.levels ?? ["off"],
+        commands: (commands.data?.commands ?? []).filter((item) => item.name !== PIDESKTOP_REWIND_COMMAND),
+      });
+      persistCurrentModelCatalog();
+    }).catch((error) => {
+      if (get().runtimeId === runtimeId && expectedVersion === connectionVersion) {
+        get().appendLog(`刷新模型目录失败：${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
     const stateResponse = await stateRequest;
     const data = stateResponse.data;
     if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
@@ -321,6 +345,7 @@ export const usePiStore = create<PiState>((set, get) => {
         thinkingLevel: data.thinkingLevel ?? get().thinkingLevel,
         model: data.model ?? null,
       });
+      persistCurrentModelCatalog();
     }
 
     const sessionFile = data?.sessionFile;
@@ -355,17 +380,7 @@ export const usePiStore = create<PiState>((set, get) => {
       computer: computerFromMessages(restoredMessages),
     });
 
-    const [models, levels, commands] = await Promise.all([
-      sendCommand(runtimeId, "get_available_models"),
-      sendCommand(runtimeId, "get_available_thinking_levels"),
-      sendCommand(runtimeId, "get_commands"),
-    ]);
-    if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
-    set({
-      availableModels: models.data?.models ?? [],
-      availableThinkingLevels: levels.data?.levels ?? ["off"],
-      commands: (commands.data?.commands ?? []).filter((item) => item.name !== PIDESKTOP_REWIND_COMMAND),
-    });
+    await modelCatalogRequest;
     await refreshStats(expectedVersion);
   };
 
@@ -397,8 +412,8 @@ export const usePiStore = create<PiState>((set, get) => {
     isCompacting: false,
     retryStatus: null,
     thinkingLevel: "medium",
-    model: null,
-    availableModels: [],
+    model: cachedModelCatalog.selected,
+    availableModels: cachedModelCatalog.models,
     availableThinkingLevels: [],
     commands: [],
     stats: null,
@@ -1295,6 +1310,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (!runtimeId) {
         queuedModelSelection = model;
         set({ model });
+        persistCurrentModelCatalog();
         return;
       }
 
@@ -1326,6 +1342,7 @@ export const usePiStore = create<PiState>((set, get) => {
           model: confirmed,
           availableThinkingLevels: levels.data?.levels ?? ["off"],
         });
+        persistCurrentModelCatalog();
       });
 
       pendingModelChange = { runtimeId, promise: change };
@@ -1338,7 +1355,10 @@ export const usePiStore = create<PiState>((set, get) => {
         if (get().runtimeId === runtimeId) {
           try {
             const stateResponse = await sendCommand(runtimeId, "get_state");
-            if (get().runtimeId === runtimeId) set({ model: stateResponse.data?.model ?? null });
+            if (get().runtimeId === runtimeId) {
+              set({ model: stateResponse.data?.model ?? null });
+              persistCurrentModelCatalog();
+            }
           } catch {
             // Keep the last confirmed UI value when the runtime cannot be queried.
           }

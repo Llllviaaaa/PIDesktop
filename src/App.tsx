@@ -861,6 +861,15 @@ export default function App() {
     ? "正在压缩上下文…"
     : retryStatus || (isStreaming ? "Pi 正在工作…" : connected ? "就绪" : connection === "starting" ? "正在启动 Pi…" : "未连接");
   const sendFromComposer = useCallback(async (text: string, behavior?: "steer" | "followUp") => {
+    const enteringConversation = newTask;
+    const enterConversation = () => {
+      if (!enteringConversation) return;
+      setDraftMode(false);
+      setHubView(null);
+    };
+    const restoreInitialPrompt = () => {
+      if (enteringConversation) usePiStore.setState({ composerPrefill: text });
+    };
     let current = usePiStore.getState();
     let workspace = quickChat ? await pi.quickChatDir() : draftWorkspace || current.cwd;
     if (!workspace) {
@@ -872,9 +881,14 @@ export default function App() {
     const normalize = (value: string) => value.replace(/[\\/]+$/, "").toLowerCase();
     if (current.connection !== "running" || normalize(current.cwd) !== normalize(workspace)) {
       window.localStorage.setItem("pid-desktop:last-workspace", workspace);
-      await current.connect(workspace);
+      const connection = current.connect(workspace);
+      enterConversation();
+      await connection;
       current = usePiStore.getState();
-      if (current.connection !== "running") return false;
+      if (current.connection !== "running") {
+        restoreInitialPrompt();
+        return false;
+      }
     }
     if (taskEnvironment === "worktree" && current.messages.length === 0 && !quickChat) {
       try {
@@ -884,22 +898,28 @@ export default function App() {
         const worktree = await pi.createWorktree(current.cwd, current.git?.branch);
         window.localStorage.setItem("pid-desktop:last-workspace", worktree.path);
         setDraftWorkspace(worktree.path);
-        await current.connect(worktree.path);
+        const connection = current.connect(worktree.path);
+        enterConversation();
+        await connection;
         current = usePiStore.getState();
-        if (current.connection !== "running") return false;
+        if (current.connection !== "running") {
+          restoreInitialPrompt();
+          return false;
+        }
       } catch (error) {
         current.appendLog(`创建 Worktree 失败：${String(error)}`);
         current.showToast(`创建 Worktree 失败：${String(error)}`, "error");
+        restoreInitialPrompt();
         return false;
       }
     }
+    enterConversation();
     const sent = await current.sendMessage(text, attachments, behavior);
     if (sent) {
       setAttachments([]);
-      setDraftMode(false);
-    }
+    } else restoreInitialPrompt();
     return sent;
-  }, [attachments, draftWorkspace, quickChat, selectWorkspace, taskEnvironment]);
+  }, [attachments, draftWorkspace, newTask, quickChat, selectWorkspace, taskEnvironment]);
 
   const startNewTask = useCallback((asQuickChat = false) => {
     const current = usePiStore.getState();

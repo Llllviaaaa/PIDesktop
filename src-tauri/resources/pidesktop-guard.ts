@@ -102,6 +102,7 @@ export default function (pi: ExtensionAPI) {
         throw new Error("Invalid PIDesktop permission mode");
       }
       mode = normalizePermissionMode(requested);
+      process.env.PIDESKTOP_PERMISSION_MODE = mode;
     },
   });
 
