@@ -59,6 +59,20 @@ usePiStore.setState({
 usePiStore.getState().handleEvent("runtime-test", { type: "agent_end" });
 assert(usePiStore.getState().notifications[0]?.kind === "completion", "agent completion must enter the notification center");
 
+usePiStore.getState().markNotificationRead(usePiStore.getState().notifications[0].id);
+assert(usePiStore.getState().notifications.length === 0, "reading a notification must remove it from the center");
+
+usePiStore.getState().handleEvent("runtime-test", { type: "agent_end" });
+Object.defineProperty(globalThis, "document", {
+  configurable: true,
+  value: { hasFocus: () => true, visibilityState: "visible" },
+});
+usePiStore.getState().setViewedSession("D:\\repo\\session.jsonl");
+assert(usePiStore.getState().notifications.length === 0, "viewing a session must clear its notifications");
+usePiStore.getState().handleEvent("runtime-test", { type: "agent_end" });
+assert(usePiStore.getState().notifications.length === 0, "a visible session must not receive a completion notification");
+usePiStore.getState().setViewedSession(null);
+
 const request = {
   type: "extension_ui_request" as const,
   id: "confirm-1",

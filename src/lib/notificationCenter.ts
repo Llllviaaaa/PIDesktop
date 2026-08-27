@@ -42,7 +42,8 @@ export function appendNotification(
 export function readStoredNotifications(): AppNotification[] {
   if (typeof window === "undefined") return [];
   try {
-    return parseNotifications(JSON.parse(window.localStorage.getItem(NOTIFICATION_STORAGE_KEY) || "[]"));
+    return parseNotifications(JSON.parse(window.localStorage.getItem(NOTIFICATION_STORAGE_KEY) || "[]"))
+      .filter((notification) => !notification.read);
   } catch {
     return [];
   }

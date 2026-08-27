@@ -651,6 +651,17 @@ export default function App() {
   }, [runtimeId, sessionFile]);
 
   useEffect(() => {
+    const viewedSession = !newTask && !hubView && !settingsOpen ? sessionFile : null;
+    store.setViewedSession(viewedSession);
+    const markVisibleSessionViewed = () => store.setViewedSession(viewedSession);
+    window.addEventListener("focus", markVisibleSessionViewed);
+    return () => {
+      window.removeEventListener("focus", markVisibleSessionViewed);
+      store.setViewedSession(null);
+    };
+  }, [hubView, newTask, sessionFile, settingsOpen, store.setViewedSession]);
+
+  useEffect(() => {
     if (workspaceTool !== "side-chat") return;
     if (!sessionFile || newTask) {
       setWorkspaceTool(null);

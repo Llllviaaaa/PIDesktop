@@ -16,6 +16,7 @@ import {
   removeManagedQueueItem,
 } from "./lib/managedQueue";
 import { persistModelCatalog, readStoredModelCatalog } from "./lib/modelCatalogCache";
+import { sameLocalPath } from "./lib/pathIdentity";
 import {
   buildForkCommand,
   buildGetTreeCommand,
@@ -86,6 +87,8 @@ export const usePiStore = create<PiState>((set, get) => {
   const managedFollowUpsByRuntime = new Map<string, ManagedQueuedMessage[]>();
   const managedDrainInFlight = new Set<string>();
   const suppressManagedDrainFor = new Set<string>();
+  const systemNotifications = new Map<string, Notification>();
+  let viewedSessionFile: string | null = null;
 
   const persistCurrentModelCatalog = () => {
     const state = get();
@@ -226,7 +229,38 @@ export const usePiStore = create<PiState>((set, get) => {
     if (added) window.setTimeout(() => get().dismissToast(id), 5500);
   };
 
-  const pushNotification = (notification: NotificationDraft) => {
+  const sessionIsBeingViewed = (sessionFile: string | null) => Boolean(
+    sessionFile
+    && viewedSessionFile
+    && sameLocalPath(sessionFile, viewedSessionFile)
+    && typeof document !== "undefined"
+    && document.visibilityState !== "hidden"
+    && document.hasFocus(),
+  );
+
+  const closeSystemNotification = (id: string) => {
+    systemNotifications.get(id)?.close();
+    systemNotifications.delete(id);
+  };
+
+  const removeNotifications = (predicate: (notification: NotificationDraft) => boolean) => {
+    const removedIds: string[] = [];
+    set((state) => {
+      const notifications = state.notifications.filter((item) => {
+        if (!predicate(item)) return true;
+        removedIds.push(item.id);
+        return false;
+      });
+      if (notifications.length === state.notifications.length) return state;
+      persistNotifications(notifications);
+      return { notifications };
+    });
+    removedIds.forEach(closeSystemNotification);
+  };
+
+  const pushNotification = (notification: NotificationDraft): boolean => {
+    if (sessionIsBeingViewed(notification.sessionFile)) return false;
+    let added = false;
     set((state) => {
       const notifications = appendNotification(state.notifications, {
         ...notification,
@@ -234,18 +268,23 @@ export const usePiStore = create<PiState>((set, get) => {
         body: redactSensitiveText(notification.body),
       });
       if (notifications === state.notifications) return state;
+      added = true;
       persistNotifications(notifications);
       return { notifications };
     });
+    return added;
   };
 
-  const notify = (title: string, body: string, approval = false) => {
+  const notify = (id: string, title: string, body: string, approval = false) => {
     const settings = get().settings;
     if (!settings?.notificationsEnabled) return;
     if (approval ? !settings.notifyOnApproval : !settings.notifyOnCompletion) return;
     if (settings.notifyOnlyWhenUnfocused && document.hasFocus()) return;
     if (!("Notification" in window) || Notification.permission !== "granted") return;
-    new Notification(redactSensitiveText(title), { body: redactSensitiveText(body) });
+    closeSystemNotification(id);
+    const notification = new Notification(redactSensitiveText(title), { body: redactSensitiveText(body) });
+    systemNotifications.set(id, notification);
+    notification.onclose = () => systemNotifications.delete(id);
   };
 
   const command = (
@@ -749,15 +788,15 @@ export const usePiStore = create<PiState>((set, get) => {
         if (event.type === "agent_end" && !event.willRetry) {
           const runtime = get().runtimes[runtimeId];
           const project = runtime?.cwd.split(/[\\/]/).filter(Boolean).pop() || "后台任务";
-          pushNotification({
+          const notification: NotificationDraft = {
             id: `${runtimeId}:completion:${Date.now()}`,
             kind: "completion",
             title: "任务已完成",
             body: project,
             cwd: runtime?.cwd ?? "",
             sessionFile: runtime?.sessionFile ?? null,
-          });
-          notify("Pi 后台任务已完成", project);
+          };
+          if (pushNotification(notification)) notify(notification.id, "Pi 后台任务已完成", project);
         }
         if (event.type === "agent_settled") void get().refreshSessions();
         if (event.type === "extension_ui_request") {
@@ -765,15 +804,17 @@ export const usePiStore = create<PiState>((set, get) => {
           if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
             const runtime = get().runtimes[runtimeId];
             const kind = request.method === "confirm" ? "approval" : "question";
-            pushNotification({
+            const notification: NotificationDraft = {
               id: `${runtimeId}:request:${request.id}`,
               kind,
               title: ("title" in request && request.title) || (kind === "approval" ? "需要确认" : "需要输入"),
               body: kind === "approval" ? "打开任务以确认本地操作。" : "打开任务以回答问题。",
               cwd: runtime?.cwd ?? "",
               sessionFile: runtime?.sessionFile ?? null,
-            });
-            notify("Pi 后台任务等待审批", ("title" in request && request.title) || "打开任务以处理审批。", true);
+            };
+            if (pushNotification(notification)) {
+              notify(notification.id, "Pi 后台任务等待审批", ("title" in request && request.title) || "打开任务以处理审批。", true);
+            }
           }
         }
         return;
@@ -789,15 +830,17 @@ export const usePiStore = create<PiState>((set, get) => {
           if (!event.willRetry) {
             set({ isStreaming: false });
             if ((managedFollowUpsByRuntime.get(runtimeId) ?? []).length === 0) {
-              pushNotification({
+              const notification: NotificationDraft = {
                 id: `${runtimeId}:completion:${Date.now()}`,
                 kind: "completion",
                 title: "任务已完成",
                 body: get().sessionName || "本地编码任务已完成，可以开始检查。",
                 cwd: get().cwd,
                 sessionFile: get().sessionFile,
-              });
-              notify("Pi 已完成", get().sessionName || "本地编码任务已完成，可以开始检查。" );
+              };
+              if (pushNotification(notification)) {
+                notify(notification.id, "Pi 已完成", get().sessionName || "本地编码任务已完成，可以开始检查。");
+              }
             }
           }
           return;
@@ -972,15 +1015,17 @@ export const usePiStore = create<PiState>((set, get) => {
           } else {
             set({ extensionRequest: request });
             const kind = request.method === "confirm" ? "approval" : "question";
-            pushNotification({
+            const notification: NotificationDraft = {
               id: `${runtimeId}:request:${request.id}`,
               kind,
               title: request.title || (kind === "approval" ? "需要确认" : "需要输入"),
               body: kind === "approval" ? "有一项本地操作正在等待你的决定。" : "Pi 正在等待你的回答。",
               cwd: get().cwd,
               sessionFile: get().sessionFile,
-            });
-            notify("Pi 需要审批", request.title || "有一项本地操作正在等待你的决定。", true);
+            };
+            if (pushNotification(notification)) {
+              notify(notification.id, "Pi 需要审批", request.title || "有一项本地操作正在等待你的决定。", true);
+            }
           }
           return;
         }
@@ -1489,29 +1534,22 @@ export const usePiStore = create<PiState>((set, get) => {
 
     addNotification: pushNotification,
 
+    setViewedSession: (sessionFile) => {
+      viewedSessionFile = sessionFile;
+      if (!sessionFile || typeof document === "undefined" || !document.hasFocus()) return;
+      removeNotifications((notification) => sameLocalPath(notification.sessionFile, sessionFile));
+    },
+
     markNotificationRead: (id) => {
-      set((state) => {
-        const notifications = state.notifications.map((item) => item.id === id ? { ...item, read: true } : item);
-        persistNotifications(notifications);
-        return { notifications };
-      });
+      removeNotifications((notification) => notification.id === id);
     },
 
     markAllNotificationsRead: () => {
-      set((state) => {
-        if (!state.notifications.some((item) => !item.read)) return state;
-        const notifications = state.notifications.map((item) => ({ ...item, read: true }));
-        persistNotifications(notifications);
-        return { notifications };
-      });
+      removeNotifications(() => true);
     },
 
     dismissNotification: (id) => {
-      set((state) => {
-        const notifications = state.notifications.filter((item) => item.id !== id);
-        persistNotifications(notifications);
-        return { notifications };
-      });
+      removeNotifications((notification) => notification.id === id);
     },
     clearComposerPrefill: () => set({ composerPrefill: null }),
     dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),

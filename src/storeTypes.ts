@@ -118,6 +118,7 @@ export interface PiState {
   answerExtension: (response: { value?: string; confirmed?: boolean; cancelled?: true }) => Promise<void>;
   showToast: (message: string, kind?: Toast["kind"]) => void;
   addNotification: (notification: Omit<AppNotification, "createdAt" | "read"> & { createdAt?: number; read?: boolean }) => void;
+  setViewedSession: (sessionFile: string | null) => void;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
   dismissNotification: (id: string) => void;
