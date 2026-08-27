@@ -1,12 +1,26 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
 const extension = path.join(root, "src-tauri", "resources", "pidesktop-mcp.ts");
 const server = path.join(root, "scripts", "fixtures", "fake-mcp-subscription-server.mjs");
-const piCli = process.env.PIDESKTOP_PI_CLI
-  || path.join(root, "src-tauri", "resources", "pi-runtime", "pi.exe");
+const bundledPiCli = path.join(root, "src-tauri", "resources", "pi-runtime", "pi.exe");
+
+if (!process.env.PIDESKTOP_PI_CLI && !existsSync(bundledPiCli)) {
+  const prepareResult = spawnSync(
+    process.execPath,
+    [path.join(root, "scripts", "prepare-pi-runtime.mjs")],
+    { cwd: root, stdio: "inherit" },
+  );
+  if (prepareResult.error) throw prepareResult.error;
+  if (prepareResult.status !== 0) {
+    throw new Error(`Failed to prepare Pi runtime (exit code ${prepareResult.status ?? "unknown"})`);
+  }
+}
+
+const piCli = process.env.PIDESKTOP_PI_CLI || bundledPiCli;
 const piExecutable = /\.exe$/i.test(piCli) ? piCli : process.execPath;
 const piPrefixArgs = piExecutable === piCli ? [] : [piCli];
 const config = [{

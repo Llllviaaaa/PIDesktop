@@ -14,10 +14,10 @@ fn session_path_key(value: &str) -> String {
         if let Some(path) = normalized.strip_prefix(r"\\?\unc\") {
             return format!(r"\\{path}");
         }
-        return normalized
+        normalized
             .strip_prefix(r"\\?\")
             .unwrap_or(&normalized)
-            .to_string();
+            .to_string()
     }
 
     #[cfg(not(windows))]
