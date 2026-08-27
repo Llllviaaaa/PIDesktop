@@ -35,6 +35,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install 1.96.1 --profile minimal --component clippy --component rustfmt
+      - name: Verify GLib is absent from the Windows dependency tree
+        shell: pwsh
+        run: |
+          $tree = cargo tree --manifest-path src-tauri/Cargo.toml --locked --target x86_64-pc-windows-msvc --prefix none
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $glib = @($tree | Select-String -Pattern '^glib v')
+          if ($glib.Count -gt 0) {
+            $glib | ForEach-Object { Write-Error "Unexpected Windows GLib dependency: $_" }
+            exit 1
+          }
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
       - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
