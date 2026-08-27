@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
+import { normalizePermissionMode, shouldConfirmInteractiveAction } from "./pidesktop-rules.ts";
 
 type ComputerAction =
   | "screenshot"
@@ -130,7 +131,6 @@ function delay(ms: number): Promise<void> {
 
 export default function (pi: ExtensionAPI) {
   const confirmActions = process.env.PIDESKTOP_COMPUTER_CONFIRM !== "0";
-  const permissionMode = process.env.PIDESKTOP_PERMISSION_MODE || "ask";
 
   pi.registerTool({
     name: "computer",
@@ -160,11 +160,12 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const action = params.action as ComputerAction;
       const interactive = ["focus_window", "move", "click", "double_click", "drag", "scroll", "type", "key", "keypress"].includes(action);
+      const permissionMode = normalizePermissionMode(process.env.PIDESKTOP_PERMISSION_MODE);
       signal?.throwIfAborted();
       if (interactive && permissionMode === "read-only") {
         throw new Error("只读模式下已禁用交互式计算机操作");
       }
-      if (interactive && confirmActions) {
+      if (interactive && shouldConfirmInteractiveAction(permissionMode, confirmActions)) {
         const allowed = await ctx.ui.confirm("允许计算机操作？", actionSummary(action, params));
         if (!allowed) throw new Error("用户拒绝了计算机操作");
       }

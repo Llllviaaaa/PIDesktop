@@ -14,6 +14,13 @@ export function normalizePermissionMode(value: string | undefined | null): Permi
   return value === "read-only" || value === "workspace-write" || value === "full-access" ? value : "ask";
 }
 
+export function shouldConfirmInteractiveAction(
+  permissionMode: string | undefined | null,
+  confirmActions: boolean,
+): boolean {
+  return confirmActions && normalizePermissionMode(permissionMode) !== "full-access";
+}
+
 export function permissionForAgentMode(agentMode: AgentMode, permissionMode: PermissionMode): PermissionMode {
   return agentMode === "agent" ? permissionMode : "read-only";
 }

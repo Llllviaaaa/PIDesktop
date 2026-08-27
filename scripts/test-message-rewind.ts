@@ -24,6 +24,14 @@ assert(commandHandler, "desktop rewind command has a handler");
 assert(commandHandlers.has(PIDESKTOP_MODE_COMMAND), "desktop agent-mode command is registered");
 assert(commandHandlers.has(PIDESKTOP_PERMISSION_COMMAND), "desktop permission command is registered");
 
+const permissionHandler = commandHandlers.get(PIDESKTOP_PERMISSION_COMMAND);
+assert(permissionHandler, "desktop permission command has a handler");
+const previousPermissionMode = process.env.PIDESKTOP_PERMISSION_MODE;
+await permissionHandler("full-access", {});
+assert(process.env.PIDESKTOP_PERMISSION_MODE === "full-access", "permission changes must be visible to desktop tools");
+if (previousPermissionMode === undefined) delete process.env.PIDESKTOP_PERMISSION_MODE;
+else process.env.PIDESKTOP_PERMISSION_MODE = previousPermissionMode;
+
 let navigatedTo = "";
 let summarize: boolean | undefined;
 await commandHandler("user-entry", {
