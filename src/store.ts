@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { pi, respondToExtension, sendCommand } from "./lib/pi";
 import { redactSensitiveText } from "./lib/redact";
+import {
+  appendNotification,
+  persistNotifications,
+  readStoredNotifications,
+  type NotificationDraft,
+} from "./lib/notificationCenter";
 import { updateToolCall } from "./lib/piToolCalls";
 import type { PiState, RuntimeState } from "./storeTypes";
 import {
@@ -213,6 +219,19 @@ export const usePiStore = create<PiState>((set, get) => {
     if (added) window.setTimeout(() => get().dismissToast(id), 5500);
   };
 
+  const pushNotification = (notification: NotificationDraft) => {
+    set((state) => {
+      const notifications = appendNotification(state.notifications, {
+        ...notification,
+        title: redactSensitiveText(notification.title),
+        body: redactSensitiveText(notification.body),
+      });
+      if (notifications === state.notifications) return state;
+      persistNotifications(notifications);
+      return { notifications };
+    });
+  };
+
   const notify = (title: string, body: string, approval = false) => {
     const settings = get().settings;
     if (!settings?.notificationsEnabled) return;
@@ -397,6 +416,7 @@ export const usePiStore = create<PiState>((set, get) => {
     extensionWidgets: {},
     composerPrefill: null,
     toasts: [],
+    notifications: readStoredNotifications(),
     sessionTree: [],
     sessionTreeLeafId: null,
     sessionTreeError: null,
@@ -714,12 +734,30 @@ export const usePiStore = create<PiState>((set, get) => {
         if (event.type === "agent_end" && !event.willRetry) {
           const runtime = get().runtimes[runtimeId];
           const project = runtime?.cwd.split(/[\\/]/).filter(Boolean).pop() || "后台任务";
+          pushNotification({
+            id: `${runtimeId}:completion:${Date.now()}`,
+            kind: "completion",
+            title: "任务已完成",
+            body: project,
+            cwd: runtime?.cwd ?? "",
+            sessionFile: runtime?.sessionFile ?? null,
+          });
           notify("Pi 后台任务已完成", project);
         }
         if (event.type === "agent_settled") void get().refreshSessions();
         if (event.type === "extension_ui_request") {
           const request = event as ExtensionUIRequest;
           if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
+            const runtime = get().runtimes[runtimeId];
+            const kind = request.method === "confirm" ? "approval" : "question";
+            pushNotification({
+              id: `${runtimeId}:request:${request.id}`,
+              kind,
+              title: ("title" in request && request.title) || (kind === "approval" ? "需要确认" : "需要输入"),
+              body: kind === "approval" ? "打开任务以确认本地操作。" : "打开任务以回答问题。",
+              cwd: runtime?.cwd ?? "",
+              sessionFile: runtime?.sessionFile ?? null,
+            });
             notify("Pi 后台任务等待审批", ("title" in request && request.title) || "打开任务以处理审批。", true);
           }
         }
@@ -736,6 +774,14 @@ export const usePiStore = create<PiState>((set, get) => {
           if (!event.willRetry) {
             set({ isStreaming: false });
             if ((managedFollowUpsByRuntime.get(runtimeId) ?? []).length === 0) {
+              pushNotification({
+                id: `${runtimeId}:completion:${Date.now()}`,
+                kind: "completion",
+                title: "任务已完成",
+                body: get().sessionName || "本地编码任务已完成，可以开始检查。",
+                cwd: get().cwd,
+                sessionFile: get().sessionFile,
+              });
               notify("Pi 已完成", get().sessionName || "本地编码任务已完成，可以开始检查。" );
             }
           }
@@ -910,6 +956,15 @@ export const usePiStore = create<PiState>((set, get) => {
             set({ composerPrefill: request.text });
           } else {
             set({ extensionRequest: request });
+            const kind = request.method === "confirm" ? "approval" : "question";
+            pushNotification({
+              id: `${runtimeId}:request:${request.id}`,
+              kind,
+              title: request.title || (kind === "approval" ? "需要确认" : "需要输入"),
+              body: kind === "approval" ? "有一项本地操作正在等待你的决定。" : "Pi 正在等待你的回答。",
+              cwd: get().cwd,
+              sessionFile: get().sessionFile,
+            });
             notify("Pi 需要审批", request.title || "有一项本地操作正在等待你的决定。", true);
           }
           return;
@@ -1411,6 +1466,33 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     showToast: toast,
+
+    addNotification: pushNotification,
+
+    markNotificationRead: (id) => {
+      set((state) => {
+        const notifications = state.notifications.map((item) => item.id === id ? { ...item, read: true } : item);
+        persistNotifications(notifications);
+        return { notifications };
+      });
+    },
+
+    markAllNotificationsRead: () => {
+      set((state) => {
+        if (!state.notifications.some((item) => !item.read)) return state;
+        const notifications = state.notifications.map((item) => ({ ...item, read: true }));
+        persistNotifications(notifications);
+        return { notifications };
+      });
+    },
+
+    dismissNotification: (id) => {
+      set((state) => {
+        const notifications = state.notifications.filter((item) => item.id !== id);
+        persistNotifications(notifications);
+        return { notifications };
+      });
+    },
     clearComposerPrefill: () => set({ composerPrefill: null }),
     dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),
   };

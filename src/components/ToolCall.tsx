@@ -36,12 +36,22 @@ function summary(call: UiToolCall): string {
   }
   if (name === "browser") {
     const action = typeof call.args.action === "string" ? call.args.action : "inspect";
-    const labels: Record<string, string> = { open: "打开网页", inspect: "检查网页", click: "点击网页元素", type: "在网页中输入", screenshot: "截取网页", close: "关闭浏览器" };
+    const labels: Record<string, string> = {
+      open: "打开网页", inspect: "检查网页", back: "后退网页", forward: "前进网页", reload: "刷新网页",
+      list_tabs: "列出浏览器标签", new_tab: "新建浏览器标签", switch_tab: "切换浏览器标签", close_tab: "关闭浏览器标签",
+      hover: "悬停网页元素", click: "点击网页元素", type: "在网页中输入", press: "发送网页按键",
+      select: "选择表单项", upload: "上传工作区文件", download: "下载文件到工作区",
+      scroll: "滚动网页", wait: "等待网页更新", screenshot: "截取网页", close: "关闭浏览器",
+    };
     return labels[action] || "操作浏览器";
   }
   if (name === "computer") {
     const action = typeof call.args.action === "string" ? call.args.action : "screenshot";
-    const labels: Record<string, string> = { screenshot: "查看 Windows 桌面", list_windows: "列出窗口", focus_window: "切换窗口", click: "点击桌面", type: "在应用中输入", key: "发送按键" };
+    const labels: Record<string, string> = {
+      screenshot: "查看 Windows 桌面", list_windows: "列出窗口", focus_window: "切换窗口", move: "移动桌面指针",
+      click: "点击桌面", double_click: "双击桌面", drag: "拖拽桌面元素", scroll: "滚动桌面",
+      type: "在应用中输入", key: "发送按键", keypress: "发送按键", wait: "等待桌面更新",
+    };
     return labels[action] || "操作计算机";
   }
   if (name.startsWith("mcp__")) {

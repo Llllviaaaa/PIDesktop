@@ -20,6 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use pi::process::{run_pi_print, PiPrintLimits};
 use pi::rpc::PiRpcClient;
+use pi::session_display::collapse_unchanged_session_forks;
 use pi::sessions::{
     list_sessions, parse_session_file, session_history, session_message_timings, session_messages,
     trash_session, validate_session_path, SessionHistory, SessionInfo, SessionMessageTiming,
@@ -110,6 +111,7 @@ struct AppSettings {
     subagent_max_concurrency: u8,
     browser_enabled: bool,
     browser_headless: bool,
+    browser_profile_mode: String,
     browser_confirm_actions: bool,
     browser_executable: String,
     computer_enabled: bool,
@@ -270,6 +272,7 @@ impl Default for AppSettings {
             subagent_max_concurrency: 3,
             browser_enabled: true,
             browser_headless: true,
+            browser_profile_mode: "temporary".to_string(),
             browser_confirm_actions: true,
             browser_executable: String::new(),
             computer_enabled: true,
@@ -1669,6 +1672,17 @@ fn build_pi_launch_config(
             if settings.browser_headless { "1" } else { "0" }.to_string(),
         ),
         (
+            "PIDESKTOP_BROWSER_PROFILE_DIR".to_string(),
+            if settings.browser_profile_mode == "persistent" {
+                app_config_dir()
+                    .join("browser-profile")
+                    .to_string_lossy()
+                    .to_string()
+            } else {
+                String::new()
+            },
+        ),
+        (
             "PIDESKTOP_BROWSER_CONFIRM".to_string(),
             if settings.browser_confirm_actions {
                 "1"
@@ -2583,16 +2597,25 @@ fn list_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, Str
         .lock()
         .map_err(|_| "state lock poisoned".to_string())?
         .clone();
-    let ephemeral_sessions = state
-        .runtimes
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
-        .values()
-        .filter(|runtime| runtime.isolated)
-        .filter_map(|runtime| runtime.session_file.clone())
-        .collect::<Vec<_>>();
+    let (ephemeral_sessions, active_primary_sessions) = {
+        let runtimes = state
+            .runtimes
+            .lock()
+            .map_err(|_| "state lock poisoned".to_string())?;
+        let ephemeral = runtimes
+            .values()
+            .filter(|runtime| runtime.isolated)
+            .filter_map(|runtime| runtime.session_file.clone())
+            .collect::<Vec<_>>();
+        let primary = runtimes
+            .values()
+            .filter(|runtime| !runtime.isolated)
+            .filter_map(|runtime| runtime.session_file.clone())
+            .collect::<Vec<_>>();
+        (ephemeral, primary)
+    };
     let archived = &settings.archived_sessions;
-    Ok(list_sessions(&settings.session_dir)
+    let sessions = list_sessions(&settings.session_dir)
         .into_iter()
         .filter(|session| !archived.iter().any(|file| file == &session.file))
         .filter(|session| {
@@ -2600,7 +2623,12 @@ fn list_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, Str
                 .iter()
                 .any(|file| paths_equal(file, &session.file))
         })
-        .collect())
+        .collect();
+    Ok(collapse_unchanged_session_forks(
+        &settings.session_dir,
+        sessions,
+        &active_primary_sessions,
+    ))
 }
 
 #[tauri::command]
@@ -5182,6 +5210,7 @@ mod tests {
         assert!(settings.block_write_outside_workspace);
         assert!(settings.shell_allow_prefixes.is_empty());
         assert_eq!(settings.default_task_environment, "local");
+        assert_eq!(settings.browser_profile_mode, "temporary");
     }
 
     #[test]

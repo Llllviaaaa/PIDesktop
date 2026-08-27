@@ -229,15 +229,18 @@ export function evaluateToolPermission(options: {
   const isWrite = tool === "write" || tool === "edit" || tool === "apply_patch";
   const isShell = tool === "bash" || tool === "shell" || tool === "exec";
   const action = typeof input.action === "string" ? input.action.toLowerCase() : "";
-  const isInteractiveBrowser = tool === "browser" && ["click", "type", "close"].includes(action);
-  const isInteractiveComputer = tool === "computer" && ["focus_window", "click", "type", "key"].includes(action);
+  const isInteractiveBrowser = tool === "browser" && ["open", "new_tab", "close_tab", "click", "type", "press", "select", "upload", "download", "close"].includes(action);
+  const isBrowserDownload = tool === "browser" && action === "download";
+  const isInteractiveComputer = tool === "computer" && ["focus_window", "move", "click", "double_click", "drag", "scroll", "type", "key", "keypress"].includes(action);
   const isMcpTool = tool.startsWith("mcp__");
   const isSubagent = tool === "delegate_task";
   const isMemoryWrite = tool === "desktop_memory" && action !== "read";
   const subagentPermission = input.permission === "workspace-write" ? "workspace-write" : "read-only";
   const targets = pathsFromToolInput(input);
   const target = targets[0];
-  const outsideTarget = isWrite ? targets.find((candidate) => !insideWorkspace(candidate, workspace)) : undefined;
+  const outsideTarget = (isWrite || isBrowserDownload)
+    ? targets.find((candidate) => !insideWorkspace(candidate, workspace))
+    : undefined;
   const command = shellCommandFromInput(input);
   const knownReadOnlyTools = new Set([
     "read",
@@ -288,7 +291,7 @@ export function evaluateToolPermission(options: {
     const resolved = resolveAgainstWorkspace(outsideTarget, workspace);
     return {
       action: "block",
-      reason: `Write outside workspace blocked by rule: ${outsideTarget} → ${resolved}`,
+      reason: `${isBrowserDownload ? "Browser download" : "Write"} outside workspace blocked by rule: ${outsideTarget} → ${resolved}`,
     };
   }
 
