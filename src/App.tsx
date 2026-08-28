@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
@@ -1439,7 +1440,7 @@ export default function App() {
                 <button disabled={!connected || !sessionFile} onClick={() => { setAppMenu(null); void exportConversationMarkdown(); }}>导出为 Markdown...</button>
                 <button disabled={!connected} onClick={() => { setAppMenu(null); void store.exportSession(); }}>导出为 HTML</button>
                 <div className="menu-separator" />
-                <button onClick={() => { setAppMenu(null); void appWindow?.close(); }}>退出</button>
+                <button onClick={() => { setAppMenu(null); void invoke("quit_app"); }}>退出</button>
               </>}
               {appMenu === "edit" && <>
                 <button onClick={() => { setAppMenu(null); document.execCommand("undo"); }}>撤销</button>
