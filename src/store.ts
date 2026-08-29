@@ -1096,6 +1096,27 @@ export const usePiStore = create<PiState>((set, get) => {
       }
     },
 
+    rewindMessage: async (entryId) => {
+      if (get().isStreaming) {
+        toast("请等待当前回复完成后再回退消息", "warning");
+        return false;
+      }
+      try {
+        const commandsResponse = await command("get_commands");
+        const rewindAvailable = (commandsResponse.data?.commands ?? [])
+          .some((item) => item.name === PIDESKTOP_REWIND_COMMAND);
+        if (!rewindAvailable) throw new Error("消息回退组件尚未加载，请重启当前任务后再试");
+
+        await command("prompt", { message: `/${PIDESKTOP_REWIND_COMMAND} ${entryId}` }, 60_000);
+        await syncSession();
+        await get().refreshSessions();
+        return true;
+      } catch (error) {
+        toast(error instanceof Error ? error.message : String(error), "error");
+        return false;
+      }
+    },
+
     editAndResend: async (entryId, text, attachments = []) => {
       if (get().isStreaming) {
         toast("请等待当前回复完成后再编辑消息", "warning");

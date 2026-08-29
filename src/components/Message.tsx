@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { ArrowUp, Check, CircleAlert, Copy, Info, Link2, Pencil, Share2, Terminal } from "lucide-react";
+import { ArrowUp, Check, CircleAlert, Copy, Info, Link2, LoaderCircle, Pencil, RotateCcw, Share2, Terminal } from "lucide-react";
 import type { UiMessage, UiToolCall } from "../types";
 import { usePiStore } from "../store";
 import { Markdown } from "./Markdown";
@@ -35,6 +35,7 @@ export const Message = memo(function Message({
   summaryMode = false,
   editing = false,
   onEdit,
+  onRewind,
   onCancelEdit,
   onSubmitEdit,
 }: {
@@ -52,12 +53,14 @@ export const Message = memo(function Message({
   summaryMode?: boolean;
   editing?: boolean;
   onEdit?: (message: UiMessage) => void;
+  onRewind?: (message: UiMessage) => Promise<boolean>;
   onCancelEdit?: () => void;
   onSubmitEdit?: (message: UiMessage, text: string) => Promise<boolean>;
 }) {
   const [copied, setCopied] = useState(false);
   const [editDraft, setEditDraft] = useState(message.content);
   const [submittingEdit, setSubmittingEdit] = useState(false);
+  const [rewinding, setRewinding] = useState(false);
   const thinkingRef = useRef<HTMLDivElement>(null);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const assistantWorking = message.role === "assistant"
@@ -85,7 +88,7 @@ export const Message = memo(function Message({
       textarea.focus();
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
       textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(280, Math.max(96, textarea.scrollHeight))}px`;
+      textarea.style.height = `${Math.min(220, Math.max(44, textarea.scrollHeight))}px`;
     });
     return () => window.cancelAnimationFrame(frame);
   }, [editing, message.content]);
@@ -94,7 +97,7 @@ export const Message = memo(function Message({
     const textarea = editTextareaRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(280, Math.max(96, textarea.scrollHeight))}px`;
+    textarea.style.height = `${Math.min(220, Math.max(44, textarea.scrollHeight))}px`;
   };
 
   const submitEdit = async () => {
@@ -102,6 +105,16 @@ export const Message = memo(function Message({
     setSubmittingEdit(true);
     const sent = await onSubmitEdit(message, editDraft);
     if (!sent) setSubmittingEdit(false);
+  };
+
+  const rewindMessage = async () => {
+    if (rewinding || !onRewind) return;
+    setRewinding(true);
+    try {
+      await onRewind(message);
+    } finally {
+      setRewinding(false);
+    }
   };
 
   if (message.role === "user") {
@@ -120,6 +133,7 @@ export const Message = memo(function Message({
               ref={editTextareaRef}
               className="message-edit-input"
               aria-label="编辑消息"
+              rows={1}
               value={editDraft}
               disabled={submittingEdit}
               onChange={(event) => {
@@ -169,11 +183,25 @@ export const Message = memo(function Message({
           )}
           {message.content && <Markdown content={message.content} />}
         </div>
-        {message.content && onEdit && (
+        {message.content && (onEdit || onRewind) && (
           <div className="user-message-actions">
-            <button type="button" className="message-copy" title="编辑消息" aria-label="编辑消息" onClick={() => onEdit(message)}>
-              <Pencil size={13} strokeWidth={1.75} />
-            </button>
+            {onEdit && (
+              <button type="button" className="message-copy" title="编辑消息" aria-label="编辑消息" disabled={rewinding} onClick={() => onEdit(message)}>
+                <Pencil size={13} strokeWidth={1.75} />
+              </button>
+            )}
+            {onRewind && (
+              <button
+                type="button"
+                className="message-copy"
+                title="回退消息和改动"
+                aria-label="回退消息和改动"
+                disabled={rewinding}
+                onClick={() => void rewindMessage()}
+              >
+                {rewinding ? <LoaderCircle className="spin" size={13} strokeWidth={1.75} /> : <RotateCcw size={13} strokeWidth={1.75} />}
+              </button>
+            )}
           </div>
         )}
       </article>

@@ -11,6 +11,7 @@ export function ConversationMessages({
   statusText,
   editingMessageId,
   onEdit,
+  onRewind,
   onCancelEdit,
   onSubmitEdit,
   scrollerRef,
@@ -24,6 +25,7 @@ export function ConversationMessages({
   statusText: string;
   editingMessageId?: string;
   onEdit: (message: UiMessage) => void;
+  onRewind: (message: UiMessage) => Promise<boolean>;
   onCancelEdit: () => void;
   onSubmitEdit: (message: UiMessage, text: string) => Promise<boolean>;
   scrollerRef: { current: HTMLDivElement | null };
@@ -86,6 +88,7 @@ export function ConversationMessages({
           workingLabel={message.id === lastAssistantId ? statusText : undefined}
           editing={editingMessageId === message.id}
           onEdit={message.role === "user" ? onEdit : undefined}
+          onRewind={message.role === "user" ? onRewind : undefined}
           onCancelEdit={onCancelEdit}
           onSubmitEdit={onSubmitEdit}
         />
