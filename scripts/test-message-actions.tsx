@@ -37,4 +37,20 @@ assert.match(editing, /class="message-edit-card"/);
 assert.match(editing, /aria-label="编辑消息"/);
 assert.match(editing, /rows="1"/);
 assert.match(editing, /class="message-edit-submit"/);
+
+const goalOnly = renderToStaticMarkup(createElement(Message, {
+  message: {
+    id: "goal-only-message",
+    role: "assistant",
+    content: "",
+    toolCalls: [{
+      id: "goal-call",
+      name: "functions.create_goal",
+      args: { objective: "Keep goal state outside the transcript" },
+      running: false,
+    }],
+  },
+}));
+
+assert.equal(goalOnly, "");
 console.log("message action tests passed");

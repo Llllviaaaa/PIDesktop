@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { ArrowUp, Check, CircleAlert, Copy, Info, Link2, LoaderCircle, Pencil, RotateCcw, Share2, Terminal } from "lucide-react";
 import type { UiMessage, UiToolCall } from "../types";
 import { usePiStore } from "../store";
+import { isGoalToolCall } from "../lib/activeGoal";
 import { Markdown } from "./Markdown";
 import { ToolCall } from "./ToolCall";
 
@@ -226,7 +227,7 @@ export const Message = memo(function Message({
     );
   }
 
-  const toolCalls = message.toolCalls ?? [];
+  const toolCalls = (message.toolCalls ?? []).filter((call) => !isGoalToolCall(call));
   const hasTools = toolCalls.length > 0;
   const thinkingText = showThinking ? (message.thinking || "").trim() : "";
   const hasThinking = Boolean(thinkingText);
@@ -287,6 +288,8 @@ export const Message = memo(function Message({
       usePiStore.getState().showToast("已复制消息定位", "info");
     }).catch(() => undefined);
   };
+
+  if (!message.content && !working && !hasThinking && !hasTools && !reasoningUnavailable) return null;
 
   return (
     <article

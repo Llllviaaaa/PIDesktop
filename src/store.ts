@@ -42,6 +42,7 @@ import {
   textFromContent,
 } from "./lib/piMessages";
 import type {
+  AppSettings,
   AssistantMessage,
   ConnectionState,
   ExtensionUIRequest,
@@ -55,6 +56,21 @@ import type {
   UiMessage,
   UiToolCall,
 } from "./types";
+
+const WEB_SETTINGS_KEY = "pid-desktop:settings:v1";
+
+function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+function readWebSettings(): AppSettings | null {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(WEB_SETTINGS_KEY) || "null");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as AppSettings : null;
+  } catch {
+    return null;
+  }
+}
 
 const PIDESKTOP_REWIND_COMMAND = "pidesktop-rewind";
 const PIDESKTOP_MODE_COMMAND = "pidesktop-mode";
@@ -1486,6 +1502,11 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     loadSettings: async () => {
+      if (!isTauriRuntime()) {
+        const settings = readWebSettings();
+        if (settings) set({ settings });
+        return;
+      }
       try {
         set({ settings: await pi.getSettings() });
       } catch (error) {
@@ -1494,6 +1515,11 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     saveSettings: async (settings) => {
+      if (!isTauriRuntime()) {
+        window.localStorage.setItem(WEB_SETTINGS_KEY, JSON.stringify(settings));
+        set({ settings });
+        return;
+      }
       await pi.setSettings(settings);
       set({ settings: await pi.getSettings() });
     },

@@ -1,6 +1,6 @@
 [package]
 name = "pid-desktop"
-version = "0.2.22"
+version = "0.2.24"
 description = "Pi Desktop - a Codex-style desktop client for the Pi coding agent"
 authors = ["PIDesktop"]
 license = "Apache-2.0"

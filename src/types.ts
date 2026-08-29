@@ -299,7 +299,9 @@ export interface AppSettings {
   notifyOnCompletion: boolean;
   notifyOnApproval: boolean;
   notifyOnlyWhenUnfocused: boolean;
-  theme: "system" | "dark" | "light";
+  theme: string;
+  petEnabled: boolean;
+  petCharacter: string;
   accentColor: string;
   backgroundColor: string;
   foregroundColor: string;
@@ -556,7 +558,7 @@ export interface WorkspaceFileContent {
 }
 
 export interface ResourceItem {
-  kind: "extension" | "skill" | "package" | "prompt" | "theme";
+  kind: "extension" | "skill" | "package" | "prompt" | "theme" | "pet";
   name: string;
   path: string;
   scope: "user" | "project";
