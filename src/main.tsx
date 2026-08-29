@@ -1,20 +1,23 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { DesktopPetWindow } from "./components/DesktopPetWindow";
 import { moveManagedQueueItem, removeManagedQueueItem } from "./lib/managedQueue";
 import { usePiStore } from "./store";
 import type { AssistantMessage, UiMessage } from "./types";
 import "./styles.css";
 
 const fixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("fixture") : null;
+const desktopPetWindow = new URLSearchParams(window.location.search).get("desktop-pet") === "1";
 
-if (fixture === "thread" || fixture === "performance" || fixture === "stream" || fixture === "queue" || fixture === "title" || fixture === "diagrams") {
+if (fixture === "thread" || fixture === "performance" || fixture === "stream" || fixture === "queue" || fixture === "title" || fixture === "diagrams" || fixture === "goal") {
   const cwd = "D:\\Projects\\PIDesktop";
   const performanceFixture = fixture === "performance";
   const streamFixture = fixture === "stream";
   const queueFixture = fixture === "queue";
   const titleFixture = fixture === "title";
   const diagramFixture = fixture === "diagrams";
+  const goalFixture = fixture === "goal";
   const performanceMessages: UiMessage[] = Array.from({ length: 1_000 }, (_, index) => ({
     id: `performance-${index}`,
     role: index % 3 === 0 ? "user" : "assistant",
@@ -22,7 +25,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
     timestamp: Date.now() - (1_000 - index) * 1_000,
   }));
   usePiStore.setState({
-    runtimeId: performanceFixture || streamFixture || queueFixture || titleFixture || diagramFixture ? "fixture-runtime" : null,
+    runtimeId: performanceFixture || streamFixture || queueFixture || titleFixture || diagramFixture || goalFixture ? "fixture-runtime" : null,
     connection: "running",
     cwd,
     sessionFile: "fixture-session.jsonl",
@@ -41,7 +44,28 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
       contextUsage: { tokens: 2_000, contextWindow: 100_000, percent: 2 },
     },
     isStreaming: streamFixture || queueFixture,
-    messages: performanceFixture ? performanceMessages : diagramFixture ? [
+    messages: performanceFixture ? performanceMessages : goalFixture ? [
+      {
+        id: "fixture-goal-user",
+        role: "user",
+        content: "修复目标完成后仍留在聊天中的问题。",
+        timestamp: Date.now() - 125_000,
+      },
+      {
+        id: "fixture-goal-assistant",
+        role: "assistant",
+        content: "我会把目标状态与普通消息分开显示。",
+        timestamp: Date.now() - 120_000,
+        toolCalls: [{
+          id: "fixture-create-goal",
+          name: "create_goal",
+          args: { objective: "目标完成后自动从工作区状态条移除", token_budget: 24_000 },
+          running: false,
+          startedAt: Date.now() - 120_000,
+          finishedAt: Date.now() - 119_000,
+        }],
+      },
+    ] : diagramFixture ? [
       {
         id: "fixture-diagram-user",
         entryId: "fixture-diagram-entry",
@@ -307,6 +331,6 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    {desktopPetWindow ? <DesktopPetWindow /> : <App />}
   </React.StrictMode>,
 );

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   Archive,
   BarChart3,
@@ -11,6 +11,7 @@ import {
   FileCode2,
   FileDown,
   FolderGit2,
+  FolderOpen,
   GitBranch,
   Globe2,
   Keyboard,
@@ -33,12 +34,15 @@ import {
   Trash2,
   Workflow,
   Undo2,
+  Upload,
   UserRound,
   ArrowDown,
   ArrowUp,
   X,
 } from "lucide-react";
 import { pi } from "../lib/pi";
+import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
+import { PetAvatar } from "./PetCompanion";
 import type {
   AppSettings,
   ModelProviderConfig,
@@ -97,9 +101,11 @@ const DEFAULTS: AppSettings = {
   notifyOnApproval: true,
   notifyOnlyWhenUnfocused: true,
   theme: "light",
-  accentColor: "#ffffff",
-  backgroundColor: "#0f0f10",
-  foregroundColor: "#f5f5f5",
+  petEnabled: false,
+  petCharacter: "cat",
+  accentColor: "#18181b",
+  backgroundColor: "#ffffff",
+  foregroundColor: "#1a1a1a",
   uiFont: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   codeFont: 'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
   uiScale: 100,
@@ -181,12 +187,16 @@ const NAVIGATION: Array<{ label: string; items: Array<{ id: SettingsPage; label:
 export function SettingsModal({
   settings,
   cwd,
+  appearanceCatalog,
+  onReloadAppearance,
   onSave,
   onClose,
   initialPage = "general",
 }: {
   settings: AppSettings | null;
   cwd: string;
+  appearanceCatalog: AppearanceCatalog;
+  onReloadAppearance: () => Promise<void>;
   onSave: (settings: AppSettings) => Promise<void> | void;
   onClose: () => void;
   initialPage?: SettingsPage;
@@ -251,13 +261,9 @@ export function SettingsModal({
   }, [cwd, isTauri]);
 
   const normalizeSettings = (value: AppSettings): AppSettings => {
-    const dark = value.theme !== "light";
     return {
       ...value,
       language: "zh-CN",
-      accentColor: dark ? "#ffffff" : "#111111",
-      backgroundColor: dark ? "#0f0f10" : "#ffffff",
-      foregroundColor: dark ? "#f5f5f5" : "#111111",
     };
   };
 
@@ -356,7 +362,7 @@ export function SettingsModal({
         <div className="settings-page-scroll">
           <div className="settings-page">
             {active === "general" && <GeneralPage form={form} update={update} />}
-            {active === "appearance" && <AppearancePage form={form} update={update} />}
+            {active === "appearance" && <AppearancePage form={form} update={update} catalog={appearanceCatalog} cwd={cwd} onReload={onReloadAppearance} />}
             {active === "agent" && <AgentPage form={form} update={update} providers={providers} />}
             {active === "personalization" && <PersonalizationPage
               form={form}
@@ -481,19 +487,147 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
   </>;
 }
 
-function AppearancePage({ form, update }: { form: AppSettings; update: Update }) {
-  const themes: Array<[AppSettings["theme"], string]> = [["system", "跟随系统"], ["light", "白色"], ["dark", "黑色"]];
+function ThemePreview({ theme }: { theme: AppearanceThemeDefinition }) {
+  if (theme.mode === "system") {
+    return <span className="theme-preview system"><i className="theme-system-half light"><b /><b /></i><i className="theme-system-half dark"><b /><b /></i></span>;
+  }
+  const palette = theme.palette;
+  return <span className="theme-preview" style={{ background: palette?.app }}>
+    <i style={{ background: palette?.sidebar }} />
+    <i style={{ background: palette?.panel }} />
+    <i style={{ background: palette?.panelStrong, borderColor: palette?.border }} />
+  </span>;
+}
+
+function AppearancePage({
+  form,
+  update,
+  catalog,
+  cwd,
+  onReload,
+}: {
+  form: AppSettings;
+  update: Update;
+  catalog: AppearanceCatalog;
+  cwd: string;
+  onReload: () => Promise<void>;
+}) {
+  const [extensionScope, setExtensionScope] = useState<"user" | "project">("user");
+  const [extensionState, setExtensionState] = useState<"idle" | "busy" | "done" | "error">("idle");
+  const [extensionNotice, setExtensionNotice] = useState("");
+  const customTheme = createCustomAppearanceTheme(form.backgroundColor, form.foregroundColor, form.accentColor);
+  const displayedThemes = catalog.themes.map((theme) => theme.id === "custom" ? customTheme : theme);
+  const extensionCount = (kind: "theme" | "pet") => (
+    kind === "theme"
+      ? catalog.themes.filter((theme) => theme.scope !== "builtin").length
+      : catalog.pets.filter((pet) => pet.scope !== "builtin").length
+  );
+
+  const updateCustomColor = (key: "accentColor" | "backgroundColor" | "foregroundColor", value: string) => {
+    update(key, value);
+    if (form.theme !== "custom") update("theme", "custom");
+  };
+
+  const runExtensionAction = async (action: () => Promise<void>, success: string) => {
+    setExtensionState("busy");
+    setExtensionNotice("");
+    try {
+      await action();
+      setExtensionState("done");
+      setExtensionNotice(success);
+    } catch (error) {
+      setExtensionState("error");
+      setExtensionNotice(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const importExtension = async (kind: "theme" | "pet") => {
+    const selected = await openDialog(kind === "theme"
+      ? {
+          title: "导入主题",
+          multiple: false,
+          directory: false,
+          filters: [{ name: "主题 JSON", extensions: ["json"] }],
+        }
+      : {
+          title: "导入宠物目录",
+          multiple: false,
+          directory: true,
+        });
+    const source = typeof selected === "string" ? selected : Array.isArray(selected) ? selected[0] : null;
+    if (!source) return;
+    await runExtensionAction(async () => {
+      await pi.installAppearanceExtension(source, cwd, kind, extensionScope);
+      await onReload();
+    }, kind === "theme" ? "主题已导入" : "宠物已导入");
+  };
+
+  const openExtensionDirectory = (kind: "theme" | "pet") => runExtensionAction(
+    () => pi.openAppearanceDirectory(cwd, kind, extensionScope).then(() => undefined),
+    kind === "theme" ? "已打开主题目录" : "已打开宠物目录",
+  );
+
   return <>
-    <PageHeading title="外观" description="选择黑白主题，并调整字体与界面大小。" />
+    <PageHeading title="外观" description="选择主题、桌面宠物，并调整字体与界面大小。" />
     <div className="theme-grid">
-      {themes.map(([theme, label]) => <button key={theme} className={form.theme === theme ? "active" : ""} onClick={() => update("theme", theme)}>
-        {theme === "system"
-          ? <span className="theme-preview system"><i className="theme-system-half light"><b /><b /></i><i className="theme-system-half dark"><b /><b /></i></span>
-          : <span className={`theme-preview ${theme}`}><i /><i /><i /></span>}
-        <strong>{label}</strong>
+      {displayedThemes.map((theme) => <button key={theme.id} className={form.theme === theme.id ? "active" : ""} onClick={() => update("theme", theme.id)}>
+        <ThemePreview theme={theme} />
+        <strong>{theme.label}</strong>
+        {theme.scope !== "builtin" && <small>{theme.scope === "project" ? "项目" : "用户"}</small>}
       </button>)}
     </div>
-    <div className="settings-info"><Palette size={17} /><span>界面只使用黑、白和中性灰；状态警告仍保留必要的辨识颜色。</span></div>
+    <Card title="自定义颜色">
+      <div className="appearance-color-grid">
+        <label><span><i style={{ background: form.backgroundColor }} />背景</span><input type="color" value={form.backgroundColor} onChange={(event) => updateCustomColor("backgroundColor", event.target.value)} /></label>
+        <label><span><i style={{ background: form.foregroundColor }} />文字</span><input type="color" value={form.foregroundColor} onChange={(event) => updateCustomColor("foregroundColor", event.target.value)} /></label>
+        <label><span><i style={{ background: form.accentColor }} />强调色</span><input type="color" value={form.accentColor} onChange={(event) => updateCustomColor("accentColor", event.target.value)} /></label>
+      </div>
+    </Card>
+    <Card title="外观扩展">
+      <div className="appearance-extension-toolbar">
+        <div className="appearance-scope-control" aria-label="扩展作用域">
+          <button type="button" className={extensionScope === "user" ? "active" : ""} onClick={() => setExtensionScope("user")}>用户</button>
+          <button type="button" className={extensionScope === "project" ? "active" : ""} disabled={!cwd} onClick={() => setExtensionScope("project")}>项目</button>
+        </div>
+        <button type="button" className="icon-button" title="重新扫描外观扩展" disabled={extensionState === "busy"} onClick={() => void runExtensionAction(onReload, "扩展列表已更新")}><RefreshCw className={extensionState === "busy" ? "spinner-icon" : ""} size={16} /></button>
+      </div>
+      <div className="appearance-extension-list">
+        <div>
+          <span><Palette size={17} /><strong>主题</strong><small>{extensionCount("theme")} 个扩展</small></span>
+          <button type="button" className="secondary-button compact" disabled={extensionState === "busy"} onClick={() => void importExtension("theme")}><Upload size={14} />导入</button>
+          <button type="button" className="icon-button" title={`打开${extensionScope === "project" ? "项目" : "用户"}主题目录`} disabled={extensionState === "busy"} onClick={() => void openExtensionDirectory("theme")}><FolderOpen size={16} /></button>
+        </div>
+        <div>
+          <span><Bot size={17} /><strong>宠物</strong><small>{extensionCount("pet")} 个扩展</small></span>
+          <button type="button" className="secondary-button compact" disabled={extensionState === "busy"} onClick={() => void importExtension("pet")}><Upload size={14} />导入</button>
+          <button type="button" className="icon-button" title={`打开${extensionScope === "project" ? "项目" : "用户"}宠物目录`} disabled={extensionState === "busy"} onClick={() => void openExtensionDirectory("pet")}><FolderOpen size={16} /></button>
+        </div>
+      </div>
+      {extensionNotice && <div className={`appearance-extension-notice ${extensionState}`} role="status">{extensionState === "error" ? <CircleAlert size={15} /> : <CheckCircle2 size={15} />}<span>{extensionNotice}</span></div>}
+    </Card>
+    {catalog.errors.length > 0 && <div className="settings-info appearance-errors"><CircleAlert size={17} /><span>{catalog.errors.map((error) => <small key={`${error.kind}-${error.name}`}>{error.name}：{error.message}</small>)}</span></div>}
+    <Card title="桌面宠物">
+      <Row title="显示桌面宠物" description="在 Windows 桌面显示一个会响应任务状态、可自由拖动的小伙伴。"><Switch label="显示桌面宠物" checked={form.petEnabled} onChange={(value) => update("petEnabled", value)} /></Row>
+      <Row title="选择角色">
+        <div className="pet-character-picker" role="radiogroup" aria-label="桌面宠物角色">
+          {catalog.pets.map((pet) => (
+            <button
+              key={pet.id}
+              type="button"
+              role="radio"
+              aria-checked={form.petCharacter === pet.id}
+              className={`pet-option-${pet.builtinCharacter ?? "custom"}${form.petCharacter === pet.id ? " active" : ""}`}
+              disabled={!form.petEnabled}
+              onClick={() => update("petCharacter", pet.id)}
+            >
+              <PetAvatar pet={pet} />
+              <span>{pet.label}</span>
+              {pet.scope !== "builtin" && <small>{pet.scope === "project" ? "项目" : "用户"}</small>}
+            </button>
+          ))}
+        </div>
+      </Row>
+    </Card>
     <Card title="字体与缩放">
       <Row title="界面字体"><input value={form.uiFont} onChange={(event) => update("uiFont", event.target.value)} /></Row>
       <Row title="代码字体"><input value={form.codeFont} onChange={(event) => update("codeFont", event.target.value)} /></Row>

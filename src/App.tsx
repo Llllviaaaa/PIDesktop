@@ -1,9 +1,19 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getAllWindows, getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowLeft,
@@ -31,6 +41,13 @@ import {
   X,
 } from "lucide-react";
 import { pi } from "./lib/pi";
+import {
+  BUILTIN_APPEARANCE_CATALOG,
+  createCustomAppearanceTheme,
+  loadAppearanceCatalog,
+  resolveAppearancePet,
+  resolveAppearanceTheme,
+} from "./lib/appearanceCatalog";
 import { aggregateDiffStats } from "./lib/gitDiffStats";
 import { activeSessionTitle, sessionRecency, sessionTitle } from "./lib/sessionTitle";
 import { navigationKey, withoutArchivedSessions, type NavigationTarget as BaseNavigationTarget } from "./lib/navigationHistory";
@@ -40,10 +57,17 @@ import { usePiStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import type { SettingsPage } from "./components/SettingsModal";
+import { PetCompanion } from "./components/PetCompanion";
+import {
+  DESKTOP_PET_EVENT,
+  DESKTOP_PET_STATE_KEY,
+  type DesktopPetWindowState,
+} from "./components/DesktopPetWindow";
 import { ExtensionDialog } from "./components/ExtensionDialog";
 import type { InspectorTab } from "./components/InspectorPanel";
 import { ConnectedInspectorPanel } from "./components/ConnectedInspectorPanel";
 import { ConversationMessages } from "./components/ConversationMessages";
+import { ActiveGoalBar } from "./components/ActiveGoalBar";
 import { ToolRail, type WorkspaceTool } from "./components/ToolRail";
 import { FileTreePanel } from "./components/FileTreePanel";
 import { DocumentPane } from "./components/DocumentPane";
@@ -132,6 +156,11 @@ function WorkspaceEditorIcon({ editorId, size = 16 }: { editorId?: WorkspaceEdit
 
 const SIDEBAR_WIDTH_KEY = "pid-desktop:sidebar-width:v2";
 const WORKSPACE_PANEL_WIDTH_KEY = "pid-desktop:workspace-panel-width:v5";
+const BOTTOM_PANEL_HEIGHT_KEY = "pid-desktop:bottom-panel-height:v1";
+const WORKSPACE_PANEL_MIN_WIDTH = 320;
+const WORKSPACE_PANEL_MAX_WIDTH = 900;
+const BOTTOM_PANEL_MIN_HEIGHT = 180;
+const BOTTOM_PANEL_MAX_HEIGHT = 520;
 
 export default function App() {
   const store = usePiStore(useShallow(selectAppShellState));
@@ -169,7 +198,7 @@ export default function App() {
   const [draftMode, setDraftMode] = useState(() => {
     if (!import.meta.env.DEV) return true;
     const fixture = new URLSearchParams(window.location.search).get("fixture");
-    return fixture !== "thread" && fixture !== "performance" && fixture !== "stream" && fixture !== "queue" && fixture !== "title" && fixture !== "diagrams";
+    return fixture !== "thread" && fixture !== "performance" && fixture !== "stream" && fixture !== "queue" && fixture !== "title" && fixture !== "diagrams" && fixture !== "goal";
   });
   const newTask = draftMode;
   const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth > 900);
@@ -180,10 +209,15 @@ export default function App() {
   });
   const [workspacePanelWidth, setWorkspacePanelWidth] = useState(() => {
     const stored = Number(window.localStorage.getItem(WORKSPACE_PANEL_WIDTH_KEY));
-    return Number.isFinite(stored) && stored >= 320 && stored <= 720 ? stored : 420;
+    return Number.isFinite(stored) && stored >= WORKSPACE_PANEL_MIN_WIDTH && stored <= WORKSPACE_PANEL_MAX_WIDTH ? stored : 420;
+  });
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(() => {
+    const stored = Number(window.localStorage.getItem(BOTTOM_PANEL_HEIGHT_KEY));
+    return Number.isFinite(stored) && stored >= BOTTOM_PANEL_MIN_HEIGHT && stored <= BOTTOM_PANEL_MAX_HEIGHT ? stored : 280;
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("general");
+  const [appearanceCatalog, setAppearanceCatalog] = useState(BUILTIN_APPEARANCE_CATALOG);
   const [hubView, setHubView] = useState<HubView | null>(null);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab | null>(null);
   const [inspectorOpenView, setInspectorOpenView] = useState<InspectorTab | null>(null);
@@ -228,6 +262,14 @@ export default function App() {
   const sidebarHoverCloseTimerRef = useRef<number | null>(null);
   const [navigationVersion, setNavigationVersion] = useState(0);
   const isTauri = "__TAURI_INTERNALS__" in window;
+  const layoutScale = Math.min(150, Math.max(75, settings?.uiScale ?? 100)) / 100;
+  const petFixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("pet") : null;
+  const previewPet = petFixture && appearanceCatalog.pets.some((pet) => pet.id === petFixture) ? petFixture : null;
+  const activePet = useMemo(
+    () => resolveAppearancePet(appearanceCatalog, previewPet ?? settings?.petCharacter ?? "cat"),
+    [appearanceCatalog, previewPet, settings?.petCharacter],
+  );
+  const petBusy = isStreaming || isCompacting || connection === "starting";
   const { runtimeRecoveryDone, startupAutoConnectRef } = useRuntimeBootstrap({
     isTauri,
     connection,
@@ -248,6 +290,52 @@ export default function App() {
     () => sessionFile ? sideChats.filter((chat) => sameLocalPath(chat.parentSessionFile, sessionFile)) : [],
     [sessionFile, sideChats],
   );
+
+  useEffect(() => {
+    if (isTauri) return;
+    void usePiStore.getState().loadSettings();
+  }, [isTauri]);
+
+  const reloadAppearanceCatalog = useCallback(async () => {
+    if (!isTauri) {
+      setAppearanceCatalog(BUILTIN_APPEARANCE_CATALOG);
+      return;
+    }
+    try {
+      setAppearanceCatalog(await loadAppearanceCatalog(cwd));
+    } catch (error) {
+      setAppearanceCatalog(BUILTIN_APPEARANCE_CATALOG);
+      throw error;
+    }
+  }, [cwd, isTauri]);
+
+  useEffect(() => {
+    void reloadAppearanceCatalog().catch(() => undefined);
+  }, [reloadAppearanceCatalog, settingsOpen]);
+
+  useEffect(() => {
+    if (!isTauri || !settings) return;
+    let cancelled = false;
+    const payload: DesktopPetWindowState = {
+      enabled: settings.petEnabled,
+      pet: activePet,
+      busy: petBusy,
+    };
+    window.localStorage.setItem(DESKTOP_PET_STATE_KEY, JSON.stringify(payload));
+    void getAllWindows()
+      .then(async (windows) => {
+        const petWindow = windows.find((windowHandle) => windowHandle.label === "desktop-pet");
+        if (!petWindow || cancelled) return;
+        await emitTo("desktop-pet", DESKTOP_PET_EVENT, payload);
+        if (cancelled) return;
+        if (payload.enabled) await petWindow.show();
+        else await petWindow.hide();
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [activePet, isTauri, petBusy, settings]);
 
   const createSideChat = useCallback(() => {
     if (newTask || !sessionFile || !workspaceCwd) {
@@ -512,31 +600,61 @@ export default function App() {
   }, [taskEnvironment]);
 
   useEffect(() => {
-    if (!settings) return;
     const root = document.documentElement;
-    const systemDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
-    // Prefer light shell to match Codex desktop screenshot unless user forces dark.
-    const resolved = settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
-    root.dataset.theme = resolved;
-    const dark = resolved === "dark";
-    root.style.setProperty("--accent-custom", dark ? "#ffffff" : "#111111");
-    root.style.setProperty("--code-font", settings.codeFont);
-    root.style.fontFamily = settings.uiFont || '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-    root.style.setProperty("--app", dark ? "#0a0a0b" : "#ffffff");
-    root.style.setProperty("--text", dark ? "#f5f5f5" : "#1a1a1a");
-    const appRoot = document.getElementById("root");
-    if (appRoot) {
-      const scale = settings.uiScale / 100;
-      appRoot.style.zoom = String(scale);
-      appRoot.style.width = `${100 / scale}%`;
-      appRoot.style.height = `${100 / scale}%`;
-    }
-  }, [settings]);
-
-  useEffect(() => {
-    if (isTauri) return;
-    document.documentElement.dataset.theme = new URLSearchParams(window.location.search).get("theme") === "light" ? "light" : "dark";
-  }, [isTauri]);
+    const systemTheme = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const fixtureTheme = import.meta.env.DEV && !isTauri
+        ? new URLSearchParams(window.location.search).get("theme")
+        : null;
+      const requestedTheme = fixtureTheme && appearanceCatalog.themes.some((theme) => theme.id === fixtureTheme)
+        ? fixtureTheme
+        : settings?.theme ?? "system";
+      const theme = requestedTheme === "custom"
+        ? createCustomAppearanceTheme(
+            settings?.backgroundColor ?? "#ffffff",
+            settings?.foregroundColor ?? "#1a1a1a",
+            settings?.accentColor ?? "#18181b",
+          )
+        : resolveAppearanceTheme(appearanceCatalog, requestedTheme, systemTheme?.matches ?? false);
+      const palette = theme.palette;
+      if (!palette) return;
+      root.dataset.theme = theme.mode;
+      const variables: Record<string, string> = {
+        "--app": palette.app,
+        "--panel": palette.panel,
+        "--panel-strong": palette.panelStrong,
+        "--panel-soft": palette.panelSoft,
+        "--hover": palette.hover,
+        "--active": palette.active,
+        "--border": palette.border,
+        "--border-strong": palette.borderStrong,
+        "--text": palette.text,
+        "--text-2": palette.text2,
+        "--text-3": palette.text3,
+        "--accent": palette.accent,
+        "--accent-custom": palette.accent,
+        "--accent-text": palette.accentText,
+        "--sidebar-bg": palette.sidebar,
+        "--sidebar-text": palette.text2,
+        "--thread-muted": palette.text3,
+      };
+      for (const [name, value] of Object.entries(variables)) root.style.setProperty(name, value);
+      root.style.setProperty("--code-font", settings?.codeFont || 'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace');
+      root.style.fontFamily = settings?.uiFont || '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      root.style.color = palette.text;
+      root.style.background = palette.app;
+      const appRoot = document.getElementById("root");
+      if (appRoot) {
+        const scale = Math.min(150, Math.max(75, settings?.uiScale ?? 100)) / 100;
+        appRoot.style.zoom = String(scale);
+        appRoot.style.width = `${100 / scale}%`;
+        appRoot.style.height = `${100 / scale}%`;
+      }
+    };
+    applyTheme();
+    systemTheme?.addEventListener("change", applyTheme);
+    return () => systemTheme?.removeEventListener("change", applyTheme);
+  }, [appearanceCatalog, isTauri, settings]);
 
   useEffect(() => {
     const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, "").replace("control", "ctrl");
@@ -1105,55 +1223,174 @@ export default function App() {
   const canNavigateBack = navigationVersion >= 0 && navigationBackRef.current.length > 0;
   const canNavigateForward = navigationVersion >= 0 && navigationForwardRef.current.length > 0;
 
-  const beginSidebarResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+  const beginSidebarResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = sidebarWidth;
-    const onMove = (move: MouseEvent) => {
-      const next = Math.min(380, Math.max(200, startWidth + (move.clientX - startX)));
+    const pointerId = event.pointerId;
+    const target = event.currentTarget;
+    const scale = Math.min(150, Math.max(75, settings?.uiScale ?? 100)) / 100;
+    const onMove = (move: PointerEvent) => {
+      if (move.pointerId !== pointerId) return;
+      const next = Math.min(380, Math.max(200, startWidth + (move.clientX - startX) / scale));
       setSidebarWidth(next);
     };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+    const onUp = (up: PointerEvent) => {
+      if (up.pointerId !== pointerId) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      document.body.classList.remove("sidebar-is-resizing");
       setSidebarWidth((current) => {
         window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(current));
         return current;
       });
     };
+    target.setPointerCapture(pointerId);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    document.body.classList.add("sidebar-is-resizing");
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }, [settings?.uiScale, sidebarWidth]);
+
+  const resizeSidebarWithKeyboard = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const increment = event.shiftKey ? 24 : 8;
+    const next = event.key === "ArrowLeft"
+      ? Math.max(200, sidebarWidth - increment)
+      : event.key === "ArrowRight"
+        ? Math.min(380, sidebarWidth + increment)
+        : event.key === "Home"
+          ? 200
+          : event.key === "End"
+            ? 380
+            : null;
+    if (next === null) return;
+    event.preventDefault();
+    setSidebarWidth(next);
+    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
   }, [sidebarWidth]);
 
-  const beginWorkspaceResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+  const workspacePanelMaxWidth = useCallback(() => {
+    const mainStageMinWidth = 360;
+    const available = window.innerWidth / layoutScale - (sidebarVisible ? sidebarWidth : 0) - mainStageMinWidth;
+    return Math.max(WORKSPACE_PANEL_MIN_WIDTH, Math.min(WORKSPACE_PANEL_MAX_WIDTH, available));
+  }, [layoutScale, sidebarVisible, sidebarWidth]);
+
+  const beginWorkspaceResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
     event.preventDefault();
+    const target = event.currentTarget;
+    const pointerId = event.pointerId;
     const startX = event.clientX;
-    const startWidth = workspaceTool === "review" ? Math.max(820, workspacePanelWidth) : workspacePanelWidth;
-    const onMove = (move: MouseEvent) => {
-      const available = window.innerWidth - (sidebarVisible ? sidebarWidth : 0) - 500;
-      const maxWidth = Math.max(320, Math.min(720, available));
-      const next = Math.min(maxWidth, Math.max(320, startWidth + startX - move.clientX));
+    const startWidth = workspacePanelWidth;
+    const onMove = (move: PointerEvent) => {
+      if (move.pointerId !== pointerId) return;
+      const next = Math.min(workspacePanelMaxWidth(), Math.max(WORKSPACE_PANEL_MIN_WIDTH, startWidth + (startX - move.clientX) / layoutScale));
       setWorkspacePanelWidth(next);
     };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+    const onUp = (up: PointerEvent) => {
+      if (up.pointerId !== pointerId) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      document.body.classList.remove("workspace-is-resizing");
       setWorkspacePanelWidth((current) => {
         window.localStorage.setItem(WORKSPACE_PANEL_WIDTH_KEY, String(current));
         return current;
       });
     };
+    target.setPointerCapture(pointerId);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [sidebarVisible, sidebarWidth, workspacePanelWidth, workspaceTool]);
+    document.body.classList.add("workspace-is-resizing");
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }, [layoutScale, workspacePanelMaxWidth, workspacePanelWidth]);
+
+  const resizeWorkspaceWithKeyboard = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const increment = event.shiftKey ? 32 : 10;
+    const maxWidth = workspacePanelMaxWidth();
+    const next = event.key === "ArrowLeft"
+      ? Math.min(maxWidth, workspacePanelWidth + increment)
+      : event.key === "ArrowRight"
+        ? Math.max(WORKSPACE_PANEL_MIN_WIDTH, workspacePanelWidth - increment)
+        : event.key === "Home"
+          ? WORKSPACE_PANEL_MIN_WIDTH
+          : event.key === "End"
+            ? maxWidth
+            : null;
+    if (next === null) return;
+    event.preventDefault();
+    setWorkspacePanelWidth(next);
+    window.localStorage.setItem(WORKSPACE_PANEL_WIDTH_KEY, String(next));
+  }, [workspacePanelMaxWidth, workspacePanelWidth]);
+
+  const bottomPanelMaxHeight = useCallback(
+    () => Math.max(BOTTOM_PANEL_MIN_HEIGHT, Math.min(BOTTOM_PANEL_MAX_HEIGHT, window.innerHeight / layoutScale - 240)),
+    [layoutScale],
+  );
+
+  const beginBottomPanelResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const target = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startY = event.clientY;
+    const startHeight = bottomPanelHeight;
+    const onMove = (move: PointerEvent) => {
+      if (move.pointerId !== pointerId) return;
+      const next = Math.min(bottomPanelMaxHeight(), Math.max(BOTTOM_PANEL_MIN_HEIGHT, startHeight + (startY - move.clientY) / layoutScale));
+      setBottomPanelHeight(next);
+    };
+    const onUp = (up: PointerEvent) => {
+      if (up.pointerId !== pointerId) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.body.classList.remove("bottom-panel-is-resizing");
+      setBottomPanelHeight((current) => {
+        window.localStorage.setItem(BOTTOM_PANEL_HEIGHT_KEY, String(current));
+        return current;
+      });
+    };
+    target.setPointerCapture(pointerId);
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    document.body.classList.add("bottom-panel-is-resizing");
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }, [bottomPanelHeight, bottomPanelMaxHeight, layoutScale]);
+
+  const resizeBottomPanelWithKeyboard = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const increment = event.shiftKey ? 32 : 10;
+    const maxHeight = bottomPanelMaxHeight();
+    const next = event.key === "ArrowUp"
+      ? Math.min(maxHeight, bottomPanelHeight + increment)
+      : event.key === "ArrowDown"
+        ? Math.max(BOTTOM_PANEL_MIN_HEIGHT, bottomPanelHeight - increment)
+        : event.key === "Home"
+          ? BOTTOM_PANEL_MIN_HEIGHT
+          : event.key === "End"
+            ? maxHeight
+            : null;
+    if (next === null) return;
+    event.preventDefault();
+    setBottomPanelHeight(next);
+    window.localStorage.setItem(BOTTOM_PANEL_HEIGHT_KEY, String(next));
+  }, [bottomPanelHeight, bottomPanelMaxHeight]);
 
   const restoreGitFiles = useCallback(async (paths?: string[]) => {
     const workspace = workspaceCwd;
@@ -1499,7 +1736,8 @@ export default function App() {
       </div>
       <div className="workspace-shell" style={{
         ["--sidebar-width" as string]: `${sidebarWidth}px`,
-        ["--workspace-panel-width" as string]: `${workspaceTool === "review" ? Math.max(820, workspacePanelWidth) : workspacePanelWidth}px`,
+        ["--workspace-panel-width" as string]: `${workspacePanelWidth}px`,
+        ["--bottom-panel-height" as string]: `${bottomPanelHeight}px`,
       }}>
         {!sidebarVisible && (
           <div
@@ -1578,7 +1816,12 @@ export default function App() {
             role="separator"
             aria-orientation="vertical"
             aria-label="调整侧栏宽度"
-            onMouseDown={beginSidebarResize}
+            aria-valuemin={200}
+            aria-valuemax={380}
+            aria-valuenow={Math.round(sidebarWidth)}
+            tabIndex={0}
+            onPointerDown={beginSidebarResize}
+            onKeyDown={resizeSidebarWithKeyboard}
           />
         )}
 
@@ -1967,6 +2210,7 @@ export default function App() {
 
           {!newTask && !hubView && (
             <div className="composer-dock">
+              <ActiveGoalBar />
               {renderComposer("follow-up")}
             </div>
           )}
@@ -1980,7 +2224,12 @@ export default function App() {
             role="separator"
             aria-orientation="vertical"
             aria-label="调整对话与工作区宽度"
-            onMouseDown={beginWorkspaceResize}
+            aria-valuemin={WORKSPACE_PANEL_MIN_WIDTH}
+            aria-valuemax={workspacePanelMaxWidth()}
+            aria-valuenow={Math.round(workspacePanelWidth)}
+            tabIndex={0}
+            onPointerDown={beginWorkspaceResize}
+            onKeyDown={resizeWorkspaceWithKeyboard}
           />
         )}
         {workspaceTool === "review" && (
@@ -2064,7 +2313,19 @@ export default function App() {
         )}
         </div>
 
-        {bottomPanel && (
+        {bottomPanel && <>
+          <div
+            className="bottom-panel-resizer"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="调整终端高度"
+            aria-valuemin={BOTTOM_PANEL_MIN_HEIGHT}
+            aria-valuemax={bottomPanelMaxHeight()}
+            aria-valuenow={Math.round(bottomPanelHeight)}
+            tabIndex={0}
+            onPointerDown={beginBottomPanelResize}
+            onKeyDown={resizeBottomPanelWithKeyboard}
+          />
           <Suspense fallback={<div className="bottom-terminal page-loading">正在加载终端…</div>}>
             <TerminalWorkspacePanel
               key="bottom-terminal"
@@ -2074,7 +2335,7 @@ export default function App() {
               onClose={() => setBottomPanel(false)}
             />
           </Suspense>
-        )}
+        </>}
 
         <div className="environment-flyout-layer" aria-hidden={!inspectorTab}>
           {inspectorTab && (
@@ -2124,7 +2385,14 @@ export default function App() {
         </div>
       </div>
 
-      {settingsOpen && <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}><SettingsModal initialPage={settingsPage} settings={settings} cwd={cwd} onSave={store.saveSettings} onClose={() => setSettingsOpen(false)} /></Suspense>}
+      {settingsOpen && <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}><SettingsModal initialPage={settingsPage} settings={settings} cwd={cwd} appearanceCatalog={appearanceCatalog} onReloadAppearance={reloadAppearanceCatalog} onSave={store.saveSettings} onClose={() => setSettingsOpen(false)} /></Suspense>}
+
+      {!isTauri && (settings?.petEnabled || previewPet) && !settingsOpen && (
+        <PetCompanion
+          pet={activePet}
+          busy={petBusy}
+        />
+      )}
 
       <div className="toast-stack">
         {toasts.map((toast) => (

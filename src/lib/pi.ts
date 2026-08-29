@@ -133,6 +133,10 @@ export const pi = {
   listPullRequests: (cwd: string) => invoke<PullRequestCollection>("list_pull_requests", { cwd }),
   checkoutPullRequest: (cwd: string, number: number) => invoke<void>("checkout_pull_request", { cwd, number }),
   listResources: (cwd: string) => invoke<ResourceItem[]>("list_resources", { cwd }),
+  openAppearanceDirectory: (cwd: string, kind: "theme" | "pet", scope: "user" | "project") =>
+    invoke<string>("open_appearance_directory", { cwd, kind, scope }),
+  installAppearanceExtension: (source: string, cwd: string, kind: "theme" | "pet", scope: "user" | "project") =>
+    invoke<string>("install_appearance_extension", { source, cwd, kind, scope }),
   searchPackages,
   packageDetail,
   clearPackageCatalogCache,

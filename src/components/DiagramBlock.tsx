@@ -16,6 +16,18 @@ let mermaidQueue: Promise<void> = Promise.resolve();
 let plantUmlQueue: Promise<void> = Promise.resolve();
 let vizLoader: Promise<void> | null = null;
 let plantUmlLoader: Promise<typeof import("@plantuml/core")> | null = null;
+const MIN_DIAGRAM_ZOOM = 0.5;
+const MAX_DIAGRAM_ZOOM = 3;
+
+export function clampDiagramZoom(value: number): number {
+  const rounded = Math.round(value * 100) / 100;
+  return Math.min(MAX_DIAGRAM_ZOOM, Math.max(MIN_DIAGRAM_ZOOM, rounded));
+}
+
+export function diagramZoomFromWheel(current: number, deltaY: number): number {
+  if (deltaY === 0) return clampDiagramZoom(current);
+  return clampDiagramZoom(current + (deltaY < 0 ? 0.1 : -0.1));
+}
 
 export function diagramKindForLanguage(language: string): DiagramKind | null {
   const normalized = language.trim().toLowerCase();
@@ -146,8 +158,16 @@ export function DiagramBlock({ kind, source }: { kind: DiagramKind; source: stri
   const [saved, setSaved] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [panning, setPanning] = useState(false);
   const [state, setState] = useState<DiagramState>({ status: "loading", svg: "", error: "" });
   const lightboxViewportRef = useRef<HTMLDivElement>(null);
+  const panRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    scrollTop: number;
+  } | null>(null);
 
   useEffect(() => {
     const observer = new MutationObserver(() => setDark(darkThemeActive()));
@@ -204,7 +224,7 @@ export function DiagramBlock({ kind, source }: { kind: DiagramKind; source: stri
       viewport.scrollTop = Math.max(0, (viewport.scrollHeight - viewport.clientHeight) / 2);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [expanded, zoom]);
+  }, [expanded]);
 
   const label = kind === "mermaid" ? "Mermaid" : "PlantUML";
   const sourceVisible = showSource || state.status === "error";
@@ -212,8 +232,38 @@ export function DiagramBlock({ kind, source }: { kind: DiagramKind; source: stri
     setZoom(1);
     setExpanded(true);
   };
-  const zoomOut = () => setZoom((current) => Math.max(0.5, current - 0.25));
-  const zoomIn = () => setZoom((current) => Math.min(3, current + 0.25));
+  const updateZoom = (
+    resolveValue: number | ((current: number) => number),
+    clientX?: number,
+    clientY?: number,
+  ) => {
+    const viewport = lightboxViewportRef.current;
+    setZoom((current) => {
+      const requested = typeof resolveValue === "function" ? resolveValue(current) : resolveValue;
+      const next = clampDiagramZoom(requested);
+      if (!viewport || next === current) return next;
+      const rect = viewport.getBoundingClientRect();
+      const anchorX = clientX === undefined ? viewport.clientWidth / 2 : clientX - rect.left;
+      const anchorY = clientY === undefined ? viewport.clientHeight / 2 : clientY - rect.top;
+      const contentX = viewport.scrollLeft + anchorX;
+      const contentY = viewport.scrollTop + anchorY;
+      const ratio = next / current;
+      window.requestAnimationFrame(() => {
+        viewport.scrollLeft = contentX * ratio - anchorX;
+        viewport.scrollTop = contentY * ratio - anchorY;
+      });
+      return next;
+    });
+  };
+  const zoomOut = () => updateZoom((current) => current - 0.25);
+  const zoomIn = () => updateZoom((current) => current + 0.25);
+  const resetZoom = () => updateZoom(1);
+  const finishPan = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (panRef.current?.pointerId !== event.pointerId) return;
+    panRef.current = null;
+    setPanning(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
   const saveSvg = () => {
     if (!state.svg) return;
     downloadDiagramSvg(kind, state.svg);
@@ -306,7 +356,7 @@ export function DiagramBlock({ kind, source }: { kind: DiagramKind; source: stri
                   <button type="button" title="放大" aria-label="放大图形" disabled={zoom >= 3} onClick={zoomIn}>
                     <Plus size={16} />
                   </button>
-                  <button type="button" title="适应窗口" aria-label="恢复适应窗口" disabled={zoom === 1} onClick={() => setZoom(1)}>
+                  <button type="button" title="适应窗口" aria-label="恢复适应窗口" disabled={zoom === 1} onClick={resetZoom}>
                     <RotateCcw size={15} />
                   </button>
                 </div>
@@ -318,7 +368,35 @@ export function DiagramBlock({ kind, source }: { kind: DiagramKind; source: stri
                 </button>
               </div>
             </header>
-            <div ref={lightboxViewportRef} className="diagram-lightbox-viewport">
+            <div
+              ref={lightboxViewportRef}
+              className={`diagram-lightbox-viewport${zoom > 1 ? " can-pan" : ""}${panning ? " panning" : ""}`}
+              onWheel={(event) => {
+                if (event.deltaY === 0) return;
+                event.preventDefault();
+                updateZoom((current) => diagramZoomFromWheel(current, event.deltaY), event.clientX, event.clientY);
+              }}
+              onPointerDown={(event) => {
+                if (event.button !== 0 || zoom <= 1) return;
+                panRef.current = {
+                  pointerId: event.pointerId,
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  scrollLeft: event.currentTarget.scrollLeft,
+                  scrollTop: event.currentTarget.scrollTop,
+                };
+                event.currentTarget.setPointerCapture(event.pointerId);
+                setPanning(true);
+              }}
+              onPointerMove={(event) => {
+                const pan = panRef.current;
+                if (!pan || pan.pointerId !== event.pointerId) return;
+                event.currentTarget.scrollLeft = pan.scrollLeft - (event.clientX - pan.startX);
+                event.currentTarget.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
+              }}
+              onPointerUp={finishPan}
+              onPointerCancel={finishPan}
+            >
               <div
                 className="diagram-lightbox-render"
                 style={{ width: `${Math.max(1, zoom) * 100}%`, height: `${Math.max(1, zoom) * 100}%` }}
