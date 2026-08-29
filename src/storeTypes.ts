@@ -93,6 +93,7 @@ export interface PiState {
   moveManagedFollowUp: (id: string, direction: -1 | 1) => void;
   steerManagedFollowUp: (id: string) => Promise<void>;
   resolveMessageForkPoint: (messageId: string) => Promise<ForkPoint | null>;
+  rewindMessage: (entryId: string) => Promise<boolean>;
   editAndResend: (entryId: string, text: string, attachments?: AttachmentPayload[]) => Promise<boolean>;
   abort: () => Promise<void>;
   prepareNewTask: () => void;

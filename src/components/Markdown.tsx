@@ -6,6 +6,7 @@ import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { Check, Copy, FileText } from "lucide-react";
 import { usePiStore } from "../store";
 import { stripCodeReviewDirectives } from "../lib/codeReview";
+import { DiagramBlock, diagramKindForLanguage } from "./DiagramBlock";
 
 /** When provided, file links open in the in-app document pane instead of the OS. */
 export type OpenWorkspaceFile = (path: string, line?: number) => void;
@@ -116,17 +117,26 @@ function nodeText(node: ReactNode): string {
   return "";
 }
 
-function CodeFence({ children }: { children?: ReactNode }) {
-  const [copied, setCopied] = useState(false);
+function codeFenceDetails(children: ReactNode): {
+  codeEl: ReactElement<{ className?: string; children?: ReactNode }> | undefined;
+  language: string;
+  text: string;
+} {
   const codeEl = Children.toArray(children).find((child) => {
     if (!isValidElement(child)) return false;
     if (child.type === "code") return true;
     const className = (child.props as { className?: string }).className || "";
     return className.includes("language-") || className.includes("hljs");
   }) as ReactElement<{ className?: string; children?: ReactNode }> | undefined;
-  const lang = /language-([\w+#.-]+)/.exec(codeEl?.props.className || "")?.[1]?.toLowerCase() || "";
-  const label = lang ? LANGUAGE_LABELS[lang] || lang : "";
+  const language = /language-([\w+#.-]+)/.exec(codeEl?.props.className || "")?.[1]?.toLowerCase() || "";
   const text = nodeText(codeEl?.props.children ?? children).replace(/\n$/, "");
+  return { codeEl, language, text };
+}
+
+function CodeFence({ children }: { children?: ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  const { language, text } = codeFenceDetails(children);
+  const label = language ? LANGUAGE_LABELS[language] || language : "";
 
   return (
     <div className="markdown-code">
@@ -150,6 +160,13 @@ function CodeFence({ children }: { children?: ReactNode }) {
       <pre>{children}</pre>
     </div>
   );
+}
+
+function MarkdownPre({ children }: { children?: ReactNode }) {
+  const { language, text } = codeFenceDetails(children);
+  const diagramKind = diagramKindForLanguage(language);
+  if (diagramKind) return <DiagramBlock kind={diagramKind} source={text} />;
+  return <CodeFence>{children}</CodeFence>;
 }
 
 function FileRef({ href, children }: { href: string; children?: ReactNode }) {
@@ -189,7 +206,7 @@ export function Markdown({ content }: MarkdownProps) {
         rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
         urlTransform={(url) => url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url)}
         components={{
-          pre: ({ children }) => <CodeFence>{children}</CodeFence>,
+          pre: ({ children }) => <MarkdownPre>{children}</MarkdownPre>,
           a: ({ href, children }) => {
             if (href?.startsWith(FILE_SCHEME)) return <FileRef href={href}>{children}</FileRef>;
             return (

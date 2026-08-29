@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -169,7 +169,7 @@ export default function App() {
   const [draftMode, setDraftMode] = useState(() => {
     if (!import.meta.env.DEV) return true;
     const fixture = new URLSearchParams(window.location.search).get("fixture");
-    return fixture !== "thread" && fixture !== "performance" && fixture !== "stream" && fixture !== "queue" && fixture !== "title";
+    return fixture !== "thread" && fixture !== "performance" && fixture !== "stream" && fixture !== "queue" && fixture !== "title" && fixture !== "diagrams";
   });
   const newTask = draftMode;
   const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth > 900);
@@ -1287,6 +1287,27 @@ export default function App() {
     return sent;
   }, []);
 
+  const rewindUserMessage = useCallback(async (message: UiMessage) => {
+    const current = usePiStore.getState();
+    if (current.isStreaming) {
+      current.showToast("请等待当前回复完成后再回退消息", "warning");
+      return false;
+    }
+    const point = await current.resolveMessageForkPoint(message.id);
+    if (!point) {
+      current.showToast("无法定位这条消息的会话检查点", "warning");
+      return false;
+    }
+    const accepted = await confirm(
+      "将回退此消息之后的对话，并恢复到该消息发送时的工作区状态。已有对话分支仍可从会话树切回。",
+      { title: "回退消息和改动？", kind: "warning", okLabel: "回退", cancelLabel: "取消" },
+    );
+    if (!accepted) return false;
+    const rewound = await current.rewindMessage(point.entryId);
+    if (rewound) setEditingMessage(null);
+    return rewound;
+  }, []);
+
   const cancelMessageEdit = useCallback(() => {
     setEditingMessage(null);
   }, []);
@@ -1898,6 +1919,7 @@ export default function App() {
                     statusText={statusText}
                     editingMessageId={editingMessage?.messageId}
                     onEdit={editUserMessage}
+                    onRewind={rewindUserMessage}
                     onCancelEdit={cancelMessageEdit}
                     onSubmitEdit={submitMessageEdit}
                     scrollerRef={conversationScrollRef}

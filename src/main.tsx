@@ -8,12 +8,13 @@ import "./styles.css";
 
 const fixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("fixture") : null;
 
-if (fixture === "thread" || fixture === "performance" || fixture === "stream" || fixture === "queue" || fixture === "title") {
+if (fixture === "thread" || fixture === "performance" || fixture === "stream" || fixture === "queue" || fixture === "title" || fixture === "diagrams") {
   const cwd = "D:\\Projects\\PIDesktop";
   const performanceFixture = fixture === "performance";
   const streamFixture = fixture === "stream";
   const queueFixture = fixture === "queue";
   const titleFixture = fixture === "title";
+  const diagramFixture = fixture === "diagrams";
   const performanceMessages: UiMessage[] = Array.from({ length: 1_000 }, (_, index) => ({
     id: `performance-${index}`,
     role: index % 3 === 0 ? "user" : "assistant",
@@ -21,7 +22,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
     timestamp: Date.now() - (1_000 - index) * 1_000,
   }));
   usePiStore.setState({
-    runtimeId: performanceFixture || streamFixture || queueFixture || titleFixture ? "fixture-runtime" : null,
+    runtimeId: performanceFixture || streamFixture || queueFixture || titleFixture || diagramFixture ? "fixture-runtime" : null,
     connection: "running",
     cwd,
     sessionFile: "fixture-session.jsonl",
@@ -40,7 +41,40 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
       contextUsage: { tokens: 2_000, contextWindow: 100_000, percent: 2 },
     },
     isStreaming: streamFixture || queueFixture,
-    messages: performanceFixture ? performanceMessages : (streamFixture || queueFixture) ? [
+    messages: performanceFixture ? performanceMessages : diagramFixture ? [
+      {
+        id: "fixture-diagram-user",
+        entryId: "fixture-diagram-entry",
+        role: "user",
+        content: "请用 Mermaid 和 PlantUML 展示消息渲染流程。",
+        timestamp: Date.now() - 10_000,
+      },
+      {
+        id: "fixture-diagram-assistant",
+        role: "assistant",
+        content: [
+          "## Mermaid",
+          "",
+          "```mermaid",
+          "flowchart LR",
+          "  A[Agent 输出] --> B[Markdown 识别]",
+          "  B --> C[本地 SVG 渲染]",
+          "```",
+          "",
+          "## PlantUML",
+          "",
+          "```plantuml",
+          "@startuml",
+          "actor Agent",
+          "participant PIDesktop",
+          "Agent -> PIDesktop: PlantUML 源码",
+          "PIDesktop --> Agent: 本地渲染 SVG",
+          "@enduml",
+          "```",
+        ].join("\n"),
+        timestamp: Date.now() - 5_000,
+      },
+    ] : (streamFixture || queueFixture) ? [
       {
         id: "fixture-stream-user",
         role: "user",
@@ -162,6 +196,10 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
     }),
     editAndResend: async (entryId, text) => {
       console.info(`[performance-fixture] edited resend ${entryId}: ${text}`);
+      return true;
+    },
+    rewindMessage: async (entryId) => {
+      console.info(`[performance-fixture] rewound ${entryId}`);
       return true;
     },
     sendMessage: async (text, attachments = []) => {
