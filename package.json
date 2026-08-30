@@ -1,7 +1,7 @@
 {
   "name": "pid-desktop",
   "private": true,
-  "version": "0.2.24",
+  "version": "0.2.26",
   "license": "Apache-2.0",
   "description": "A local-first Windows desktop client for the Pi coding agent",
   "type": "module",
