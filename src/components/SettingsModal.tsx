@@ -513,10 +513,12 @@ function AppearancePage({
   onReload: () => Promise<void>;
 }) {
   const [extensionScope, setExtensionScope] = useState<"user" | "project">("user");
+  const [extensionTarget, setExtensionTarget] = useState<"theme" | "pet" | null>(null);
   const [extensionState, setExtensionState] = useState<"idle" | "busy" | "done" | "error">("idle");
   const [extensionNotice, setExtensionNotice] = useState("");
   const customTheme = createCustomAppearanceTheme(form.backgroundColor, form.foregroundColor, form.accentColor);
   const displayedThemes = catalog.themes.map((theme) => theme.id === "custom" ? customTheme : theme);
+  const themeOptions = displayedThemes.filter((theme) => theme.id !== "custom");
   const extensionCount = (kind: "theme" | "pet") => (
     kind === "theme"
       ? catalog.themes.filter((theme) => theme.scope !== "builtin").length
@@ -528,7 +530,15 @@ function AppearancePage({
     if (form.theme !== "custom") update("theme", "custom");
   };
 
-  const runExtensionAction = async (action: () => Promise<void>, success: string) => {
+  const resetCustomColors = () => {
+    update("backgroundColor", "#ffffff");
+    update("foregroundColor", "#1a1a1a");
+    update("accentColor", "#18181b");
+    update("theme", "custom");
+  };
+
+  const runExtensionAction = async (kind: "theme" | "pet", action: () => Promise<void>, success: string) => {
+    setExtensionTarget(kind);
     setExtensionState("busy");
     setExtensionNotice("");
     try {
@@ -556,82 +566,77 @@ function AppearancePage({
         });
     const source = typeof selected === "string" ? selected : Array.isArray(selected) ? selected[0] : null;
     if (!source) return;
-    await runExtensionAction(async () => {
+    await runExtensionAction(kind, async () => {
       await pi.installAppearanceExtension(source, cwd, kind, extensionScope);
       await onReload();
     }, kind === "theme" ? "主题已导入" : "宠物已导入");
   };
 
   const openExtensionDirectory = (kind: "theme" | "pet") => runExtensionAction(
+    kind,
     () => pi.openAppearanceDirectory(cwd, kind, extensionScope).then(() => undefined),
     kind === "theme" ? "已打开主题目录" : "已打开宠物目录",
   );
 
-  return <>
-    <PageHeading title="外观" description="选择主题、桌面宠物，并调整字体与界面大小。" />
-    <div className="theme-grid">
-      {displayedThemes.map((theme) => <button key={theme.id} className={form.theme === theme.id ? "active" : ""} onClick={() => update("theme", theme.id)}>
-        <ThemePreview theme={theme} />
-        <strong>{theme.label}</strong>
-        {theme.scope !== "builtin" && <small>{theme.scope === "project" ? "项目" : "用户"}</small>}
-      </button>)}
-    </div>
-    <Card title="自定义颜色">
-      <div className="appearance-color-grid">
-        <label><span><i style={{ background: form.backgroundColor }} />背景</span><input type="color" value={form.backgroundColor} onChange={(event) => updateCustomColor("backgroundColor", event.target.value)} /></label>
-        <label><span><i style={{ background: form.foregroundColor }} />文字</span><input type="color" value={form.foregroundColor} onChange={(event) => updateCustomColor("foregroundColor", event.target.value)} /></label>
-        <label><span><i style={{ background: form.accentColor }} />强调色</span><input type="color" value={form.accentColor} onChange={(event) => updateCustomColor("accentColor", event.target.value)} /></label>
-      </div>
-    </Card>
-    <Card title="外观扩展">
-      <div className="appearance-extension-toolbar">
-        <div className="appearance-scope-control" aria-label="扩展作用域">
+  const renderExtensionControls = (kind: "theme" | "pet") => (
+    <div className="appearance-extension-stack">
+      <div className="appearance-extension-control">
+        <div className="appearance-scope-control" aria-label={`${kind === "theme" ? "主题" : "宠物"}扩展作用域`}>
           <button type="button" className={extensionScope === "user" ? "active" : ""} onClick={() => setExtensionScope("user")}>用户</button>
           <button type="button" className={extensionScope === "project" ? "active" : ""} disabled={!cwd} onClick={() => setExtensionScope("project")}>项目</button>
         </div>
-        <button type="button" className="icon-button" title="重新扫描外观扩展" disabled={extensionState === "busy"} onClick={() => void runExtensionAction(onReload, "扩展列表已更新")}><RefreshCw className={extensionState === "busy" ? "spinner-icon" : ""} size={16} /></button>
+        <button type="button" className="icon-button" title={`安装本地${kind === "theme" ? "主题" : "宠物"}`} disabled={extensionState === "busy"} onClick={() => void importExtension(kind)}><Upload size={15} /></button>
+        <button type="button" className="icon-button" title={`打开${extensionScope === "project" ? "项目" : "用户"}${kind === "theme" ? "主题" : "宠物"}目录`} disabled={extensionState === "busy"} onClick={() => void openExtensionDirectory(kind)}><FolderOpen size={15} /></button>
+        <button type="button" className="icon-button" title={`重新扫描${kind === "theme" ? "主题" : "宠物"}`} disabled={extensionState === "busy"} onClick={() => void runExtensionAction(kind, onReload, "扩展列表已更新")}><RefreshCw className={extensionState === "busy" && extensionTarget === kind ? "spinner-icon" : ""} size={15} /></button>
       </div>
-      <div className="appearance-extension-list">
-        <div>
-          <span><Palette size={17} /><strong>主题</strong><small>{extensionCount("theme")} 个扩展</small></span>
-          <button type="button" className="secondary-button compact" disabled={extensionState === "busy"} onClick={() => void importExtension("theme")}><Upload size={14} />导入</button>
-          <button type="button" className="icon-button" title={`打开${extensionScope === "project" ? "项目" : "用户"}主题目录`} disabled={extensionState === "busy"} onClick={() => void openExtensionDirectory("theme")}><FolderOpen size={16} /></button>
-        </div>
-        <div>
-          <span><Bot size={17} /><strong>宠物</strong><small>{extensionCount("pet")} 个扩展</small></span>
-          <button type="button" className="secondary-button compact" disabled={extensionState === "busy"} onClick={() => void importExtension("pet")}><Upload size={14} />导入</button>
-          <button type="button" className="icon-button" title={`打开${extensionScope === "project" ? "项目" : "用户"}宠物目录`} disabled={extensionState === "busy"} onClick={() => void openExtensionDirectory("pet")}><FolderOpen size={16} /></button>
+      {extensionTarget === kind && extensionNotice && <div className={`appearance-extension-notice ${extensionState}`} role="status">{extensionState === "error" ? <CircleAlert size={15} /> : <CheckCircle2 size={15} />}<span>{extensionNotice}</span></div>}
+    </div>
+  );
+
+  return <>
+    <PageHeading title="外观" description="自定义 Pi Desktop 的显示方式。" />
+    <Card title="主题">
+      <div className="appearance-picker-block">
+        <div className="theme-grid" role="radiogroup" aria-label="主题">
+          {themeOptions.map((theme) => <button key={theme.id} type="button" role="radio" aria-checked={form.theme === theme.id} className={form.theme === theme.id ? "active" : ""} onClick={() => update("theme", theme.id)}>
+            <ThemePreview theme={theme} />
+            <span><strong>{theme.label}</strong>{theme.scope !== "builtin" && <small>{theme.scope === "project" ? "项目" : "用户"}</small>}</span>
+          </button>)}
         </div>
       </div>
-      {extensionNotice && <div className={`appearance-extension-notice ${extensionState}`} role="status">{extensionState === "error" ? <CircleAlert size={15} /> : <CheckCircle2 size={15} />}<span>{extensionNotice}</span></div>}
+      <Row title="自定义主题" description={form.theme === "custom" ? "当前正在使用；颜色更改会立即生效。" : "设置配色并应用为独立主题。"}>
+        <div className="appearance-inline-colors">
+          <label title="背景颜色"><span>背景</span><input aria-label="背景颜色" type="color" value={form.backgroundColor} onChange={(event) => updateCustomColor("backgroundColor", event.target.value)} /></label>
+          <label title="文字颜色"><span>文字</span><input aria-label="文字颜色" type="color" value={form.foregroundColor} onChange={(event) => updateCustomColor("foregroundColor", event.target.value)} /></label>
+          <label title="强调色"><span>强调</span><input aria-label="强调色" type="color" value={form.accentColor} onChange={(event) => updateCustomColor("accentColor", event.target.value)} /></label>
+          {form.theme !== "custom" && <button type="button" className="secondary-button compact" onClick={() => update("theme", "custom")}>应用</button>}
+          <button type="button" className="icon-button" title="恢复默认颜色" onClick={resetCustomColors}><Undo2 size={15} /></button>
+        </div>
+      </Row>
+      <Row title="主题扩展" description={`${extensionCount("theme")} 个已安装；可安装到当前用户或项目。`}>{renderExtensionControls("theme")}</Row>
     </Card>
-    {catalog.errors.length > 0 && <div className="settings-info appearance-errors"><CircleAlert size={17} /><span>{catalog.errors.map((error) => <small key={`${error.kind}-${error.name}`}>{error.name}：{error.message}</small>)}</span></div>}
+
     <Card title="桌面宠物">
-      <Row title="显示桌面宠物" description="在 Windows 桌面显示一个会响应任务状态、可自由拖动的小伙伴。"><Switch label="显示桌面宠物" checked={form.petEnabled} onChange={(value) => update("petEnabled", value)} /></Row>
-      <Row title="选择角色">
+      <Row title="显示桌面宠物" description="在 Windows 桌面显示会响应任务状态、可自由拖动的小伙伴。"><Switch label="显示桌面宠物" checked={form.petEnabled} onChange={(value) => update("petEnabled", value)} /></Row>
+      <div className="appearance-picker-block appearance-pet-picker-block">
         <div className="pet-character-picker" role="radiogroup" aria-label="桌面宠物角色">
           {catalog.pets.map((pet) => (
-            <button
-              key={pet.id}
-              type="button"
-              role="radio"
-              aria-checked={form.petCharacter === pet.id}
-              className={`pet-option-${pet.builtinCharacter ?? "custom"}${form.petCharacter === pet.id ? " active" : ""}`}
-              disabled={!form.petEnabled}
-              onClick={() => update("petCharacter", pet.id)}
-            >
-              <PetAvatar pet={pet} />
-              <span>{pet.label}</span>
-              {pet.scope !== "builtin" && <small>{pet.scope === "project" ? "项目" : "用户"}</small>}
+            <button key={pet.id} type="button" role="radio" aria-checked={form.petCharacter === pet.id} className={`pet-option-${pet.builtinCharacter ?? "custom"}${form.petCharacter === pet.id ? " active" : ""}`} onClick={() => update("petCharacter", pet.id)}>
+              <span className="pet-option-preview"><PetAvatar pet={pet} /></span>
+              <span><strong>{pet.label}</strong>{pet.scope !== "builtin" && <small>{pet.scope === "project" ? "项目" : "用户"}</small>}</span>
             </button>
           ))}
         </div>
-      </Row>
+      </div>
+      <Row title="宠物扩展" description={`${extensionCount("pet")} 个已安装；可安装到当前用户或项目。`}>{renderExtensionControls("pet")}</Row>
     </Card>
-    <Card title="字体与缩放">
+
+    {catalog.errors.length > 0 && <div className="settings-info appearance-errors"><CircleAlert size={17} /><span>{catalog.errors.map((error) => <small key={`${error.kind}-${error.name}`}>{error.name}：{error.message}</small>)}</span></div>}
+
+    <Card title="偏好设置">
       <Row title="界面字体"><input value={form.uiFont} onChange={(event) => update("uiFont", event.target.value)} /></Row>
       <Row title="代码字体"><input value={form.codeFont} onChange={(event) => update("codeFont", event.target.value)} /></Row>
-      <Row title="界面缩放" description={`${form.uiScale}%`}><input className="scale-slider" type="range" min="75" max="150" step="5" value={form.uiScale} onChange={(event) => update("uiScale", Number(event.target.value))} /></Row>
+      <Row title="界面缩放" description="调整应用内容的整体显示大小。"><label className="appearance-number-control"><input aria-label="界面缩放百分比" type="number" min="75" max="150" step="5" value={form.uiScale} onChange={(event) => update("uiScale", Number(event.target.value))} /><span>%</span></label></Row>
     </Card>
   </>;
 }
