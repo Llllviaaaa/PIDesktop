@@ -1,5 +1,22 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import type { AppearancePetDefinition } from "../lib/appearanceCatalog";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
+import { ArrowUp, Coffee, ExternalLink, Hand, Play, RotateCcw, Search } from "lucide-react";
+import type { AppearancePetDefinition, PetAnimationState } from "../lib/appearanceCatalog";
+import {
+  chooseIdlePetAnimation,
+  choosePetMessage,
+  nextPetIdleDelay,
+  PET_ACTIONS,
+  type PetActionDefinition,
+  type PetActionId,
+} from "../lib/petInteractions";
 
 const PET_POSITION_KEY = "pid-desktop:pet-position:v1";
 const PET_MARGIN = 12;
@@ -32,7 +49,46 @@ function savePetPosition(position: PetPosition): void {
   window.localStorage.setItem(PET_POSITION_KEY, JSON.stringify(position));
 }
 
-export function PetAvatar({ pet, busy = false }: { pet: AppearancePetDefinition; busy?: boolean }) {
+function PetSpritesheetAvatar({ pet, state }: { pet: AppearancePetDefinition; state: PetAnimationState }) {
+  const [frame, setFrame] = useState(0);
+  const spritesheet = pet.spritesheet!;
+  const sequence = spritesheet.states[state] ?? spritesheet.states.idle;
+
+  useEffect(() => {
+    setFrame(0);
+    if (sequence.frames <= 1 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const timer = window.setInterval(() => {
+      setFrame((current) => current + 1 < sequence.frames ? current + 1 : sequence.loop ? 0 : current);
+    }, sequence.frameDurationMs);
+    return () => window.clearInterval(timer);
+  }, [pet.id, sequence.frameDurationMs, sequence.frames, sequence.loop, state]);
+
+  const positionX = spritesheet.columns <= 1 ? 0 : (frame / (spritesheet.columns - 1)) * 100;
+  const positionY = spritesheet.rows <= 1 ? 0 : (sequence.row / (spritesheet.rows - 1)) * 100;
+  const style: CSSProperties = {
+    width: "auto",
+    height: "100%",
+    aspectRatio: `${spritesheet.cellWidth} / ${spritesheet.cellHeight}`,
+    marginInline: "auto",
+    backgroundImage: `url(${pet.assetDataUrl})`,
+    backgroundSize: `${spritesheet.columns * 100}% ${spritesheet.rows * 100}%`,
+    backgroundPosition: `${positionX}% ${positionY}%`,
+  };
+  return <span className="pet-avatar pet-avatar-sprite" style={style} aria-hidden="true" />;
+}
+
+export function PetAvatar({
+  pet,
+  busy = false,
+  state = busy ? "running" : "idle",
+}: {
+  pet: AppearancePetDefinition;
+  busy?: boolean;
+  state?: PetAnimationState;
+}) {
+  if (pet.assetDataUrl && pet.spritesheet) {
+    return <PetSpritesheetAvatar pet={pet} state={state} />;
+  }
   if (pet.assetDataUrl) {
     return <img className="pet-avatar pet-avatar-image" src={pet.assetDataUrl} alt="" draggable={false} />;
   }
@@ -86,7 +142,121 @@ export function PetAvatar({ pet, busy = false }: { pet: AppearancePetDefinition;
   );
 }
 
-export function PetCompanion({ pet, busy }: { pet: AppearancePetDefinition; busy: boolean }) {
+export function usePetInteractionController(pet: AppearancePetDefinition, activity: PetAnimationState) {
+  const [interaction, setInteraction] = useState<PetAnimationState | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const interactionTimerRef = useRef<number | null>(null);
+  const messageTimerRef = useRef<number | null>(null);
+  const previousActivityRef = useRef(activity);
+
+  const showMessage = useCallback((text: string, durationMs = 2_800) => {
+    if (messageTimerRef.current !== null) window.clearTimeout(messageTimerRef.current);
+    setMessage(text);
+    messageTimerRef.current = window.setTimeout(() => {
+      setMessage(null);
+      messageTimerRef.current = null;
+    }, durationMs);
+  }, []);
+
+  const playInteraction = useCallback((state: PetAnimationState, durationMs: number, text?: string) => {
+    if (interactionTimerRef.current !== null) window.clearTimeout(interactionTimerRef.current);
+    setInteraction(state);
+    showMessage(text ?? choosePetMessage(pet, state));
+    interactionTimerRef.current = window.setTimeout(() => {
+      setInteraction(null);
+      interactionTimerRef.current = null;
+    }, durationMs);
+  }, [pet, showMessage]);
+
+  useEffect(() => {
+    const previous = previousActivityRef.current;
+    previousActivityRef.current = activity;
+    if (previous === activity || activity === "idle") return;
+    showMessage(choosePetMessage(pet, activity), activity === "failed" || activity === "waiting" ? 4_200 : 3_200);
+  }, [activity, pet, showMessage]);
+
+  useEffect(() => {
+    if (activity !== "idle" || interaction !== null) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let timer = 0;
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        if (document.visibilityState !== "visible") {
+          schedule();
+          return;
+        }
+        const next = chooseIdlePetAnimation(pet);
+        if (next) playInteraction(next, next === "jumping" ? 900 : 1_250);
+      }, nextPetIdleDelay(pet));
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, [activity, interaction, pet, playInteraction]);
+
+  useEffect(() => () => {
+    if (interactionTimerRef.current !== null) window.clearTimeout(interactionTimerRef.current);
+    if (messageTimerRef.current !== null) window.clearTimeout(messageTimerRef.current);
+  }, []);
+
+  return {
+    animationState: interaction ?? activity,
+    message,
+    playInteraction,
+    dismissMessage: () => setMessage(null),
+  };
+}
+
+const ACTION_ICONS: Record<PetActionId, typeof Hand> = {
+  wave: Hand,
+  jump: ArrowUp,
+  focus: Play,
+  review: Search,
+  rest: Coffee,
+};
+
+export function PetActionMenu({
+  onAction,
+  onReset,
+  onOpenApp,
+}: {
+  onAction: (action: PetActionDefinition) => void;
+  onReset: () => void;
+  onOpenApp?: () => void;
+}) {
+  return (
+    <div className="pet-action-menu" role="menu" aria-label="宠物互动">
+      {PET_ACTIONS.map((action) => {
+        const Icon = ACTION_ICONS[action.id];
+        return (
+          <button key={action.id} type="button" role="menuitem" onClick={() => onAction(action)}>
+            <Icon size={14} />
+            <span>{action.label}</span>
+          </button>
+        );
+      })}
+      <button type="button" role="menuitem" onClick={onReset}>
+        <RotateCcw size={14} />
+        <span>归位</span>
+      </button>
+      {onOpenApp && (
+        <button type="button" role="menuitem" className="pet-action-wide" onClick={onOpenApp}>
+          <ExternalLink size={14} />
+          <span>打开 Pi Desktop</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function PetCompanion({
+  pet,
+  busy,
+  activity = busy ? "running" : "idle",
+}: {
+  pet: AppearancePetDefinition;
+  busy: boolean;
+  activity?: PetAnimationState;
+}) {
   const rootRef = useRef<HTMLElement>(null);
   const dragRef = useRef<{
     pointerId: number;
@@ -94,12 +264,17 @@ export function PetCompanion({ pet, busy }: { pet: AppearancePetDefinition; busy
     originY: number;
     startX: number;
     startY: number;
+    lastX: number;
     moved: boolean;
   } | null>(null);
   const ignoreClickRef = useRef(false);
+  const clickTimerRef = useRef<number | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
   const [position, setPosition] = useState<PetPosition | null>(readPetPosition);
   const [dragging, setDragging] = useState(false);
-  const [showStatus, setShowStatus] = useState(false);
+  const [dragDirection, setDragDirection] = useState<"running-left" | "running-right">("running-right");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const interactionController = usePetInteractionController(pet, activity);
 
   useEffect(() => {
     const keepOnScreen = () => {
@@ -120,11 +295,25 @@ export function PetCompanion({ pet, busy }: { pet: AppearancePetDefinition; busy
     return () => window.removeEventListener("resize", keepOnScreen);
   }, []);
 
+  useEffect(() => () => {
+    if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
+    if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
+  }, []);
+
   useEffect(() => {
-    if (!showStatus) return;
-    const timer = window.setTimeout(() => setShowStatus(false), 2200);
-    return () => window.clearTimeout(timer);
-  }, [showStatus, busy]);
+    if (!menuOpen) return;
+    const closeOnOutsidePointer = (event: globalThis.PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [menuOpen]);
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current === null) return;
+    window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
 
   const moveTo = (next: PetPosition) => {
     const element = rootRef.current;
@@ -135,15 +324,27 @@ export function PetCompanion({ pet, busy }: { pet: AppearancePetDefinition; busy
   const finishDrag = (event: PointerEvent<HTMLButtonElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
+    clearLongPress();
     dragRef.current = null;
-    ignoreClickRef.current = drag.moved;
+    ignoreClickRef.current = ignoreClickRef.current || drag.moved;
     setDragging(false);
-    const rect = rootRef.current?.getBoundingClientRect();
-    if (rect) savePetPosition({ x: rect.left, y: rect.top });
+    if (drag.moved) {
+      const rect = rootRef.current?.getBoundingClientRect();
+      if (rect) savePetPosition({ x: rect.left, y: rect.top });
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
   const nudgePet = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "Escape") {
+      setMenuOpen(false);
+      return;
+    }
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10") || event.key.toLowerCase() === "m") {
+      event.preventDefault();
+      setMenuOpen((open) => !open);
+      return;
+    }
     const directions: Partial<Record<string, PetPosition>> = {
       ArrowLeft: { x: -8, y: 0 },
       ArrowRight: { x: 8, y: 0 },
@@ -153,6 +354,10 @@ export function PetCompanion({ pet, busy }: { pet: AppearancePetDefinition; busy
     const delta = directions[event.key];
     if (!delta) return;
     event.preventDefault();
+    interactionController.playInteraction(
+      event.key === "ArrowLeft" ? "running-left" : event.key === "ArrowRight" ? "running-right" : "jumping",
+      520,
+    );
     const rect = rootRef.current?.getBoundingClientRect();
     const current = position ?? { x: rect?.left ?? PET_MARGIN, y: rect?.top ?? PET_MARGIN };
     const element = rootRef.current;
@@ -166,22 +371,73 @@ export function PetCompanion({ pet, busy }: { pet: AppearancePetDefinition; busy
     savePetPosition(next);
   };
 
+  const resetPosition = () => {
+    const element = rootRef.current;
+    if (!element) return;
+    const next = constrainPetPosition({
+      x: window.innerWidth - element.offsetWidth - 24,
+      y: window.innerHeight - element.offsetHeight - 28,
+    }, element.offsetWidth, element.offsetHeight);
+    setPosition(next);
+    savePetPosition(next);
+    setMenuOpen(false);
+    interactionController.playInteraction("idle", 1_200, `${pet.label}回到这里了`);
+  };
+
+  const scheduleWave = () => {
+    if (ignoreClickRef.current) {
+      ignoreClickRef.current = false;
+      return;
+    }
+    if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = window.setTimeout(() => {
+      interactionController.playInteraction("waving", 1_250);
+      clickTimerRef.current = null;
+    }, 220);
+  };
+
+  const jump = () => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    interactionController.playInteraction("jumping", 900);
+  };
+
   const visualClass = pet.builtinCharacter ?? "custom";
   const label = pet.label || "桌面宠物";
+  const animationState = dragging ? dragDirection : interactionController.animationState;
+  const menuBelow = (position?.y ?? PET_MARGIN) < 132;
+  const menuAlignment = (position?.x ?? PET_MARGIN) < 80
+    ? "menu-align-left"
+    : (position?.x ?? PET_MARGIN) > window.innerWidth - 212
+      ? "menu-align-right"
+      : "";
 
   return (
     <aside
       ref={rootRef}
-      className={`desktop-pet pet-${visualClass}${busy ? " busy" : ""}${dragging ? " dragging" : ""}`}
+      className={`desktop-pet pet-${visualClass} pet-state-${animationState}${busy ? " busy" : ""}${dragging ? " dragging" : ""}${menuOpen ? " menu-open" : ""}${menuOpen && menuBelow ? " menu-below" : ""}${menuOpen && menuAlignment ? ` ${menuAlignment}` : ""}`}
       style={position ? { left: position.x, top: position.y } : undefined}
       aria-label={`${label}${busy ? "正在工作" : "空闲"}`}
     >
-      {showStatus && <span className="pet-status" role="status">{busy ? "正在跟进任务" : "准备就绪"}</span>}
+      {interactionController.message && !menuOpen && <span className="pet-status" role="status">{interactionController.message}</span>}
+      {menuOpen && (
+        <PetActionMenu
+          onAction={(action) => {
+            setMenuOpen(false);
+            interactionController.playInteraction(action.state, action.durationMs);
+          }}
+          onReset={resetPosition}
+        />
+      )}
       <button
         type="button"
         className="desktop-pet-button"
-        title={`${label} · 拖动改变位置`}
-        aria-label={`${label}，可拖动改变位置`}
+        title={label}
+        aria-label={`${label}，右键打开互动菜单`}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           const rect = rootRef.current?.getBoundingClientRect();
@@ -192,31 +448,49 @@ export function PetCompanion({ pet, busy }: { pet: AppearancePetDefinition; busy
             originY: rect.top,
             startX: event.clientX,
             startY: event.clientY,
+            lastX: event.clientX,
             moved: false,
           };
           event.currentTarget.setPointerCapture(event.pointerId);
-          setDragging(true);
+          if (event.pointerType !== "mouse") {
+            longPressTimerRef.current = window.setTimeout(() => {
+              ignoreClickRef.current = true;
+              setMenuOpen(true);
+              longPressTimerRef.current = null;
+            }, 560);
+          }
         }}
         onPointerMove={(event) => {
           const drag = dragRef.current;
           if (!drag || drag.pointerId !== event.pointerId) return;
           const deltaX = event.clientX - drag.startX;
           const deltaY = event.clientY - drag.startY;
-          if (Math.abs(deltaX) + Math.abs(deltaY) > 4) drag.moved = true;
-          moveTo({ x: drag.originX + deltaX, y: drag.originY + deltaY });
+          if (Math.abs(deltaX) + Math.abs(deltaY) > 4) {
+            if (!drag.moved) {
+              drag.moved = true;
+              clearLongPress();
+              setDragging(true);
+              setMenuOpen(false);
+            }
+            if (Math.abs(event.clientX - drag.lastX) > 1) {
+              setDragDirection(event.clientX < drag.lastX ? "running-left" : "running-right");
+            }
+          }
+          drag.lastX = event.clientX;
+          if (drag.moved) moveTo({ x: drag.originX + deltaX, y: drag.originY + deltaY });
         }}
         onPointerUp={finishDrag}
         onPointerCancel={finishDrag}
         onKeyDown={nudgePet}
-        onClick={() => {
-          if (ignoreClickRef.current) {
-            ignoreClickRef.current = false;
-            return;
-          }
-          setShowStatus((visible) => !visible);
+        onContextMenu={(event) => {
+          event.preventDefault();
+          clearLongPress();
+          setMenuOpen((open) => !open);
         }}
+        onClick={scheduleWave}
+        onDoubleClick={jump}
       >
-        <PetAvatar pet={pet} busy={busy} />
+        <PetAvatar pet={pet} busy={busy} state={animationState} />
       </button>
     </aside>
   );

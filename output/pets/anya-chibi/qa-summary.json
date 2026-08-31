@@ -1,0 +1,44 @@
+{
+  "status": "pass",
+  "petId": "anya-chibi",
+  "displayName": "小阿尼亚",
+  "generation": {
+    "skill": "$imagegen",
+    "provider": "Codex configured OpenAI-compatible provider",
+    "baseUrl": "https://api.lele-ai.top/v1",
+    "model": "gpt-image-2",
+    "mode": "grounded edit using canonical base and row layout guides"
+  },
+  "atlas": {
+    "width": 1536,
+    "height": 1872,
+    "columns": 8,
+    "rows": 9,
+    "cellWidth": 192,
+    "cellHeight": 208,
+    "format": "WEBP",
+    "mode": "RGBA"
+  },
+  "states": {
+    "idle": 6,
+    "running-right": 8,
+    "running-left": 8,
+    "waving": 4,
+    "jumping": 5,
+    "failed": 8,
+    "waiting": 6,
+    "running": 6,
+    "review": 6
+  },
+  "qa": {
+    "frameInspection": "pass",
+    "atlasValidation": "pass",
+    "independentVisualReview": "pass",
+    "transparentRgbResiduePixels": 0,
+    "notes": [
+      "running-left was derived by approved framewise horizontal mirroring of running-right",
+      "waiting used stable-slot extraction and passed visual playback review",
+      "three disconnected source artifacts were removed deterministically before final composition"
+    ]
+  }
+}

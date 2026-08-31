@@ -7,6 +7,7 @@ import {
   resolveAppearancePet,
   resolveAppearanceTheme,
 } from "../src/lib/appearanceCatalog";
+import { chooseIdlePetAnimation, choosePetMessage, nextPetIdleDelay } from "../src/lib/petInteractions";
 import type { ResourceItem } from "../src/types";
 
 const userTheme: ResourceItem = {
@@ -61,6 +62,71 @@ const parsedPet = await parseAppearancePet(
 assert.equal(requestedAsset, "C:\\Users\\demo\\.pi\\agent\\pets\\orb\\sprites\\orb.webp");
 assert.equal(parsedPet.id, "pet:orb");
 assert.equal(parsedPet.assetDataUrl, "data:image/webp;base64,YWJj");
+assert.equal(parsedPet.spritesheet, undefined);
+
+const animatedPet = await parseAppearancePet(
+  JSON.stringify({
+    id: "anya-chibi",
+    displayName: "小阿尼亚",
+    spritesheetPath: "spritesheet.webp",
+    spritesheet: {
+      states: {
+        waving: { frameDurationMs: 140 },
+      },
+    },
+    behavior: {
+      idleAnimations: ["waving"],
+      idleMinMs: 12_000,
+      idleMaxMs: 24_000,
+      messages: {
+        waving: ["你好，我是阿尼亚", "一起工作吧"],
+        failed: "我陪你再检查一次",
+      },
+    },
+  }),
+  { ...userPet, name: "anya-chibi", path: "C:\\Users\\demo\\.pi\\agent\\pets\\anya-chibi" },
+  async (file) => ({
+    path: file,
+    fileName: "spritesheet.webp",
+    mimeType: "image/webp",
+    size: 3,
+    kind: "image",
+    data: "YWJj",
+  }),
+);
+
+assert.equal(animatedPet.id, "pet:anya-chibi");
+assert.equal(animatedPet.label, "小阿尼亚");
+assert.equal(animatedPet.spritesheet?.columns, 8);
+assert.equal(animatedPet.spritesheet?.rows, 9);
+assert.equal(animatedPet.spritesheet?.states["running-left"].frames, 8);
+assert.equal(animatedPet.spritesheet?.states.waving.frameDurationMs, 140);
+assert.deepEqual(animatedPet.behavior?.idleAnimations, ["waving"]);
+assert.equal(choosePetMessage(animatedPet, "waving", () => 0), "你好，我是阿尼亚");
+assert.equal(chooseIdlePetAnimation(animatedPet, () => 0.9), "waving");
+assert.equal(nextPetIdleDelay(animatedPet, () => 0.5), 18_000);
+
+await assert.rejects(
+  () => parseAppearancePet(
+    JSON.stringify({ id: "bad-sheet", spritesheetPath: "spritesheet.webp", spritesheet: { columns: 0 } }),
+    userPet,
+    async (file) => ({ path: file, fileName: "spritesheet.webp", mimeType: "image/webp", size: 3, kind: "image", data: "YWJj" }),
+  ),
+  /spritesheet.columns/,
+);
+
+await assert.rejects(
+  () => parseAppearancePet(
+    JSON.stringify({
+      id: "bad-behavior",
+      asset: "pet.webp",
+      behavior: { idleMinMs: 20_000, idleMaxMs: 10_000 },
+    }),
+    userPet,
+    async (file) => ({ path: file, fileName: "pet.webp", mimeType: "image/webp", size: 3, kind: "image", data: "YWJj" }),
+  ),
+  /idleMaxMs/,
+);
 
 const projectTheme = { ...parsedTheme, label: "Project Ocean", scope: "project" as const };
 const catalog = mergeAppearanceCatalog([parsedTheme, projectTheme], [parsedPet]);
