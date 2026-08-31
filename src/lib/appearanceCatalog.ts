@@ -2,6 +2,56 @@ import type { AttachmentPayload, ResourceItem } from "../types";
 
 export type BuiltinPetCharacter = "cat" | "robot" | "fox";
 export type AppearanceScope = "builtin" | "user" | "project";
+export type PetAnimationState =
+  | "idle"
+  | "running-right"
+  | "running-left"
+  | "waving"
+  | "jumping"
+  | "failed"
+  | "waiting"
+  | "running"
+  | "review";
+
+export interface PetAnimationSequence {
+  row: number;
+  frames: number;
+  frameDurationMs: number;
+  loop: boolean;
+}
+
+export interface PetSpritesheetDefinition {
+  columns: number;
+  rows: number;
+  cellWidth: number;
+  cellHeight: number;
+  states: Record<PetAnimationState, PetAnimationSequence>;
+}
+
+export interface PetBehaviorDefinition {
+  idleAnimations?: Array<Extract<PetAnimationState, "waving" | "jumping">>;
+  idleMinMs?: number;
+  idleMaxMs?: number;
+  messages?: Partial<Record<PetAnimationState, string[]>>;
+}
+
+export const DEFAULT_PET_SPRITESHEET: PetSpritesheetDefinition = {
+  columns: 8,
+  rows: 9,
+  cellWidth: 192,
+  cellHeight: 208,
+  states: {
+    idle: { row: 0, frames: 6, frameDurationMs: 220, loop: true },
+    "running-right": { row: 1, frames: 8, frameDurationMs: 90, loop: true },
+    "running-left": { row: 2, frames: 8, frameDurationMs: 90, loop: true },
+    waving: { row: 3, frames: 4, frameDurationMs: 170, loop: true },
+    jumping: { row: 4, frames: 5, frameDurationMs: 130, loop: false },
+    failed: { row: 5, frames: 8, frameDurationMs: 180, loop: true },
+    waiting: { row: 6, frames: 6, frameDurationMs: 230, loop: true },
+    running: { row: 7, frames: 6, frameDurationMs: 130, loop: true },
+    review: { row: 8, frames: 6, frameDurationMs: 180, loop: true },
+  },
+};
 
 export interface ThemePalette {
   app: string;
@@ -36,6 +86,8 @@ export interface AppearancePetDefinition {
   sourcePath?: string;
   builtinCharacter?: BuiltinPetCharacter;
   assetDataUrl?: string;
+  spritesheet?: PetSpritesheetDefinition;
+  behavior?: PetBehaviorDefinition;
 }
 
 export interface AppearanceCatalogError {
@@ -107,6 +159,101 @@ function asRecord(value: unknown): JsonRecord {
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function boundedInteger(value: unknown, fallback: number, min: number, max: number, label: string): number {
+  if (value === undefined || value === null || value === "") return fallback;
+  const numeric = typeof value === "number" ? value : Number.NaN;
+  if (!Number.isInteger(numeric) || numeric < min || numeric > max) {
+    throw new Error(`${label} 必须是 ${min} 到 ${max} 之间的整数`);
+  }
+  return numeric;
+}
+
+function parsePetSpritesheet(value: unknown): PetSpritesheetDefinition {
+  const manifest = asRecord(value);
+  const columns = boundedInteger(manifest.columns, DEFAULT_PET_SPRITESHEET.columns, 1, 64, "spritesheet.columns");
+  const rows = boundedInteger(manifest.rows, DEFAULT_PET_SPRITESHEET.rows, 1, 64, "spritesheet.rows");
+  const cellWidth = boundedInteger(manifest.cellWidth, DEFAULT_PET_SPRITESHEET.cellWidth, 1, 4096, "spritesheet.cellWidth");
+  const cellHeight = boundedInteger(manifest.cellHeight, DEFAULT_PET_SPRITESHEET.cellHeight, 1, 4096, "spritesheet.cellHeight");
+  const stateManifest = asRecord(manifest.states);
+  const states = Object.fromEntries(
+    (Object.entries(DEFAULT_PET_SPRITESHEET.states) as [PetAnimationState, PetAnimationSequence][]).map(([state, defaults]) => {
+      const sequence = asRecord(stateManifest[state]);
+      return [state, {
+        row: boundedInteger(sequence.row, Math.min(defaults.row, rows - 1), 0, rows - 1, `spritesheet.states.${state}.row`),
+        frames: boundedInteger(sequence.frames, Math.min(defaults.frames, columns), 1, columns, `spritesheet.states.${state}.frames`),
+        frameDurationMs: boundedInteger(sequence.frameDurationMs, defaults.frameDurationMs, 40, 5000, `spritesheet.states.${state}.frameDurationMs`),
+        loop: typeof sequence.loop === "boolean" ? sequence.loop : defaults.loop,
+      }];
+    }),
+  ) as Record<PetAnimationState, PetAnimationSequence>;
+  return { columns, rows, cellWidth, cellHeight, states };
+}
+
+const PET_BEHAVIOR_MESSAGE_STATES: PetAnimationState[] = [
+  "idle",
+  "running-right",
+  "running-left",
+  "waving",
+  "jumping",
+  "failed",
+  "waiting",
+  "running",
+  "review",
+];
+
+function parsePetBehavior(value: unknown): PetBehaviorDefinition | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error("behavior 必须是对象");
+  const manifest = asRecord(value);
+  const behavior: PetBehaviorDefinition = {};
+
+  if (manifest.idleAnimations !== undefined) {
+    if (!Array.isArray(manifest.idleAnimations) || manifest.idleAnimations.length > 4) {
+      throw new Error("behavior.idleAnimations 必须是最多 4 项的数组");
+    }
+    const allowed = new Set(["waving", "jumping"]);
+    const animations = manifest.idleAnimations.map((entry) => asString(entry));
+    if (animations.some((entry) => !allowed.has(entry))) {
+      throw new Error("behavior.idleAnimations 仅支持 waving 和 jumping");
+    }
+    behavior.idleAnimations = [...new Set(animations)] as PetBehaviorDefinition["idleAnimations"];
+  }
+
+  if (manifest.idleMinMs !== undefined) {
+    behavior.idleMinMs = boundedInteger(manifest.idleMinMs, 18_000, 5_000, 300_000, "behavior.idleMinMs");
+  }
+  if (manifest.idleMaxMs !== undefined) {
+    behavior.idleMaxMs = boundedInteger(manifest.idleMaxMs, 42_000, 5_000, 300_000, "behavior.idleMaxMs");
+  }
+  if ((behavior.idleMaxMs ?? 42_000) < (behavior.idleMinMs ?? 18_000)) {
+    throw new Error("behavior.idleMaxMs 不能小于 behavior.idleMinMs");
+  }
+
+  if (manifest.messages !== undefined) {
+    if (typeof manifest.messages !== "object" || manifest.messages === null || Array.isArray(manifest.messages)) {
+      throw new Error("behavior.messages 必须是对象");
+    }
+    const messageManifest = asRecord(manifest.messages);
+    const messages: Partial<Record<PetAnimationState, string[]>> = {};
+    for (const state of PET_BEHAVIOR_MESSAGE_STATES) {
+      const raw = messageManifest[state];
+      if (raw === undefined) continue;
+      const entries = typeof raw === "string" ? [raw] : Array.isArray(raw) ? raw : [];
+      if (entries.length === 0 || entries.length > 8 || entries.some((entry) => typeof entry !== "string")) {
+        throw new Error(`behavior.messages.${state} 必须包含 1 到 8 条文本`);
+      }
+      const normalized = entries.map((entry) => entry.trim());
+      if (normalized.some((entry) => !entry || entry.length > 80)) {
+        throw new Error(`behavior.messages.${state} 每条必须是 1 到 80 个字符`);
+      }
+      messages[state] = normalized;
+    }
+    behavior.messages = messages;
+  }
+
+  return behavior;
 }
 
 function slug(value: string): string {
@@ -244,21 +391,29 @@ export async function parseAppearancePet(
   manifestPath = manifestPathFor(resource),
 ): Promise<AppearancePetDefinition> {
   const manifest = parseJson(text, resource.name);
-  const name = asString(manifest.name) || asString(manifest.label) || resource.name;
+  const name = asString(manifest.name) || asString(manifest.displayName) || asString(manifest.label) || resource.name;
   const idPart = slug(asString(manifest.id) || name) || slug(resource.name);
-  const asset = asString(manifest.asset);
+  const spritesheetManifest = asRecord(manifest.spritesheet);
+  const spritesheetPath = asString(manifest.spritesheetPath)
+    || asString(manifest.spritesheet)
+    || asString(spritesheetManifest.asset);
+  const asset = asString(manifest.asset) || spritesheetPath;
   if (!idPart) throw new Error("宠物缺少可用的 id 或 name");
-  if (!asset) throw new Error("宠物清单缺少 asset");
+  if (!asset) throw new Error("宠物清单缺少 asset 或 spritesheetPath");
   const payload = await readAttachment(assetPathFor(manifestPath, asset));
   if (payload.kind !== "image" || !payload.data || !payload.mimeType.startsWith("image/")) {
     throw new Error("asset 不是可读取的图片");
   }
   return {
     id: `pet:${idPart}`,
-    label: asString(manifest.label) || name,
+    label: asString(manifest.label) || asString(manifest.displayName) || name,
     scope: resource.scope,
     sourcePath: manifestPath,
     assetDataUrl: `data:${payload.mimeType};base64,${payload.data}`,
+    spritesheet: spritesheetPath || Object.keys(spritesheetManifest).length > 0
+      ? parsePetSpritesheet(spritesheetManifest)
+      : undefined,
+    behavior: parsePetBehavior(manifest.behavior),
   };
 }
 

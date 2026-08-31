@@ -47,6 +47,7 @@ import {
   loadAppearanceCatalog,
   resolveAppearancePet,
   resolveAppearanceTheme,
+  type PetAnimationState,
 } from "./lib/appearanceCatalog";
 import { aggregateDiffStats } from "./lib/gitDiffStats";
 import { activeSessionTitle, sessionRecency, sessionTitle } from "./lib/sessionTitle";
@@ -270,6 +271,15 @@ export default function App() {
     [appearanceCatalog, previewPet, settings?.petCharacter],
   );
   const petBusy = isStreaming || isCompacting || connection === "starting";
+  const petActivity: PetAnimationState = extensionRequest
+    ? "waiting"
+    : workspaceTool === "review"
+      ? "review"
+      : connection === "exited" || Boolean(retryStatus)
+        ? "failed"
+        : petBusy
+          ? "running"
+          : "idle";
   const { runtimeRecoveryDone, startupAutoConnectRef } = useRuntimeBootstrap({
     isTauri,
     connection,
@@ -320,6 +330,7 @@ export default function App() {
       enabled: settings.petEnabled,
       pet: activePet,
       busy: petBusy,
+      activity: petActivity,
     };
     window.localStorage.setItem(DESKTOP_PET_STATE_KEY, JSON.stringify(payload));
     void getAllWindows()
@@ -335,7 +346,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [activePet, isTauri, petBusy, settings]);
+  }, [activePet, isTauri, petActivity, petBusy, settings]);
 
   const createSideChat = useCallback(() => {
     if (newTask || !sessionFile || !workspaceCwd) {
@@ -2391,6 +2402,7 @@ export default function App() {
         <PetCompanion
           pet={activePet}
           busy={petBusy}
+          activity={petActivity}
         />
       )}
 
