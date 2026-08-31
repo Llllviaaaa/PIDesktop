@@ -53,6 +53,7 @@ import { aggregateDiffStats } from "./lib/gitDiffStats";
 import { activeSessionTitle, sessionRecency, sessionTitle } from "./lib/sessionTitle";
 import { navigationKey, withoutArchivedSessions, type NavigationTarget as BaseNavigationTarget } from "./lib/navigationHistory";
 import { sameLocalPath } from "./lib/pathIdentity";
+import { buildPetActivities, petStatusToAnimation, type PetActivityItem, type PetActivityStatus } from "./lib/petActivity";
 import { ACTIVE_RUNTIME_KEY, LAST_TASK_KEY, readPersistedTask, useRuntimeBootstrap } from "./hooks/useRuntimeBootstrap";
 import { usePiStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
@@ -61,7 +62,10 @@ import type { SettingsPage } from "./components/SettingsModal";
 import { PetCompanion } from "./components/PetCompanion";
 import {
   DESKTOP_PET_EVENT,
+  DESKTOP_PET_DISABLE_EVENT,
+  DESKTOP_PET_NAVIGATE_EVENT,
   DESKTOP_PET_STATE_KEY,
+  type DesktopPetNavigationRequest,
   type DesktopPetWindowState,
 } from "./components/DesktopPetWindow";
 import { ExtensionDialog } from "./components/ExtensionDialog";
@@ -265,21 +269,51 @@ export default function App() {
   const isTauri = "__TAURI_INTERNALS__" in window;
   const layoutScale = Math.min(150, Math.max(75, settings?.uiScale ?? 100)) / 100;
   const petFixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("pet") : null;
+  const petActivityFixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("pet-activity") : null;
   const previewPet = petFixture && appearanceCatalog.pets.some((pet) => pet.id === petFixture) ? petFixture : null;
   const activePet = useMemo(
     () => resolveAppearancePet(appearanceCatalog, previewPet ?? settings?.petCharacter ?? "cat"),
     [appearanceCatalog, previewPet, settings?.petCharacter],
   );
-  const petBusy = isStreaming || isCompacting || connection === "starting";
-  const petActivity: PetAnimationState = extensionRequest
-    ? "waiting"
-    : workspaceTool === "review"
-      ? "review"
-      : connection === "exited" || Boolean(retryStatus)
-        ? "failed"
-        : petBusy
-          ? "running"
-          : "idle";
+  const currentRuntime = runtimeId ? runtimes[runtimeId] : undefined;
+  const currentPetBusy = isStreaming || isCompacting || connection === "starting";
+  const extensionRequestTitle = extensionRequest && "title" in extensionRequest ? extensionRequest.title : undefined;
+  const currentPetStatus: PetActivityStatus | null = extensionRequest
+    ? "needs-input"
+    : connection === "exited" || Boolean(retryStatus)
+      ? "blocked"
+      : currentPetBusy
+        ? "running"
+        : null;
+  const currentPetActivity = useMemo<PetActivityItem | null>(() => currentPetStatus ? {
+    id: `current:${runtimeId || sessionFile || cwd || "task"}`,
+    status: currentPetStatus,
+    title: resolvedThreadTitle || "当前任务",
+    body: currentPetStatus === "needs-input"
+      ? extensionRequestTitle || "正在等待你的决定"
+      : currentPetStatus === "blocked"
+        ? retryStatus || "任务已停止"
+        : isCompacting ? "正在压缩上下文" : connection === "starting" ? "正在启动" : "正在工作",
+    cwd,
+    sessionFile,
+    updatedAt: currentRuntime?.updatedAt ?? 0,
+  } : null, [connection, currentPetStatus, currentRuntime?.updatedAt, cwd, extensionRequestTitle, isCompacting, resolvedThreadTitle, retryStatus, runtimeId, sessionFile]);
+  const petActivities = useMemo(() => buildPetActivities({
+    runtimes,
+    notifications,
+    sessions,
+    current: currentPetActivity,
+  }), [currentPetActivity, notifications, runtimes, sessions]);
+  const displayedPetActivities = useMemo<PetActivityItem[]>(() => petActivityFixture === "1" ? [
+    { id: "fixture-input", status: "needs-input", title: "等待权限确认", body: "需要批准命令", cwd: cwd || "D:\\Workspace", sessionFile: null, updatedAt: 4 },
+    { id: "fixture-blocked", status: "blocked", title: "构建桌面应用", body: "构建进程已退出", cwd: cwd || "D:\\Workspace", sessionFile: null, updatedAt: 3 },
+    { id: "fixture-ready", status: "ready", title: "审查设置页面", body: "任务已完成", cwd: cwd || "D:\\Workspace", sessionFile: null, updatedAt: 2 },
+    { id: "fixture-running", status: "running", title: "运行界面测试", body: "正在工作", cwd: cwd || "D:\\Workspace", sessionFile: null, updatedAt: 1 },
+  ] : petActivities, [cwd, petActivities, petActivityFixture]);
+  const petActivity: PetAnimationState = displayedPetActivities[0]
+    ? petStatusToAnimation(displayedPetActivities[0].status)
+    : workspaceTool === "review" ? "review" : "idle";
+  const petBusy = petActivity === "running";
   const { runtimeRecoveryDone, startupAutoConnectRef } = useRuntimeBootstrap({
     isTauri,
     connection,
@@ -329,8 +363,10 @@ export default function App() {
     const payload: DesktopPetWindowState = {
       enabled: settings.petEnabled,
       pet: activePet,
+      petSize: settings.petSize,
       busy: petBusy,
       activity: petActivity,
+      activities: displayedPetActivities,
     };
     window.localStorage.setItem(DESKTOP_PET_STATE_KEY, JSON.stringify(payload));
     void getAllWindows()
@@ -346,7 +382,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [activePet, isTauri, petActivity, petBusy, settings]);
+  }, [activePet, displayedPetActivities, isTauri, petActivity, petBusy, settings]);
 
   const createSideChat = useCallback(() => {
     if (newTask || !sessionFile || !workspaceCwd) {
@@ -1160,6 +1196,38 @@ export default function App() {
     setNavigationVersion((value) => value + 1);
     void applyNavigationTarget(target);
   }, [applyNavigationTarget, currentNavigationTarget]);
+
+  const openPetActivity = useCallback((activity: DesktopPetNavigationRequest) => {
+    if (activity.notificationId) usePiStore.getState().markNotificationRead(activity.notificationId);
+    if (activity.sessionFile) {
+      navigateTo({ kind: "session", cwd: activity.cwd, file: activity.sessionFile });
+    } else if (activity.cwd) {
+      navigateTo({ kind: "home", workspace: activity.cwd });
+    }
+  }, [navigateTo]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    let disposed = false;
+    const stops: UnlistenFn[] = [];
+    void Promise.all([
+      listen<DesktopPetNavigationRequest>(DESKTOP_PET_NAVIGATE_EVENT, (event) => openPetActivity(event.payload)),
+      listen(DESKTOP_PET_DISABLE_EVENT, () => {
+        const current = usePiStore.getState();
+        if (!current.settings?.petEnabled) return;
+        void current.saveSettings({ ...current.settings, petEnabled: false }).catch((error) => {
+          current.showToast(`关闭宠物失败：${String(error)}`, "error");
+        });
+      }),
+    ]).then((unlisteners) => {
+      if (disposed) unlisteners.forEach((stop) => stop());
+      else stops.push(...unlisteners);
+    });
+    return () => {
+      disposed = true;
+      stops.forEach((stop) => stop());
+    };
+  }, [isTauri, openPetActivity]);
 
   const navigateBack = useCallback(() => {
     const target = navigationBackRef.current.pop();
@@ -2403,6 +2471,13 @@ export default function App() {
           pet={activePet}
           busy={petBusy}
           activity={petActivity}
+          size={settings?.petSize ?? 96}
+          activities={displayedPetActivities}
+          onOpenActivity={openPetActivity}
+          onHide={() => {
+            const current = usePiStore.getState();
+            if (current.settings) void current.saveSettings({ ...current.settings, petEnabled: false });
+          }}
         />
       )}
 

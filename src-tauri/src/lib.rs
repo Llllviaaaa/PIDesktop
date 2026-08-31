@@ -99,6 +99,7 @@ struct AppSettings {
     theme: String,
     pet_enabled: bool,
     pet_character: String,
+    pet_size: u16,
     accent_color: String,
     background_color: String,
     foreground_color: String,
@@ -262,6 +263,7 @@ impl Default for AppSettings {
             theme: "light".to_string(),
             pet_enabled: false,
             pet_character: "cat".to_string(),
+            pet_size: 96,
             accent_color: "#111111".to_string(),
             background_color: "#ffffff".to_string(),
             foreground_color: "#1a1a1a".to_string(),
@@ -2810,6 +2812,9 @@ fn set_settings(state: State<'_, AppState>, mut settings: AppSettings) -> Result
     }
     if !(75..=150).contains(&settings.ui_scale) {
         return Err("UI scale must be between 75 and 150".to_string());
+    }
+    if !(80..=224).contains(&settings.pet_size) {
+        return Err("pet size must be between 80 and 224".to_string());
     }
     if !(1..=4).contains(&settings.subagent_max_concurrency) {
         return Err("subagent concurrency must be between 1 and 4".to_string());

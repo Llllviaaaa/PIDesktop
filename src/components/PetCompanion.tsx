@@ -7,8 +7,23 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { ArrowUp, Coffee, ExternalLink, Hand, Play, RotateCcw, Search } from "lucide-react";
+import {
+  ArrowUp,
+  CircleAlert,
+  CircleCheck,
+  Coffee,
+  ExternalLink,
+  EyeOff,
+  Hand,
+  LoaderCircle,
+  OctagonAlert,
+  Play,
+  RotateCcw,
+  Search,
+  X,
+} from "lucide-react";
 import type { AppearancePetDefinition, PetAnimationState } from "../lib/appearanceCatalog";
+import type { PetActivityItem, PetActivityStatus } from "../lib/petActivity";
 import {
   chooseIdlePetAnimation,
   choosePetMessage,
@@ -20,6 +35,12 @@ import {
 
 const PET_POSITION_KEY = "pid-desktop:pet-position:v1";
 const PET_MARGIN = 12;
+export const PET_SIZE_MIN = 80;
+export const PET_SIZE_MAX = 224;
+
+export function clampPetSize(value: number | undefined): number {
+  return Math.min(PET_SIZE_MAX, Math.max(PET_SIZE_MIN, Number(value) || 96));
+}
 
 interface PetPosition {
   x: number;
@@ -214,14 +235,64 @@ const ACTION_ICONS: Record<PetActionId, typeof Hand> = {
   rest: Coffee,
 };
 
+const ACTIVITY_META: Record<PetActivityStatus, { label: string; icon: typeof CircleAlert }> = {
+  "needs-input": { label: "需要输入", icon: CircleAlert },
+  blocked: { label: "已阻塞", icon: OctagonAlert },
+  ready: { label: "已完成", icon: CircleCheck },
+  running: { label: "运行中", icon: LoaderCircle },
+};
+
+export function PetActivityTray({
+  activities,
+  onOpen,
+  onClose,
+}: {
+  activities: PetActivityItem[];
+  onOpen: (activity: PetActivityItem) => void;
+  onClose: () => void;
+}) {
+  return (
+    <section className="pet-activity-tray" aria-label="宠物活动">
+      <header>
+        <span>活动</span>
+        <small>{activities.length}</small>
+        <button type="button" title="收起活动" aria-label="收起活动" onClick={onClose}><X size={14} /></button>
+      </header>
+      <div className="pet-activity-list" role="list">
+        {activities.map((activity) => {
+          const meta = ACTIVITY_META[activity.status];
+          const Icon = meta.icon;
+          return (
+            <button
+              key={activity.id}
+              type="button"
+              className={`pet-activity-item status-${activity.status}`}
+              role="listitem"
+              onClick={() => onOpen(activity)}
+            >
+              <Icon className={activity.status === "running" ? "spinner-icon" : ""} size={16} />
+              <span>
+                <strong>{activity.title}</strong>
+                <small>{meta.label} · {activity.body}</small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function PetActionMenu({
   onAction,
   onReset,
   onOpenApp,
+  onHide,
 }: {
   onAction: (action: PetActionDefinition) => void;
   onReset: () => void;
   onOpenApp?: () => void;
+  onHide?: () => void;
 }) {
   return (
     <div className="pet-action-menu" role="menu" aria-label="宠物互动">
@@ -244,6 +315,12 @@ export function PetActionMenu({
           <span>打开 Pi Desktop</span>
         </button>
       )}
+      {onHide && (
+        <button type="button" role="menuitem" className="pet-action-wide" onClick={onHide}>
+          <EyeOff size={14} />
+          <span>关闭宠物</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -252,10 +329,18 @@ export function PetCompanion({
   pet,
   busy,
   activity = busy ? "running" : "idle",
+  size = 96,
+  activities = [],
+  onOpenActivity,
+  onHide,
 }: {
   pet: AppearancePetDefinition;
   busy: boolean;
   activity?: PetAnimationState;
+  size?: number;
+  activities?: PetActivityItem[];
+  onOpenActivity?: (activity: PetActivityItem) => void;
+  onHide?: () => void;
 }) {
   const rootRef = useRef<HTMLElement>(null);
   const dragRef = useRef<{
@@ -274,7 +359,9 @@ export function PetCompanion({
   const [dragging, setDragging] = useState(false);
   const [dragDirection, setDragDirection] = useState<"running-left" | "running-right">("running-right");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const interactionController = usePetInteractionController(pet, activity);
+  const petSize = clampPetSize(size);
 
   useEffect(() => {
     const keepOnScreen = () => {
@@ -293,7 +380,7 @@ export function PetCompanion({
     keepOnScreen();
     window.addEventListener("resize", keepOnScreen);
     return () => window.removeEventListener("resize", keepOnScreen);
-  }, []);
+  }, [petSize]);
 
   useEffect(() => () => {
     if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
@@ -338,11 +425,13 @@ export function PetCompanion({
   const nudgePet = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Escape") {
       setMenuOpen(false);
+      setActivityOpen(false);
       return;
     }
     if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10") || event.key.toLowerCase() === "m") {
       event.preventDefault();
       setMenuOpen((open) => !open);
+      setActivityOpen(false);
       return;
     }
     const directions: Partial<Record<string, PetPosition>> = {
@@ -381,17 +470,23 @@ export function PetCompanion({
     setPosition(next);
     savePetPosition(next);
     setMenuOpen(false);
+    setActivityOpen(false);
     interactionController.playInteraction("idle", 1_200, `${pet.label}回到这里了`);
   };
 
-  const scheduleWave = () => {
+  const schedulePrimaryAction = () => {
     if (ignoreClickRef.current) {
       ignoreClickRef.current = false;
       return;
     }
     if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
     clickTimerRef.current = window.setTimeout(() => {
-      interactionController.playInteraction("waving", 1_250);
+      if (activities.length > 0) {
+        setMenuOpen(false);
+        setActivityOpen((open) => !open);
+      } else {
+        interactionController.playInteraction("waving", 1_250);
+      }
       clickTimerRef.current = null;
     }, 220);
   };
@@ -402,23 +497,28 @@ export function PetCompanion({
       clickTimerRef.current = null;
     }
     interactionController.playInteraction("jumping", 900);
+    setActivityOpen(false);
   };
 
   const visualClass = pet.builtinCharacter ?? "custom";
   const label = pet.label || "桌面宠物";
   const animationState = dragging ? dragDirection : interactionController.animationState;
-  const menuBelow = (position?.y ?? PET_MARGIN) < 132;
-  const menuAlignment = (position?.x ?? PET_MARGIN) < 80
+  const menuBelow = (position?.y ?? PET_MARGIN) < petSize + 48;
+  const menuAlignment = (position?.x ?? PET_MARGIN) < 120
     ? "menu-align-left"
-    : (position?.x ?? PET_MARGIN) > window.innerWidth - 212
+    : (position?.x ?? PET_MARGIN) > window.innerWidth - 252
       ? "menu-align-right"
       : "";
+  const rootStyle = {
+    ...(position ? { left: position.x, top: position.y } : {}),
+    "--pet-size": `${petSize}px`,
+  } as CSSProperties;
 
   return (
     <aside
       ref={rootRef}
-      className={`desktop-pet pet-${visualClass} pet-state-${animationState}${busy ? " busy" : ""}${dragging ? " dragging" : ""}${menuOpen ? " menu-open" : ""}${menuOpen && menuBelow ? " menu-below" : ""}${menuOpen && menuAlignment ? ` ${menuAlignment}` : ""}`}
-      style={position ? { left: position.x, top: position.y } : undefined}
+      className={`desktop-pet pet-${visualClass} pet-state-${animationState}${busy ? " busy" : ""}${dragging ? " dragging" : ""}${menuOpen ? " menu-open" : ""}${activityOpen ? " activity-open" : ""}${(menuOpen || activityOpen) && menuBelow ? " menu-below" : ""}${(menuOpen || activityOpen) && menuAlignment ? ` ${menuAlignment}` : ""}`}
+      style={rootStyle}
       aria-label={`${label}${busy ? "正在工作" : "空闲"}`}
     >
       {interactionController.message && !menuOpen && <span className="pet-status" role="status">{interactionController.message}</span>}
@@ -429,13 +529,24 @@ export function PetCompanion({
             interactionController.playInteraction(action.state, action.durationMs);
           }}
           onReset={resetPosition}
+          onHide={onHide}
+        />
+      )}
+      {activityOpen && activities.length > 0 && (
+        <PetActivityTray
+          activities={activities}
+          onClose={() => setActivityOpen(false)}
+          onOpen={(item) => {
+            setActivityOpen(false);
+            onOpenActivity?.(item);
+          }}
         />
       )}
       <button
         type="button"
         className="desktop-pet-button"
         title={label}
-        aria-label={`${label}，右键打开互动菜单`}
+        aria-label={activities.length > 0 ? `${label}，单击查看活动，右键打开菜单` : `${label}，右键打开互动菜单`}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         onPointerDown={(event) => {
@@ -471,6 +582,7 @@ export function PetCompanion({
               clearLongPress();
               setDragging(true);
               setMenuOpen(false);
+              setActivityOpen(false);
             }
             if (Math.abs(event.clientX - drag.lastX) > 1) {
               setDragDirection(event.clientX < drag.lastX ? "running-left" : "running-right");
@@ -486,11 +598,17 @@ export function PetCompanion({
           event.preventDefault();
           clearLongPress();
           setMenuOpen((open) => !open);
+          setActivityOpen(false);
         }}
-        onClick={scheduleWave}
+        onClick={schedulePrimaryAction}
         onDoubleClick={jump}
       >
         <PetAvatar pet={pet} busy={busy} state={animationState} />
+        {activities.length > 0 && (
+          <span className={`pet-activity-badge status-${activities[0].status}`} aria-hidden="true">
+            {Math.min(9, activities.length)}
+          </span>
+        )}
       </button>
     </aside>
   );
