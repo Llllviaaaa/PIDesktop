@@ -302,6 +302,7 @@ export interface AppSettings {
   theme: string;
   petEnabled: boolean;
   petCharacter: string;
+  petSize: number;
   accentColor: string;
   backgroundColor: string;
   foregroundColor: string;

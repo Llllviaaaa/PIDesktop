@@ -103,6 +103,7 @@ const DEFAULTS: AppSettings = {
   theme: "light",
   petEnabled: false,
   petCharacter: "cat",
+  petSize: 96,
   accentColor: "#18181b",
   backgroundColor: "#ffffff",
   foregroundColor: "#1a1a1a",
@@ -264,6 +265,7 @@ export function SettingsModal({
     return {
       ...value,
       language: "zh-CN",
+      petSize: Math.min(224, Math.max(80, Number(value.petSize) || 96)),
     };
   };
 
@@ -628,6 +630,22 @@ function AppearancePage({
           ))}
         </div>
       </div>
+      <Row title="宠物大小" description="调整桌面宠物的显示大小，修改后会立即生效。">
+        <label className="pet-size-control">
+          <span className="pet-size-sample small" aria-hidden="true" />
+          <input
+            aria-label="宠物大小"
+            type="range"
+            min="80"
+            max="224"
+            step="4"
+            value={form.petSize}
+            onInput={(event) => update("petSize", Number(event.currentTarget.value))}
+          />
+          <span className="pet-size-sample large" aria-hidden="true" />
+          <output>{form.petSize}px</output>
+        </label>
+      </Row>
       <Row title="宠物扩展" description={`${extensionCount("pet")} 个已安装；可安装到当前用户或项目。`}>{renderExtensionControls("pet")}</Row>
     </Card>
 

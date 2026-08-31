@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import {
   currentMonitor,
   getAllWindows,
@@ -9,27 +9,40 @@ import {
   primaryMonitor,
 } from "@tauri-apps/api/window";
 import type { AppearancePetDefinition, PetAnimationState } from "../lib/appearanceCatalog";
-import { PetActionMenu, PetAvatar, usePetInteractionController } from "./PetCompanion";
+import type { PetActivityItem } from "../lib/petActivity";
+import { clampPetSize, PetActionMenu, PetActivityTray, PetAvatar, usePetInteractionController } from "./PetCompanion";
 
 export const DESKTOP_PET_EVENT = "desktop-pet:update";
+export const DESKTOP_PET_NAVIGATE_EVENT = "desktop-pet:navigate";
+export const DESKTOP_PET_DISABLE_EVENT = "desktop-pet:disable";
 export const DESKTOP_PET_STATE_KEY = "pid-desktop:desktop-pet-state:v1";
 const DESKTOP_PET_POSITION_KEY = "pid-desktop:desktop-pet-window-position:v1";
 const WINDOW_MARGIN = 24;
-const COLLAPSED_WINDOW_SIZE = { width: 132, height: 112 };
-const EXPANDED_WINDOW_SIZE = { width: 244, height: 228 };
+
+type PetPanel = "menu" | "activity" | null;
+
+export interface DesktopPetNavigationRequest {
+  notificationId?: string;
+  cwd: string;
+  sessionFile: string | null;
+}
 
 export interface DesktopPetWindowState {
   enabled: boolean;
   pet: AppearancePetDefinition;
+  petSize: number;
   busy: boolean;
   activity: PetAnimationState;
+  activities: PetActivityItem[];
 }
 
 const DEFAULT_STATE: DesktopPetWindowState = {
   enabled: true,
   pet: { id: "cat", label: "代码猫", scope: "builtin", builtinCharacter: "cat" },
+  petSize: 96,
   busy: false,
   activity: "idle",
+  activities: [],
 };
 
 function isPetAnimationState(value: unknown): value is PetAnimationState {
@@ -42,7 +55,9 @@ function readState(): DesktopPetWindowState {
     if (parsed?.pet?.id && typeof parsed.busy === "boolean") {
       return {
         ...parsed,
+        petSize: clampPetSize(parsed.petSize),
         activity: isPetAnimationState(parsed.activity) ? parsed.activity : parsed.busy ? "running" : "idle",
+        activities: Array.isArray(parsed.activities) ? parsed.activities : [],
       };
     }
   } catch {
@@ -70,6 +85,7 @@ function savePosition(position: PhysicalPosition): void {
 export function DesktopPetWindow() {
   const [state, setState] = useState(readState);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; started: boolean } | null>(null);
   const ignoreClickRef = useRef(false);
   const clickTimerRef = useRef<number | null>(null);
@@ -80,13 +96,14 @@ export function DesktopPetWindow() {
   const label = state.pet.label || "桌面宠物";
   const interactionController = usePetInteractionController(state.pet, state.activity);
   const animationState = interactionController.animationState;
+  const petSize = clampPetSize(state.petSize);
 
   useEffect(() => () => {
     if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
     if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
   }, []);
 
-  const resizePetWindow = useCallback(async (expanded: boolean) => {
+  const resizePetWindow = useCallback(async (panel: PetPanel, size: number) => {
     if (!petWindow) return;
     const [position, currentSize, scaleFactor, monitor] = await Promise.all([
       petWindow.outerPosition(),
@@ -94,7 +111,12 @@ export function DesktopPetWindow() {
       petWindow.scaleFactor(),
       currentMonitor(),
     ]);
-    const logicalSize = expanded ? EXPANDED_WINDOW_SIZE : COLLAPSED_WINDOW_SIZE;
+    const collapsedSize = { width: size + 48, height: size + 28 };
+    const logicalSize = panel === "activity"
+      ? { width: Math.max(320, collapsedSize.width), height: size + 286 }
+      : panel === "menu"
+        ? { width: Math.max(280, collapsedSize.width), height: size + 158 }
+        : collapsedSize;
     const targetSize = new PhysicalSize(
       Math.round(logicalSize.width * scaleFactor),
       Math.round(logicalSize.height * scaleFactor),
@@ -112,8 +134,9 @@ export function DesktopPetWindow() {
   }, [petWindow]);
 
   useEffect(() => {
-    void resizePetWindow(menuOpen).catch(() => undefined);
-  }, [menuOpen, resizePetWindow]);
+    const panel: PetPanel = activityOpen ? "activity" : menuOpen ? "menu" : null;
+    void resizePetWindow(panel, petSize).catch(() => undefined);
+  }, [activityOpen, menuOpen, petSize, resizePetWindow]);
 
   useEffect(() => {
     document.documentElement.classList.add("desktop-pet-document");
@@ -149,9 +172,11 @@ export function DesktopPetWindow() {
       stopMoved = await petWindow.onMoved(({ payload }) => savePosition(payload));
       stopUpdated = await listen<DesktopPetWindowState>(DESKTOP_PET_EVENT, (event) => setState({
         ...event.payload,
+        petSize: clampPetSize(event.payload.petSize),
         activity: isPetAnimationState(event.payload.activity)
           ? event.payload.activity
           : event.payload.busy ? "running" : "idle",
+        activities: Array.isArray(event.payload.activities) ? event.payload.activities : [],
       }));
       if (disposed) {
         stopMoved();
@@ -168,11 +193,13 @@ export function DesktopPetWindow() {
   const nudgeWindow = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Escape") {
       setMenuOpen(false);
+      setActivityOpen(false);
       return;
     }
     if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10") || event.key.toLowerCase() === "m") {
       event.preventDefault();
       setMenuOpen((open) => !open);
+      setActivityOpen(false);
       return;
     }
     const deltas: Partial<Record<string, { x: number; y: number }>> = {
@@ -225,6 +252,7 @@ export function DesktopPetWindow() {
     drag.started = true;
     ignoreClickRef.current = true;
     setMenuOpen(false);
+    setActivityOpen(false);
     interactionController.playInteraction(deltaX < 0 ? "running-left" : "running-right", 720);
     void petWindow.startDragging().catch(() => undefined);
   };
@@ -239,15 +267,19 @@ export function DesktopPetWindow() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
-  const scheduleWave = () => {
+  const schedulePrimaryAction = () => {
     if (ignoreClickRef.current) {
       ignoreClickRef.current = false;
       return;
     }
-    setMenuOpen(false);
     if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
     clickTimerRef.current = window.setTimeout(() => {
-      interactionController.playInteraction("waving", 1_250);
+      if (state.activities.length > 0) {
+        setMenuOpen(false);
+        setActivityOpen((open) => !open);
+      } else {
+        openMainWindow();
+      }
       clickTimerRef.current = null;
     }, 220);
   };
@@ -258,13 +290,15 @@ export function DesktopPetWindow() {
       clickTimerRef.current = null;
     }
     setMenuOpen(false);
+    setActivityOpen(false);
     interactionController.playInteraction("jumping", 900);
   };
 
   const resetPosition = () => {
     setMenuOpen(false);
+    setActivityOpen(false);
     void (async () => {
-      await resizePetWindow(false);
+      await resizePetWindow(null, petSize);
       if (!petWindow) return;
       const monitor = await primaryMonitor();
       if (!monitor) return;
@@ -279,23 +313,46 @@ export function DesktopPetWindow() {
     })().catch(() => undefined);
   };
 
+  const focusMainWindow = async () => {
+    const windows = await getAllWindows();
+    const mainWindow = windows.find((windowHandle) => windowHandle.label === "main");
+    if (!mainWindow) return;
+    await mainWindow.show();
+    await mainWindow.unminimize();
+    await mainWindow.setFocus();
+  };
+
   const openMainWindow = () => {
     setMenuOpen(false);
+    setActivityOpen(false);
     interactionController.playInteraction("waving", 1_250, "回到主程序吧");
-    void getAllWindows()
-      .then(async (windows) => {
-        const mainWindow = windows.find((windowHandle) => windowHandle.label === "main");
-        if (!mainWindow) return;
-        await mainWindow.show();
-        await mainWindow.unminimize();
-        await mainWindow.setFocus();
-      })
+    void focusMainWindow().catch(() => undefined);
+  };
+
+  const openActivity = (activity: PetActivityItem) => {
+    setActivityOpen(false);
+    void focusMainWindow()
+      .then(() => emitTo<DesktopPetNavigationRequest>("main", DESKTOP_PET_NAVIGATE_EVENT, {
+        notificationId: activity.notificationId,
+        cwd: activity.cwd,
+        sessionFile: activity.sessionFile,
+      }))
       .catch(() => undefined);
   };
 
+  const hidePet = () => {
+    setMenuOpen(false);
+    setActivityOpen(false);
+    void emitTo("main", DESKTOP_PET_DISABLE_EVENT, {})
+      .then(() => petWindow?.hide())
+      .catch(() => undefined);
+  };
+
+  const rootStyle = { "--pet-size": `${petSize}px` } as CSSProperties;
+
   return (
-    <main className={`desktop-pet-window pet-${visualClass} pet-state-${animationState}${state.busy ? " busy" : ""}${menuOpen ? " menu-open" : ""}`} aria-label={`${label}${state.busy ? "正在工作" : "空闲"}`}>
-      {interactionController.message && !menuOpen && <span className="pet-status" role="status">{interactionController.message}</span>}
+    <main className={`desktop-pet-window pet-${visualClass} pet-state-${animationState}${state.busy ? " busy" : ""}${menuOpen ? " menu-open" : ""}${activityOpen ? " activity-open" : ""}`} style={rootStyle} aria-label={`${label}${state.busy ? "正在工作" : "空闲"}`}>
+      {interactionController.message && !menuOpen && !activityOpen && <span className="pet-status" role="status">{interactionController.message}</span>}
       {menuOpen && (
         <PetActionMenu
           onAction={(action) => {
@@ -304,13 +361,21 @@ export function DesktopPetWindow() {
           }}
           onReset={resetPosition}
           onOpenApp={openMainWindow}
+          onHide={hidePet}
+        />
+      )}
+      {activityOpen && state.activities.length > 0 && (
+        <PetActivityTray
+          activities={state.activities}
+          onClose={() => setActivityOpen(false)}
+          onOpen={openActivity}
         />
       )}
       <button
         type="button"
         className="desktop-pet-button"
         title={label}
-        aria-label={`${label}，右键打开互动菜单`}
+        aria-label={`${label}，单击查看活动，右键打开菜单`}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         onPointerDown={beginDrag}
@@ -321,11 +386,17 @@ export function DesktopPetWindow() {
         onContextMenu={(event) => {
           event.preventDefault();
           setMenuOpen((open) => !open);
+          setActivityOpen(false);
         }}
-        onClick={scheduleWave}
+        onClick={schedulePrimaryAction}
         onDoubleClick={jump}
       >
         <PetAvatar pet={state.pet} busy={state.busy} state={animationState} />
+        {state.activities.length > 0 && (
+          <span className={`pet-activity-badge status-${state.activities[0].status}`} aria-hidden="true">
+            {Math.min(9, state.activities.length)}
+          </span>
+        )}
       </button>
     </main>
   );
