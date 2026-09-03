@@ -4,6 +4,12 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+## 0.2.27 - 2026-09-04
+
+- Refine chat messages, Markdown, code blocks, tables, and actions with a quieter DEEIX-inspired presentation across desktop layouts.
+- Add validated rich-content panels for metrics, callouts, steps, comparisons, progress, bars, and curated links in interactive chats.
+- Add provider model catalog discovery for supported APIs while preserving manually configured model metadata.
+
 ## 0.2.22 - 2026-08-26
 
 - Rebuild the Windows distribution from the current Review workspace implementation and bundled Pi Runtime.

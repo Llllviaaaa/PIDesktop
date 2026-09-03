@@ -565,6 +565,7 @@ export function SideChatPanel({
             expectVisibleThinking={thinkingLevel !== "off"}
             isLastAssistant={message.role === "assistant" && index === messages.length - 1}
             globalStreaming={isStreaming}
+            allowRichContent
           />
         ))}
       </div>

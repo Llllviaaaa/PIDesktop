@@ -1,7 +1,7 @@
 {
   "name": "pid-desktop",
   "private": true,
-  "version": "0.2.26",
+  "version": "0.2.27",
   "license": "Apache-2.0",
   "description": "A local-first Windows desktop client for the Pi coding agent",
   "type": "module",
@@ -51,6 +51,7 @@
     "test:pi-runtime": "npm run prepare:pi-runtime && node scripts/test-pi-runtime.mjs",
     "test:markdown-links": "tsx scripts/test-markdown-file-links.tsx",
     "test:markdown-diagrams": "tsx scripts/test-markdown-diagrams.tsx",
+    "test:rich-content": "tsx scripts/test-rich-content.tsx",
     "test:message-actions": "tsx scripts/test-message-actions.tsx",
     "test:goal": "tsx scripts/test-active-goal.ts",
     "test:appearance": "tsx scripts/test-appearance-catalog.ts",
@@ -61,7 +62,7 @@
     "test:doc-links": "node scripts/test-doc-links.mjs",
     "test:github-config": "node scripts/test-github-config.mjs",
     "scan:secrets": "node scripts/scan-secrets.mjs",
-    "test:unit": "npm run test:rules && npm run test:rewind && npm run test:checkpoints && npm run test:managed-queue && npm run test:plan && npm run test:hooks && npm run test:subagents && npm run test:memory-tool && npm run test:mcp-subscriptions && npm run test:session-tree && npm run test:git-diff && npm run test:code-review && npm run test:history && npm run test:schedule && npm run test:model-switch && npm run test:model-cache && npm run test:runtime-disconnect && npm run test:sidebar-order && npm run test:notifications && npm run test:session-title && npm run test:navigation-history && npm run test:pull-requests && npm run test:redaction && npm run test:pi-protocol && npm run test:pi-rpc-router && npm run test:pi-tool-calls && npm run test:pi-runtime && npm run test:markdown-links && npm run test:markdown-diagrams && npm run test:message-actions && npm run test:goal && npm run test:appearance && npm run test:pet && npm run test:web-access && npm run test:agent-control && npm run test:public-hygiene && npm run test:doc-links && npm run test:github-config"
+    "test:unit": "npm run test:rules && npm run test:rewind && npm run test:checkpoints && npm run test:managed-queue && npm run test:plan && npm run test:hooks && npm run test:subagents && npm run test:memory-tool && npm run test:mcp-subscriptions && npm run test:session-tree && npm run test:git-diff && npm run test:code-review && npm run test:history && npm run test:schedule && npm run test:model-switch && npm run test:model-cache && npm run test:runtime-disconnect && npm run test:sidebar-order && npm run test:notifications && npm run test:session-title && npm run test:navigation-history && npm run test:pull-requests && npm run test:redaction && npm run test:pi-protocol && npm run test:pi-rpc-router && npm run test:pi-tool-calls && npm run test:pi-runtime && npm run test:markdown-links && npm run test:markdown-diagrams && npm run test:rich-content && npm run test:message-actions && npm run test:goal && npm run test:appearance && npm run test:pet && npm run test:web-access && npm run test:agent-control && npm run test:public-hygiene && npm run test:doc-links && npm run test:github-config"
   },
   "dependencies": {
     "@plantuml/core": "^1.2026.7",

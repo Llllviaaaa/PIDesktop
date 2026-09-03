@@ -8,6 +8,7 @@ mod workspace_files;
 
 use std::collections::HashMap;
 use std::fs;
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -2239,6 +2240,351 @@ fn validate_model_provider(provider: &ModelProviderInput) -> Result<(), String> 
         }
     }
     Ok(())
+}
+
+fn configured_provider_api_key(provider: &ModelProviderInput) -> Result<Option<String>, String> {
+    let configured = if !provider.api_key.trim().is_empty() {
+        Some(provider.api_key.trim().to_string())
+    } else if provider.keep_existing_api_key {
+        let provider_id = provider
+            .original_id
+            .as_deref()
+            .unwrap_or(provider.id.as_str())
+            .trim();
+        load_models_config()?
+            .get("providers")
+            .and_then(|value| value.get(provider_id))
+            .and_then(|value| value.get("apiKey"))
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+    } else {
+        None
+    };
+    configured
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| resolve_provider_config_value(&value))
+        .transpose()
+}
+
+fn resolve_provider_config_value(value: &str) -> Result<String, String> {
+    if let Some(script) = value.strip_prefix('!') {
+        if script.trim().is_empty() {
+            return Err("API 密钥命令不能为空".to_string());
+        }
+        #[cfg(windows)]
+        let output = hidden_command("cmd.exe")
+            .args(["/D", "/S", "/C", script])
+            .output();
+        #[cfg(not(windows))]
+        let output = hidden_command("/bin/sh").args(["-lc", script]).output();
+        let output = output.map_err(|_| "无法执行 API 密钥命令".to_string())?;
+        if !output.status.success() {
+            return Err("API 密钥命令执行失败".to_string());
+        }
+        let secret = String::from_utf8(output.stdout)
+            .map_err(|_| "API 密钥命令没有返回有效文本".to_string())?
+            .trim()
+            .to_string();
+        if secret.is_empty() {
+            return Err("API 密钥命令返回了空值".to_string());
+        }
+        return Ok(secret);
+    }
+
+    let characters = value.chars().collect::<Vec<_>>();
+    let mut resolved = String::with_capacity(value.len());
+    let mut index = 0;
+    while index < characters.len() {
+        if characters[index] != '$' {
+            resolved.push(characters[index]);
+            index += 1;
+            continue;
+        }
+        let Some(next) = characters.get(index + 1).copied() else {
+            resolved.push('$');
+            break;
+        };
+        if next == '$' || next == '!' {
+            resolved.push(if next == '$' { '$' } else { '!' });
+            index += 2;
+            continue;
+        }
+
+        let (name, next_index) = if next == '{' {
+            let end = characters[index + 2..]
+                .iter()
+                .position(|character| *character == '}')
+                .map(|offset| index + 2 + offset)
+                .ok_or_else(|| "API 密钥中的环境变量缺少右花括号".to_string())?;
+            (
+                characters[index + 2..end].iter().collect::<String>(),
+                end + 1,
+            )
+        } else if next.is_ascii_alphanumeric() || next == '_' {
+            let mut end = index + 1;
+            while end < characters.len()
+                && (characters[end].is_ascii_alphanumeric() || characters[end] == '_')
+            {
+                end += 1;
+            }
+            (characters[index + 1..end].iter().collect::<String>(), end)
+        } else {
+            resolved.push('$');
+            index += 1;
+            continue;
+        };
+        if name.is_empty() {
+            return Err("API 密钥中的环境变量名称不能为空".to_string());
+        }
+        let environment_value =
+            std::env::var(&name).map_err(|_| format!("环境变量 {name} 未设置，无法拉取模型"))?;
+        resolved.push_str(&environment_value);
+        index = next_index;
+    }
+    Ok(resolved)
+}
+
+fn provider_models_endpoint(base_url: &str, api: &str) -> Result<String, String> {
+    let base_url = base_url.trim().trim_end_matches('/');
+    if !(base_url.starts_with("http://") || base_url.starts_with("https://")) {
+        return Err("自动拉取需要有效的 http:// 或 https:// API 地址".to_string());
+    }
+    if base_url.contains('?') || base_url.contains('#') {
+        return Err("自动拉取使用的 API 地址不能包含查询参数或片段".to_string());
+    }
+    if matches!(
+        api,
+        "azure-openai-responses" | "google-vertex" | "bedrock-converse-stream"
+    ) {
+        return Err(format!(
+            "{} 没有可从当前 API 地址通用枚举的模型接口，请手动添加模型",
+            match api {
+                "azure-openai-responses" => "Azure OpenAI",
+                "google-vertex" => "Google Vertex AI",
+                _ => "Amazon Bedrock",
+            }
+        ));
+    }
+    if base_url.ends_with("/models") {
+        return Ok(base_url.to_string());
+    }
+    let after_origin = base_url
+        .split_once("://")
+        .map(|(_, value)| value)
+        .unwrap_or(base_url);
+    let has_path = after_origin
+        .split_once('/')
+        .is_some_and(|(_, path)| !path.trim_matches('/').is_empty());
+    let default_version = if api == "google-generative-ai" {
+        "v1beta"
+    } else {
+        "v1"
+    };
+    if has_path {
+        Ok(format!("{base_url}/models"))
+    } else {
+        Ok(format!("{base_url}/{default_version}/models"))
+    }
+}
+
+fn discovered_u64(value: Option<&serde_json::Value>) -> Option<u64> {
+    value.and_then(|value| {
+        value
+            .as_u64()
+            .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+    })
+}
+
+fn discovered_string_array_contains(value: Option<&serde_json::Value>, needle: &str) -> bool {
+    value
+        .and_then(|value| value.as_array())
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.as_str()
+                    .is_some_and(|text| text.to_ascii_lowercase().contains(needle))
+            })
+        })
+}
+
+fn discovered_model_from_value(value: &serde_json::Value, api: &str) -> Option<ModelProviderModel> {
+    if let Some(id) = value.as_str().map(str::trim).filter(|id| !id.is_empty()) {
+        return Some(ModelProviderModel {
+            id: id.to_string(),
+            name: id.to_string(),
+            ..Default::default()
+        });
+    }
+    let object = value.as_object()?;
+    if api == "google-generative-ai"
+        && object.get("supportedGenerationMethods").is_some()
+        && !discovered_string_array_contains(
+            object.get("supportedGenerationMethods"),
+            "generatecontent",
+        )
+    {
+        return None;
+    }
+    let raw_id = object
+        .get("id")
+        .or_else(|| object.get("name"))
+        .and_then(|value| value.as_str())?
+        .trim();
+    let id = if api == "google-generative-ai" {
+        raw_id.strip_prefix("models/").unwrap_or(raw_id)
+    } else {
+        raw_id
+    };
+    if id.is_empty() {
+        return None;
+    }
+    let name = ["display_name", "displayName", "label", "title"]
+        .iter()
+        .find_map(|field| object.get(*field).and_then(|value| value.as_str()))
+        .or_else(|| {
+            object
+                .get("id")
+                .and_then(|_| object.get("name"))
+                .and_then(|value| value.as_str())
+        })
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(id)
+        .to_string();
+    let reasoning = object
+        .get("reasoning")
+        .and_then(|value| value.as_bool())
+        .or_else(|| {
+            object
+                .get("supports_reasoning")
+                .and_then(|value| value.as_bool())
+        })
+        .unwrap_or(false)
+        || discovered_string_array_contains(object.get("supported_parameters"), "reasoning");
+    let supports_image = object
+        .get("vision")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+        || value
+            .pointer("/capabilities/vision")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || [
+            object.get("input"),
+            object.get("input_modalities"),
+            object.get("modalities"),
+            value.pointer("/architecture/input_modalities"),
+        ]
+        .into_iter()
+        .any(|value| discovered_string_array_contains(value, "image"));
+    Some(ModelProviderModel {
+        id: id.to_string(),
+        name,
+        reasoning,
+        input: if supports_image {
+            vec!["text".to_string(), "image".to_string()]
+        } else {
+            vec!["text".to_string()]
+        },
+        context_window: [
+            object.get("context_window"),
+            object.get("contextWindow"),
+            object.get("context_length"),
+            object.get("inputTokenLimit"),
+            value.pointer("/capabilities/context_window"),
+        ]
+        .into_iter()
+        .find_map(discovered_u64),
+        max_tokens: [
+            object.get("max_tokens"),
+            object.get("maxTokens"),
+            object.get("max_output_tokens"),
+            object.get("outputTokenLimit"),
+            value.pointer("/top_provider/max_completion_tokens"),
+        ]
+        .into_iter()
+        .find_map(discovered_u64),
+    })
+}
+
+fn parse_discovered_model_catalog(
+    value: &serde_json::Value,
+    api: &str,
+) -> Result<Vec<ModelProviderModel>, String> {
+    let items = value
+        .get("data")
+        .and_then(|value| value.as_array())
+        .or_else(|| value.get("models").and_then(|value| value.as_array()))
+        .or_else(|| value.as_array())
+        .ok_or_else(|| "模型接口返回的数据中没有 data 或 models 列表".to_string())?;
+    let mut models = HashMap::new();
+    for item in items {
+        if let Some(model) = discovered_model_from_value(item, api) {
+            models.entry(model.id.clone()).or_insert(model);
+        }
+    }
+    let mut models = models.into_values().collect::<Vec<_>>();
+    models.sort_by_key(|model| model.id.to_lowercase());
+    if models.is_empty() {
+        return Err("模型接口没有返回可用于生成内容的模型".to_string());
+    }
+    Ok(models)
+}
+
+fn discover_model_provider_models_blocking(
+    provider: ModelProviderInput,
+) -> Result<Vec<ModelProviderModel>, String> {
+    let api = provider.api.trim();
+    let endpoint = provider_models_endpoint(&provider.base_url, api)?;
+    let api_key = configured_provider_api_key(&provider)?;
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(20))
+        .user_agent("PiDesktop/0.2 model-discovery")
+        .build();
+    let mut request = agent.get(&endpoint).set("Accept", "application/json");
+    if let Some(api_key) = api_key.as_deref() {
+        if provider.auth_header || !matches!(api, "anthropic-messages" | "google-generative-ai") {
+            request = request.set("Authorization", &format!("Bearer {api_key}"));
+        } else if api == "anthropic-messages" {
+            request = request
+                .set("x-api-key", api_key)
+                .set("anthropic-version", "2023-06-01");
+        } else {
+            request = request.set("x-goog-api-key", api_key);
+        }
+    }
+    let response = match request.call() {
+        Ok(response) => response,
+        Err(ureq::Error::Status(status, _)) => {
+            return Err(format!(
+                "提供商模型接口返回 HTTP {status}，请检查 API 地址、协议和密钥"
+            ));
+        }
+        Err(ureq::Error::Transport(error)) => {
+            return Err(format!("无法连接提供商模型接口: {error}"));
+        }
+    };
+    const MAX_CATALOG_BYTES: u64 = 8 * 1024 * 1024;
+    let mut bytes = Vec::new();
+    response
+        .into_reader()
+        .take(MAX_CATALOG_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("无法读取提供商模型列表: {error}"))?;
+    if bytes.len() as u64 > MAX_CATALOG_BYTES {
+        return Err("提供商模型列表超过 8 MB，已停止读取".to_string());
+    }
+    let value = serde_json::from_slice::<serde_json::Value>(&bytes)
+        .map_err(|error| format!("提供商模型接口返回了无效 JSON: {error}"))?;
+    parse_discovered_model_catalog(&value, api)
+}
+
+#[tauri::command]
+async fn discover_model_provider_models(
+    provider: ModelProviderInput,
+) -> Result<Vec<ModelProviderModel>, String> {
+    tauri::async_runtime::spawn_blocking(move || discover_model_provider_models_blocking(provider))
+        .await
+        .map_err(|error| format!("模型目录后台任务失败: {error}"))?
 }
 
 #[tauri::command]
@@ -5087,6 +5433,7 @@ pub fn run() {
             export_local_memory,
             delete_local_memory,
             list_model_providers,
+            discover_model_provider_models,
             save_model_provider,
             delete_model_provider,
             check_model_provider,
@@ -5544,6 +5891,77 @@ mod tests {
             ..Default::default()
         };
         assert!(validate_model_provider(&provider).is_err());
+    }
+
+    #[test]
+    fn builds_model_discovery_endpoints_for_supported_protocols() {
+        assert_eq!(
+            provider_models_endpoint("https://api.example.com", "openai-completions")
+                .expect("OpenAI endpoint should be supported"),
+            "https://api.example.com/v1/models"
+        );
+        assert_eq!(
+            provider_models_endpoint(
+                "https://generativelanguage.googleapis.com/v1beta/",
+                "google-generative-ai"
+            )
+            .expect("Google endpoint should be supported"),
+            "https://generativelanguage.googleapis.com/v1beta/models"
+        );
+        assert!(provider_models_endpoint(
+            "https://example.openai.azure.com",
+            "azure-openai-responses"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn parses_openai_compatible_model_catalog_metadata() {
+        let catalog = serde_json::json!({
+            "data": [{
+                "id": "reasoning-vision",
+                "name": "Reasoning Vision",
+                "context_length": 131072,
+                "supported_parameters": ["tools", "reasoning"],
+                "architecture": { "input_modalities": ["text", "image"] },
+                "top_provider": { "max_completion_tokens": 32768 }
+            }]
+        });
+        let models = parse_discovered_model_catalog(&catalog, "openai-completions")
+            .expect("catalog should parse");
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "reasoning-vision");
+        assert_eq!(models[0].name, "Reasoning Vision");
+        assert!(models[0].reasoning);
+        assert!(models[0].input.contains(&"image".to_string()));
+        assert_eq!(models[0].context_window, Some(131072));
+        assert_eq!(models[0].max_tokens, Some(32768));
+    }
+
+    #[test]
+    fn parses_google_catalog_and_skips_embedding_only_models() {
+        let catalog = serde_json::json!({
+            "models": [
+                {
+                    "name": "models/gemini-example",
+                    "displayName": "Gemini Example",
+                    "inputTokenLimit": 1048576,
+                    "outputTokenLimit": 8192,
+                    "supportedGenerationMethods": ["generateContent"]
+                },
+                {
+                    "name": "models/text-embedding-example",
+                    "supportedGenerationMethods": ["embedContent"]
+                }
+            ]
+        });
+        let models = parse_discovered_model_catalog(&catalog, "google-generative-ai")
+            .expect("catalog should parse");
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gemini-example");
+        assert_eq!(models[0].name, "Gemini Example");
+        assert_eq!(models[0].context_window, Some(1048576));
+        assert_eq!(models[0].max_tokens, Some(8192));
     }
 
     #[test]
