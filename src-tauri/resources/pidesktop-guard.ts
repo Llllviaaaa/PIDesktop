@@ -22,6 +22,18 @@ import {
 export const PIDESKTOP_REWIND_COMMAND = "pidesktop-rewind";
 export const PIDESKTOP_MODE_COMMAND = "pidesktop-mode";
 export const PIDESKTOP_PERMISSION_COMMAND = "pidesktop-permission";
+export const PIDESKTOP_RICH_CONTENT_INSTRUCTIONS = `PIDesktop can render one optional structured visual in a completed assistant reply. Use it only when metrics, comparisons, steps, progress, grouped status, or curated links are materially easier to scan than ordinary prose. Otherwise use normal Markdown. Emit at most one fenced block with the exact language pidesktop-rich and valid JSON in this schema:
+{"version":1,"title"?:string,"summary"?:string,"blocks":[...]}
+Allowed blocks are:
+- {"type":"metrics","title"?:string,"items":[{"label":string,"value":string,"detail"?:string,"tone"?:Tone}]}
+- {"type":"callout","title"?:string,"body":string,"tone"?:Tone}
+- {"type":"steps","title"?:string,"items":[{"title":string,"description"?:string,"status"?:"done"|"active"|"pending"}]}
+- {"type":"comparison","title"?:string,"columns":[string,...],"rows":[[string,...],...]}
+- {"type":"progress","title"?:string,"items":[{"label":string,"value":number,"detail"?:string,"tone"?:Tone}]}, where value is 0..100
+- {"type":"bars","title"?:string,"items":[{"label":string,"value":number,"max":number,"unit"?:string,"tone"?:Tone}]}, where 0 <= value <= max
+- {"type":"links","title"?:string,"items":[{"label":string,"url":string,"description"?:string}]}, with absolute http/https URLs only
+Limits: 1..12 blocks, 1..12 items in each grouped block, 60 items total, and comparison tables with 2..8 columns and at most 30 rows. Keep titles within 80 characters and descriptions or body text within 1000 characters.
+Tone is "neutral"|"info"|"success"|"warning"|"danger". Do not add unknown fields, HTML, SVG, scripts, styles, class names, images, local paths, actions, forms, or nested components. Keep prose outside the fence for context and accessibility.`;
 
 interface SessionEntryLike {
   type?: string;
@@ -106,8 +118,11 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.on("before_agent_start", async (event) => {
-    const instructions = agentModeSystemInstructions(agentMode);
+  pi.on("before_agent_start", async (event, ctx) => {
+    const instructions = [
+      agentModeSystemInstructions(agentMode),
+      ctx.hasUI ? PIDESKTOP_RICH_CONTENT_INSTRUCTIONS : "",
+    ].filter(Boolean).join("\n\n");
     const checkpoint = permissionForAgentMode(agentMode, mode) === "read-only"
       ? null
       : await createWorkspaceCheckpoint(workspace);

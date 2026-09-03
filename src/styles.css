@@ -990,6 +990,7 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .provider-models-heading { min-height: 54px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 14px; }
 .provider-models-heading > span { display: flex; flex-direction: column; gap: 3px; }
 .provider-models-heading strong { font-size: 11px; }
+.provider-model-actions { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
 .provider-models { max-height: 390px; overflow: auto; }
 .provider-model-empty { color: var(--text-3); padding: 24px 14px; text-align: center; font-size: 10px; }
 .provider-model-row { padding: 12px 14px; }
@@ -7655,4 +7656,956 @@ body,
   .codex-shot .review-file-actions button { width: 25px; }
   .codex-shot .review-inline-composer,
   .codex-shot .review-inline-comment { width: calc(100% - 78px); min-width: 260px; margin-left: 70px; }
+}
+
+/* DEEIX-inspired chat reading rhythm. Keep this scoped to the primary conversation. */
+.codex-shot {
+  --chat-reading-width: 760px;
+  --chat-body-size: 15px;
+  --chat-body-line: 32px;
+  --chat-user-surface: color-mix(in srgb, var(--hover) 72%, var(--panel-soft));
+  --chat-code-surface: color-mix(in srgb, var(--panel-soft) 86%, var(--app));
+  --chat-trace-line: var(--border);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) {
+  max-width: calc(var(--chat-reading-width) + 48px);
+  padding: 20px 24px 18px;
+}
+
+.codex-shot .main-stage {
+  container-name: primary-chat;
+  container-type: inline-size;
+}
+
+.codex-shot .main-stage > .composer-dock > .composer-area.codex-composer {
+  max-width: var(--chat-reading-width);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .message-row {
+  margin: 0;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .message-row + .message-row {
+  margin-top: 16px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message + .user-message {
+  margin-top: 48px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message,
+.codex-shot .conversation:not(.new-task-conversation) > .user-message {
+  font-size: var(--chat-body-size);
+  font-weight: 400;
+  line-height: var(--chat-body-line);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .assistant-content,
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .assistant-content .markdown-body {
+  color: var(--text);
+  font-size: var(--chat-body-size);
+  font-weight: 400;
+  line-height: var(--chat-body-line);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body p {
+  margin: 0 0 12px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body > :first-child,
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body > :last-child,
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body h1,
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body h2,
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body h3,
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body h4 {
+  margin: 24px 0 8px;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body h1 { font-size: 20px; }
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body h2 { font-size: 18px; }
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body h3,
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body h4 { font-size: 16px; }
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body ul,
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body ol {
+  margin: 4px 0 12px;
+  padding-left: 22px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .markdown-body li + li {
+  margin-top: 4px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message {
+  width: fit-content;
+  max-width: 70%;
+  margin-left: auto;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message.is-editing {
+  width: min(100%, 560px);
+  min-width: min(400px, 100%);
+  max-width: min(100%, 560px);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-content {
+  max-width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--chat-user-surface);
+  color: var(--text);
+  font-size: var(--chat-body-size);
+  font-weight: 400;
+  line-height: var(--chat-body-line);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-content .markdown-body,
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-content .markdown-body p {
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-content:has(> .user-message-expand) {
+  position: relative;
+  padding-bottom: 38px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-message-text {
+  min-width: 0;
+  transition: max-height 360ms cubic-bezier(.2, 0, 0, 1), -webkit-mask-image 180ms ease, mask-image 180ms ease;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-message-text.is-collapsed {
+  max-height: var(--user-message-collapsed-height, 192px);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 44px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 44px), transparent 100%);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-message-text.is-expanded {
+  max-height: var(--user-message-full-height, none);
+  overflow: hidden;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .user-message-accessible-summary {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-message-expand {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-message-expand:hover {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  color: var(--text-2);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-message-actions {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .user-message:hover .user-message-actions,
+.codex-shot .conversation:not(.new-task-conversation) > .user-message:focus-within .user-message-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .message-actions {
+  position: static;
+  inset: auto;
+  height: 24px;
+  margin-top: 4px;
+  color: var(--text-3);
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .user-message-actions .message-copy,
+.codex-shot .conversation:not(.new-task-conversation) .message-actions .message-copy,
+.codex-shot .conversation:not(.new-task-conversation) .markdown-code-copy,
+.codex-shot .conversation:not(.new-task-conversation) .message-time {
+  color: var(--text-2);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .message-actions.persistent {
+  margin-top: 4px;
+  opacity: .72;
+  pointer-events: auto;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message:hover .message-actions.persistent,
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message:focus-within .message-actions.persistent {
+  opacity: 1;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message:hover .message-actions,
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message:focus-within .message-actions {
+  pointer-events: auto;
+}
+
+/* Reasoning and tools read as one quiet process timeline above the answer. */
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .thinking-block,
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .tool-list {
+  margin: 0 0 10px;
+  padding-left: 14px;
+  border-left: 1px solid var(--chat-trace-line);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .thinking-block:has(+ .tool-list) {
+  margin-bottom: 0;
+  padding-bottom: 4px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .thinking-block + .tool-list {
+  padding-top: 0;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .thinking-caption {
+  margin: 0 0 4px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 24px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .thinking-toggle {
+  width: 100%;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .thinking-toggle > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .thinking-toggle:hover:not(:disabled) {
+  color: var(--text-2);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .thinking-toggle:disabled {
+  cursor: default;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .thinking-prose {
+  color: var(--text-2);
+  font-size: 13px;
+  font-style: normal;
+  line-height: 24px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .tool-step + .tool-step {
+  margin-top: 2px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .tool-step-heading {
+  min-height: 28px;
+  margin-left: -7px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) > .assistant-message .tool-drawer {
+  margin: 2px 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-soft) 72%, transparent);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+/* Message Markdown keeps the renderer's behavior while adopting the flatter DEEIX treatment. */
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-body blockquote,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-body blockquote {
+  margin: 12px 0;
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-body :not(pre) > code,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-body :not(pre) > code {
+  padding: 1px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: inherit;
+  font-size: .88em;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-code,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-code {
+  margin: 12px 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--chat-code-surface);
+  overflow: hidden;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-code-bar,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-code-bar {
+  min-height: 30px;
+  padding: 2px 5px 0 13px;
+  border-bottom: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-code pre,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-code pre {
+  max-height: 22rem;
+  padding: 4px 14px 14px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-code pre code,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-code pre code {
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-table-scroll,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  margin: 14px 0 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-table-scroll:focus-visible,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-table-scroll:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-custom) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-table-scroll table,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-table-scroll table {
+  display: table;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-body th,
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-body td,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-body th,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-body td {
+  min-width: 88px;
+  padding: 7px 10px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-body th:last-child,
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-body td:last-child,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-body th:last-child,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-body td:last-child {
+  border-right: 0;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-body table > :last-child > tr:last-child > :is(th, td),
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-body table > :last-child > tr:last-child > :is(th, td) {
+  border-bottom: 0;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .assistant-content .markdown-body th,
+.codex-shot .conversation:not(.new-task-conversation) .user-content .markdown-body th {
+  background: color-mix(in srgb, var(--panel-strong) 65%, transparent);
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.codex-shot .conversation:not(.new-task-conversation) .message-images img,
+.codex-shot .conversation:not(.new-task-conversation) .markdown-body img {
+  max-width: 100%;
+  height: auto;
+}
+
+@container primary-chat (max-width: 720px) {
+  .codex-shot .conversation:not(.new-task-conversation) {
+    max-width: 100%;
+    padding: 16px 12px 14px;
+  }
+
+  .codex-shot .conversation:not(.new-task-conversation) > .assistant-message + .user-message {
+    margin-top: 24px;
+  }
+
+  .codex-shot .conversation:not(.new-task-conversation) > .user-message {
+    max-width: 88%;
+  }
+
+  .codex-shot .conversation:not(.new-task-conversation) > .user-message .user-message-actions,
+  .codex-shot .conversation:not(.new-task-conversation) > .assistant-message .message-actions,
+  .codex-shot .conversation:not(.new-task-conversation) > .assistant-message .message-actions.persistent {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .codex-shot .conversation:not(.new-task-conversation) > .user-message .user-message-actions,
+  .codex-shot .conversation:not(.new-task-conversation) > .assistant-message .message-actions,
+  .codex-shot .conversation:not(.new-task-conversation) > .assistant-message .message-actions.persistent {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codex-shot .conversation:not(.new-task-conversation) .user-message-actions,
+  .codex-shot .conversation:not(.new-task-conversation) .message-actions,
+  .codex-shot .conversation:not(.new-task-conversation) .user-message-text {
+    transition: none;
+  }
+}
+
+/* Controlled assistant rich content: flat document sections with bounded, semantic components. */
+.codex-shot .assistant-content .pi-rich {
+  --pi-rich-tone: var(--text-2);
+  --pi-rich-tone-soft: color-mix(in srgb, var(--text) 5%, transparent);
+  width: 100%;
+  margin: 14px 0 18px;
+  border-block: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-soft) 48%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.codex-shot .assistant-content .pi-rich--tone-info {
+  --pi-rich-tone: var(--blue);
+  --pi-rich-tone-soft: color-mix(in srgb, var(--blue) 9%, transparent);
+}
+
+.codex-shot .assistant-content .pi-rich--tone-success {
+  --pi-rich-tone: var(--green);
+  --pi-rich-tone-soft: color-mix(in srgb, var(--green) 9%, transparent);
+}
+
+.codex-shot .assistant-content .pi-rich--tone-warning {
+  --pi-rich-tone: var(--yellow);
+  --pi-rich-tone-soft: color-mix(in srgb, var(--yellow) 10%, transparent);
+}
+
+.codex-shot .assistant-content .pi-rich--tone-danger {
+  --pi-rich-tone: var(--red);
+  --pi-rich-tone-soft: color-mix(in srgb, var(--red) 9%, transparent);
+}
+
+.codex-shot .assistant-content .pi-rich__header,
+.codex-shot .assistant-content .pi-rich__blocks > * {
+  margin: 0;
+  padding: 13px 16px;
+}
+
+.codex-shot .assistant-content .pi-rich__header {
+  display: grid;
+  gap: 2px;
+}
+
+.codex-shot .assistant-content .pi-rich__header + .pi-rich__blocks,
+.codex-shot .assistant-content .pi-rich__blocks > * + * {
+  border-top: 1px solid var(--border);
+}
+
+.codex-shot .assistant-content .pi-rich__header h3,
+.codex-shot .assistant-content .pi-rich__block-title,
+.codex-shot .assistant-content .pi-rich__comparison caption {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+
+.codex-shot .assistant-content .pi-rich__header h3 {
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.codex-shot .assistant-content .pi-rich__sr-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.codex-shot .assistant-content .pi-rich__header p,
+.codex-shot .assistant-content .pi-rich__callout p,
+.codex-shot .assistant-content .pi-rich__step p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.codex-shot .assistant-content .pi-rich__block-title {
+  margin-bottom: 9px;
+}
+
+.codex-shot .assistant-content .pi-rich__metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.codex-shot .assistant-content .pi-rich__metric {
+  min-width: 0;
+  padding: 9px 11px 10px;
+  border: 1px solid color-mix(in srgb, var(--pi-rich-tone) 22%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--pi-rich-tone-soft) 72%, var(--app));
+}
+
+.codex-shot .assistant-content .pi-rich__metric dt {
+  margin: 0 0 3px;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.codex-shot .assistant-content .pi-rich__metric dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.codex-shot .assistant-content .pi-rich__metric dd strong {
+  display: block;
+  color: var(--pi-rich-tone);
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 25px;
+  overflow-wrap: anywhere;
+}
+
+.codex-shot .assistant-content .pi-rich__metric small,
+.codex-shot .assistant-content .pi-rich__progress-list small {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+}
+
+.codex-shot .assistant-content .pi-rich__callout {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  border-left: 3px solid var(--pi-rich-tone);
+  background: var(--pi-rich-tone-soft);
+}
+
+.codex-shot .assistant-content .pi-rich__callout > svg {
+  margin-top: 1px;
+  color: var(--pi-rich-tone);
+}
+
+.codex-shot .assistant-content .pi-rich__callout strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 19px;
+}
+
+.codex-shot .assistant-content .pi-rich__steps ol,
+.codex-shot .assistant-content .pi-rich__progress-list ul,
+.codex-shot .assistant-content .pi-rich__bars ul,
+.codex-shot .assistant-content .pi-rich__links ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.codex-shot .assistant-content .pi-rich__step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 23px minmax(0, 1fr) auto;
+  gap: 8px;
+  min-height: 31px;
+  padding: 2px 0 9px;
+}
+
+.codex-shot .assistant-content .pi-rich__step:last-child {
+  padding-bottom: 0;
+}
+
+.codex-shot .assistant-content .pi-rich__step:not(:last-child)::after {
+  position: absolute;
+  top: 23px;
+  bottom: 0;
+  left: 10px;
+  width: 1px;
+  background: var(--border);
+  content: "";
+}
+
+.codex-shot .assistant-content .pi-rich__step-icon {
+  position: relative;
+  z-index: 1;
+  width: 21px;
+  height: 21px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--app);
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.codex-shot .assistant-content .pi-rich__step--done .pi-rich__step-icon {
+  border-color: color-mix(in srgb, var(--green) 35%, var(--border));
+  background: color-mix(in srgb, var(--green) 10%, var(--app));
+  color: var(--green);
+}
+
+.codex-shot .assistant-content .pi-rich__step--active .pi-rich__step-icon {
+  border-color: color-mix(in srgb, var(--blue) 35%, var(--border));
+  background: color-mix(in srgb, var(--blue) 9%, var(--app));
+  color: var(--blue);
+}
+
+.codex-shot .assistant-content .pi-rich__step > div > strong,
+.codex-shot .assistant-content .pi-rich__value-line strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.codex-shot .assistant-content .pi-rich__value-line strong {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.codex-shot .assistant-content .pi-rich__step > small {
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 19px;
+  white-space: nowrap;
+}
+
+.codex-shot .assistant-content .pi-rich__table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.codex-shot .assistant-content .pi-rich__table-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.codex-shot .assistant-content .pi-rich__table-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.codex-shot .assistant-content .pi-rich__table-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: var(--border-strong);
+  background-clip: padding-box;
+}
+
+.codex-shot .assistant-content .pi-rich__table-scroll:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-custom) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.codex-shot .assistant-content .pi-rich__comparison table {
+  display: table;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 19px;
+}
+
+.codex-shot .assistant-content .pi-rich__comparison caption {
+  padding: 0 0 9px;
+  text-align: left;
+}
+
+.codex-shot .assistant-content .pi-rich__comparison th,
+.codex-shot .assistant-content .pi-rich__comparison td {
+  min-width: 104px;
+  padding: 7px 10px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.codex-shot .assistant-content .pi-rich__comparison thead th {
+  background: color-mix(in srgb, var(--panel-strong) 64%, transparent);
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.codex-shot .assistant-content .pi-rich__comparison tbody th {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.codex-shot .assistant-content .pi-rich__comparison :is(th, td):last-child {
+  border-right: 0;
+}
+
+.codex-shot .assistant-content .pi-rich__comparison tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+
+.codex-shot .assistant-content .pi-rich__progress-list li,
+.codex-shot .assistant-content .pi-rich__bars li {
+  min-width: 0;
+}
+
+.codex-shot .assistant-content .pi-rich__progress-list li + li,
+.codex-shot .assistant-content .pi-rich__bars li + li {
+  margin-top: 10px;
+}
+
+.codex-shot .assistant-content .pi-rich__value-line {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 5px;
+}
+
+.codex-shot .assistant-content .pi-rich__value-line span {
+  flex: 0 1 auto;
+  max-width: 55%;
+  color: var(--text-2);
+  font-family: var(--code-font);
+  font-size: 11px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.codex-shot .assistant-content .pi-rich__progress-list progress {
+  display: block;
+  width: 100%;
+  height: 7px;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  appearance: none;
+}
+
+.codex-shot .assistant-content .pi-rich__progress-list progress::-webkit-progress-bar {
+  border-radius: 4px;
+  background: var(--active);
+}
+
+.codex-shot .assistant-content .pi-rich__progress-list progress::-webkit-progress-value {
+  border-radius: 4px;
+  background: var(--pi-rich-tone);
+}
+
+.codex-shot .assistant-content .pi-rich__progress-list progress::-moz-progress-bar {
+  border-radius: 4px;
+  background: var(--pi-rich-tone);
+}
+
+.codex-shot .assistant-content .pi-rich__bar-track {
+  width: 100%;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--active);
+  overflow: hidden;
+}
+
+.codex-shot .assistant-content .pi-rich__bar-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--pi-rich-tone);
+}
+
+.codex-shot .assistant-content .pi-rich__links ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.codex-shot .assistant-content .pi-rich__links a {
+  min-width: 0;
+  min-height: 54px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--app) 74%, transparent);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-decoration: none;
+}
+
+.codex-shot .assistant-content .pi-rich__links a:hover {
+  border-color: var(--border-strong);
+  background: var(--hover);
+}
+
+.codex-shot .assistant-content .pi-rich__links a > span:first-child {
+  min-width: 0;
+}
+
+.codex-shot .assistant-content .pi-rich__links strong,
+.codex-shot .assistant-content .pi-rich__links small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.codex-shot .assistant-content .pi-rich__links strong {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.codex-shot .assistant-content .pi-rich__links small {
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.codex-shot .assistant-content .pi-rich__link-host {
+  max-width: 42%;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--code-font);
+  font-size: 10px;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .assistant-content .pi-rich__link-host svg {
+  flex: 0 0 auto;
+}
+
+@container primary-chat (max-width: 520px) {
+  .codex-shot .assistant-content .pi-rich__header,
+  .codex-shot .assistant-content .pi-rich__blocks > * {
+    padding-inline: 12px;
+  }
+
+  .codex-shot .assistant-content .pi-rich__metric-grid,
+  .codex-shot .assistant-content .pi-rich__links ul {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .codex-shot .assistant-content .pi-rich__step {
+    grid-template-columns: 23px minmax(0, 1fr);
+  }
+
+  .codex-shot .assistant-content .pi-rich__step > small {
+    grid-column: 2;
+    margin-top: -3px;
+  }
+
+  .codex-shot .assistant-content .pi-rich__value-line {
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codex-shot .assistant-content .pi-rich * {
+    scroll-behavior: auto;
+  }
 }

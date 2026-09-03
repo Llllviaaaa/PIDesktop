@@ -1,10 +1,19 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { ArrowUp, Check, CircleAlert, Copy, Info, Link2, LoaderCircle, Pencil, RotateCcw, Share2, Terminal } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ChevronUp, CircleAlert, Copy, Info, Link2, LoaderCircle, Pencil, RotateCcw, Share2, Terminal } from "lucide-react";
 import type { UiMessage, UiToolCall } from "../types";
 import { usePiStore } from "../store";
 import { isGoalToolCall } from "../lib/activeGoal";
 import { Markdown } from "./Markdown";
 import { ToolCall } from "./ToolCall";
+
+export const USER_MESSAGE_COLLAPSED_LINES = 6;
+
+export function isUserMessageOverLineLimit(contentHeight: number, lineHeight: number): boolean {
+  if (!Number.isFinite(contentHeight) || !Number.isFinite(lineHeight) || contentHeight <= 0 || lineHeight <= 0) {
+    return false;
+  }
+  return contentHeight > lineHeight * USER_MESSAGE_COLLAPSED_LINES + 2;
+}
 
 function formatDuration(durationMs: number): string | null {
   if (!Number.isFinite(durationMs) || durationMs <= 0) return null;
@@ -33,6 +42,7 @@ export const Message = memo(function Message({
   isLastAssistant = false,
   globalStreaming = false,
   workingLabel,
+  allowRichContent = false,
   summaryMode = false,
   editing = false,
   onEdit,
@@ -50,6 +60,8 @@ export const Message = memo(function Message({
   globalStreaming?: boolean;
   /** Current runtime status, rendered with the active assistant reply instead of above the thread. */
   workingLabel?: string;
+  /** Enable the controlled rich-content protocol for completed assistant replies. */
+  allowRichContent?: boolean;
   /** Codex 摘要：收起工具轨迹，不展开工作日志。 */
   summaryMode?: boolean;
   editing?: boolean;
@@ -62,8 +74,12 @@ export const Message = memo(function Message({
   const [editDraft, setEditDraft] = useState(message.content);
   const [submittingEdit, setSubmittingEdit] = useState(false);
   const [rewinding, setRewinding] = useState(false);
+  const [userMessageCollapsible, setUserMessageCollapsible] = useState(false);
+  const [userMessageExpanded, setUserMessageExpanded] = useState(false);
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const thinkingRef = useRef<HTMLDivElement>(null);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const userMessageTextRef = useRef<HTMLDivElement>(null);
   const assistantWorking = message.role === "assistant"
     && (message.isStreaming || (isLastAssistant && globalStreaming));
   const liveThinking = assistantWorking && showThinking && Boolean(message.thinking);
@@ -76,6 +92,14 @@ export const Message = memo(function Message({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [liveThinking, message.thinking]);
+
+  useEffect(() => {
+    if (liveThinking) {
+      setThinkingExpanded(true);
+    } else if (message.content) {
+      setThinkingExpanded(false);
+    }
+  }, [liveThinking, message.content, message.id]);
 
   useEffect(() => {
     if (!editing) {
@@ -93,6 +117,44 @@ export const Message = memo(function Message({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [editing, message.content]);
+
+  useEffect(() => setUserMessageExpanded(false), [message.id]);
+
+  useEffect(() => {
+    if (message.role !== "user" || editing || !message.content) {
+      setUserMessageCollapsible(false);
+      return;
+    }
+    const node = userMessageTextRef.current;
+    if (!node || node.closest(".side-chat-messages")) {
+      setUserMessageCollapsible(false);
+      return;
+    }
+
+    const measure = () => {
+      const styles = window.getComputedStyle(node);
+      const measuredLineHeight = Number.parseFloat(styles.lineHeight);
+      const fontSize = Number.parseFloat(styles.fontSize);
+      const lineHeight = Number.isFinite(measuredLineHeight)
+        ? measuredLineHeight
+        : (Number.isFinite(fontSize) ? fontSize * 1.5 : 21);
+      node.style.setProperty("--user-message-collapsed-height", `${lineHeight * USER_MESSAGE_COLLAPSED_LINES}px`);
+      node.style.setProperty("--user-message-full-height", `${node.scrollHeight}px`);
+      const next = isUserMessageOverLineLimit(node.scrollHeight, lineHeight);
+      setUserMessageCollapsible((current) => current === next ? current : next);
+    };
+
+    const frame = window.requestAnimationFrame(measure);
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    observer?.observe(node);
+    if (node.firstElementChild) observer?.observe(node.firstElementChild);
+    window.addEventListener("resize", measure);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [editing, message.content, message.role]);
 
   const resizeEditTextarea = () => {
     const textarea = editTextareaRef.current;
@@ -172,8 +234,18 @@ export const Message = memo(function Message({
         </article>
       );
     }
+    const userMessageState = userMessageCollapsible
+      ? userMessageExpanded ? " is-collapsible is-expanded" : " is-collapsible is-collapsed"
+      : "";
+    const userMessageCollapsed = userMessageCollapsible && !userMessageExpanded;
+    const expandLabel = userMessageExpanded ? "收起消息" : "展开完整消息";
+    const contentId = `message-${message.id}-content`;
+    const summaryId = `message-${message.id}-collapsed-summary`;
+    const accessibleSummary = message.content.length > 240
+      ? `${message.content.slice(0, 240)}…`
+      : message.content;
     return (
-      <article className="message-row user-message" id={`message-${message.id}`}>
+      <article className={`message-row user-message${userMessageState}`} id={`message-${message.id}`}>
         <div className="user-content">
           {message.images && message.images.length > 0 && (
             <div className="message-images">
@@ -182,7 +254,38 @@ export const Message = memo(function Message({
               ))}
             </div>
           )}
-          {message.content && <Markdown content={message.content} />}
+          {message.content && (
+            <div
+              ref={userMessageTextRef}
+              id={contentId}
+              className={`user-message-text${userMessageCollapsible ? userMessageExpanded ? " is-expanded" : " is-collapsed" : ""}`}
+              aria-hidden={userMessageCollapsed || undefined}
+              inert={userMessageCollapsed || undefined}
+            >
+              <Markdown content={message.content} />
+            </div>
+          )}
+          {userMessageCollapsed && (
+            <span id={summaryId} className="user-message-accessible-summary">
+              消息预览：{accessibleSummary}，其余内容已折叠。
+            </span>
+          )}
+          {userMessageCollapsible && (
+            <button
+              type="button"
+              className="user-message-expand"
+              title={expandLabel}
+              aria-label={expandLabel}
+              aria-controls={contentId}
+              aria-describedby={userMessageCollapsed ? summaryId : undefined}
+              aria-expanded={userMessageExpanded}
+              onClick={() => setUserMessageExpanded((value) => !value)}
+            >
+              {userMessageExpanded
+                ? <ChevronUp size={14} strokeWidth={1.8} />
+                : <ChevronDown size={14} strokeWidth={1.8} />}
+            </button>
+          )}
         </div>
         {message.content && (onEdit || onRewind) && (
           <div className="user-message-actions">
@@ -249,6 +352,8 @@ export const Message = memo(function Message({
     : duration
       ? `思考了 ${duration}`
       : "思考过程";
+  const thinkingDetailsVisible = hasThinking && !summaryMode && (working || thinkingExpanded);
+  const thinkingToggleLabel = thinkingDetailsVisible ? "收起思考过程" : "展开思考过程";
 
   const timeLabel = typeof message.timestamp === "number" && message.timestamp > 0
     ? new Date(message.timestamp).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
@@ -298,8 +403,25 @@ export const Message = memo(function Message({
     >
       {(working || hasThinking || reasoningUnavailable) && (
         <div className="thinking-block">
-          <div className="thinking-caption">{thinkingLabel}</div>
-          {!summaryMode && hasThinking && (
+          {hasThinking && !summaryMode ? (
+            <button
+              type="button"
+              className="thinking-caption thinking-toggle"
+              title={thinkingToggleLabel}
+              aria-label={thinkingToggleLabel}
+              aria-expanded={thinkingDetailsVisible}
+              disabled={working}
+              onClick={() => setThinkingExpanded((value) => !value)}
+            >
+              <span>{thinkingLabel}</span>
+              {thinkingDetailsVisible
+                ? <ChevronUp size={13} strokeWidth={1.8} />
+                : <ChevronDown size={13} strokeWidth={1.8} />}
+            </button>
+          ) : (
+            <div className="thinking-caption">{thinkingLabel}</div>
+          )}
+          {thinkingDetailsVisible && (
             <div
               ref={thinkingRef}
               className={`thinking-prose ${working ? "streaming" : ""}`}
@@ -319,7 +441,7 @@ export const Message = memo(function Message({
       {message.content && (
         <div className="assistant-content">
           {message.isError && <CircleAlert size={15} className="message-error-icon" />}
-          <Markdown content={message.content} />
+          <Markdown content={message.content} allowRichContent={allowRichContent && !working && !message.isError} />
         </div>
       )}
       {message.content && !working && (

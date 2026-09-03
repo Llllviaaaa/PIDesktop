@@ -1,4 +1,4 @@
-import { Children, createContext, isValidElement, useContext, useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
+import { Children, createContext, isValidElement, useContext, useMemo, useState, type ComponentPropsWithoutRef, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -6,7 +6,9 @@ import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { Check, Copy, FileText } from "lucide-react";
 import { usePiStore } from "../store";
 import { stripCodeReviewDirectives } from "../lib/codeReview";
+import { parseRichContent, RICH_CONTENT_LANGUAGE } from "../lib/richContent";
 import { DiagramBlock, diagramKindForLanguage } from "./DiagramBlock";
+import { RichContent } from "./RichContent";
 
 /** When provided, file links open in the in-app document pane instead of the OS. */
 export type OpenWorkspaceFile = (path: string, line?: number) => void;
@@ -87,6 +89,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
   markdown: "Markdown",
   mjs: "JavaScript",
   php: "PHP",
+  "pidesktop-rich": "PIDesktop Rich",
   ps1: "PowerShell",
   powershell: "PowerShell",
   py: "Python",
@@ -128,7 +131,7 @@ function codeFenceDetails(children: ReactNode): {
     const className = (child.props as { className?: string }).className || "";
     return className.includes("language-") || className.includes("hljs");
   }) as ReactElement<{ className?: string; children?: ReactNode }> | undefined;
-  const language = /language-([\w+#.-]+)/.exec(codeEl?.props.className || "")?.[1]?.toLowerCase() || "";
+  const language = /language-([^\s]+)/.exec(codeEl?.props.className || "")?.[1]?.toLowerCase() || "";
   const text = nodeText(codeEl?.props.children ?? children).replace(/\n$/, "");
   return { codeEl, language, text };
 }
@@ -162,11 +165,49 @@ function CodeFence({ children }: { children?: ReactNode }) {
   );
 }
 
-function MarkdownPre({ children }: { children?: ReactNode }) {
+function MarkdownPre({ children, allowRichContent = false }: { children?: ReactNode; allowRichContent?: boolean }) {
   const { language, text } = codeFenceDetails(children);
+  const richDocument = useMemo(
+    () => allowRichContent && language === RICH_CONTENT_LANGUAGE ? parseRichContent(text) : null,
+    [allowRichContent, language, text],
+  );
+  if (richDocument) return <RichContent document={richDocument} />;
   const diagramKind = diagramKindForLanguage(language);
   if (diagramKind) return <DiagramBlock kind={diagramKind} source={text} />;
   return <CodeFence>{children}</CodeFence>;
+}
+
+function MarkdownTable({ children, ...props }: ComponentPropsWithoutRef<"table">) {
+  return (
+    <div className="markdown-table-scroll" role="region" aria-label="表格内容，可横向滚动" tabIndex={0}>
+      <table {...props}>{children}</table>
+    </div>
+  );
+}
+
+function richContentFenceCount(markdown: string): number {
+  const allRichOpeners = markdown
+    .split(/\r?\n/)
+    .filter((line) => /(`{3,}|~{3,})[ \t]*pidesktop-rich/i.test(line))
+    .length;
+  let activeFence: { marker: "`" | "~"; length: number; rich: boolean } | null = null;
+  let richStarts = 0;
+  let richCompleted = 0;
+  for (const line of markdown.split(/\r?\n/)) {
+    if (!activeFence) {
+      const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (!opening) continue;
+      const rich = opening[2].trim().toLowerCase() === RICH_CONTENT_LANGUAGE;
+      if (rich) richStarts += 1;
+      activeFence = { marker: opening[1][0] as "`" | "~", length: opening[1].length, rich };
+      continue;
+    }
+    const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+    if (!closing || closing[1][0] !== activeFence.marker || closing[1].length < activeFence.length) continue;
+    if (activeFence.rich) richCompleted += 1;
+    activeFence = null;
+  }
+  return allRichOpeners === richStarts && richStarts === richCompleted ? richCompleted : -1;
 }
 
 function FileRef({ href, children }: { href: string; children?: ReactNode }) {
@@ -195,10 +236,15 @@ function FileRef({ href, children }: { href: string; children?: ReactNode }) {
 
 interface MarkdownProps {
   content: string;
+  allowRichContent?: boolean;
 }
 
-export function Markdown({ content }: MarkdownProps) {
+export function Markdown({ content, allowRichContent = false }: MarkdownProps) {
   const visibleContent = stripCodeReviewDirectives(content);
+  const richContentEnabled = useMemo(
+    () => allowRichContent && richContentFenceCount(visibleContent) === 1,
+    [allowRichContent, visibleContent],
+  );
   return (
     <div className="markdown-body">
       <ReactMarkdown
@@ -206,7 +252,8 @@ export function Markdown({ content }: MarkdownProps) {
         rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
         urlTransform={(url) => url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url)}
         components={{
-          pre: ({ children }) => <MarkdownPre>{children}</MarkdownPre>,
+          pre: ({ children }) => <MarkdownPre allowRichContent={richContentEnabled}>{children}</MarkdownPre>,
+          table: ({ children, node: _node, ...props }) => <MarkdownTable {...props}>{children}</MarkdownTable>,
           a: ({ href, children }) => {
             if (href?.startsWith(FILE_SCHEME)) return <FileRef href={href}>{children}</FileRef>;
             return (

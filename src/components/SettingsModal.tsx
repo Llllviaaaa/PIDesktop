@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleAlert,
+  CloudDownload,
   FileCode2,
   FileDown,
   FolderGit2,
@@ -865,9 +866,28 @@ function emptyProviderDraft(): ModelProviderInput {
   };
 }
 
+function mergeDiscoveredProviderModels(current: ModelProviderModel[], discovered: ModelProviderModel[]): ModelProviderModel[] {
+  const currentById = new Map(current.filter((model) => model.id.trim()).map((model) => [model.id, model]));
+  const merged = discovered.map((model) => {
+    const existing = currentById.get(model.id);
+    currentById.delete(model.id);
+    if (!existing) return model;
+    return {
+      ...model,
+      ...existing,
+      name: existing.name.trim() || model.name,
+      input: [...existing.input],
+      contextWindow: existing.contextWindow ?? model.contextWindow,
+      maxTokens: existing.maxTokens ?? model.maxTokens,
+    };
+  });
+  return [...merged, ...currentById.values()];
+}
+
 function ProvidersPage({ providers, loading, error, onReload }: { providers: ModelProviderConfig[]; loading: boolean; error: string; onReload: () => Promise<void> }) {
   const [draft, setDraft] = useState<ModelProviderInput | null>(null);
   const [busy, setBusy] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
   const [notice, setNotice] = useState<{ kind: "success" | "warning" | "error"; text: string } | null>(null);
   const sourceLabels: Record<ModelProviderConfig["apiKeySource"], string> = { none: "未配置凭据", stored: "已安全隐藏", environment: "环境变量", command: "命令获取" };
 
@@ -907,6 +927,27 @@ function ProvidersPage({ providers, loading, error, onReload }: { providers: Mod
     }
   };
 
+  const discoverModels = async () => {
+    if (!draft) return;
+    const requested = draft;
+    setBusy(true);
+    setDiscovering(true);
+    setNotice(null);
+    try {
+      const discovered = await pi.discoverModelProviderModels(requested);
+      setDraft((current) => {
+        if (!current || current.baseUrl !== requested.baseUrl || current.api !== requested.api) return current;
+        return { ...current, models: mergeDiscoveredProviderModels(current.models, discovered) };
+      });
+      setNotice({ kind: "success", text: `已从提供商拉取 ${discovered.length} 个模型；保存提供商后写入 models.json。` });
+    } catch (nextError) {
+      setNotice({ kind: "error", text: String(nextError) });
+    } finally {
+      setDiscovering(false);
+      setBusy(false);
+    }
+  };
+
   const removeProvider = async (provider: ModelProviderConfig) => {
     if (!window.confirm(`删除模型提供商“${provider.name}”及其 ${provider.models.length} 个配置模型吗？`)) return;
     setBusy(true);
@@ -937,7 +978,7 @@ function ProvidersPage({ providers, loading, error, onReload }: { providers: Mod
   };
 
   return <>
-    <PageHeading title="模型提供商" description="管理 Pi 原生 models.json 中的 API 提供商、凭据和模型目录。" />
+    <PageHeading title="模型提供商" description="连接提供商 API 自动拉取模型目录，并管理 Pi 原生 models.json 配置。" />
     <div className="provider-toolbar">
       <button className="primary-button" disabled={busy} onClick={() => { setDraft(emptyProviderDraft()); setNotice(null); }}><Plus size={14} />添加提供商</button>
       <button className="secondary-button" disabled={loading || busy} onClick={() => void onReload()}><RefreshCw className={loading ? "spinner-icon" : ""} size={14} />刷新</button>
@@ -960,7 +1001,7 @@ function ProvidersPage({ providers, loading, error, onReload }: { providers: Mod
         <span><strong>Authorization Bearer</strong><small>仅当非标准接口要求自动生成 Authorization 请求头时开启。</small></span><Switch label="Authorization Bearer" checked={draft.authHeader} onChange={(value) => setDraft({ ...draft, authHeader: value })} />
         {draft.originalId && draft.keepExistingApiKey && <button className="secondary-button compact" onClick={() => setDraft({ ...draft, apiKey: "", keepExistingApiKey: false })}>清除已配置凭据</button>}
       </div>
-      <div className="provider-models-heading"><span><strong>模型</strong><small>只需要模型 ID；其余字段留空时由 Pi 使用默认值。</small></span><button className="secondary-button compact" onClick={() => setDraft({ ...draft, models: [...draft.models, { id: "", name: "", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 16384 }] })}><Plus size={13} />添加模型</button></div>
+      <div className="provider-models-heading"><span><strong>模型</strong><small>自动拉取会保留已有模型的手工字段；不支持枚举时仍可手动添加。</small></span><div className="provider-model-actions"><button className="secondary-button compact" disabled={busy || !draft.baseUrl.trim()} onClick={() => void discoverModels()} title="从提供商 API 拉取模型目录">{discovering ? <RefreshCw className="spinner-icon" size={13} /> : <CloudDownload size={13} />}{discovering ? "正在拉取" : "自动拉取"}</button><button className="secondary-button compact" disabled={busy} onClick={() => setDraft({ ...draft, models: [...draft.models, { id: "", name: "", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 16384 }] })}><Plus size={13} />添加模型</button></div></div>
       <div className="provider-models">
         {draft.models.length === 0 && <div className="provider-model-empty">此提供商没有自定义模型；可用于覆盖 Pi 内置提供商的地址。</div>}
         {draft.models.map((model, index) => <div className="provider-model-row" key={`${index}-${model.id}`}>

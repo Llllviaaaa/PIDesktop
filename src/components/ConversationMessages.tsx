@@ -86,6 +86,7 @@ export function ConversationMessages({
           isLastAssistant={message.id === lastAssistantId}
           globalStreaming={isStreaming}
           workingLabel={message.id === lastAssistantId ? statusText : undefined}
+          allowRichContent
           editing={editingMessageId === message.id}
           onEdit={message.role === "user" ? onEdit : undefined}
           onRewind={message.role === "user" ? onRewind : undefined}
