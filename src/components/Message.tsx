@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { ArrowUp, Check, ChevronDown, ChevronUp, CircleAlert, Copy, Info, Link2, LoaderCircle, Pencil, RotateCcw, Share2, Terminal } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, Copy, Info, Link2, LoaderCircle, Pencil, RotateCcw, Share2, Terminal } from "lucide-react";
 import type { UiMessage, UiToolCall } from "../types";
+import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
 import { usePiStore } from "../store";
 import { isGoalToolCall } from "../lib/activeGoal";
 import { Markdown } from "./Markdown";
@@ -44,6 +45,7 @@ export const Message = memo(function Message({
   workingLabel,
   allowRichContent = false,
   summaryMode = false,
+  density = "normal",
   editing = false,
   onEdit,
   onRewind,
@@ -64,6 +66,8 @@ export const Message = memo(function Message({
   allowRichContent?: boolean;
   /** Codex 摘要：收起工具轨迹，不展开工作日志。 */
   summaryMode?: boolean;
+  /** Conversation density; summaryMode still wins when both are set. */
+  density?: TranscriptDensity;
   editing?: boolean;
   onEdit?: (message: UiMessage) => void;
   onRewind?: (message: UiMessage) => Promise<boolean>;
@@ -76,12 +80,13 @@ export const Message = memo(function Message({
   const [rewinding, setRewinding] = useState(false);
   const [userMessageCollapsible, setUserMessageCollapsible] = useState(false);
   const [userMessageExpanded, setUserMessageExpanded] = useState(false);
-  const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const assistantWorking = message.role === "assistant"
+    && (message.isStreaming || (isLastAssistant && globalStreaming));
+  const transcriptDensity = summaryMode ? "summary" : normalizeTranscriptDensity(density);
+  const [workExpanded, setWorkExpanded] = useState(assistantWorking || transcriptDensity === "verbose");
   const thinkingRef = useRef<HTMLDivElement>(null);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const userMessageTextRef = useRef<HTMLDivElement>(null);
-  const assistantWorking = message.role === "assistant"
-    && (message.isStreaming || (isLastAssistant && globalStreaming));
   const liveThinking = assistantWorking && showThinking && Boolean(message.thinking);
 
   useEffect(() => {
@@ -94,12 +99,14 @@ export const Message = memo(function Message({
   }, [liveThinking, message.thinking]);
 
   useEffect(() => {
-    if (liveThinking) {
-      setThinkingExpanded(true);
-    } else if (message.content) {
-      setThinkingExpanded(false);
+    if (transcriptDensity === "verbose") {
+      setWorkExpanded(true);
+      return;
     }
-  }, [liveThinking, message.content, message.id]);
+    if (transcriptDensity === "summary" || !assistantWorking) {
+      setWorkExpanded(false);
+    }
+  }, [assistantWorking, transcriptDensity]);
 
   useEffect(() => {
     if (!editing) {
@@ -322,6 +329,16 @@ export const Message = memo(function Message({
   }
 
   if (message.role === "notice") {
+    if (message.noticeKind === "compaction" || message.noticeKind === "branch") {
+      const label = message.noticeKind === "compaction" ? "上下文已压缩" : "会话已分叉";
+      const detail = message.content.replace(/^(Context compacted|Branch summary)\s*/i, "").trim();
+      return (
+        <div className={`compaction-divider is-${message.noticeKind}`} role="separator" id={`message-${message.id}`}>
+          <span>{label}</span>
+          {detail && transcriptDensity === "verbose" && <small>{detail}</small>}
+        </div>
+      );
+    }
     return (
       <article className="message-row notice-message" id={`message-${message.id}`}>
         <Info size={14} strokeWidth={1.75} aria-hidden="true" />
@@ -345,15 +362,17 @@ export const Message = memo(function Message({
     && Boolean(message.content)
     && !message.isError;
   const duration = formatDuration(message.durationMs ?? 0) ?? formatWorkDuration(toolCalls);
-  const thinkingLabel = reasoningUnavailable
+  const hasWork = working || hasThinking || hasTools || reasoningUnavailable;
+  const workDetailsVisible = transcriptDensity !== "summary" && (working || workExpanded) && (hasThinking || hasTools);
+  const canToggleWork = !working && transcriptDensity !== "summary" && (hasThinking || hasTools);
+  const workLabel = reasoningUnavailable && !hasTools && !hasThinking
     ? "模型未返回可见推理"
     : working
-    ? workingLabel || "Pi 正在工作…"
-    : duration
-      ? `思考了 ${duration}`
-      : "思考过程";
-  const thinkingDetailsVisible = hasThinking && !summaryMode && (working || thinkingExpanded);
-  const thinkingToggleLabel = thinkingDetailsVisible ? "收起思考过程" : "展开思考过程";
+      ? workingLabel || "正在工作…"
+      : duration
+        ? `耗时 ${duration}`
+        : "工作过程";
+  const workToggleLabel = workDetailsVisible ? "收起工作过程" : "展开工作过程";
 
   const timeLabel = typeof message.timestamp === "number" && message.timestamp > 0
     ? new Date(message.timestamp).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
@@ -401,42 +420,50 @@ export const Message = memo(function Message({
       className={`message-row assistant-message ${message.isError ? "error" : ""} ${!message.content && (working || hasThinking || hasTools) ? "work-only" : ""}`}
       id={`message-${message.id}`}
     >
-      {(working || hasThinking || reasoningUnavailable) && (
-        <div className="thinking-block">
-          {hasThinking && !summaryMode ? (
-            <button
-              type="button"
-              className="thinking-caption thinking-toggle"
-              title={thinkingToggleLabel}
-              aria-label={thinkingToggleLabel}
-              aria-expanded={thinkingDetailsVisible}
-              disabled={working}
-              onClick={() => setThinkingExpanded((value) => !value)}
-            >
-              <span>{thinkingLabel}</span>
-              {thinkingDetailsVisible
-                ? <ChevronUp size={13} strokeWidth={1.8} />
-                : <ChevronDown size={13} strokeWidth={1.8} />}
-            </button>
-          ) : (
-            <div className="thinking-caption">{thinkingLabel}</div>
-          )}
-          {thinkingDetailsVisible && (
-            <div
-              ref={thinkingRef}
-              className={`thinking-prose ${working ? "streaming" : ""}`}
-              role="log"
-              aria-label="思考过程"
-            >
-              {message.thinking}
+      {hasWork && (
+        <details
+          className="work-log"
+          key={`${message.id}-${working ? "working" : "idle"}-${transcriptDensity}`}
+          {...(working && transcriptDensity !== "summary" ? { open: true } : {})}
+          onToggle={(event) => {
+            if (!canToggleWork) return;
+            setWorkExpanded(event.currentTarget.open);
+          }}
+        >
+          <summary
+            className="work-log-toggle"
+            title={canToggleWork ? workToggleLabel : undefined}
+            aria-label={canToggleWork ? workToggleLabel : undefined}
+            aria-expanded={workDetailsVisible}
+            onClick={(event) => {
+              if (!canToggleWork) event.preventDefault();
+            }}
+          >
+            <span>{workLabel}</span>
+            {(hasThinking || hasTools) && transcriptDensity !== "summary" && (
+              <ChevronRight size={13} strokeWidth={1.8} className={workDetailsVisible ? "open" : undefined} />
+            )}
+          </summary>
+          {workDetailsVisible && (hasThinking || hasTools) && (
+            <div className="work-log-body">
+              {hasThinking && (
+                <div
+                  ref={thinkingRef}
+                  className={`work-log-thinking ${working ? "streaming" : ""}`}
+                  role="log"
+                  aria-label="思考过程"
+                >
+                  {message.thinking}
+                </div>
+              )}
+              {hasTools && (
+                <div className="tool-list">
+                  {toolCalls.map((call) => <ToolCall call={call} key={call.id} />)}
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
-      {hasTools && (
-        <div className="tool-list">
-          {toolCalls.map((call) => <ToolCall call={call} key={call.id} />)}
-        </div>
+        </details>
       )}
       {message.content && (
         <div className="assistant-content">

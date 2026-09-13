@@ -55,9 +55,121 @@ const completedThinking = renderToStaticMarkup(createElement(Message, {
   },
 }));
 
-assert.match(completedThinking, /aria-label="展开思考过程"/);
+assert.match(completedThinking, /class="work-log"/);
+assert.match(completedThinking, /aria-label="展开工作过程"/);
 assert.match(completedThinking, /aria-expanded="false"/);
+assert.match(completedThinking, /耗时 2秒/);
 assert.doesNotMatch(completedThinking, /Internal reasoning details/);
+assert.doesNotMatch(completedThinking, /work-log-body/);
+
+const completedTools = renderToStaticMarkup(createElement(Message, {
+  message: {
+    id: "assistant-tools-message",
+    role: "assistant",
+    content: "Read the file.",
+    durationMs: 1_000,
+    toolCalls: [{
+      id: "read-1",
+      name: "read",
+      args: { path: "src/App.tsx", offset: 1 },
+      result: "export function App() {}",
+      running: false,
+    }],
+  },
+}));
+
+assert.match(completedTools, /耗时 1秒/);
+assert.doesNotMatch(completedTools, /读取 src\/App\.tsx/);
+assert.doesNotMatch(completedTools, /"offset"/);
+assert.doesNotMatch(completedTools, /export function App/);
+
+const streamingWork = renderToStaticMarkup(createElement(Message, {
+  message: {
+    id: "assistant-streaming-work",
+    role: "assistant",
+    content: "",
+    thinking: "Planning the read",
+    isStreaming: true,
+    toolCalls: [{
+      id: "read-2",
+      name: "read",
+      args: { path: "README.md" },
+      running: true,
+    }],
+  },
+  isLastAssistant: true,
+  globalStreaming: true,
+  workingLabel: "正在工作…",
+}));
+
+assert.match(streamingWork, /正在工作…/);
+assert.match(streamingWork, /Planning the read/);
+assert.match(streamingWork, /读取 README.md/);
+assert.doesNotMatch(streamingWork, /"path"/);
+
+const summaryWork = renderToStaticMarkup(createElement(Message, {
+  message: {
+    id: "assistant-summary",
+    role: "assistant",
+    content: "Done.",
+    thinking: "Hidden in summary mode",
+    toolCalls: [{
+      id: "read-3",
+      name: "read",
+      args: { path: "src/store.ts" },
+      running: false,
+    }],
+  },
+  summaryMode: true,
+}));
+
+assert.match(summaryWork, /工作过程|耗时/);
+assert.doesNotMatch(summaryWork, /Hidden in summary mode/);
+assert.doesNotMatch(summaryWork, /读取 src\/store.ts/);
+assert.doesNotMatch(summaryWork, /aria-label="展开工作过程"/);
+
+const compaction = renderToStaticMarkup(createElement(Message, {
+  message: {
+    id: "compact-1",
+    role: "notice",
+    noticeKind: "compaction",
+    content: "Context compacted\n\nOlder turns were summarized.",
+    timestamp: 3,
+  },
+}));
+assert.match(compaction, /class="compaction-divider is-compaction"/);
+assert.match(compaction, /上下文已压缩/);
+assert.doesNotMatch(compaction, /Older turns were summarized/);
+
+const verboseCompaction = renderToStaticMarkup(createElement(Message, {
+  message: {
+    id: "compact-2",
+    role: "notice",
+    noticeKind: "compaction",
+    content: "Context compacted\n\nOlder turns were summarized.",
+    timestamp: 4,
+  },
+  density: "verbose",
+}));
+assert.match(verboseCompaction, /Older turns were summarized/);
+
+const verboseWork = renderToStaticMarkup(createElement(Message, {
+  message: {
+    id: "verbose-tools",
+    role: "assistant",
+    content: "Done.",
+    thinking: "Shown in verbose mode",
+    toolCalls: [{
+      id: "read-4",
+      name: "read",
+      args: { path: "src/store.ts" },
+      running: false,
+    }],
+  },
+  density: "verbose",
+}));
+assert.match(verboseWork, /Shown in verbose mode/);
+assert.match(verboseWork, /读取 src\/store.ts/);
 
 const goalOnly = renderToStaticMarkup(createElement(Message, {
   message: {

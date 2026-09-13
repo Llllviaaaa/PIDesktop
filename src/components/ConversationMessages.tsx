@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronUp } from "lucide-react";
 import { usePiStore } from "../store";
 import type { UiMessage } from "../types";
+import { deriveTaskPlan } from "../lib/envSources";
+import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
+import { ConversationPlan } from "./ConversationPlan";
 import { Message } from "./Message";
 
 export function ConversationMessages({
@@ -10,10 +13,12 @@ export function ConversationMessages({
   isStreaming,
   statusText,
   editingMessageId,
+  density = "normal",
   onEdit,
   onRewind,
   onCancelEdit,
   onSubmitEdit,
+  onOpenPlan,
   scrollerRef,
   autoFollowRef,
   lastAutoScrollAtRef,
@@ -24,16 +29,20 @@ export function ConversationMessages({
   isStreaming: boolean;
   statusText: string;
   editingMessageId?: string;
+  density?: TranscriptDensity;
   onEdit: (message: UiMessage) => void;
   onRewind: (message: UiMessage) => Promise<boolean>;
   onCancelEdit: () => void;
   onSubmitEdit: (message: UiMessage, text: string) => Promise<boolean>;
+  onOpenPlan?: () => void;
   scrollerRef: { current: HTMLDivElement | null };
   autoFollowRef: { current: boolean };
   lastAutoScrollAtRef: { current: number };
   conversationKey: string;
 }) {
   const messages = usePiStore((state) => state.messages);
+  const transcriptDensity = normalizeTranscriptDensity(density);
+  const plan = useMemo(() => deriveTaskPlan(messages), [messages]);
   const [visibleCount, setVisibleCount] = useState(120);
   const firstVisibleIndex = Math.max(0, messages.length - visibleCount);
   const visibleMessages = messages.slice(firstVisibleIndex);
@@ -87,6 +96,7 @@ export function ConversationMessages({
           globalStreaming={isStreaming}
           workingLabel={message.id === lastAssistantId ? statusText : undefined}
           allowRichContent
+          density={transcriptDensity}
           editing={editingMessageId === message.id}
           onEdit={message.role === "user" ? onEdit : undefined}
           onRewind={message.role === "user" ? onRewind : undefined}
@@ -94,6 +104,13 @@ export function ConversationMessages({
           onSubmitEdit={onSubmitEdit}
         />
       ))}
+      {plan && (
+        <ConversationPlan
+          plan={plan}
+          compact={transcriptDensity === "summary"}
+          onOpen={onOpenPlan}
+        />
+      )}
     </>
   );
 }

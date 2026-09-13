@@ -163,6 +163,7 @@ export function messagesToUi(messages: AgentMessage[], timings: SessionMessageTi
       result.push({
         id: messageId(message),
         role: "notice",
+        noticeKind: message.role === "compactionSummary" ? "compaction" : "branch",
         content: message.role === "compactionSummary"
           ? `Context compacted\n\n${message.summary}`
           : `Branch summary\n\n${message.summary}`,

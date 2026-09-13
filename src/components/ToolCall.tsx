@@ -9,6 +9,7 @@ import {
   FilePenLine,
   FileSearch,
   Globe2,
+  ListChecks,
   LoaderCircle,
   MonitorCog,
   Network,
@@ -16,95 +17,41 @@ import {
   Wrench,
 } from "lucide-react";
 import type { UiToolCall } from "../types";
-import { isWebSearchTool, webSearchQuery, webSearchSources } from "../lib/webAccess";
+import { presentToolCall, type ToolKind } from "../lib/toolPresentation";
 
-function summary(call: UiToolCall): string {
-  const name = call.name.toLowerCase();
-  if (isWebSearchTool(name)) {
-    const label = call.running ? "正在搜索网页" : call.isError ? "网页搜索失败" : "已搜索网页";
-    const query = webSearchQuery(call.args);
-    return query ? `${label} · ${query}` : label;
-  }
-  if (name === "bash" || name === "exec" || name === "shell") {
-    return "运行了命令";
-  }
-  if (name === "read" || name === "write" || name === "edit") {
-    return name === "read" ? "读取文件" : name === "edit" ? "编辑文件" : "写入文件";
-  }
-  if (name === "grep" || name === "find" || name === "search") {
-    return "搜索文件";
-  }
-  if (name === "browser" || name.startsWith("browser_")) {
-    const labels: Record<string, string> = {
-      browser_navigate: "打开网页",
-      browser_inspect: "检查网页",
-      browser_screenshot: "截取网页",
-      browser_click: "点击网页元素",
-      browser_type: "在网页中输入",
-      browser_press: "发送网页按键",
-      browser_scroll: "滚动网页",
-      browser_select: "选择表单项",
-      browser_wait: "等待网页更新",
-      browser_tabs: "管理浏览器标签",
-      browser_upload: "上传工作区文件",
-    };
-    return labels[name] || "操作浏览器";
-  }
-  if (name === "computer" || name.startsWith("computer_")) {
-    const labels: Record<string, string> = {
-      computer_sources: "列出桌面源",
-      computer_state: "查看计算机会话",
-      computer_start: "开始计算机会话",
-      computer_stop: "停止计算机会话",
-      computer_screenshot: "查看 Windows 桌面",
-      computer_inspect: "检查前台窗口",
-      computer_click: "点击桌面",
-      computer_move: "移动桌面指针",
-      computer_scroll: "滚动桌面",
-      computer_type: "在应用中输入",
-      computer_key: "发送按键",
-    };
-    return labels[name] || "操作计算机";
-  }
-  if (name.startsWith("mcp__")) {
-    const parts = call.name.split("__");
-    return `MCP · ${parts[parts.length - 1]?.replace(/_/g, " ") || call.name}`;
-  }
-  return call.name;
-}
-
-function ToolIcon({ call }: { call: UiToolCall }) {
-  const name = call.name.toLowerCase();
-  if (isWebSearchTool(name)) return <Globe2 size={14} />;
-  if (name === "bash" || name === "exec" || name === "shell") return <Terminal size={14} />;
-  if (name === "write" || name === "edit") return <FilePenLine size={14} />;
-  if (name === "read" || name === "grep" || name === "find") return <FileSearch size={14} />;
-  if (name === "browser" || name.startsWith("browser_")) return <Globe2 size={14} />;
-  if (name === "computer" || name.startsWith("computer_")) return <MonitorCog size={14} />;
-  if (name.startsWith("mcp__")) return <Network size={14} />;
+function ToolIcon({ kind }: { kind: ToolKind }) {
+  if (kind === "web-search" || kind === "browser") return <Globe2 size={14} />;
+  if (kind === "shell") return <Terminal size={14} />;
+  if (kind === "write" || kind === "edit") return <FilePenLine size={14} />;
+  if (kind === "read" || kind === "search") return <FileSearch size={14} />;
+  if (kind === "computer") return <MonitorCog size={14} />;
+  if (kind === "mcp") return <Network size={14} />;
+  if (kind === "plan") return <ListChecks size={14} />;
   return <Wrench size={14} />;
 }
 
 export function ToolCall({ call }: { call: UiToolCall }) {
   const [expanded, setExpanded] = useState(false);
-  const isWebSearch = isWebSearchTool(call.name);
-  const query = isWebSearch ? webSearchQuery(call.args) : undefined;
-  const sources = isWebSearch ? webSearchSources(call.details, call.result) : [];
+  const presented = presentToolCall(call);
   const duration = call.startedAt && call.finishedAt
     ? `${((call.finishedAt - call.startedAt) / 1000).toFixed(1)}s`
     : null;
+  const canExpand = presented.expandable;
 
   return (
     <div className={`tool-step ${call.isError ? "error" : ""}`}>
       <button
         type="button"
         className="tool-step-heading"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={canExpand ? expanded : undefined}
+        disabled={!canExpand}
+        onClick={() => {
+          if (canExpand) setExpanded((value) => !value);
+        }}
       >
-        <span className="tool-icon"><ToolIcon call={call} /></span>
-        <span className="tool-summary">{summary(call)}</span>
-        {!call.running && sources.length > 0 && <small>{sources.length} 个来源</small>}
+        <span className="tool-icon"><ToolIcon kind={presented.kind} /></span>
+        <span className="tool-summary">{presented.heading}</span>
+        {!call.running && presented.sources.length > 0 && <small>{presented.sources.length} 个来源</small>}
         {duration && <small>{duration}</small>}
         {call.running ? (
           <LoaderCircle className="spin" size={13} />
@@ -113,17 +60,54 @@ export function ToolCall({ call }: { call: UiToolCall }) {
         ) : (
           <Check size={13} />
         )}
-        {(call.result !== undefined || call.images?.length) && (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
+        {canExpand && (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
       </button>
-      {expanded && (
+      {expanded && canExpand && (
         <div className="tool-drawer">
-          <div className="tool-section-label">{isWebSearch ? "查询" : "输入"}</div>
-          {query ? <div className="tool-search-query">{query}</div> : <pre>{JSON.stringify(call.args, null, 2)}</pre>}
-          {sources.length > 0 && (
+          {presented.kind === "web-search" && presented.query && (
+            <>
+              <div className="tool-section-label">查询</div>
+              <div className="tool-search-query">{presented.query}</div>
+            </>
+          )}
+          {presented.kind === "shell" && presented.command && (
+            <>
+              <div className="tool-section-label">命令</div>
+              <pre className="tool-command">{presented.command}</pre>
+            </>
+          )}
+          {presented.kind === "search" && presented.query && (
+            <>
+              <div className="tool-section-label">查询</div>
+              <div className="tool-search-query">{presented.query}</div>
+            </>
+          )}
+          {presented.path && (presented.kind === "read" || presented.kind === "write" || presented.kind === "edit") && (
+            <>
+              <div className="tool-section-label">文件</div>
+              <div className="tool-file-path">{presented.path}</div>
+            </>
+          )}
+          {presented.diff && presented.diff.length > 0 && (
+            <>
+              <div className="tool-section-label">变更</div>
+              <div className="tool-diff" role="figure" aria-label="文件变更">
+                {presented.diff.map((line, index) => (
+                  <div className={`tool-diff-line is-${line.type}`} key={`${line.type}-${index}`}>
+                    <span className="tool-diff-gutter" aria-hidden="true">
+                      {line.type === "add" ? "+" : line.type === "del" ? "−" : line.type === "hunk" ? "@" : " "}
+                    </span>
+                    <span>{line.text}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          {presented.sources.length > 0 && (
             <>
               <div className="tool-section-label">来源</div>
               <div className="tool-search-sources">
-                {sources.map((source) => (
+                {presented.sources.map((source) => (
                   <a
                     key={source.url}
                     href={source.url}
@@ -140,10 +124,25 @@ export function ToolCall({ call }: { call: UiToolCall }) {
               </div>
             </>
           )}
-          {call.result !== undefined && (
+          {presented.plan && presented.plan.steps.length > 0 && (
             <>
-              <div className="tool-section-label">{isWebSearch ? "搜索结果" : "输出"}</div>
-              <pre>{call.result}</pre>
+              <div className="tool-section-label">步骤</div>
+              {presented.plan.explanation && <div className="tool-search-query">{presented.plan.explanation}</div>}
+              <ol className="tool-plan-steps">
+                {presented.plan.steps.map((step) => (
+                  <li key={step.id} className={`tool-plan-step is-${step.status}`}>
+                    <span>{step.text}</span>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+          {presented.preview && (
+            <>
+              <div className="tool-section-label">
+                {presented.kind === "web-search" ? "搜索结果" : presented.kind === "shell" ? "输出" : "内容"}
+              </div>
+              <pre className="tool-preview">{presented.preview}</pre>
             </>
           )}
           {call.images && call.images.length > 0 && (

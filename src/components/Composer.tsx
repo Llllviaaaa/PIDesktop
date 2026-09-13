@@ -24,6 +24,12 @@ import {
   X,
 } from "lucide-react";
 import type { AppSettings, AttachmentPayload, ManagedQueuedMessage, ModelInfo, SessionStats, SlashCommand } from "../types";
+import {
+  TRANSCRIPT_DENSITY_LABELS,
+  TRANSCRIPT_DENSITY_ORDER,
+  normalizeTranscriptDensity,
+  type TranscriptDensity,
+} from "../lib/transcriptDensity";
 
 const THINKING_LABELS: Record<string, string> = {
   off: "关闭",
@@ -72,6 +78,8 @@ interface ComposerProps {
   agentMode?: AppSettings["agentMode"];
   contextUsage?: SessionStats["contextUsage"];
   variant?: "task-start" | "follow-up";
+  transcriptDensity?: TranscriptDensity;
+  onTranscriptDensityChange?: (density: TranscriptDensity) => void;
   onSend: (text: string, behavior?: "steer" | "followUp") => Promise<boolean | void> | boolean | void;
   onStop: () => void;
   onPickAttachments: () => void;
@@ -115,6 +123,8 @@ export const Composer = memo(function Composer({
   agentMode = "agent",
   contextUsage,
   variant = "follow-up",
+  transcriptDensity = "normal",
+  onTranscriptDensityChange,
   onSend,
   onStop,
   onPickAttachments,
@@ -498,6 +508,20 @@ export const Composer = memo(function Composer({
           </div>
 
           <div className="composer-toolbar-right">
+            {variant === "follow-up" && onTranscriptDensityChange && (
+              <label className="compact-select transcript-density" title="对话详细程度 (Ctrl+O)">
+                <select
+                  value={normalizeTranscriptDensity(transcriptDensity)}
+                  aria-label="对话详细程度"
+                  onChange={(event) => onTranscriptDensityChange(normalizeTranscriptDensity(event.target.value))}
+                >
+                  {TRANSCRIPT_DENSITY_ORDER.map((value) => (
+                    <option value={value} key={value}>{TRANSCRIPT_DENSITY_LABELS[value]}</option>
+                  ))}
+                </select>
+                <ChevronDown size={12} />
+              </label>
+            )}
             {normalizedContextPercent !== null && (
               <span className="composer-context-usage">
                 <span

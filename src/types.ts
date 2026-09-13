@@ -287,6 +287,8 @@ export interface AppSettings {
   /** Default new-task environment when starting a coding task. */
   defaultTaskEnvironment: "local" | "worktree";
   showThinking: boolean;
+  /** Conversation transcript density: summary hides work, verbose expands it. */
+  transcriptDensity: "summary" | "normal" | "verbose";
   autoConnect: boolean;
   followUpBehavior: "steer" | "followUp";
   requireCtrlEnter: boolean;
@@ -695,6 +697,8 @@ export interface UiMessage {
   entryId?: string;
   role: "user" | "assistant" | "terminal" | "notice";
   content: string;
+  /** Distinguishes compaction/branch notices from generic system notes. */
+  noticeKind?: "compaction" | "branch";
   images?: ImageContent[];
   thinking?: string;
   model?: string;

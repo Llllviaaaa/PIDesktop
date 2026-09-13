@@ -50,6 +50,12 @@ import {
   type PetAnimationState,
 } from "./lib/appearanceCatalog";
 import { aggregateDiffStats } from "./lib/gitDiffStats";
+import {
+  nextTranscriptDensity,
+  normalizeTranscriptDensity,
+  TRANSCRIPT_DENSITY_LABELS,
+  TRANSCRIPT_DENSITY_ORDER,
+} from "./lib/transcriptDensity";
 import { activeSessionTitle, sessionRecency, sessionTitle } from "./lib/sessionTitle";
 import { navigationKey, withoutArchivedSessions, type NavigationTarget as BaseNavigationTarget } from "./lib/navigationHistory";
 import { sameLocalPath } from "./lib/pathIdentity";
@@ -206,6 +212,21 @@ export default function App() {
     return fixture !== "thread" && fixture !== "performance" && fixture !== "stream" && fixture !== "queue" && fixture !== "title" && fixture !== "diagrams" && fixture !== "goal";
   });
   const newTask = draftMode;
+  const [localTranscriptDensity, setLocalTranscriptDensity] = useState<ReturnType<typeof normalizeTranscriptDensity>>("normal");
+  const transcriptDensity = settings
+    ? normalizeTranscriptDensity(settings.transcriptDensity)
+    : localTranscriptDensity;
+  const setTranscriptDensity = useCallback((density: typeof transcriptDensity) => {
+    const current = usePiStore.getState();
+    if (current.settings) {
+      void current.saveSettings({ ...current.settings, transcriptDensity: density });
+      return;
+    }
+    setLocalTranscriptDensity(density);
+  }, []);
+  const cycleTranscriptDensity = useCallback(() => {
+    setTranscriptDensity(nextTranscriptDensity(transcriptDensity));
+  }, [setTranscriptDensity, transcriptDensity]);
   const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth > 900);
   const [sidebarHoverPreview, setSidebarHoverPreview] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -732,6 +753,11 @@ export default function App() {
         setSettingsOpen(false);
         return;
       }
+      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "o") {
+        event.preventDefault();
+        cycleTranscriptDensity();
+        return;
+      }
       if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "j") {
         event.preventDefault();
         setBottomPanel((value) => !value);
@@ -805,7 +831,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [connection, settings, settingsOpen, store.prepareNewTask, togglePrimarySidebar, toggleWorkspaceSidebar, toggleWorkspaceTool]);
+  }, [connection, cycleTranscriptDensity, settings, settingsOpen, store.prepareNewTask, togglePrimarySidebar, toggleWorkspaceSidebar, toggleWorkspaceTool]);
 
   useEffect(() => {
     if (!editingTitle) setTitleDraft(resolvedThreadTitle);
@@ -1717,6 +1743,8 @@ export default function App() {
       permissionLabel={permissionLabel}
       agentMode={settings?.agentMode ?? "agent"}
       contextUsage={variant === "follow-up" ? stats?.contextUsage : undefined}
+      transcriptDensity={transcriptDensity}
+      onTranscriptDensityChange={variant === "follow-up" ? setTranscriptDensity : undefined}
       onSend={sendFromComposer}
       onStop={stopFromComposer}
       onPickAttachments={pickAttachments}
@@ -1787,6 +1815,13 @@ export default function App() {
               </>}
               {appMenu === "view" && <>
                 <button onClick={() => { setAppMenu(null); togglePrimarySidebar(); }}>{sidebarVisible ? "隐藏侧栏" : "显示侧栏"}</button>
+                {TRANSCRIPT_DENSITY_ORDER.map((value) => (
+                  <button key={value} onClick={() => { setAppMenu(null); setTranscriptDensity(value); }}>
+                    对话{TRANSCRIPT_DENSITY_LABELS[value]}{transcriptDensity === value ? " ✓" : ""}
+                    {value === "normal" ? "  Ctrl+O" : ""}
+                  </button>
+                ))}
+                <div className="menu-separator" />
                 <button onClick={() => { setAppMenu(null); setWorkspaceSidebarOpen(false); setWorkspaceTool(null); setPreviewFile(null); setInspectorTab("changes"); setInspectorOpenView(null); }}>显示环境信息</button>
                 <button onClick={() => { setAppMenu(null); toggleWorkspaceTool("review"); }}>审查</button>
                 <button onClick={() => { setAppMenu(null); setBottomPanel((value) => !value); }}>{bottomPanel ? "隐藏终端" : "打开终端"}</button>
@@ -2154,7 +2189,7 @@ export default function App() {
               autoFollowConversationRef.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
             }}
           >
-            <div className={`conversation ${newTask ? "new-task-conversation" : ""}`}>
+            <div className={`conversation ${newTask ? "new-task-conversation" : ""} ${!newTask ? `density-${transcriptDensity}` : ""}`}>
               {newTask ? (
                 <div className="new-task-screen codex-home">
                   <div className="home-mark cloud-mark" aria-hidden>
@@ -2248,6 +2283,14 @@ export default function App() {
                     autoFollowRef={autoFollowConversationRef}
                     lastAutoScrollAtRef={lastAutoScrollAtRef}
                     conversationKey={`${runtimeId ?? "none"}:${sessionFile ?? "new"}`}
+                    density={transcriptDensity}
+                    onOpenPlan={() => {
+                      setWorkspaceSidebarOpen(false);
+                      setWorkspaceTool(null);
+                      setPreviewFile(null);
+                      setInspectorTab("changes");
+                      setInspectorOpenView("plan");
+                    }}
                   />
                   {(git?.files.length ?? 0) > 0 && (
                     <section className="conversation-change-card" aria-label="当前工作区变更">

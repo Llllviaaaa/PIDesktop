@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>竞品聊天消息格式研究 — Pi Desktop</title>
+  <style>
+    :root {
+      --bg: #f4f4f5;
+      --paper: #fff;
+      --ink: #18181b;
+      --muted: #71717a;
+      --line: #e4e4e7;
+      --user: #f4f4f5;
+      --blue: #2563eb;
+      --green: #16a34a;
+      --red: #dc2626;
+      --amber: #d97706;
+      --pi: #0a0a0b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.55 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    }
+    header {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 36px 24px 8px;
+    }
+    header p.kicker { color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 8px; }
+    h1 { font-size: 28px; letter-spacing: -.03em; margin: 0 0 10px; }
+    .lede { max-width: 72ch; color: #3f3f46; }
+    main { max-width: 1120px; margin: 0 auto; padding: 8px 24px 80px; }
+    h2 { font-size: 20px; letter-spacing: -.02em; margin: 36px 0 12px; }
+    h3 { font-size: 14px; margin: 0 0 8px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+    .card.hl { border-color: #d4d4d8; box-shadow: 0 8px 24px rgba(0,0,0,.04); }
+    .muted { color: var(--muted); font-size: 12.5px; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      border-radius: 999px; padding: 2px 8px; font-size: 11px;
+      background: #f4f4f5; color: #3f3f46;
+    }
+    .tag.pi { background: #18181b; color: #fff; }
+    .tag.warn { background: #fef3c7; color: #92400e; }
+    .tag.ok { background: #dcfce7; color: #166534; }
+    .family { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; }
+    .thread {
+      background: #fafafa;
+      border: 1px dashed #d4d4d8;
+      border-radius: 12px;
+      padding: 14px;
+      min-height: 220px;
+    }
+    .user-bubble {
+      margin-left: auto; width: fit-content; max-width: 78%;
+      background: #f4f4f5; border-radius: 16px; padding: 8px 12px;
+      font-size: 13.5px;
+    }
+    .work-fold { color: #8b8f97; font-size: 12.5px; margin: 14px 0 8px; }
+    .prose { font-size: 13.5px; line-height: 1.6; }
+    .prose p { margin: 0 0 8px; }
+    .file-chip { color: var(--blue); font-size: 13px; }
+    .change-card {
+      margin-top: 10px; border: 1px solid var(--line); border-radius: 12px;
+      padding: 10px 12px; display: flex; justify-content: space-between; align-items: center;
+      background: #fff; font-size: 13px;
+    }
+    .pm { color: var(--green); } .mm { color: var(--red); }
+    .actions { color: #a1a1aa; font-size: 12px; margin-top: 8px; }
+    .tool-row {
+      display: flex; align-items: center; gap: 8px;
+      color: #52525b; font-size: 12.5px; padding: 3px 0;
+    }
+    .tool-row .dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; }
+    .tool-row .spin { width: 8px; height: 8px; border: 1.5px solid #a1a1aa; border-top-color: transparent; border-radius: 50%; }
+    .json-dump {
+      font: 11px/1.45 ui-monospace, Consolas, monospace;
+      background: #18181b; color: #d4d4d8; border-radius: 8px; padding: 8px 10px; margin-top: 6px;
+    }
+    .diff {
+      font: 11.5px/1.45 ui-monospace, Consolas, monospace;
+      border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-top: 6px;
+    }
+    .diff .add { background: #ecfdf3; }
+    .diff .del { background: #fef2f2; }
+    .diff div { padding: 2px 8px; }
+    .asterisk { color: #e07a5f; }
+    .notice { color: #71717a; font-size: 12px; display: flex; gap: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 550; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; }
+    .gap { background: #fff7ed; }
+    .rec { background: #f0fdf4; }
+    @media (max-width: 900px) {
+      .grid-2, .grid-4 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="kicker">Pi Desktop · 聊天窗研究 · 2026-09-13</p>
+    <h1>竞品聊天里，不同类型消息到底怎么排？</h1>
+    <p class="lede">
+      Codex、Claude Desktop、Cursor（以及开源对照 Cline / Continue）不是同一套聊天。
+      它们分成两个家族：<b>对话正文优先</b>，和 <b>Agent 时间线优先</b>。
+      Pi 现在外壳是 Codex，工具行却像半成品 Cline——这是格式不满意的主因。
+    </p>
+  </header>
+  <main>
+    <h2>两个家族</h2>
+    <div class="grid-2">
+      <article class="card hl">
+        <h3>A. 对话正文优先</h3>
+        <p class="muted">Codex Desktop · Claude Chat / Cowork · ChatGPT</p>
+        <div class="family">
+          <span class="tag">用户右气泡</span>
+          <span class="tag">助手无气泡</span>
+          <span class="tag">工作折成一行</span>
+          <span class="tag">结果做成产品卡</span>
+        </div>
+        <p class="muted" style="margin-top:10px">默认只让人读「说了什么」。读文件、跑命令、思考过程全部收进一条灰色折叠行。改文件才升格成卡片。</p>
+      </article>
+      <article class="card hl">
+        <h3>B. Agent 时间线优先</h3>
+        <p class="muted">Cursor Agent · Claude Code（Verbose）· Cline</p>
+        <div class="family">
+          <span class="tag">每步一行</span>
+          <span class="tag">按工具特化</span>
+          <span class="tag">Read / Edit / Bash</span>
+          <span class="tag">密度可切换</span>
+        </div>
+        <p class="muted" style="margin-top:10px">默认展示「做了什么」。读、改、搜、跑命令各有专用渲染（路径、diff、输出），而不是一份 JSON。</p>
+      </article>
+    </div>
+
+    <h2>同一条任务，四家分别长什么样</h2>
+    <p class="muted">任务：读取 README.md 前 20 行并总结。下面是结构示意，不是像素临摹。</p>
+    <div class="grid-4">
+      <section class="card">
+        <h3>Codex <span class="tag ok">Pi 应对齐的默认态</span></h3>
+        <div class="thread">
+          <div class="user-bubble">读取 README.md 前 20 行并总结</div>
+          <div class="work-fold">耗时 1s ›</div>
+          <div class="prose">
+            <p><b>Pi Desktop</b> 是本地 Windows 桌面客户端…</p>
+            <p class="file-chip">📄 README.md (line 1)</p>
+          </div>
+          <div class="change-card">
+            <span>已编辑 README.md<br><small class="pm">+4</small> <small class="mm">-2</small></span>
+            <span class="muted">撤销 · 审核</span>
+          </div>
+          <div class="actions">⧉  ↗  ⚓  11:09</div>
+        </div>
+      </section>
+      <section class="card">
+        <h3>Claude Desktop Chat</h3>
+        <div class="thread">
+          <div class="user-bubble">读取 README.md 前 20 行并总结</div>
+          <div class="work-fold"><span class="asterisk">✳</span> Thought for 4s ›</div>
+          <div class="prose">
+            <p>这是一个本地桌面客户端，核心是 JSONL RPC…</p>
+            <p class="muted">引用 1 · 引用 2</p>
+          </div>
+          <div class="muted" style="margin-top:10px">Artifacts / 自定义可视化走右侧面板，不塞进正文。</div>
+        </div>
+      </section>
+      <section class="card">
+        <h3>Cursor / Claude Code</h3>
+        <div class="thread">
+          <div class="muted" style="margin-bottom:8px">You</div>
+          <div class="prose" style="margin-bottom:10px">读取 README.md 前 20 行并总结</div>
+          <div class="tool-row"><span class="dot"></span> Read README.md</div>
+          <div class="tool-row"><span class="dot"></span> Grep “当前能力”</div>
+          <div class="prose" style="margin-top:10px">
+            <p>仓库是本地 agent 桌面端。前 20 行覆盖架构与能力清单。</p>
+          </div>
+          <div class="muted" style="margin-top:10px">Claude Code 还有 Normal / Verbose / Summary 三档。</div>
+        </div>
+      </section>
+      <section class="card">
+        <h3>Pi 现在 <span class="tag warn">卡在中间</span></h3>
+        <div class="thread">
+          <div class="user-bubble">读取 README.md 前 20 行并总结</div>
+          <div class="work-fold">思考了 1秒 ▾</div>
+          <div class="muted" style="margin:0 0 8px">The user wants me to read…</div>
+          <div class="tool-row"><span class="dot"></span> 读取文件 <small>0.0s ✓</small></div>
+          <div class="json-dump">{ "path": "README.md", "limit": 20 }</div>
+          <div class="prose" style="margin-top:10px"><p>Pi Desktop 是一个仅本地运行的…</p></div>
+        </div>
+      </section>
+    </div>
+
+    <h2>按消息类型对照</h2>
+    <div class="card" style="overflow:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>类型</th>
+            <th>Codex</th>
+            <th>Claude Desktop</th>
+            <th>Cursor / Claude Code</th>
+            <th>Pi 现在</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>用户</td>
+            <td>右对齐浅灰胶囊，无头像，短文本不折叠</td>
+            <td>右气泡；截图/窗口分享做成附件条</td>
+            <td>左对齐 You 标签或普通块；@文件是芯片</td>
+            <td>已接近 Codex；超 6 行折叠 + 编辑/回退</td>
+          </tr>
+          <tr>
+            <td>思考</td>
+            <td>不单独占位，并进「耗时 Xs ›」</td>
+            <td>「Thought for Ns」；工作时珊瑚色 ✳</td>
+            <td>Thinking 可展开；新模型常默认隐藏摘要</td>
+            <td class="gap">思考标题常驻，和工具列表拆开</td>
+          </tr>
+          <tr>
+            <td>工具</td>
+            <td>默认全藏；展开后安静的「读取文件 0.0s」</td>
+            <td>Chat：Used X 小卡；Code：按工具特化</td>
+            <td>Read / Edited / Ran / Searched 各有专用行</td>
+            <td class="gap">每种工具同一套 JSON 抽屉，只有网页搜索特化</td>
+          </tr>
+          <tr>
+            <td>助手正文</td>
+            <td>无气泡、较大字号、文件链成蓝色芯片</td>
+            <td>无气泡；可视化/Artifact 另开面板</td>
+            <td>更密；代码引用可点进文件</td>
+            <td>结构对，但和工具噪音抢注意力</td>
+          </tr>
+          <tr>
+            <td>改文件</td>
+            <td>正文下「已编辑 file +N −M」撤销/审核卡</td>
+            <td>Code：顶栏 +12 −1 → 独立 diff</td>
+            <td>专用 diffs 视图，可 stage / PR</td>
+            <td class="gap">改动主要在环境信息面板，对话里不是一等卡片</td>
+          </tr>
+          <tr>
+            <td>代码块</td>
+            <td>克制，少装饰</td>
+            <td>复制；可升级成 Artifact</td>
+            <td>复制 + Apply</td>
+            <td>复制 + 高亮 + 图；无 Apply</td>
+          </tr>
+          <tr>
+            <td>计划</td>
+            <td>环境栏 / Artifacts</td>
+            <td>Cowork/Code 侧栏计划视图</td>
+            <td>对话里 Todo 清单，可勾选</td>
+            <td class="gap">只在环境信息/检查器，对话里看不到</td>
+          </tr>
+          <tr>
+            <td>压缩</td>
+            <td>安静系统行</td>
+            <td>系统提示</td>
+            <td>Continue：左右线 + Previous Conversation Compacted</td>
+            <td>notice 灰字，不像分隔符</td>
+          </tr>
+          <tr>
+            <td>错误</td>
+            <td>少用红色，失败收进折叠行</td>
+            <td>温和提示</td>
+            <td>Cline：独立 Error 行 + 粗标题</td>
+            <td>助手左红条，工具行淡红</td>
+          </tr>
+          <tr>
+            <td>流式</td>
+            <td>折叠行保持「正在工作」</td>
+            <td>✳ 呼吸动画</td>
+            <td>当前工具行转圈</td>
+            <td>思考标题 + 三点等待，和折叠行语义打架</td>
+          </tr>
+          <tr>
+            <td>动作</td>
+            <td>末条常驻 复制/分享/锚点 + 时间</td>
+            <td>复制、重试、反馈</td>
+            <td>复制、恢复检查点、引用选区</td>
+            <td>末条已常驻，用户侧是编辑/回退</td>
+          </tr>
+          <tr>
+            <td>密度</td>
+            <td>一种默认（藏工作）</td>
+            <td>Chat 藏、Code 可切 Normal/Verbose/Summary</td>
+            <td>Agent 时间线；可进文件/diff</td>
+            <td class="gap">summaryMode 存在，聊天窗没有用户可切的档位</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>工具行：竞品特化 vs Pi 通用抽屉</h2>
+    <div class="grid-2">
+      <article class="card">
+        <h3>Cursor / Cline 的特化（应学）</h3>
+        <div class="tool-row"><span class="dot"></span> Read README.md</div>
+        <div class="tool-row"><span class="dot"></span> Edited src/App.tsx</div>
+        <div class="diff">
+          <div class="del">- const title = "Pi"</div>
+          <div class="add">+ const title = "Pi Desktop"</div>
+        </div>
+        <div class="tool-row" style="margin-top:8px"><span class="dot"></span> Ran npm test</div>
+        <div class="muted">标题是人话 + 路径；展开才是内容。Edit 直接出 diff，不丢 JSON。</div>
+      </article>
+      <article class="card">
+        <h3>Pi 现在的通用行（噪音来源）</h3>
+        <div class="tool-row"><span class="dot"></span> 读取文件 <small>0.0s ✓ ›</small></div>
+        <div class="json-dump">{
+  "path": "README.md",
+  "offset": 1,
+  "limit": 20
+}</div>
+        <div class="muted" style="margin-top:8px">所有工具同一骨架：图标 + 短摘要 + 时长 + JSON 输入/输出。网页搜索是唯一特化。</div>
+      </article>
+    </div>
+
+    <h2>对 Pi 的含义</h2>
+    <div class="grid-2">
+      <article class="card rec">
+        <h3>建议默认走家族 A（Codex）</h3>
+        <p class="muted">产品壳已经是 Codex：用户气泡、助手散文、环境信息、变更卡。聊天默认也应「先给结论，工作折一行」。CSS 里已有 <code>.work-log</code>，但 <code>Message.tsx</code> 没用它，思考和工具被拆开常驻。</p>
+      </article>
+      <article class="card rec">
+        <h3>展开后走家族 B 的特化</h3>
+        <p class="muted">用户点开「耗时 Xs ›」时，不要给 JSON。Read 显示路径和摘录，Edit 显示 diff，Shell 显示命令+输出，Search 显示命中。这是 Cursor / Claude Code / Cline 的共识。</p>
+      </article>
+    </div>
+    <ol>
+      <li><b>P0 恢复单行工作折叠</b> — 思考 + 工具默认合成「正在工作… / 耗时 Xs ›」，正文不被轨迹打断。</li>
+      <li><b>P0 工具特化渲染</b> — 至少 Read / Edit / Shell / Grep / 网页搜索五类；展开禁止默认 JSON。</li>
+      <li><b>P1 对话内变更卡</b> — Codex 的「已编辑 file +N −M」，点开才进 diff，而不是只在右栏。</li>
+      <li><b>P1 密度三档</b> — 对齐 Claude Code：摘要 / 普通 / 详细。现有 <code>summaryMode</code> 可以接到 UI。</li>
+      <li><b>P2 计划进对话</b> — 现在只在检查器。Cursor/Claude 把 Todo/Plan 放在时间线里。</li>
+    </ol>
+    <p class="muted">证据：Codex 实机截图 <code>docs/codex-ui-refs/live-compare/</code>；Claude Code Desktop 文档的 Transcript view（Normal/Verbose/Summary）；Cline <code>ChatRow.tsx</code> 的按工具分支；Continue 的 Thinking peek + 压缩分隔线。本机未跑 Cursor/Claude 桌面，未做实机像素采样。</p>
+  </main>
+</body>
+</html>
