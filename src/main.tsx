@@ -105,9 +105,9 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
         content: "按照paseo",
         timestamp: Date.now() - 1_000,
       },
-      {
+      ...(streamFixture ? [] : [{
         id: "fixture-stream-assistant",
-        role: "assistant",
+        role: "assistant" as const,
         content: "",
         thinking: "先读 README，再总结当前聊天窗的消息层级。",
         isStreaming: true,
@@ -119,7 +119,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
           running: true,
           startedAt: Date.now() - 300,
         }],
-      },
+      }]),
     ] : [
       {
         id: "fixture-user",
@@ -350,8 +350,23 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
           type: "message_update",
           assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta },
         });
+        if (thinkingCount === 8) {
+          usePiStore.getState().handleEvent("fixture-runtime", {
+            type: "tool_execution_start",
+            toolCallId: "fixture-stream-read",
+            toolName: "read",
+            args: { path: "README.md" },
+          });
+        }
         if (thinkingCount < 30) return;
         window.clearInterval(thinkingTimer);
+        usePiStore.getState().handleEvent("fixture-runtime", {
+          type: "tool_execution_end",
+          toolCallId: "fixture-stream-read",
+          toolName: "read",
+          result: "# Pi Desktop\n\nA local Windows desktop client.",
+          isError: false,
+        });
         const timer = window.setInterval(() => {
           updateCount += 1;
           const content = `Streaming update ${updateCount} `;

@@ -3,7 +3,9 @@ import {
   classifyToolKind,
   displayPath,
   parseDiffLines,
+  parseSearchHits,
   presentToolCall,
+  readLineRange,
   truncatePreview,
 } from "../src/lib/toolPresentation";
 
@@ -13,6 +15,8 @@ assert.equal(classifyToolKind("edit"), "edit");
 assert.equal(classifyToolKind("apply_patch"), "edit");
 assert.equal(classifyToolKind("bash"), "shell");
 assert.equal(classifyToolKind("grep"), "search");
+assert.equal(classifyToolKind("ctx_execute"), "shell");
+assert.equal(classifyToolKind("ctx_search"), "search");
 assert.equal(classifyToolKind("web_search"), "web-search");
 assert.equal(classifyToolKind("browser_navigate"), "browser");
 assert.equal(classifyToolKind("computer_screenshot"), "computer");
@@ -25,15 +29,18 @@ const preview = truncatePreview(`${"line\n".repeat(100)}tail`, 80, 3);
 assert.match(preview, /…$/);
 assert.doesNotMatch(preview, /tail/);
 
+assert.equal(readLineRange({ offset: 1, limit: 20 }), "1–20");
+assert.equal(readLineRange({ offset: 1 }), undefined);
+
 const read = presentToolCall({
   id: "1",
   name: "read",
-  args: { path: "src/App.tsx", offset: 1 },
+  args: { path: "src/App.tsx", offset: 1, limit: 20 },
   result: "export function App() {}",
   running: false,
 });
 assert.equal(read.kind, "read");
-assert.equal(read.heading, "读取 src/App.tsx");
+assert.equal(read.heading, "读取 src/App.tsx · 1–20");
 assert.equal(read.preview, "export function App() {}");
 assert.equal(read.expandable, true);
 
@@ -46,6 +53,16 @@ const shell = presentToolCall({
 });
 assert.equal(shell.heading, "运行 npm test");
 assert.match(shell.preview ?? "", /ok/);
+assert.equal(shell.expandable, true);
+
+const emptyShell = presentToolCall({
+  id: "2b",
+  name: "bash",
+  args: { command: "npm test" },
+  result: "",
+  running: true,
+});
+assert.equal(emptyShell.expandable, true);
 
 const edit = presentToolCall({
   id: "3",
@@ -54,6 +71,8 @@ const edit = presentToolCall({
   running: false,
 });
 assert.equal(edit.heading, "编辑 src/App.tsx");
+assert.equal(edit.added, 1);
+assert.equal(edit.removed, 1);
 assert.deepEqual(edit.diff, [
   { type: "del", text: "title" },
   { type: "add", text: "heading" },
@@ -66,6 +85,39 @@ assert.deepEqual(unified, [
   { type: "add", text: "new" },
 ]);
 
+const listedRead = presentToolCall({
+  id: "read-list",
+  name: "read",
+  args: { path: "SKILL.md", limit: 80 },
+  result: "- **File mutations**: `mkdir`\n- **Git writes**: `git add`\n---\nname: context-mode",
+  running: false,
+});
+assert.equal(listedRead.diff, undefined);
+assert.equal(listedRead.removed, undefined);
+
+const ctx = presentToolCall({
+  id: "ctx-1",
+  name: "ctx_execute",
+  args: { language: "shell", code: "opencli weibo hot --limit 30 -f yaml" },
+  result: "word: AL夺冠\nrank: 8",
+  running: false,
+});
+assert.equal(ctx.kind, "shell");
+assert.match(ctx.heading, /运行 opencli weibo hot/);
+assert.equal(ctx.diff, undefined);
+
+const script = presentToolCall({
+  id: "js-1",
+  name: "ctx_execute",
+  args: {
+    language: "javascript",
+    intent: "China Google News titles",
+    code: "const {execSync} = require('child_process');\nfunction run(cmd) { return execSync(cmd); }",
+  },
+  running: false,
+});
+assert.equal(script.heading, "运行脚本 · China Google News titles");
+
 const search = presentToolCall({
   id: "4",
   name: "grep",
@@ -73,8 +125,15 @@ const search = presentToolCall({
   result: "src/components/Message.tsx:1",
   running: false,
 });
-assert.equal(search.heading, "搜索 work-log");
+assert.equal(search.heading, "搜索 work-log · src");
 assert.equal(search.query, "work-log");
+assert.deepEqual(search.hits, [{ path: "src/components/Message.tsx", line: 1 }]);
+assert.equal(search.preview, undefined);
+
+assert.deepEqual(parseSearchHits("src/components/Message.tsx:12:work-log fold\nsrc/styles.css:269:.work-log {}"), [
+  { path: "src/components/Message.tsx", line: 12, text: "work-log fold" },
+  { path: "src/styles.css", line: 269, text: ".work-log {}" },
+]);
 
 const plan = presentToolCall({
   id: "6",

@@ -4,6 +4,7 @@ import { usePiStore } from "../store";
 import type { UiMessage } from "../types";
 import { deriveTaskPlan } from "../lib/envSources";
 import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
+import { groupTranscriptMessages } from "../lib/transcriptTurns";
 import { ConversationPlan } from "./ConversationPlan";
 import { Message } from "./Message";
 
@@ -43,17 +44,18 @@ export function ConversationMessages({
   const messages = usePiStore((state) => state.messages);
   const transcriptDensity = normalizeTranscriptDensity(density);
   const plan = useMemo(() => deriveTaskPlan(messages), [messages]);
+  const displayMessages = useMemo(() => groupTranscriptMessages(messages), [messages]);
   const [visibleCount, setVisibleCount] = useState(120);
-  const firstVisibleIndex = Math.max(0, messages.length - visibleCount);
-  const visibleMessages = messages.slice(firstVisibleIndex);
+  const firstVisibleIndex = Math.max(0, displayMessages.length - visibleCount);
+  const visibleMessages = displayMessages.slice(firstVisibleIndex);
   const lastAssistantId = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const role = messages[index].role;
-      if (role === "assistant") return messages[index].id;
+    for (let index = displayMessages.length - 1; index >= 0; index -= 1) {
+      const role = displayMessages[index].role;
+      if (role === "assistant") return displayMessages[index].id;
       if (role === "user") return null;
     }
     return null;
-  }, [messages]);
+  }, [displayMessages]);
 
   useEffect(() => setVisibleCount(120), [conversationKey]);
 

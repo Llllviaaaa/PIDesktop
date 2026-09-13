@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { isUserMessageOverLineLimit, Message, USER_MESSAGE_COLLAPSED_LINES } from "../src/components/Message";
+import {
+  foldWorkingLabel,
+  isLiveAssistantWork,
+  isUserMessageOverLineLimit,
+  Message,
+  USER_MESSAGE_COLLAPSED_LINES,
+} from "../src/components/Message";
 
 assert.equal(isUserMessageOverLineLimit(20 * USER_MESSAGE_COLLAPSED_LINES, 20), false);
 assert.equal(isUserMessageOverLineLimit(20 * USER_MESSAGE_COLLAPSED_LINES + 2, 20), false);
@@ -171,6 +177,26 @@ const verboseWork = renderToStaticMarkup(createElement(Message, {
 assert.match(verboseWork, /Shown in verbose mode/);
 assert.match(verboseWork, /读取 src\/store.ts/);
 
+const verboseEdit = renderToStaticMarkup(createElement(Message, {
+  message: {
+    id: "verbose-edit",
+    role: "assistant",
+    content: "Done.",
+    thinking: "Edit the title.",
+    toolCalls: [{
+      id: "edit-v",
+      name: "edit",
+      args: { path: "src/App.tsx", old_string: "Pi", new_string: "Pi Desktop" },
+      running: false,
+    }],
+  },
+  density: "verbose",
+}));
+assert.match(verboseEdit, /编辑 src\/App\.tsx/);
+assert.match(verboseEdit, /class="tool-diff"/);
+assert.match(verboseEdit, /Pi Desktop/);
+assert.doesNotMatch(verboseEdit, /"old_string"/);
+
 const goalOnly = renderToStaticMarkup(createElement(Message, {
   message: {
     id: "goal-only-message",
@@ -186,4 +212,58 @@ const goalOnly = renderToStaticMarkup(createElement(Message, {
 }));
 
 assert.equal(goalOnly, "");
+
+assert.equal(isLiveAssistantWork(true, "", [{ running: false }]), true);
+assert.equal(isLiveAssistantWork(true, "Here is the answer.", [{ running: false }]), false);
+assert.equal(isLiveAssistantWork(true, "Here is the answer.", [{ running: true }]), true);
+assert.equal(isLiveAssistantWork(false, "", [{ running: true }]), false);
+assert.equal(foldWorkingLabel("Pi 正在工作…"), "正在工作…");
+assert.equal(foldWorkingLabel("正在压缩上下文"), "正在压缩上下文");
+
+const streamingAnswer = renderToStaticMarkup(createElement(Message, {
+  message: {
+    id: "assistant-streaming-answer",
+    role: "assistant",
+    content: "Here is the conclusion.",
+    thinking: "I should hide this once the answer starts.",
+    isStreaming: true,
+    toolCalls: [{
+      id: "read-done",
+      name: "read",
+      args: { path: "README.md" },
+      running: false,
+    }],
+  },
+  isLastAssistant: true,
+  globalStreaming: true,
+  workingLabel: "Pi 正在工作…",
+}));
+assert.match(streamingAnswer, /正在工作…/);
+assert.doesNotMatch(streamingAnswer, /Pi 正在工作…/);
+assert.doesNotMatch(streamingAnswer, /I should hide this once the answer starts/);
+assert.doesNotMatch(streamingAnswer, /读取 README.md/);
+assert.match(streamingAnswer, /Here is the conclusion/);
+assert.match(streamingAnswer, /aria-label="展开工作过程"/);
+
+const streamingLiveTool = renderToStaticMarkup(createElement(Message, {
+  message: {
+    id: "assistant-live-tool",
+    role: "assistant",
+    content: "Still editing the file.",
+    thinking: "Keep the live tool visible.",
+    isStreaming: true,
+    toolCalls: [{
+      id: "edit-live",
+      name: "edit",
+      args: { path: "src/App.tsx" },
+      running: true,
+    }],
+  },
+  isLastAssistant: true,
+  globalStreaming: true,
+}));
+assert.match(streamingLiveTool, /Keep the live tool visible/);
+assert.match(streamingLiveTool, /编辑 src\/App\.tsx/);
+assert.match(streamingLiveTool, /Still editing the file/);
+
 console.log("message action tests passed");

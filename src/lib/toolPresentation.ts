@@ -22,14 +22,24 @@ export interface ToolDiffLine {
   text: string;
 }
 
+export interface ToolSearchHit {
+  path: string;
+  line?: number;
+  text?: string;
+}
+
 export interface ToolPresentation {
   kind: ToolKind;
   heading: string;
   path?: string;
   command?: string;
+  inputKind?: "command" | "script";
   query?: string;
   preview?: string;
   diff?: ToolDiffLine[];
+  hits?: ToolSearchHit[];
+  added?: number;
+  removed?: number;
   sources: WebSearchSource[];
   plan?: TaskPlanSummary;
   expandable: boolean;
@@ -38,10 +48,11 @@ export interface ToolPresentation {
 const PREVIEW_MAX_CHARS = 4000;
 const PREVIEW_MAX_LINES = 80;
 const DIFF_MAX_LINES = 48;
+const HIT_MAX = 40;
 const HEADING_COMMAND_MAX = 72;
 
 const PATH_KEYS = ["path", "file", "filename", "filePath", "file_path", "target", "target_file"];
-const COMMAND_KEYS = ["command", "cmd", "script"];
+const COMMAND_KEYS = ["command", "cmd", "script", "code"];
 const QUERY_KEYS = ["query", "pattern", "q", "search", "search_query", "glob", "regex"];
 const OLD_TEXT_KEYS = ["old_string", "oldString", "old_text", "oldText"];
 const NEW_TEXT_KEYS = ["new_string", "newString", "new_text", "newText"];
@@ -74,6 +85,87 @@ function commandArg(args: Record<string, unknown>): string | undefined {
     }
   }
   return undefined;
+}
+
+function queryArg(args: Record<string, unknown>): string | undefined {
+  const direct = stringArg(args, QUERY_KEYS);
+  if (direct) return direct;
+  const queries = args.queries;
+  if (Array.isArray(queries)) {
+    const first = queries.find((item) => typeof item === "string" && item.trim());
+    if (typeof first === "string") return first.trim();
+  }
+  return undefined;
+}
+
+export function looksLikeUnifiedDiff(text: string): boolean {
+  return /^(diff --git |@@ -\d+|\*\*\* (?:Add|Update|Delete) File:)/m.test(text);
+}
+
+function numberArg(args: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return undefined;
+}
+
+export function readLineRange(args: Record<string, unknown>): string | undefined {
+  const offset = numberArg(args, ["offset", "start_line", "startLine", "line"]);
+  const limit = numberArg(args, ["limit", "count", "max_lines", "maxLines"]);
+  const end = numberArg(args, ["end_line", "endLine"]);
+  if (offset != null && end != null && end >= offset) return `${offset}–${end}`;
+  if (offset != null && limit != null && limit > 0) {
+    const start = offset <= 0 ? 1 : offset;
+    return `${start}–${start + limit - 1}`;
+  }
+  if (limit != null && offset == null) return `${limit} 行`;
+  return undefined;
+}
+
+function looksLikePath(value: string): boolean {
+  return /[\\/]/.test(value) || /\.\w{1,8}$/.test(value);
+}
+
+export function parseSearchHits(result: string): ToolSearchHit[] {
+  const hits: ToolSearchHit[] = [];
+  for (const raw of result.replace(/\r\n/g, "\n").split("\n")) {
+    const line = raw.trimEnd();
+    if (!line.trim()) continue;
+    const match = line.match(/^(?:([A-Za-z]:)?([^:]+)):(\d+)(?::\d+)?(?::(.*))?$/);
+    if (match) {
+      const path = `${match[1] ?? ""}${match[2]}`;
+      if (looksLikePath(path)) {
+        hits.push({
+          path,
+          line: Number(match[3]),
+          ...(match[4] ? { text: match[4] } : {}),
+        });
+        if (hits.length >= HIT_MAX) break;
+        continue;
+      }
+    }
+    const trimmed = line.trim();
+    if (looksLikePath(trimmed) && !/\s/.test(trimmed)) {
+      hits.push({ path: trimmed });
+      if (hits.length >= HIT_MAX) break;
+    }
+  }
+  return hits;
+}
+
+function diffCounts(diff: ToolDiffLine[]): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const line of diff) {
+    if (line.type === "add") added += 1;
+    if (line.type === "del") removed += 1;
+  }
+  return { added, removed };
 }
 
 export function toolPathFromArgs(args: Record<string, unknown>): string | undefined {
@@ -176,6 +268,8 @@ export function classifyToolKind(name: string): ToolKind {
     || normalized === "shell"
     || normalized === "run_command"
     || normalized === "run_terminal_cmd"
+    || normalized === "ctx_execute"
+    || normalized === "ctx_execute_file"
   ) return "shell";
   if (
     normalized === "grep"
@@ -185,6 +279,7 @@ export function classifyToolKind(name: string): ToolKind {
     || normalized === "search"
     || normalized === "codebase_search"
     || normalized === "search_files"
+    || normalized === "ctx_search"
   ) return "search";
   if (normalized.includes("web_search") || normalized.includes("search_web")) return "web-search";
   if (normalized === "update_plan") return "plan";
@@ -207,6 +302,29 @@ function browserHeading(name: string, url?: string): string {
   };
   const label = labels[name.toLowerCase()] || "操作浏览器";
   return url ? `${label} · ${clipHeading(url, 48)}` : label;
+}
+
+function looksLikeScript(command: string, language?: string): boolean {
+  const lang = (language || "").toLowerCase();
+  if (lang === "javascript" || lang === "js" || lang === "typescript" || lang === "ts") return true;
+  const trimmed = command.trim();
+  return command.includes("\n")
+    || command.length > HEADING_COMMAND_MAX
+    || /^(const|let|var|function|import |class )\b/.test(trimmed);
+}
+
+function shellInputKind(command: string | undefined, args: Record<string, unknown>): "command" | "script" {
+  return command && looksLikeScript(command, stringArg(args, ["language"])) ? "script" : "command";
+}
+
+function shellHeading(command: string | undefined, args: Record<string, unknown>): string {
+  const intent = stringArg(args, ["intent", "description"]);
+  if (shellInputKind(command, args) === "script") {
+    return intent ? `运行脚本 · ${clipHeading(intent, 48)}` : "运行脚本";
+  }
+  if (command) return `运行 ${clipHeading(command)}`;
+  if (intent) return `运行 ${clipHeading(intent)}`;
+  return "运行了命令";
 }
 
 function computerHeading(name: string): string {
@@ -232,7 +350,7 @@ export function presentToolCall(call: UiToolCall): ToolPresentation {
   const command = commandArg(call.args);
   const query = kind === "web-search"
     ? webSearchQuery(call.args)
-    : stringArg(call.args, QUERY_KEYS);
+    : queryArg(call.args);
   const url = stringArg(call.args, ["url", "href"]);
   const sources = kind === "web-search" ? webSearchSources(call.details, call.result) : [];
   const oldText = stringArg(call.args, OLD_TEXT_KEYS);
@@ -240,21 +358,30 @@ export function presentToolCall(call: UiToolCall): ToolPresentation {
   const patch = typeof call.args.patch === "string" ? call.args.patch : undefined;
   const content = typeof call.args.content === "string" ? call.args.content : undefined;
 
-  const diff = kind === "edit"
+  const diffSource = kind === "edit"
     ? (oldText != null && newText != null
       ? replacementDiff(oldText, newText)
-      : parseDiffLines(patch || call.result || ""))
-    : (kind === "write" ? null : parseDiffLines(call.result || ""));
+      : looksLikeUnifiedDiff(patch || call.result || "")
+        ? parseDiffLines(patch || call.result || "")
+        : null)
+    : null;
+  const counts = diffSource && diffSource.length > 0 ? diffCounts(diffSource) : undefined;
 
   const resultText = typeof call.result === "string" ? call.result : undefined;
+  const hits = kind === "search" && resultText ? parseSearchHits(resultText) : [];
+  const lineRange = kind === "read" ? readLineRange(call.args) : undefined;
   const previewSource = kind === "write"
     ? (content || resultText)
     : kind === "shell"
       ? resultText
-      : kind === "edit"
+      : kind === "edit" || kind === "plan"
         ? undefined
-        : resultText;
-  const preview = kind === "plan" ? undefined : (previewSource ? truncatePreview(previewSource) : undefined);
+        : kind === "search" && hits.length > 0
+          ? undefined
+          : kind === "web-search" && sources.length > 0
+            ? undefined
+            : resultText;
+  const preview = previewSource ? truncatePreview(previewSource) : undefined;
   const plan = kind === "plan" ? planFromToolCall(call) ?? undefined : undefined;
 
   let heading: string;
@@ -263,14 +390,16 @@ export function presentToolCall(call: UiToolCall): ToolPresentation {
     heading = query ? `${label} · ${clipHeading(query)}` : label;
   } else if (kind === "read") {
     heading = path ? `读取 ${displayPath(path)}` : "读取文件";
+    if (lineRange) heading += ` · ${lineRange}`;
   } else if (kind === "write") {
     heading = path ? `写入 ${displayPath(path)}` : "写入文件";
   } else if (kind === "edit") {
     heading = path ? `编辑 ${displayPath(path)}` : "编辑文件";
   } else if (kind === "shell") {
-    heading = command ? `运行 ${clipHeading(command)}` : "运行了命令";
+    heading = shellHeading(command, call.args);
   } else if (kind === "search") {
     heading = query ? `搜索 ${clipHeading(query, 48)}` : "搜索文件";
+    if (path) heading += ` · ${displayPath(path)}`;
   } else if (kind === "browser") {
     heading = browserHeading(call.name, url);
   } else if (kind === "computer") {
@@ -287,10 +416,11 @@ export function presentToolCall(call: UiToolCall): ToolPresentation {
 
   const expandable = Boolean(
     preview
-    || (diff && diff.length > 0)
+    || (kind === "shell" && command)
+    || (kind === "read" && (path || preview))
+    || (diffSource && diffSource.length > 0)
+    || hits.length > 0
     || sources.length > 0
-    || command
-    || query
     || plan?.steps.length
     || call.images?.length,
   );
@@ -300,9 +430,13 @@ export function presentToolCall(call: UiToolCall): ToolPresentation {
     heading,
     path,
     command,
+    inputKind: kind === "shell" ? shellInputKind(command, call.args) : undefined,
     query,
     preview,
-    diff: diff && diff.length > 0 ? diff : undefined,
+    diff: diffSource && diffSource.length > 0 ? diffSource : undefined,
+    hits: hits.length > 0 ? hits : undefined,
+    added: counts?.added,
+    removed: counts?.removed,
     sources,
     plan,
     expandable,

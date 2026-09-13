@@ -651,6 +651,12 @@ export interface UiToolCall {
   finishedAt?: number;
 }
 
+/** One native process row inside a DeepSeek-Harness-style turn fold. */
+export type WorkStep =
+  | { kind: "thinking"; text: string }
+  | { kind: "note"; text: string }
+  | { kind: "tool"; call: UiToolCall };
+
 export interface AgentBrowserState {
   url: string;
   title: string;
@@ -701,6 +707,8 @@ export interface UiMessage {
   noticeKind?: "compaction" | "branch";
   images?: ImageContent[];
   thinking?: string;
+  /** Ordered thinking / narration / tool rows for the compact turn fold. */
+  workSteps?: WorkStep[];
   model?: string;
   usage?: Usage;
   isStreaming?: boolean;

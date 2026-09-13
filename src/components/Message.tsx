@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { ArrowUp, Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, Copy, Info, Link2, LoaderCircle, Pencil, RotateCcw, Share2, Terminal } from "lucide-react";
 import type { UiMessage, UiToolCall } from "../types";
+import { foldThinking } from "../lib/thinkingDisplay";
 import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
 import { usePiStore } from "../store";
 import { isGoalToolCall } from "../lib/activeGoal";
@@ -34,6 +35,24 @@ function formatWorkDuration(toolCalls: UiToolCall[]): string | null {
   }
   if (start === null || end === null || end <= start) return null;
   return formatDuration(end - start);
+}
+
+/** True while the agent is still thinking or running tools, before the answer (or after a new tool starts). */
+export function isLiveAssistantWork(
+  working: boolean,
+  content: string | undefined,
+  toolCalls: Array<{ running?: boolean }> | undefined,
+): boolean {
+  if (!working) return false;
+  if (toolCalls?.some((call) => call.running)) return true;
+  return !(content ?? "").trim();
+}
+
+/** Codex/Claude fold rows stay short; drop the app-level "Pi 正在工作…" status prefix. */
+export function foldWorkingLabel(workingLabel: string | undefined): string {
+  const label = workingLabel?.trim();
+  if (!label || /正在工作/.test(label)) return "正在工作…";
+  return label;
 }
 
 export const Message = memo(function Message({
@@ -83,11 +102,13 @@ export const Message = memo(function Message({
   const assistantWorking = message.role === "assistant"
     && (message.isStreaming || (isLastAssistant && globalStreaming));
   const transcriptDensity = summaryMode ? "summary" : normalizeTranscriptDensity(density);
-  const [workExpanded, setWorkExpanded] = useState(assistantWorking || transcriptDensity === "verbose");
+  const visibleToolCalls = (message.toolCalls ?? []).filter((call) => !isGoalToolCall(call));
+  const liveWork = isLiveAssistantWork(assistantWorking, message.content, visibleToolCalls);
+  const [workExpanded, setWorkExpanded] = useState(transcriptDensity === "verbose");
   const thinkingRef = useRef<HTMLDivElement>(null);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const userMessageTextRef = useRef<HTMLDivElement>(null);
-  const liveThinking = assistantWorking && showThinking && Boolean(message.thinking);
+  const liveThinking = liveWork && showThinking && Boolean(message.thinking);
 
   useEffect(() => {
     if (!liveThinking) return;
@@ -103,10 +124,8 @@ export const Message = memo(function Message({
       setWorkExpanded(true);
       return;
     }
-    if (transcriptDensity === "summary" || !assistantWorking) {
-      setWorkExpanded(false);
-    }
-  }, [assistantWorking, transcriptDensity]);
+    setWorkExpanded(false);
+  }, [liveWork, transcriptDensity]);
 
   useEffect(() => {
     if (!editing) {
@@ -347,10 +366,13 @@ export const Message = memo(function Message({
     );
   }
 
-  const toolCalls = (message.toolCalls ?? []).filter((call) => !isGoalToolCall(call));
+  const toolCalls = visibleToolCalls;
   const hasTools = toolCalls.length > 0;
-  const thinkingText = showThinking ? (message.thinking || "").trim() : "";
+  const thinkingText = showThinking ? foldThinking(message.thinking, message.content) : "";
   const hasThinking = Boolean(thinkingText);
+  const workSteps = (message.workSteps ?? []).filter((step) => showThinking || step.kind !== "thinking");
+  const lastThinkingIndex = workSteps.reduce((last, step, index) => step.kind === "thinking" ? index : last, -1);
+  const hasSteps = workSteps.length > 0;
   // B1: during reasoning/tool phases message.isStreaming is false while the agent is still working,
   // so the newest assistant reply also honors the app-level streaming flag.
   const working = assistantWorking;
@@ -362,13 +384,14 @@ export const Message = memo(function Message({
     && Boolean(message.content)
     && !message.isError;
   const duration = formatDuration(message.durationMs ?? 0) ?? formatWorkDuration(toolCalls);
-  const hasWork = working || hasThinking || hasTools || reasoningUnavailable;
-  const workDetailsVisible = transcriptDensity !== "summary" && (working || workExpanded) && (hasThinking || hasTools);
-  const canToggleWork = !working && transcriptDensity !== "summary" && (hasThinking || hasTools);
+  const autoExpanded = transcriptDensity === "verbose" || liveWork;
+  const hasWork = working || hasThinking || hasTools || hasSteps || reasoningUnavailable;
+  const workDetailsVisible = transcriptDensity !== "summary" && (autoExpanded || workExpanded) && (hasThinking || hasTools || hasSteps);
+  const canToggleWork = !autoExpanded && transcriptDensity !== "summary" && (hasThinking || hasTools);
   const workLabel = reasoningUnavailable && !hasTools && !hasThinking
     ? "模型未返回可见推理"
     : working
-      ? workingLabel || "正在工作…"
+      ? foldWorkingLabel(workingLabel)
       : duration
         ? `耗时 ${duration}`
         : "工作过程";
@@ -422,16 +445,15 @@ export const Message = memo(function Message({
     >
       {hasWork && (
         <details
-          className="work-log"
-          key={`${message.id}-${working ? "working" : "idle"}-${transcriptDensity}`}
-          {...(working && transcriptDensity !== "summary" ? { open: true } : {})}
+          className={`work-log${liveWork ? " is-live" : ""}`}
+          open={workDetailsVisible}
           onToggle={(event) => {
             if (!canToggleWork) return;
             setWorkExpanded(event.currentTarget.open);
           }}
         >
           <summary
-            className="work-log-toggle"
+            className={`work-log-toggle${canToggleWork ? "" : " is-static"}`}
             title={canToggleWork ? workToggleLabel : undefined}
             aria-label={canToggleWork ? workToggleLabel : undefined}
             aria-expanded={workDetailsVisible}
@@ -444,22 +466,46 @@ export const Message = memo(function Message({
               <ChevronRight size={13} strokeWidth={1.8} className={workDetailsVisible ? "open" : undefined} />
             )}
           </summary>
-          {workDetailsVisible && (hasThinking || hasTools) && (
+          {workDetailsVisible && (hasThinking || hasTools || hasSteps) && (
             <div className="work-log-body">
-              {hasThinking && (
-                <div
-                  ref={thinkingRef}
-                  className={`work-log-thinking ${working ? "streaming" : ""}`}
-                  role="log"
-                  aria-label="思考过程"
-                >
-                  {message.thinking}
-                </div>
-              )}
-              {hasTools && (
-                <div className="tool-list">
-                  {toolCalls.map((call) => <ToolCall call={call} key={call.id} />)}
-                </div>
+              {hasSteps ? (
+                workSteps.map((step, index) => {
+                  if (step.kind === "thinking") {
+                    return (
+                      <div
+                        key={`thinking-${index}`}
+                        ref={index === lastThinkingIndex ? thinkingRef : undefined}
+                        className={`work-log-thinking${liveWork && index === lastThinkingIndex ? " streaming" : ""}`}
+                        role="log"
+                        aria-label="思考过程"
+                      >
+                        {step.text}
+                      </div>
+                    );
+                  }
+                  if (step.kind === "note") {
+                    return <div key={`note-${index}`} className="work-log-note">{step.text}</div>;
+                  }
+                  return <ToolCall call={step.call} key={step.call.id} />;
+                })
+              ) : (
+                <>
+                  {hasThinking && (
+                    <div
+                      ref={thinkingRef}
+                      className={`work-log-thinking${liveWork ? " streaming" : ""}`}
+                      role="log"
+                      aria-label="思考过程"
+                    >
+                      {thinkingText}
+                    </div>
+                  )}
+                  {hasTools && (
+                    <div className="tool-list">
+                      {toolCalls.map((call) => <ToolCall call={call} key={call.id} />)}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
