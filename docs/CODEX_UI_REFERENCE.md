@@ -41,7 +41,7 @@ Match **structure and restraint**, not every Codex feature (no Cloud tab product
 - Web search is an inline conversation tool: show a short running/completed row, the query, and cited sources.
 - Search completion never navigates the workspace or opens a browser by itself.
 - A source opens only after an explicit user click.
-- The application browser accepts URLs only. Interactive page inspection remains a separate Agent browser tool and permission boundary.
+- The application browser accepts URLs only. Interactive page inspection remains a separate Grok-style `browser_*` Agent tool and permission boundary.
 
 ### Layout alignment shipped
 

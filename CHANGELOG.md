@@ -4,6 +4,8 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+- Replace the bundled `computer` and `browser` tools with Grok-style `computer_*` and `browser_*` APIs, including observe/control sessions and inspect-ref page actions.
+
 ## 0.2.27 - 2026-09-04
 
 - Refine chat messages, Markdown, code blocks, tables, and actions with a quieter DEEIX-inspired presentation across desktop layouts.

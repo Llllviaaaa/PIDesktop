@@ -23,8 +23,8 @@ This file is the product contract for Pi Desktop. A feature is only marked **Imp
 | Local subagents | Implemented | Optional `delegate_task` extension runs isolated explorer/planner/reviewer/worker Pi contexts with bounded parallelism and permission gating |
 | Git changes and review | Implemented | Index/worktree status, unified diff, file stage/unstage/revert, line feedback into the current chat, inline/new-chat review delivery, and configurable Git instructions |
 | Git worktrees | Implemented | List, create, open, and start worktree-scoped chats |
-| Browser automation | Implemented | Bundled Pi browser tool drives an isolated local Edge/Chrome session through CDP for page inspection, clicks, typing, and screenshots with approval gates |
-| OS computer-use | Implemented | Native Windows helper captures the virtual desktop, lists/focuses visible windows, and sends approval-gated mouse, text, and key input; read-only mode blocks interactive actions and Windows UIPI remains enforced |
+| Browser automation | Implemented | Grok-style `browser_*` tools drive a local Chromium session through CDP for navigation, inspect refs, clicks, typing, tabs, uploads, and screenshots with approval gates |
+| OS computer-use | Implemented | Grok-style `computer_*` tools start an observe or control session, capture selected screens/windows, inspect the foreground window, and send approval-gated mouse, text, and key input; read-only mode blocks control and Windows UIPI remains enforced |
 | MCP tools | Implemented | MCP 2025-11-25 lifecycle with local STDIO and remote Streamable HTTP transports, dynamic tool registration, pagination, images/embedded resource results, cancellation, environment filtering, and approval gates |
 | Notifications and wake lock | Implemented | Native completion/approval notifications and Windows prevent-sleep behavior |
 | Usage | Implemented | Local Pi session aggregation for message count, tokens, and recorded cost |

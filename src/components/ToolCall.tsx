@@ -34,25 +34,37 @@ function summary(call: UiToolCall): string {
   if (name === "grep" || name === "find" || name === "search") {
     return "搜索文件";
   }
-  if (name === "browser") {
-    const action = typeof call.args.action === "string" ? call.args.action : "inspect";
+  if (name === "browser" || name.startsWith("browser_")) {
     const labels: Record<string, string> = {
-      open: "打开网页", inspect: "检查网页", back: "后退网页", forward: "前进网页", reload: "刷新网页",
-      list_tabs: "列出浏览器标签", new_tab: "新建浏览器标签", switch_tab: "切换浏览器标签", close_tab: "关闭浏览器标签",
-      hover: "悬停网页元素", click: "点击网页元素", type: "在网页中输入", press: "发送网页按键",
-      select: "选择表单项", upload: "上传工作区文件", download: "下载文件到工作区",
-      scroll: "滚动网页", wait: "等待网页更新", screenshot: "截取网页", close: "关闭浏览器",
+      browser_navigate: "打开网页",
+      browser_inspect: "检查网页",
+      browser_screenshot: "截取网页",
+      browser_click: "点击网页元素",
+      browser_type: "在网页中输入",
+      browser_press: "发送网页按键",
+      browser_scroll: "滚动网页",
+      browser_select: "选择表单项",
+      browser_wait: "等待网页更新",
+      browser_tabs: "管理浏览器标签",
+      browser_upload: "上传工作区文件",
     };
-    return labels[action] || "操作浏览器";
+    return labels[name] || "操作浏览器";
   }
-  if (name === "computer") {
-    const action = typeof call.args.action === "string" ? call.args.action : "screenshot";
+  if (name === "computer" || name.startsWith("computer_")) {
     const labels: Record<string, string> = {
-      screenshot: "查看 Windows 桌面", list_windows: "列出窗口", focus_window: "切换窗口", move: "移动桌面指针",
-      click: "点击桌面", double_click: "双击桌面", drag: "拖拽桌面元素", scroll: "滚动桌面",
-      type: "在应用中输入", key: "发送按键", keypress: "发送按键", wait: "等待桌面更新",
+      computer_sources: "列出桌面源",
+      computer_state: "查看计算机会话",
+      computer_start: "开始计算机会话",
+      computer_stop: "停止计算机会话",
+      computer_screenshot: "查看 Windows 桌面",
+      computer_inspect: "检查前台窗口",
+      computer_click: "点击桌面",
+      computer_move: "移动桌面指针",
+      computer_scroll: "滚动桌面",
+      computer_type: "在应用中输入",
+      computer_key: "发送按键",
     };
-    return labels[action] || "操作计算机";
+    return labels[name] || "操作计算机";
   }
   if (name.startsWith("mcp__")) {
     const parts = call.name.split("__");
@@ -67,8 +79,8 @@ function ToolIcon({ call }: { call: UiToolCall }) {
   if (name === "bash" || name === "exec" || name === "shell") return <Terminal size={14} />;
   if (name === "write" || name === "edit") return <FilePenLine size={14} />;
   if (name === "read" || name === "grep" || name === "find") return <FileSearch size={14} />;
-  if (name === "browser") return <Globe2 size={14} />;
-  if (name === "computer") return <MonitorCog size={14} />;
+  if (name === "browser" || name.startsWith("browser_")) return <Globe2 size={14} />;
+  if (name === "computer" || name.startsWith("computer_")) return <MonitorCog size={14} />;
   if (name.startsWith("mcp__")) return <Network size={14} />;
   return <Wrench size={14} />;
 }

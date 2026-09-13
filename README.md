@@ -15,8 +15,8 @@ Roadmap under these constraints: [PRODUCT_PLAN.md](./PRODUCT_PLAN.md). Feature b
 - Runtime model and thinking-level selection
 - Image inputs and local file references
 - Pi slash commands, skills, prompt templates, and extension commands discovered through RPC
-- Isolated Edge/Chrome browser automation for page inspection, interaction, and screenshots
-- Native Windows computer use for desktop screenshots, visible-window discovery, focus, mouse clicks, text input, and key combinations
+- Grok-style browser control (`browser_navigate`, `browser_inspect`, `browser_click`, …) over a local Chromium session with inspect refs, screenshots, and approval gates
+- Grok-style Windows computer use (`computer_start`, `computer_screenshot`, `computer_click`, …) with observe/control sessions, screen/window sources, and approval-gated input
 - MCP hosting for local STDIO and remote Streamable HTTP servers with dynamic tools, live resource subscriptions, prompt templates, diagnostics, and approval gates
 - Extension UI requests: confirmation, selection, text input, editor input, notifications, status, and widgets
 - Codex-style permission modes backed by a Pi tool-interception extension
@@ -90,7 +90,7 @@ Pi does not provide a built-in operating-system sandbox. Pi Desktop's `read-only
 
 These approval gates are not an isolation boundary. Run untrusted or unattended work inside a container, VM, Windows Sandbox, or another policy-controlled environment. `full-access` gives Pi the permissions of the desktop user.
 
-The bundled `computer` tool uses a native helper in the Pi Desktop executable. Screenshots and window listing are read-only; focusing windows, clicking, typing, and key presses use a separate approval gate by default and are blocked by `read-only` mode. Windows UIPI still prevents input into higher-integrity or protected windows, and Pi Desktop does not attempt to bypass it. Desktop screenshots can contain sensitive information.
+The bundled Grok-style `computer_*` tools use a native helper in the Pi Desktop executable. Observation (`computer_sources`, `computer_screenshot`, `computer_inspect`) is read-only. Interactive input requires `computer_start` in control mode, uses a separate approval gate by default, and is blocked by `read-only` mode. Windows UIPI still prevents input into higher-integrity or protected windows, and Pi Desktop does not attempt to bypass it. Desktop screenshots can contain sensitive information.
 
 The bundled MCP host supports newline-framed STDIO servers and Streamable HTTP servers using the current stable MCP protocol revision. Discovered server tools become first-class Pi tools. Servers that only expose resources or prompts are supported too; Pi can list/read and subscribe to resources, receive STDIO or HTTP SSE change notifications, and list/resolve prompt templates, while users can inspect them with `/mcp-resources`, `/mcp-read`, and `/mcp-prompts`. STDIO inherits a credential-filtered environment by default, HTTP supports explicit request headers, and MCP calls can require approval. Server commands, environment values, and HTTP headers are stored locally; use a restricted account or external secret manager for higher-assurance deployments.
 
@@ -111,12 +111,13 @@ Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Do 
 - `src-tauri/src/pi/sessions.rs` - session metadata and recoverable deletion
 - `src-tauri/src/computer.rs` - native Windows screenshot, window, mouse, and keyboard bridge
 - `src-tauri/resources/pidesktop-guard.ts` - project trust and permission gates
-- `src-tauri/resources/pidesktop-computer.ts` - Pi computer tool and approval flow
+- `src-tauri/resources/pidesktop-browser.ts` - Grok-style browser_* tools over a local Chromium session
+- `src-tauri/resources/pidesktop-computer.ts` - Grok-style computer_* tools, observe/control sessions, and approval flow
 - `src-tauri/resources/pidesktop-mcp.ts` - MCP lifecycle, transports, tool discovery, and Pi tool bridge
 
 ## Known platform boundary
 
-The implemented scope covers the core local Codex-style coding workflow, including managed worktrees, local scheduling, multi-tab terminal sessions, isolated browser automation, approval-gated Windows computer use, and MCP tools/resources/prompts/subscriptions. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, account/billing features, MCP OAuth discovery, and experimental MCP task flows remain out of scope or optional follow-up work. See [docs/LOCAL_CAPABILITIES.md](docs/LOCAL_CAPABILITIES.md) for the complete local boundary.
+The implemented scope covers the core local Codex-style coding workflow, including managed worktrees, local scheduling, multi-tab terminal sessions, Grok-style browser control, approval-gated Windows computer use, and MCP tools/resources/prompts/subscriptions. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, account/billing features, MCP OAuth discovery, and experimental MCP task flows remain out of scope or optional follow-up work. See [docs/LOCAL_CAPABILITIES.md](docs/LOCAL_CAPABILITIES.md) for the complete local boundary.
 
 ## License
 

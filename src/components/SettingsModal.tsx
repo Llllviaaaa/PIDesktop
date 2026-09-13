@@ -1114,24 +1114,24 @@ function McpPage({ form, update }: { form: AppSettings; update: Update }) {
 
 function BrowserPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="Agent 浏览器" description="让 Pi 通过独立的本机 Edge、Chrome 或 Chromium 会话检查和操作网页。" />
+    <PageHeading title="Agent 浏览器" description="让 Pi 使用 Grok 风格的 browser_* 工具，通过本机 Chromium 会话检查和操作网页。" />
     <Card title="Agent 浏览器工具">
-      <Row title="启用 Agent 浏览器" description="为新启动的 Pi 任务注册 browser 工具。"><Switch label="启用 Agent 浏览器" checked={form.browserEnabled} onChange={(value) => update("browserEnabled", value)} /></Row>
+      <Row title="启用 Agent 浏览器" description="为新启动的 Pi 任务注册 browser_navigate、browser_inspect、browser_click 等工具。"><Switch label="启用 Agent 浏览器" checked={form.browserEnabled} onChange={(value) => update("browserEnabled", value)} /></Row>
       <Row title="后台运行" description="使用无头浏览器并在 Pi Desktop 中显示页面结果和截图。"><Switch label="后台运行浏览器" checked={form.browserHeadless} onChange={(value) => update("browserHeadless", value)} /></Row>
       <Row title="网站数据" description="临时模式在任务结束后清理；保留模式使用 PIDesktop 专用配置保存 Cookie 和登录状态，不读取日常浏览器资料。"><select value={form.browserProfileMode} onChange={(event) => update("browserProfileMode", event.target.value as AppSettings["browserProfileMode"])}><option value="temporary">任务结束后清理</option><option value="persistent">保留在 PIDesktop 中</option></select></Row>
       <Row title="操作前审批" description="打开页面、新建或关闭标签、点击、输入、上传和下载前请求确认；检查、切换标签、导航、滚动和截图保持只读。"><Switch label="浏览器操作前审批" checked={form.browserConfirmActions} onChange={(value) => update("browserConfirmActions", value)} /></Row>
       <Row title="浏览器程序" description="留空时依次查找 Edge、Chrome 和 Chromium。"><input value={form.browserExecutable} onChange={(event) => update("browserExecutable", event.target.value)} placeholder="自动检测" /></Row>
     </Card>
-    <div className="settings-info"><Globe2 size={17} /><span>上传和下载仅允许访问当前工作区；下载默认进入 <code>.pidesktop-downloads</code>。设置修改将在新任务中生效。</span></div>
+    <div className="settings-info"><Globe2 size={17} /><span>browser_upload 仅允许访问当前工作区。设置修改将在新任务中生效。</span></div>
   </>;
 }
 
 function ComputerPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="电脑操控" description="允许 Pi 查看并在审批后操作 Windows 桌面应用。" />
+    <PageHeading title="电脑操控" description="允许 Pi 使用 Grok 风格的 computer_* 工具查看桌面，并在审批后进入控制会话。" />
     <Card title="Computer Use">
-      <Row title="启用计算机工具" description="为新任务注册 computer 工具，包括窗口级截图、窗口列表、移动、点击、拖拽、滚动、输入和按键。"><Switch label="启用计算机工具" checked={form.computerEnabled} onChange={(value) => update("computerEnabled", value)} /></Row>
-      <Row title="交互操作前审批" description="切换窗口、移动、点击、拖拽、滚动、输入和按键前必须确认；截图、窗口列表和等待保持只读。"><Switch label="计算机操作前审批" checked={form.computerConfirmActions} onChange={(value) => update("computerConfirmActions", value)} /></Row>
+      <Row title="启用计算机工具" description="为新任务注册 computer_start、computer_screenshot、computer_click 等工具。"><Switch label="启用计算机工具" checked={form.computerEnabled} onChange={(value) => update("computerEnabled", value)} /></Row>
+      <Row title="交互操作前审批" description="computer_start 进入 control 以及点击、移动、滚动、输入和按键前必须确认；观察、截图和窗口检查保持只读。"><Switch label="计算机操作前审批" checked={form.computerConfirmActions} onChange={(value) => update("computerConfirmActions", value)} /></Row>
     </Card>
     <div className="security-note expanded"><ShieldAlert size={18} /><span><strong>系统边界仍然有效。</strong>Windows 会阻止向更高权限或受保护窗口注入输入；Pi Desktop 不会绕过 UIPI。桌面截图可能包含敏感信息，启用后请留意任务上下文。</span></div>
   </>;

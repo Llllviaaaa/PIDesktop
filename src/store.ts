@@ -26,6 +26,8 @@ import {
 import {
   agentBrowserFromMessages,
   agentBrowserFromResult,
+  isGrokBrowserTool,
+  isGrokComputerTool,
   assistantToUi,
   attachForkPointsToUi,
   attachToolResult,
@@ -965,12 +967,10 @@ export const usePiStore = create<PiState>((set, get) => {
             }), event.toolName);
             return {
               messages,
-              agentBrowser: event.toolName.toLowerCase() === "browser"
-                ? resultDetails(event.result)?.action === "close"
-                  ? null
-                  : agentBrowserFromResult(event.result, state.agentBrowser)
+              agentBrowser: isGrokBrowserTool(event.toolName)
+                ? agentBrowserFromResult(event.result, state.agentBrowser)
                 : state.agentBrowser,
-              computer: event.toolName.toLowerCase() === "computer"
+              computer: isGrokComputerTool(event.toolName)
                 ? computerFromResult(event.result, state.computer)
                 : state.computer,
             };

@@ -1148,7 +1148,7 @@ export function InspectorPanel({
                 <code>{element.ref}</code>
               </div>)}
             </div>}
-          </> : <div className="panel-empty browser-empty"><MonitorCog size={24} />让 Pi 使用 computer 工具截图；最新桌面画面会显示在这里。</div>}
+          </> : <div className="panel-empty browser-empty"><MonitorCog size={24} />让 Pi 使用 computer_start 后截图；最新桌面画面会显示在这里。</div>}
         </div>
       )}
 

@@ -90,7 +90,7 @@ function sourceActivity(name: string): EnvSourceActivity {
   if (name === "edit" || name === "apply_patch" || name.includes("edit_file")) return "updated";
   if (name.includes("grep") || name.includes("glob") || name.includes("find") || name === "rg") return "searched";
   if (name.includes("read") || name === "cat") return "read";
-  if (name.includes("open") || name === "browser") return "opened";
+  if (name.includes("open") || name === "browser" || name.startsWith("browser_")) return "opened";
   return "used";
 }
 
