@@ -105,20 +105,21 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
         content: "按照paseo",
         timestamp: Date.now() - 1_000,
       },
-      {
+      ...(streamFixture ? [] : [{
         id: "fixture-stream-assistant",
-        role: "assistant",
+        role: "assistant" as const,
         content: "",
+        thinking: "先读 README，再总结当前聊天窗的消息层级。",
         isStreaming: true,
         timestamp: Date.now(),
         toolCalls: [{
-          id: "fixture-ctx-execute",
-          name: "ctx_execute",
-          args: { code: "console.log('fixture')" },
+          id: "fixture-stream-read",
+          name: "read",
+          args: { path: "README.md" },
           running: true,
           startedAt: Date.now() - 300,
         }],
-      },
+      }]),
     ] : [
       {
         id: "fixture-user",
@@ -133,6 +134,13 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
         thinking: "读取模型配置并核对可用 provider。",
         durationMs: 5_000,
         timestamp: Date.now() - 45_000,
+      },
+      {
+        id: "fixture-compact",
+        role: "notice",
+        noticeKind: "compaction",
+        content: "Context compacted\n\nEarlier setup turns were summarized.",
+        timestamp: Date.now() - 30_000,
       },
       {
         id: "fixture-assistant",
@@ -161,9 +169,46 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
             id: "fixture-read",
             name: "read",
             args: { path: "src/components/Message.tsx" },
+            result: "export const Message = memo(function Message() {\n  return null;\n});",
             running: false,
             startedAt: Date.now() - 25_000,
             finishedAt: Date.now() - 18_000,
+          },
+          {
+            id: "fixture-edit",
+            name: "edit",
+            args: {
+              path: "src/App.tsx",
+              old_string: "const title = \"Pi\"",
+              new_string: "const title = \"Pi Desktop\"",
+            },
+            running: false,
+            startedAt: Date.now() - 17_000,
+            finishedAt: Date.now() - 16_000,
+          },
+          {
+            id: "fixture-bash",
+            name: "bash",
+            args: { command: "npx tsx scripts/test-message-actions.tsx" },
+            result: "message action tests passed",
+            running: false,
+            startedAt: Date.now() - 16_000,
+            finishedAt: Date.now() - 15_000,
+          },
+          {
+            id: "fixture-plan",
+            name: "update_plan",
+            args: {
+              explanation: "Align the transcript with Codex density.",
+              items: [
+                { id: "fold", text: "Restore the work-log fold", status: "completed" },
+                { id: "tools", text: "Specialize tool rendering", status: "completed" },
+                { id: "density", text: "Add summary/normal/verbose density", status: "in_progress" },
+              ],
+            },
+            running: false,
+            startedAt: Date.now() - 15_000,
+            finishedAt: Date.now() - 14_500,
           },
         ],
       },
@@ -305,8 +350,23 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
           type: "message_update",
           assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta },
         });
+        if (thinkingCount === 8) {
+          usePiStore.getState().handleEvent("fixture-runtime", {
+            type: "tool_execution_start",
+            toolCallId: "fixture-stream-read",
+            toolName: "read",
+            args: { path: "README.md" },
+          });
+        }
         if (thinkingCount < 30) return;
         window.clearInterval(thinkingTimer);
+        usePiStore.getState().handleEvent("fixture-runtime", {
+          type: "tool_execution_end",
+          toolCallId: "fixture-stream-read",
+          toolName: "read",
+          result: "# Pi Desktop\n\nA local Windows desktop client.",
+          isError: false,
+        });
         const timer = window.setInterval(() => {
           updateCount += 1;
           const content = `Streaming update ${updateCount} `;

@@ -236,30 +236,40 @@ export function evaluateToolPermission(options: {
   const isWrite = tool === "write" || tool === "edit" || tool === "apply_patch";
   const isShell = tool === "bash" || tool === "shell" || tool === "exec";
   const action = typeof input.action === "string" ? input.action.toLowerCase() : "";
-  const isInteractiveBrowser = tool === "browser" && ["open", "new_tab", "close_tab", "click", "type", "press", "select", "upload", "download", "close"].includes(action);
-  const isBrowserDownload = tool === "browser" && action === "download";
-  const computerActions = action === "batch" && Array.isArray(input.actions)
-    ? input.actions.flatMap((item) => item && typeof item === "object" && typeof (item as { action?: unknown }).action === "string"
-      ? [(item as { action: string }).action.toLowerCase()]
-      : [])
-    : [action];
-  const isInteractiveComputer = tool === "computer" && computerActions.some((computerAction) => [
-    "focus_window",
-    "move",
-    "click",
-    "double_click",
-    "drag",
-    "scroll",
-    "type",
-    "key",
-    "keypress",
-    "invoke",
-    "set_value",
-    "toggle",
-    "select",
-    "focus_element",
-    "scroll_element",
-  ].includes(computerAction));
+  const isBrowserTool = tool === "browser" || tool.startsWith("browser_");
+  const isComputerTool = tool === "computer" || tool.startsWith("computer_");
+  const isInteractiveBrowser = tool === "browser_click"
+    || tool === "browser_type"
+    || tool === "browser_press"
+    || tool === "browser_select"
+    || tool === "browser_upload"
+    || tool === "browser_navigate"
+    || (tool === "browser_tabs" && action !== "list" && action !== "")
+    || (tool === "browser" && ["open", "new_tab", "close_tab", "click", "type", "press", "select", "upload", "download", "close"].includes(action));
+  const isBrowserDownload = tool === "browser_upload" || (tool === "browser" && action === "download");
+  const isInteractiveComputer = tool === "computer_click"
+    || tool === "computer_move"
+    || tool === "computer_scroll"
+    || tool === "computer_type"
+    || tool === "computer_key"
+    || (tool === "computer_start" && (typeof input.mode === "string" ? input.mode.toLowerCase() : "") === "control")
+    || (tool === "computer" && [
+      "focus_window",
+      "move",
+      "click",
+      "double_click",
+      "drag",
+      "scroll",
+      "type",
+      "key",
+      "keypress",
+      "invoke",
+      "set_value",
+      "toggle",
+      "select",
+      "focus_element",
+      "scroll_element",
+    ].includes(action));
   const isMcpTool = tool.startsWith("mcp__");
   const isSubagent = tool === "delegate_task";
   const isMemoryWrite = tool === "desktop_memory" && action !== "read";
@@ -290,8 +300,8 @@ export function evaluateToolPermission(options: {
   ]);
   const isKnownTool = isWrite
     || isShell
-    || tool === "browser"
-    || tool === "computer"
+    || isBrowserTool
+    || isComputerTool
     || isMcpTool
     || isSubagent
     || tool === "desktop_memory"

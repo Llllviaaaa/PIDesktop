@@ -287,6 +287,8 @@ export interface AppSettings {
   /** Default new-task environment when starting a coding task. */
   defaultTaskEnvironment: "local" | "worktree";
   showThinking: boolean;
+  /** Conversation transcript density: summary hides work, verbose expands it. */
+  transcriptDensity: "summary" | "normal" | "verbose";
   autoConnect: boolean;
   followUpBehavior: "steer" | "followUp";
   requireCtrlEnter: boolean;
@@ -649,6 +651,12 @@ export interface UiToolCall {
   finishedAt?: number;
 }
 
+/** One native process row inside a DeepSeek-Harness-style turn fold. */
+export type WorkStep =
+  | { kind: "thinking"; text: string }
+  | { kind: "note"; text: string }
+  | { kind: "tool"; call: UiToolCall };
+
 export interface AgentBrowserState {
   url: string;
   title: string;
@@ -695,8 +703,12 @@ export interface UiMessage {
   entryId?: string;
   role: "user" | "assistant" | "terminal" | "notice";
   content: string;
+  /** Distinguishes compaction/branch notices from generic system notes. */
+  noticeKind?: "compaction" | "branch";
   images?: ImageContent[];
   thinking?: string;
+  /** Ordered thinking / narration / tool rows for the compact turn fold. */
+  workSteps?: WorkStep[];
   model?: string;
   usage?: Usage;
   isStreaming?: boolean;

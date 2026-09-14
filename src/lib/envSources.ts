@@ -90,7 +90,7 @@ function sourceActivity(name: string): EnvSourceActivity {
   if (name === "edit" || name === "apply_patch" || name.includes("edit_file")) return "updated";
   if (name.includes("grep") || name.includes("glob") || name.includes("find") || name === "rg") return "searched";
   if (name.includes("read") || name === "cat") return "read";
-  if (name.includes("open") || name === "browser") return "opened";
+  if (name.includes("open") || name === "browser" || name.startsWith("browser_")) return "opened";
   return "used";
 }
 
@@ -233,32 +233,42 @@ function planStatus(value: unknown): TaskPlanStatus | null {
   return value === "pending" || value === "in_progress" || value === "completed" ? value : null;
 }
 
+function toolNameTail(name: string): string {
+  const segments = name.toLowerCase().split(/__|[.:/]/).filter(Boolean);
+  return segments[segments.length - 1] ?? name.toLowerCase();
+}
+
+/** Parse a single update_plan tool call into the conversation/inspector plan widget. */
+export function planFromToolCall(call: UiToolCall): TaskPlanSummary | null {
+  if (toolNameTail(call.name) !== "update_plan" || call.isError) return null;
+  const rawItems = Array.isArray(call.details?.items)
+    ? call.details.items
+    : Array.isArray(call.args.items) ? call.args.items : null;
+  if (!rawItems) return null;
+  const steps = rawItems.flatMap((value, stepIndex) => {
+    const item = recordValue(value);
+    const text = typeof item?.text === "string" ? item.text.trim() : "";
+    const status = planStatus(item?.status);
+    if (!text || !status) return [];
+    return [{
+      id: typeof item?.id === "string" && item.id.trim() ? item.id.trim() : `step-${stepIndex + 1}`,
+      text,
+      status,
+    }];
+  });
+  if (steps.length === 0) return null;
+  const explanation = typeof call.details?.explanation === "string"
+    ? call.details.explanation.trim()
+    : typeof call.args.explanation === "string" ? call.args.explanation.trim() : "";
+  return { explanation, steps, completed: steps.filter((step) => step.status === "completed").length };
+}
+
 /** Return the latest valid update_plan payload for the active conversation branch. */
 export function deriveTaskPlan(messages: UiMessage[]): TaskPlanSummary | null {
   const calls = messages.flatMap((message) => message.toolCalls ?? []);
   for (let index = calls.length - 1; index >= 0; index -= 1) {
-    const call = calls[index];
-    if (call.name.toLowerCase() !== "update_plan" || call.isError) continue;
-    const rawItems = Array.isArray(call.details?.items)
-      ? call.details.items
-      : Array.isArray(call.args.items) ? call.args.items : null;
-    if (!rawItems) continue;
-    const steps = rawItems.flatMap((value, stepIndex) => {
-      const item = recordValue(value);
-      const text = typeof item?.text === "string" ? item.text.trim() : "";
-      const status = planStatus(item?.status);
-      if (!text || !status) return [];
-      return [{
-        id: typeof item?.id === "string" && item.id.trim() ? item.id.trim() : `step-${stepIndex + 1}`,
-        text,
-        status,
-      }];
-    });
-    if (steps.length === 0) return null;
-    const explanation = typeof call.details?.explanation === "string"
-      ? call.details.explanation.trim()
-      : typeof call.args.explanation === "string" ? call.args.explanation.trim() : "";
-    return { explanation, steps, completed: steps.filter((step) => step.status === "completed").length };
+    const plan = planFromToolCall(calls[index]);
+    if (plan) return plan;
   }
   return null;
 }

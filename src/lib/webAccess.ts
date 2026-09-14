@@ -38,7 +38,7 @@ export function webAccessKindForTool(toolName: string): WebAccessKind | null {
   if (isWebSearchTool(name) || name.includes("web_fetch") || name.includes("fetch_url")) {
     return "web-search";
   }
-  if (name === "browser") {
+  if (name === "browser" || name.startsWith("browser_")) {
     return "agent-browser";
   }
   return null;

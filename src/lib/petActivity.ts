@@ -2,6 +2,7 @@ import type { RuntimeState } from "../storeTypes";
 import type { AppNotification, SessionInfo } from "../types";
 import type { PetAnimationState } from "./appearanceCatalog";
 import { sameLocalPath } from "./pathIdentity";
+import { headlineForUiRequest } from "./batchAsk";
 
 export type PetActivityStatus = "needs-input" | "blocked" | "ready" | "running";
 
@@ -74,8 +75,13 @@ export function buildPetActivities({
 
   for (const runtime of Object.values(runtimes)) {
     if (!runtime.extensionRequest && !runtime.isStreaming && runtime.status !== "starting") continue;
-    const requestTitle = runtime.extensionRequest && "title" in runtime.extensionRequest
-      ? runtime.extensionRequest.title
+    const request = runtime.extensionRequest;
+    const requestTitle = request
+      ? headlineForUiRequest(
+        request.method,
+        "title" in request ? request.title : undefined,
+        request.method === "input" ? request.placeholder : undefined,
+      )
       : undefined;
     candidates.push({
       id: `runtime:${runtime.runtimeId}`,

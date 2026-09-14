@@ -13,6 +13,16 @@ import type {
   UiToolCall,
 } from "../types";
 
+export function isGrokBrowserTool(name: string): boolean {
+  const tool = name.toLowerCase();
+  return tool === "browser" || tool.startsWith("browser_");
+}
+
+export function isGrokComputerTool(name: string): boolean {
+  const tool = name.toLowerCase();
+  return tool === "computer" || tool.startsWith("computer_");
+}
+
 export function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -153,6 +163,7 @@ export function messagesToUi(messages: AgentMessage[], timings: SessionMessageTi
       result.push({
         id: messageId(message),
         role: "notice",
+        noticeKind: message.role === "compactionSummary" ? "compaction" : "branch",
         content: message.role === "compactionSummary"
           ? `Context compacted\n\n${message.summary}`
           : `Branch summary\n\n${message.summary}`,
@@ -254,7 +265,7 @@ export function agentBrowserFromMessages(messages: UiMessage[]): AgentBrowserSta
     const calls = messages[messageIndex].toolCalls ?? [];
     for (let callIndex = calls.length - 1; callIndex >= 0; callIndex -= 1) {
       const call = calls[callIndex];
-      if (call.name.toLowerCase() !== "browser") continue;
+      if (!isGrokBrowserTool(call.name)) continue;
       const url = typeof call.details?.url === "string" ? call.details.url : "about:blank";
       const title = typeof call.details?.title === "string" ? call.details.title : url;
       return { url, title, screenshot: call.images?.[0], updatedAt: call.finishedAt ?? Date.now() };
@@ -308,7 +319,7 @@ export function computerFromMessages(messages: UiMessage[]): ComputerState | nul
     const calls = messages[messageIndex].toolCalls ?? [];
     for (let callIndex = calls.length - 1; callIndex >= 0; callIndex -= 1) {
       const call = calls[callIndex];
-      if (call.name.toLowerCase() !== "computer") continue;
+      if (!isGrokComputerTool(call.name)) continue;
       return computerFromResult({ content: call.images ?? [], details: call.details }, null);
     }
   }

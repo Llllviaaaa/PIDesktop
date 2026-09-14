@@ -84,6 +84,8 @@ struct AppSettings {
     default_task_environment: String,
     #[serde(alias = "show_thinking")]
     show_thinking: bool,
+    #[serde(alias = "transcript_density", default = "default_transcript_density")]
+    transcript_density: String,
     #[serde(alias = "auto_connect")]
     auto_connect: bool,
     follow_up_behavior: String,
@@ -233,6 +235,10 @@ impl Default for McpServerConfig {
     }
 }
 
+fn default_transcript_density() -> String {
+    "normal".to_string()
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -249,6 +255,7 @@ impl Default for AppSettings {
             tool_rules: Vec::new(),
             default_task_environment: "local".to_string(),
             show_thinking: true,
+            transcript_density: "normal".to_string(),
             auto_connect: false,
             follow_up_behavior: "steer".to_string(),
             require_ctrl_enter: false,

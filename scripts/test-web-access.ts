@@ -13,6 +13,7 @@ assert(webAccessKindForTool("web_search") === "web-search", "web search was not 
 assert(webAccessKindForTool("grok_search") === "web-search", "Grok search was not classified");
 assert(webAccessKindForTool("mcp__research__web_search") === "web-search", "MCP web search was not classified");
 assert(webAccessKindForTool("browser") === "agent-browser", "agent browser was not classified");
+assert(webAccessKindForTool("browser_navigate") === "agent-browser", "Grok browser tools should classify as agent browser");
 assert(webAccessKindForTool("search") === null, "generic file search was misclassified as web search");
 assert(webAccessKindForTool("read") === null, "non-web tool was misclassified");
 assert(webSearchQuery({ query: "Pi Desktop" }) === "Pi Desktop", "query was not extracted");

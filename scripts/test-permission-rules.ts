@@ -68,18 +68,18 @@ const base = {
   workspace,
 };
 {
-  assert(evaluateToolPermission({ ...base, toolName: "browser", input: { action: "inspect" } }).action === "allow", "browser inspection should stay available in read-only mode");
-  assert(evaluateToolPermission({ ...base, toolName: "browser", input: { action: "click" } }).action === "block", "browser clicks should be blocked in read-only mode");
-  assert(evaluateToolPermission({ ...base, toolName: "browser", input: { action: "press" } }).action === "block", "browser keypresses should be blocked in read-only mode");
-  assert(evaluateToolPermission({ ...base, toolName: "browser", input: { action: "select" } }).action === "block", "browser form selection should be blocked in read-only mode");
-  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "type" } }).action === "block", "computer input should be blocked in read-only mode");
-  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "drag" } }).action === "block", "computer drag should be blocked in read-only mode");
-  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "scroll" } }).action === "block", "computer scroll should be blocked in read-only mode");
-  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "invoke", ref: "uia:1:2" } }).action === "block", "semantic computer actions should be blocked in read-only mode");
-  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "batch", actions: [{ action: "wait" }, { action: "click", x: 1, y: 1 }] } }).action === "block", "computer batches must not hide interactive actions in read-only mode");
-  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "observe" } }).action === "allow", "computer observation should remain available in read-only mode");
-  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "batch", actions: [{ action: "wait" }] } }).action === "allow", "read-only computer batches should remain available");
-  assert(evaluateToolPermission({ ...base, toolName: "computer", input: { action: "wait" } }).action === "allow", "computer wait should remain available in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "browser_inspect", input: {} }).action === "allow", "browser inspection should stay available in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "browser_screenshot", input: {} }).action === "allow", "browser screenshots should stay available in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "browser_click", input: { ref: "e1" } }).action === "block", "browser clicks should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "browser_press", input: { key: "Enter" } }).action === "block", "browser keypresses should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "browser_select", input: { selector: "select", value: "two" } }).action === "block", "browser form selection should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer_type", input: { text: "hi" } }).action === "block", "computer input should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer_click", input: { x: 1, y: 1 } }).action === "block", "computer clicks should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer_scroll", input: { deltaY: 120 } }).action === "block", "computer scroll should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer_start", input: { sourceId: "screen:primary", mode: "control" } }).action === "block", "computer control sessions should be blocked in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer_inspect", input: {} }).action === "allow", "computer observation should remain available in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer_screenshot", input: {} }).action === "allow", "computer screenshots should remain available in read-only mode");
+  assert(evaluateToolPermission({ ...base, toolName: "computer_start", input: { sourceId: "screen:primary", mode: "observe" } }).action === "allow", "computer observe sessions should remain available in read-only mode");
   assert(evaluateToolPermission({ ...base, toolName: "mcp__demo__write", input: {} }).action === "block", "MCP tools should be blocked when their side effects cannot be classified");
   assert(evaluateToolPermission({ ...base, toolName: "delegate_task", input: { permission: "read-only" } }).action === "allow", "read-only mode should permit read-only subagents");
   assert(evaluateToolPermission({ ...base, toolName: "delegate_task", input: { permission: "workspace-write" } }).action === "block", "read-only mode should block writing subagents");
@@ -233,17 +233,17 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
     mode: "workspace-write",
     rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
     workspace,
-    toolName: "browser",
-    input: { action: "download", path: "../../outside" },
+    toolName: "browser_upload",
+    input: { filePath: "../../outside" },
   });
-  assert(browserDownloadEscape.action === "block", "browser downloads outside the workspace must be blocked");
+  assert(browserDownloadEscape.action === "block", "browser uploads outside the workspace must be blocked");
 
   const readOnlyUpload = evaluateToolPermission({
     mode: "read-only",
     rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
     workspace,
-    toolName: "browser",
-    input: { action: "upload", paths: ["upload.txt"] },
+    toolName: "browser_upload",
+    input: { filePath: "upload.txt" },
   });
   assert(readOnlyUpload.action === "block", "browser uploads must be blocked in read-only mode");
 

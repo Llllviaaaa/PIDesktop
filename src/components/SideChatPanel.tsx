@@ -1,5 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle, MessageSquare, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { pi, respondToExtension, sendCommand, subscribeToPi } from "../lib/pi";
 import {
@@ -25,6 +25,7 @@ import type {
   UiMessage,
   UiToolCall,
 } from "../types";
+import { groupTranscriptMessages } from "../lib/transcriptTurns";
 import { Composer } from "./Composer";
 import { ExtensionDialog } from "./ExtensionDialog";
 import { Message } from "./Message";
@@ -116,6 +117,7 @@ export function SideChatPanel({
   const sideSessionFileRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeTurnStartedAtRef = useRef<number | null>(null);
+  const displayMessages = useMemo(() => groupTranscriptMessages(messages), [messages]);
 
   const reportError = useCallback((reason: unknown) => {
     const message = reason instanceof Error ? reason.message : String(reason);
@@ -557,13 +559,13 @@ export function SideChatPanel({
             <small>它继承当前任务的上下文，但不会改变主对话。</small>
           </div>
         )}
-        {messages.map((message, index) => (
+        {displayMessages.map((message, index) => (
           <Message
             key={message.id}
             message={message}
             showThinking={showThinking}
             expectVisibleThinking={thinkingLevel !== "off"}
-            isLastAssistant={message.role === "assistant" && index === messages.length - 1}
+            isLastAssistant={message.role === "assistant" && index === displayMessages.length - 1}
             globalStreaming={isStreaming}
             allowRichContent
           />

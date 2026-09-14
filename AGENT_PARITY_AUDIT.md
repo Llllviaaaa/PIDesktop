@@ -20,8 +20,8 @@ Pi Desktop is a local Pi client. “Parity” below means the local coding workf
 | Conversation export | Complete | Readable Markdown and Pi HTML export |
 | Git review loop | Complete | Index/worktree diff, stage, unstage, revert, line feedback, review prompt and PR workflow |
 | Integrated terminal | Complete | Multiple real PTY tabs, streaming output, abort and optional context exclusion |
-| Browser automation | Complete (local) | Isolated Chromium/Edge profile, inspect/click/type/screenshot and approval controls |
-| Computer use | Complete (Windows) | Native screenshot/window/mouse/keyboard bridge with approval and UIPI boundary |
+| Browser automation | Complete (local) | Grok-style `browser_*` tools over a local Chromium/Edge profile, inspect refs, clicks, typing, screenshots, and approval controls |
+| Computer use | Complete (Windows) | Grok-style `computer_*` observe/control sessions, native screenshot/window/mouse/keyboard bridge with approval and UIPI boundary |
 | Skills, prompts, extensions and packages | Complete | Local/project discovery plus npm, Git and local package lifecycle |
 | Lifecycle hooks | Complete | Six lifecycle events, JSON stdin, timeout, filtered environment and optional pre-tool blocking |
 | Local subagents | Complete | Bundled `delegate_task` runs isolated Pi contexts for exploration, planning, review and workers; up to 8 tasks with 1-4 concurrency and cancellation |
