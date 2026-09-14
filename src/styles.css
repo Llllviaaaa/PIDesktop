@@ -905,7 +905,20 @@ div.work-log-toggle:hover,
 .question-option.active { background: color-mix(in srgb, var(--accent-custom) 8%, var(--panel)); color: var(--text); }
 .question-option-indicator { width: 16px; height: 16px; border: 1px solid var(--border-strong); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--accent-text); }
 .question-option.active .question-option-indicator { border-color: var(--accent-custom); background: var(--accent-custom); }
+.question-option-copy { display: grid; gap: 2px; min-width: 0; }
+.question-option-label { overflow-wrap: anywhere; }
+.question-option-desc { color: var(--text-3); font-size: 11.5px; line-height: 1.4; overflow-wrap: anywhere; }
 .question-option kbd { min-width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 5px; background: var(--app); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; font: 10px var(--code-font); }
+.question-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 14px 8px; }
+.question-tab { min-height: 26px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-3); padding: 0 10px; font-size: 11px; cursor: pointer; }
+.question-tab:hover { color: var(--text-2); background: var(--hover); }
+.question-tab.active { border-color: var(--border-strong); color: var(--text); background: var(--app); }
+.question-tab.is-done:not(.active) { color: var(--text-2); }
+.question-review { margin: 0 14px 14px; padding: 0; list-style: none; display: grid; gap: 8px; }
+.question-review li { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--app); }
+.question-review strong { font-size: 12.5px; font-weight: 560; }
+.question-review span { color: var(--text-2); font-size: 12.5px; overflow-wrap: anywhere; }
+.question-other-actions { display: flex; justify-content: flex-end; gap: 7px; padding: 0 14px 10px; }
 .question-field { width: calc(100% - 28px); min-height: 38px; margin: 0 14px 14px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--app); color: var(--text); padding: 8px 10px; outline: 0; font: 12.5px/1.5 Inter, "Segoe UI", sans-serif; }
 textarea.question-field { min-height: 132px; resize: vertical; font-family: var(--code-font); }
 .question-field:focus { border-color: var(--accent-custom); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-custom) 10%, transparent); }

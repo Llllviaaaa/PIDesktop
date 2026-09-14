@@ -74,7 +74,7 @@ import {
   type DesktopPetNavigationRequest,
   type DesktopPetWindowState,
 } from "./components/DesktopPetWindow";
-import { ExtensionDialog } from "./components/ExtensionDialog";
+import { ExtensionDialog, extensionRequestHeadline } from "./components/ExtensionDialog";
 import type { InspectorTab } from "./components/InspectorPanel";
 import { ConnectedInspectorPanel } from "./components/ConnectedInspectorPanel";
 import { ConversationMessages } from "./components/ConversationMessages";
@@ -298,7 +298,7 @@ export default function App() {
   );
   const currentRuntime = runtimeId ? runtimes[runtimeId] : undefined;
   const currentPetBusy = isStreaming || isCompacting || connection === "starting";
-  const extensionRequestTitle = extensionRequest && "title" in extensionRequest ? extensionRequest.title : undefined;
+  const extensionRequestTitle = extensionRequest ? extensionRequestHeadline(extensionRequest) : undefined;
   const currentPetStatus: PetActivityStatus | null = extensionRequest
     ? "needs-input"
     : connection === "exited" || Boolean(retryStatus)

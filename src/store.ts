@@ -17,6 +17,7 @@ import {
 } from "./lib/managedQueue";
 import { persistModelCatalog, readStoredModelCatalog } from "./lib/modelCatalogCache";
 import { sameLocalPath } from "./lib/pathIdentity";
+import { headlineForUiRequest } from "./lib/batchAsk";
 import {
   buildForkCommand,
   buildGetTreeCommand,
@@ -822,16 +823,21 @@ export const usePiStore = create<PiState>((set, get) => {
           if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
             const runtime = get().runtimes[runtimeId];
             const kind = request.method === "confirm" ? "approval" : "question";
+            const title = headlineForUiRequest(
+              request.method,
+              "title" in request ? request.title : undefined,
+              request.method === "input" ? request.placeholder : undefined,
+            ) || (kind === "approval" ? "需要确认" : "需要输入");
             const notification: NotificationDraft = {
               id: `${runtimeId}:request:${request.id}`,
               kind,
-              title: ("title" in request && request.title) || (kind === "approval" ? "需要确认" : "需要输入"),
+              title,
               body: kind === "approval" ? "打开任务以确认本地操作。" : "打开任务以回答问题。",
               cwd: runtime?.cwd ?? "",
               sessionFile: runtime?.sessionFile ?? null,
             };
             if (pushNotification(notification)) {
-              notify(notification.id, "Pi 后台任务等待审批", ("title" in request && request.title) || "打开任务以处理审批。", true);
+              notify(notification.id, "Pi 后台任务等待审批", title, true);
             }
           }
         }
@@ -1031,16 +1037,21 @@ export const usePiStore = create<PiState>((set, get) => {
           } else {
             set({ extensionRequest: request });
             const kind = request.method === "confirm" ? "approval" : "question";
+            const title = headlineForUiRequest(
+              request.method,
+              "title" in request ? request.title : undefined,
+              request.method === "input" ? request.placeholder : undefined,
+            ) || (kind === "approval" ? "需要确认" : "需要输入");
             const notification: NotificationDraft = {
               id: `${runtimeId}:request:${request.id}`,
               kind,
-              title: request.title || (kind === "approval" ? "需要确认" : "需要输入"),
+              title,
               body: kind === "approval" ? "有一项本地操作正在等待你的决定。" : "Pi 正在等待你的回答。",
               cwd: get().cwd,
               sessionFile: get().sessionFile,
             };
             if (pushNotification(notification)) {
-              notify(notification.id, "Pi 需要审批", request.title || "有一项本地操作正在等待你的决定。", true);
+              notify(notification.id, "Pi 需要审批", title, true);
             }
           }
           return;
