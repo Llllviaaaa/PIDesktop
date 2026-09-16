@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties } from "react";
 import {
   ArrowUp,
   Bot,
@@ -30,6 +30,11 @@ import {
   normalizeTranscriptDensity,
   type TranscriptDensity,
 } from "../lib/transcriptDensity";
+import {
+  attachmentsFromImageFiles,
+  clipboardPlainText,
+  imageFilesFromClipboard,
+} from "../lib/clipboardImages";
 
 const THINKING_LABELS: Record<string, string> = {
   off: "关闭",
@@ -83,6 +88,8 @@ interface ComposerProps {
   onSend: (text: string, behavior?: "steer" | "followUp") => Promise<boolean | void> | boolean | void;
   onStop: () => void;
   onPickAttachments: () => void;
+  onAddAttachments: (attachments: AttachmentPayload[]) => void;
+  onAttachmentError?: (message: string) => void;
   onRemoveAttachment: (path: string) => void;
   onModelChange: (model: ModelInfo) => void;
   onThinkingChange: (level: string) => void;
@@ -128,6 +135,8 @@ export const Composer = memo(function Composer({
   onSend,
   onStop,
   onPickAttachments,
+  onAddAttachments,
+  onAttachmentError,
   onRemoveAttachment,
   onModelChange,
   onThinkingChange,
@@ -266,6 +275,30 @@ export const Composer = memo(function Composer({
     }
   };
 
+  const handlePaste = (event: ReactClipboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    const files = imageFilesFromClipboard(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    const pastedText = clipboardPlainText(event.clipboardData);
+    if (pastedText) {
+      const element = textareaRef.current;
+      const start = element?.selectionStart ?? text.length;
+      const end = element?.selectionEnd ?? text.length;
+      setText(`${text.slice(0, start)}${pastedText}${text.slice(end)}`);
+      window.requestAnimationFrame(() => {
+        if (!element) return;
+        const cursor = start + pastedText.length;
+        element.selectionStart = cursor;
+        element.selectionEnd = cursor;
+      });
+    }
+    void attachmentsFromImageFiles(files).then(({ attachments, errors }) => {
+      if (attachments.length) onAddAttachments(attachments);
+      for (const message of errors) onAttachmentError?.(message);
+    });
+  };
+
   // Codex shows one quiet label: "5.6 Sol 极高". Avoid "选择模型 中" when disconnected.
   const modelName = model ? (model.name || model.id) : null;
   const thinkingLabel = THINKING_LABELS[thinkingLevel] || thinkingLevel || "";
@@ -280,6 +313,7 @@ export const Composer = memo(function Composer({
   return (
     <div
       className={`composer-area codex-composer ${variant === "task-start" ? "task-start-composer" : "follow-up-composer"}`}
+      onPaste={handlePaste}
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         if (modelMenuOpen) {
@@ -390,7 +424,9 @@ export const Composer = memo(function Composer({
           <div className="attachment-strip">
             {attachments.map((attachment) => (
               <div className="attachment-chip" key={attachment.path}>
-                {attachment.kind === "image" ? <ImageIcon size={14} /> : <File size={14} />}
+                {attachment.kind === "image" && attachment.data
+                  ? <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
+                  : attachment.kind === "image" ? <ImageIcon size={14} /> : <File size={14} />}
                 <span>{attachment.fileName}</span>
                 <button type="button" onClick={() => onRemoveAttachment(attachment.path)} title="移除附件">
                   <X size={12} />

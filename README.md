@@ -13,7 +13,7 @@ Roadmap under these constraints: [PRODUCT_PLAN.md](./PRODUCT_PLAN.md). Feature b
 - Ordered allow/confirm/block tool rules plus explicit local memory CRUD and approval-gated agent memory updates
 - Streaming text, reasoning, tool calls, tool output, retries, queue status, context usage, and cost/token metadata
 - Runtime model and thinking-level selection
-- Image inputs and local file references
+- Image inputs via paste or file picker, plus local file references
 - Pi slash commands, skills, prompt templates, and extension commands discovered through RPC
 - Grok-style browser control (`browser_navigate`, `browser_inspect`, `browser_click`, …) over a local Chromium session with inspect refs, screenshots, and approval gates
 - Grok-style Windows computer use (`computer_start`, `computer_screenshot`, `computer_click`, …) with observe/control sessions, screen/window sources, and approval-gated input

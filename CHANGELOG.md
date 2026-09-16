@@ -4,6 +4,8 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+- Allow pasting screenshots and clipboard images into the composer as image attachments.
+- Persist composer transcript density, model, and thinking level as app defaults so they survive restart and apply to later sessions.
 - Replace the bundled `computer` and `browser` tools with Grok-style `computer_*` and `browser_*` APIs, including observe/control sessions and inspect-ref page actions.
 
 ## 0.2.27 - 2026-09-04

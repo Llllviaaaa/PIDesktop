@@ -13,6 +13,7 @@ import {
 } from "../lib/piMessages";
 import { updateToolCall } from "../lib/piToolCalls";
 import { sameLocalPath } from "../lib/pathIdentity";
+import { mergeAttachmentPayloads } from "../lib/clipboardImages";
 import type {
   AppSettings,
   AttachmentPayload,
@@ -432,13 +433,11 @@ export function SideChatPanel({
         return null;
       }
     }));
-    setAttachments((current) => {
-      const next = [...current];
-      for (const item of loaded) {
-        if (item && !next.some((existing) => existing.path === item.path)) next.push(item);
-      }
-      return next;
-    });
+    setAttachments((current) => mergeAttachmentPayloads(current, loaded.filter((item): item is AttachmentPayload => Boolean(item))));
+  };
+
+  const addAttachments = (incoming: AttachmentPayload[]) => {
+    setAttachments((current) => mergeAttachmentPayloads(current, incoming));
   };
 
   const changeModel = async (next: ModelInfo) => {
@@ -594,6 +593,8 @@ export function SideChatPanel({
           onSend={submit}
           onStop={stop}
           onPickAttachments={() => void pickAttachments()}
+          onAddAttachments={addAttachments}
+          onAttachmentError={(message) => reportError(message)}
           onRemoveAttachment={(path) => setAttachments((current) => current.filter((item) => item.path !== path))}
           onModelChange={(next) => void changeModel(next)}
           onThinkingChange={(level) => void changeThinking(level)}

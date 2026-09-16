@@ -16,6 +16,13 @@ import {
   removeManagedQueueItem,
 } from "./lib/managedQueue";
 import { persistModelCatalog, readStoredModelCatalog } from "./lib/modelCatalogCache";
+import {
+  preferredModelFromSettings,
+  settingsWithPreferredModel,
+  settingsWithPreferredThinking,
+  shouldApplyPreferredModel,
+  shouldApplyPreferredThinking,
+} from "./lib/preferredRuntime";
 import { sameLocalPath } from "./lib/pathIdentity";
 import { headlineForUiRequest } from "./lib/batchAsk";
 import {
@@ -112,6 +119,18 @@ export const usePiStore = create<PiState>((set, get) => {
   const persistCurrentModelCatalog = () => {
     const state = get();
     persistModelCatalog({ models: state.availableModels, selected: state.model });
+  };
+  let settingsWrite = Promise.resolve();
+  const persistPreferredRuntime = (patch: { model?: ModelInfo | null; thinkingLevel?: string }) => {
+    const settings = get().settings;
+    if (!settings) return Promise.resolve();
+    let next = settings;
+    if (patch.model) next = settingsWithPreferredModel(next, patch.model);
+    if (patch.thinkingLevel) next = settingsWithPreferredThinking(next, patch.thinkingLevel);
+    if (next === settings) return Promise.resolve();
+    return get().saveSettings(next).catch((error) => {
+      toast(`保存默认模型或推理等级失败：${error instanceof Error ? error.message : String(error)}`, "error");
+    });
   };
 
   const workspaceKey = (cwd: string) => cwd.trim().replace(/[\\/]+$/, "").toLowerCase();
@@ -571,13 +590,23 @@ export const usePiStore = create<PiState>((set, get) => {
           }
           await syncSession(connectVersion);
           if (connectVersion !== connectionVersion) return;
-          if (!sessionFile && queuedModelSelection) {
-            const queued = queuedModelSelection;
-            queuedModelSelection = null;
+          const settings = get().settings;
+          const preferredModel = queuedModelSelection ?? preferredModelFromSettings(settings, get().availableModels);
+          queuedModelSelection = null;
+          if (shouldApplyPreferredModel(get().model, preferredModel)) {
             try {
-              await get().setModel(queued);
+              await get().setModel(preferredModel);
             } catch {
               // setModel reports the failure without invalidating an otherwise healthy runtime.
+            }
+            if (connectVersion !== connectionVersion) return;
+          }
+          const preferredThinking = settings?.thinkingLevel?.trim() ?? "";
+          if (shouldApplyPreferredThinking(get().thinkingLevel, preferredThinking)) {
+            try {
+              await get().setThinkingLevel(preferredThinking);
+            } catch {
+              toast(`恢复默认推理等级失败：${preferredThinking}`, "error");
             }
             if (connectVersion !== connectionVersion) return;
           }
@@ -1404,6 +1433,7 @@ export const usePiStore = create<PiState>((set, get) => {
         queuedModelSelection = model;
         set({ model });
         persistCurrentModelCatalog();
+        void persistPreferredRuntime({ model });
         return;
       }
 
@@ -1436,6 +1466,7 @@ export const usePiStore = create<PiState>((set, get) => {
           availableThinkingLevels: levels.data?.levels ?? ["off"],
         });
         persistCurrentModelCatalog();
+        void persistPreferredRuntime({ model: confirmed });
       });
 
       pendingModelChange = { runtimeId, promise: change };
@@ -1468,7 +1499,11 @@ export const usePiStore = create<PiState>((set, get) => {
 
     setThinkingLevel: async (level) => {
       const runtimeId = get().runtimeId;
-      if (!runtimeId) throw new Error("当前没有活动的 Pi 任务");
+      if (!runtimeId) {
+        set({ thinkingLevel: level });
+        void persistPreferredRuntime({ thinkingLevel: level });
+        return;
+      }
       const modelChange = pendingModelChange?.runtimeId === runtimeId
         ? pendingModelChange.promise
         : null;
@@ -1476,6 +1511,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新设置推理等级");
       await sendCommand(runtimeId, "set_thinking_level", { level });
       set({ thinkingLevel: level });
+      void persistPreferredRuntime({ thinkingLevel: level });
     },
 
     setRuntimeAgentMode: async (mode) => {
@@ -1513,26 +1549,41 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     loadSettings: async () => {
+      const apply = (settings: AppSettings) => {
+        const preferredModel = preferredModelFromSettings(settings, get().availableModels) ?? get().model;
+        set({
+          settings,
+          thinkingLevel: settings.thinkingLevel.trim() || get().thinkingLevel,
+          model: preferredModel,
+        });
+      };
       if (!isTauriRuntime()) {
         const settings = readWebSettings();
-        if (settings) set({ settings });
+        if (settings) apply(settings);
         return;
       }
       try {
-        set({ settings: await pi.getSettings() });
+        apply(await pi.getSettings());
       } catch (error) {
         toast(`加载设置失败：${String(error)}`, "error");
       }
     },
 
     saveSettings: async (settings) => {
-      if (!isTauriRuntime()) {
-        window.localStorage.setItem(WEB_SETTINGS_KEY, JSON.stringify(settings));
-        set({ settings });
-        return;
-      }
-      await pi.setSettings(settings);
-      set({ settings: await pi.getSettings() });
+      const previous = get().settings;
+      set({ settings });
+      const write = settingsWrite.catch(() => undefined).then(async () => {
+        if (!isTauriRuntime()) {
+          window.localStorage.setItem(WEB_SETTINGS_KEY, JSON.stringify(get().settings ?? settings));
+          return;
+        }
+        await pi.setSettings(get().settings ?? settings);
+      });
+      settingsWrite = write.catch((error) => {
+        if (get().settings === settings) set({ settings: previous });
+        throw error;
+      });
+      await settingsWrite;
     },
 
     runBash: async (shellCommand, excludeFromContext = false) => {

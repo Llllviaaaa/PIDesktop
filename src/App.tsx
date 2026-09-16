@@ -59,6 +59,7 @@ import {
 import { activeSessionTitle, sessionRecency, sessionTitle } from "./lib/sessionTitle";
 import { navigationKey, withoutArchivedSessions, type NavigationTarget as BaseNavigationTarget } from "./lib/navigationHistory";
 import { sameLocalPath } from "./lib/pathIdentity";
+import { mergeAttachmentPayloads } from "./lib/clipboardImages";
 import { buildPetActivities, petStatusToAnimation, type PetActivityItem, type PetActivityStatus } from "./lib/petActivity";
 import { ACTIVE_RUNTIME_KEY, LAST_TASK_KEY, readPersistedTask, useRuntimeBootstrap } from "./hooks/useRuntimeBootstrap";
 import { usePiStore } from "./store";
@@ -219,7 +220,9 @@ export default function App() {
   const setTranscriptDensity = useCallback((density: typeof transcriptDensity) => {
     const current = usePiStore.getState();
     if (current.settings) {
-      void current.saveSettings({ ...current.settings, transcriptDensity: density });
+      void current.saveSettings({ ...current.settings, transcriptDensity: density }).catch((error) => {
+        usePiStore.getState().showToast(`保存对话详细程度失败：${error instanceof Error ? error.message : String(error)}`, "error");
+      });
       return;
     }
     setLocalTranscriptDensity(density);
@@ -967,13 +970,15 @@ export default function App() {
         return null;
       }
     }));
-    setAttachments((current) => {
-      const next = [...current];
-      for (const item of loaded) {
-        if (item && !next.some((existing) => existing.path === item.path)) next.push(item);
-      }
-      return next;
-    });
+    setAttachments((current) => mergeAttachmentPayloads(current, loaded.filter((item): item is AttachmentPayload => Boolean(item))));
+  }, [store.appendLog]);
+
+  const addComposerAttachments = useCallback((incoming: AttachmentPayload[]) => {
+    setAttachments((current) => mergeAttachmentPayloads(current, incoming));
+  }, []);
+  const reportAttachmentError = useCallback((message: string) => {
+    store.appendLog(`附件读取失败：${message}`);
+    usePiStore.getState().showToast(message, "error");
   }, [store.appendLog]);
 
   const openPreviewFile = useCallback((path: string, line?: number) => {
@@ -1024,9 +1029,7 @@ export default function App() {
     if (!workspaceCwd) return;
     try {
       const attachment = await pi.readAttachment(workspaceFilePath(path));
-      setAttachments((current) => current.some((item) => item.path === attachment.path)
-        ? current
-        : [...current, attachment]);
+      setAttachments((current) => mergeAttachmentPayloads(current, [attachment]));
       usePiStore.getState().showToast(`${attachment.fileName} 已添加到聊天`, "info");
     } catch (error) {
       usePiStore.getState().showToast(error instanceof Error ? error.message : String(error), "error");
@@ -1748,6 +1751,8 @@ export default function App() {
       onSend={sendFromComposer}
       onStop={stopFromComposer}
       onPickAttachments={pickAttachments}
+      onAddAttachments={addComposerAttachments}
+      onAttachmentError={reportAttachmentError}
       onRemoveAttachment={removeComposerAttachment}
       onModelChange={changeComposerModel}
       onThinkingChange={changeComposerThinking}
