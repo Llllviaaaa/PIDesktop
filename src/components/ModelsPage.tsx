@@ -50,7 +50,6 @@ import {
 } from "../lib/modelProviders";
 import { usePiStore } from "../store";
 import type { AppSettings, ModelProviderConfig, ModelProviderInput, ModelProviderModel } from "../types";
-import "../styles/models.css";
 
 type Update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 

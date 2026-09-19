@@ -5,7 +5,7 @@ import { DesktopPetWindow } from "./components/DesktopPetWindow";
 import { moveManagedQueueItem, removeManagedQueueItem } from "./lib/managedQueue";
 import { usePiStore } from "./store";
 import type { AssistantMessage, UiMessage } from "./types";
-import "./styles.css";
+import "./styles/index.css";
 
 const fixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("fixture") : null;
 const desktopPetWindow = new URLSearchParams(window.location.search).get("desktop-pet") === "1";
