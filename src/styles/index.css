@@ -16,6 +16,7 @@
 @import "./models.css" layer(legacy);
 @import "./skin-shell.css" layer(skin);
 @import "./skin-composer.css" layer(skin);
+@import "./skin-messages.css" layer(skin);
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 

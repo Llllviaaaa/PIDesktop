@@ -16,6 +16,15 @@ Pi Desktop installers include a fixed, standalone Pi runtime so users do not nee
 - License: MIT
 - Copyright: Jarred Sumner and contributors
 
+## Open Vetta
+
+- Upstream: https://github.com/openvetta/open-vetta
+- License: Apache-2.0
+- Copyright: 2026 Vetta
+- Used for: the desktop visual design. The palette values, tree-branch list styling, work-log gutters and the user-bubble entry spring in `src/styles/` and `src/components/Message.tsx` are adapted from Open Vetta's `apps/desktop` and `packages/theme-ui` sources.
+
+This product includes software developed at Vetta (https://www.openvetta.com).
+
 The generated runtime also includes the license identifiers and available license files for bundled transitive npm dependencies in `runtime-licenses.json` and `licenses/`.
 
 ## MIT License
