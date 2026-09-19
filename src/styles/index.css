@@ -3,16 +3,19 @@
  *
  * Layer order keeps Tailwind utilities above the legacy stylesheet, so a
  * component migrated to utility classes never loses to an older selector.
+ * The `skin` layer restyles legacy markup that has not been rewritten yet.
  * Tailwind's preflight is left out on purpose: the legacy panels still rely
  * on browser defaults for lists, headings and form controls.
  */
-@layer theme, base, legacy, components, utilities;
+@layer theme, base, legacy, skin, components, utilities;
 
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "./tokens.css" layer(base);
 @import "../styles.css" layer(legacy);
 @import "./models.css" layer(legacy);
+@import "./skin-shell.css" layer(skin);
+@import "./skin-composer.css" layer(skin);
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 

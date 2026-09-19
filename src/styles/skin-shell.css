@@ -1,0 +1,386 @@
+/*
+ * Vetta skin: window frame, top bar and primary sidebar.
+ *
+ * Loaded in the `skin` layer, which sits above `legacy`. Rules here override
+ * the older Codex-parity selectors regardless of their specificity, so each
+ * rule only needs to name the element, not repeat `.codex-shot` chains.
+ * Every color comes from the appearance palette so user themes still apply.
+ */
+
+/* ── Frame ─────────────────────────────────────────────────────────── */
+
+.app-shell.codex-shot,
+.codex-shot .workspace-shell {
+  background: var(--sidebar-bg);
+  color: var(--text);
+}
+
+.codex-shot .stage-canvas {
+  background: var(--app);
+  border-radius: 12px 0 0 0;
+  box-shadow: inset 1px 1px 0 0 var(--border);
+}
+
+.codex-shot .work-body,
+.codex-shot .main-stage,
+.codex-shot .conversation-scroll {
+  background: transparent;
+}
+
+.codex-shot .sidebar-resizer {
+  background: transparent;
+}
+
+/* ── Window menu bar ───────────────────────────────────────────────── */
+
+.codex-shot .window-menubar {
+  background: var(--sidebar-bg);
+  color: var(--text-2);
+}
+
+.codex-shot .window-nav-button,
+.codex-shot .app-menu-trigger,
+.codex-shot .window-menubar .window-control {
+  color: var(--text-2);
+  border-radius: 8px;
+}
+
+.codex-shot .app-menu-trigger {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.codex-shot .window-nav-button:hover:not(:disabled),
+.codex-shot .app-menu-trigger:hover,
+.codex-shot .app-menu-trigger.active,
+.codex-shot .window-menubar .window-control:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .window-menubar .window-control {
+  border-radius: 0;
+}
+
+.codex-shot .window-menubar .window-control.close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.codex-shot .window-nav-button:disabled {
+  color: var(--text-3);
+  opacity: 0.6;
+}
+
+/* Shared popover surface: app menus, topbar menus and sidebar popovers. */
+.codex-shot .app-menu-dropdown,
+.codex-shot .topbar-menu,
+.codex-shot .sidebar-popover,
+.codex-shot .thread-hover-card {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 12px;
+  background: var(--popover);
+  color: var(--text);
+  box-shadow:
+    0 1px 2px hsl(var(--shadow-color) / 0.12),
+    0 12px 32px -8px hsl(var(--shadow-color) / 0.32);
+}
+
+.codex-shot .app-menu-dropdown button,
+.codex-shot .topbar-menu button,
+.codex-shot .sidebar-popover button {
+  min-height: 32px;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.codex-shot .app-menu-dropdown button:hover:not(:disabled),
+.codex-shot .topbar-menu button:hover:not(:disabled),
+.codex-shot .sidebar-popover button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .app-menu-dropdown button:disabled,
+.codex-shot .topbar-menu button:disabled,
+.codex-shot .sidebar-popover button:disabled {
+  color: var(--text-3);
+}
+
+.codex-shot .menu-separator,
+.codex-shot .sidebar-popover-separator,
+.codex-shot .workspace-tools-separator {
+  background: var(--border);
+}
+
+/* ── Conversation top bar ──────────────────────────────────────────── */
+
+.codex-shot .topbar {
+  background: transparent;
+  border-bottom: 0;
+}
+
+.codex-shot .chat-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.codex-shot .chat-title span {
+  font-size: 14px;
+}
+
+.codex-shot .chat-title:hover,
+.codex-shot .topbar .icon-button:hover,
+.codex-shot .panel-toggle:hover,
+.codex-shot .topbar-branch-control:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .topbar .icon-button,
+.codex-shot .panel-toggle,
+.codex-shot .topbar-branch-control {
+  color: var(--text-2);
+  border-radius: 8px;
+}
+
+.codex-shot .panel-toggle.active {
+  background: var(--active);
+  color: var(--text);
+}
+
+.codex-shot .topbar-live {
+  color: var(--text-3);
+}
+
+.codex-shot .title-input {
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* ── Primary sidebar ───────────────────────────────────────────────── */
+
+.codex-shot .sidebar.codex-sidebar {
+  background: var(--sidebar-bg);
+  border-right: 0;
+  color: var(--text);
+}
+
+.codex-shot .codex-brand {
+  color: var(--text);
+  border-radius: 8px;
+}
+
+.codex-shot .codex-brand:hover,
+.codex-shot .codex-brand.active,
+.codex-shot .sidebar .icon-button:hover,
+.codex-shot .sidebar .icon-button.active {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .sidebar .icon-button {
+  color: var(--text-2);
+}
+
+.codex-shot .sidebar-main-nav {
+  gap: 2px;
+  padding: 4px 10px 8px;
+}
+
+.codex-shot .nav-item {
+  height: 36px;
+  gap: 10px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 450;
+}
+
+.codex-shot .nav-item svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-2);
+  stroke-width: 1.6;
+}
+
+.codex-shot .nav-item:hover {
+  background: var(--hover);
+}
+
+.codex-shot .nav-item.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+
+.codex-shot .nav-item.active svg {
+  color: var(--accent);
+}
+
+.codex-shot .sidebar-projects-label {
+  padding: 14px 20px 6px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.codex-shot .sidebar-scroll {
+  padding: 0 10px 10px;
+}
+
+.codex-shot .project-header,
+.codex-shot .project-block.is-current .project-header {
+  height: 34px;
+  margin: 0;
+  width: 100%;
+  gap: 10px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 450;
+}
+
+.codex-shot .project-name {
+  font-weight: 450;
+}
+
+.codex-shot .project-header svg,
+.codex-shot .project-collapse-toggle {
+  color: var(--text-2);
+}
+
+.codex-shot .project-header:hover,
+.codex-shot .project-collapse-toggle:hover {
+  background: var(--hover);
+}
+
+.codex-shot .thread-list {
+  gap: 1px;
+  padding: 2px 0 8px 12px;
+}
+
+.codex-shot .thread-row-shell {
+  border-radius: 10px;
+}
+
+.codex-shot .thread-row {
+  min-height: 34px;
+  gap: 10px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: color-mix(in srgb, var(--text) 82%, transparent);
+  font-size: 13.5px;
+  font-weight: 400;
+}
+
+.codex-shot .thread-row:hover,
+.codex-shot .thread-row-shell:hover .thread-row {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .thread-row.active,
+.codex-shot .thread-row-shell.active .thread-row {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.codex-shot .thread-row-icon {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  color: var(--text-3);
+}
+
+.codex-shot .thread-row.active .thread-row-icon {
+  color: var(--accent);
+}
+
+.codex-shot .thread-row-time {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.codex-shot .thread-row-shell:hover .thread-row-time,
+.codex-shot .thread-row-shell:focus-within .thread-row-time {
+  visibility: hidden;
+}
+
+.codex-shot .thread-row-actions button {
+  color: var(--text-3);
+  border-radius: 6px;
+}
+
+.codex-shot .thread-row-actions button:hover,
+.codex-shot .thread-row-actions button.is-pinned {
+  background: var(--active);
+  color: var(--text);
+}
+
+.codex-shot .thread-dot.running {
+  background: var(--accent);
+}
+
+.codex-shot .expand-threads,
+.codex-shot .sidebar-empty,
+.codex-shot .text-link {
+  color: var(--text-3);
+}
+
+.codex-shot .expand-threads:hover,
+.codex-shot .text-link:hover {
+  color: var(--text-2);
+}
+
+.codex-shot .session-search {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-2);
+  border-radius: 10px;
+}
+
+.codex-shot .session-search input {
+  color: var(--text);
+}
+
+.codex-shot .sidebar-footer.codex-footer {
+  border-top: 0;
+  background: var(--sidebar-bg);
+  padding: 8px 10px 10px;
+}
+
+.codex-shot .footer-account {
+  height: 36px;
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13.5px;
+}
+
+.codex-shot .footer-account:hover {
+  background: var(--hover);
+}
+
+.codex-shot .footer-account svg {
+  color: var(--text-2);
+}
+
+.codex-shot .thread-hover-card {
+  color: var(--text-2);
+}
+
+.codex-shot .thread-hover-heading {
+  color: var(--text);
+}
+
+.codex-shot .project-name {
+  font-size: 14px;
+}
