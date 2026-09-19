@@ -13,22 +13,22 @@
   font-size: var(--text-base);
   font-weight: var(--font-weight-ui);
   line-height: 1.5;
-  color: #0a0a0a;
+  color: #14151f;
   background: #ffffff;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   /* Light Codex screenshot defaults */
   --app: #ffffff;
-  --panel: #fafafa;
-  --panel-strong: #efeff1;
-  --panel-soft: #f4f4f5;
-  --hover: #ededef;
-  --active: #e4e4e7;
-  --border: #e6e6e8;
-  --border-strong: #d4d4d8;
-  --text: #0a0a0a;
-  --text-2: #52525b;
-  --text-3: #a1a1aa;
+  --panel: #f9f9fc;
+  --panel-strong: #eef0fb;
+  --panel-soft: #f4f5fa;
+  --hover: #ebecf6;
+  --active: #e1e3f3;
+  --border: #e4e5ee;
+  --border-strong: #d2d4e3;
+  --text: #14151f;
+  --text-2: #545769;
+  --text-3: #9b9eb2;
   --accent: #4f46e5;
   --accent-text: #ffffff;
   --green: #16a34a;
@@ -41,9 +41,9 @@
   --code-font: var(--font-mono-default);
   --sidebar-width: 260px;
   --inspector-width: min(42vw, 620px);
-  --sidebar-bg: #f7f7f8;
-  --sidebar-text: #52525b;
-  --thread-muted: #a1a1aa;
+  --sidebar-bg: #f3f4fa;
+  --sidebar-text: #545769;
+  --thread-muted: #9b9eb2;
 }
 
 :root[data-theme="dark"] {
@@ -72,26 +72,26 @@
 }
 
 :root[data-theme="light"] {
-  color: #0a0a0a;
+  color: #14151f;
   background: #ffffff;
   --app: #ffffff;
-  --panel: #fafafa;
-  --panel-strong: #efeff1;
-  --panel-soft: #f4f4f5;
-  --hover: #ededef;
-  --active: #e4e4e7;
-  --border: #e6e6e8;
-  --border-strong: #d4d4d8;
-  --text: #0a0a0a;
-  --text-2: #52525b;
-  --text-3: #a1a1aa;
+  --panel: #f9f9fc;
+  --panel-strong: #eef0fb;
+  --panel-soft: #f4f5fa;
+  --hover: #ebecf6;
+  --active: #e1e3f3;
+  --border: #e4e5ee;
+  --border-strong: #d2d4e3;
+  --text: #14151f;
+  --text-2: #545769;
+  --text-3: #9b9eb2;
   --accent: #4f46e5;
   --accent-text: #ffffff;
   --blue: #2563eb;
   --accent-custom: #4f46e5;
-  --sidebar-bg: #f7f7f8;
-  --sidebar-text: #52525b;
-  --thread-muted: #a1a1aa;
+  --sidebar-bg: #f3f4fa;
+  --sidebar-text: #545769;
+  --thread-muted: #9b9eb2;
 }
 
 * { box-sizing: border-box; }

@@ -104,19 +104,19 @@ export interface AppearanceCatalog {
 
 const LIGHT_PALETTE: ThemePalette = {
   app: "#ffffff",
-  panel: "#fafafa",
-  panelStrong: "#efeff1",
-  panelSoft: "#f4f4f5",
-  hover: "#ededef",
-  active: "#e4e4e7",
-  border: "#e6e6e8",
-  borderStrong: "#d4d4d8",
-  text: "#0a0a0a",
-  text2: "#52525b",
-  text3: "#a1a1aa",
+  panel: "#f9f9fc",
+  panelStrong: "#eef0fb",
+  panelSoft: "#f4f5fa",
+  hover: "#ebecf6",
+  active: "#e1e3f3",
+  border: "#e4e5ee",
+  borderStrong: "#d2d4e3",
+  text: "#14151f",
+  text2: "#545769",
+  text3: "#9b9eb2",
   accent: "#4f46e5",
   accentText: "#ffffff",
-  sidebar: "#f7f7f8",
+  sidebar: "#f3f4fa",
 };
 
 const DARK_PALETTE: ThemePalette = {
