@@ -18,6 +18,7 @@
 @import "./skin-composer.css" layer(skin);
 @import "./skin-messages.css" layer(skin);
 @import "./skin-settings.css" layer(skin);
+@import "./skin-panels.css" layer(skin);
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 

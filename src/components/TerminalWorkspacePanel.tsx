@@ -110,6 +110,19 @@ export function TerminalWorkspacePanel({ cwd, shellLabel, placement = "side", on
   );
 }
 
+/** xterm cannot read CSS variables, so resolve the appearance palette into concrete colors. */
+function readTerminalTheme() {
+  const styles = getComputedStyle(document.documentElement);
+  const read = (name: string, fallback: string) => styles.getPropertyValue(name).trim() || fallback;
+  return {
+    background: read("--app", "#14161e"),
+    foreground: read("--text", "#dce0ea"),
+    cursor: read("--accent", "#6366f1"),
+    cursorAccent: read("--app", "#14161e"),
+    selectionBackground: read("--active", "#2e313d"),
+  };
+}
+
 function TerminalTabView({
   id,
   cwd,
@@ -126,12 +139,7 @@ function TerminalTabView({
   const fitRef = useRef<FitAddon | null>(null);
   const startedRef = useRef(false);
   const isTauri = "__TAURI_INTERNALS__" in window;
-  const theme = useMemo(() => {
-    const dark = document.documentElement.dataset.theme === "dark";
-    return dark
-      ? { background: "#121214", foreground: "#e4e4e7", cursor: "#e4e4e7", selectionBackground: "#3f3f46" }
-      : { background: "#ffffff", foreground: "#303238", cursor: "#303238", selectionBackground: "#dfe7f5" };
-  }, []);
+  const theme = useMemo(readTerminalTheme, []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -236,6 +244,16 @@ function TerminalTabView({
       startedRef.current = false;
     };
   }, [cwd, id, isTauri, shellLabel, theme]);
+
+  // The palette lives in inline CSS variables on <html>; follow theme switches live.
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      const terminal = terminalRef.current;
+      if (terminal) terminal.options.theme = readTerminalTheme();
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "style"] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!active) return;

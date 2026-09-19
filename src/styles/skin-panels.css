@@ -1,0 +1,371 @@
+/*
+ * Vetta skin: right-hand workspace panels, bottom terminal and inspector.
+ * Loaded in the `skin` layer; see skin-shell.css for the layering contract.
+ */
+
+/* ── Dock surfaces ─────────────────────────────────────────────────── */
+
+.codex-shot .workspace-panel,
+.codex-shot .workspace-dock-panel,
+.codex-shot .workspace-launcher,
+.codex-shot .document-pane,
+.codex-shot .side-chat-pane,
+.codex-shot .workspace-browser-pane,
+.codex-shot .review-workspace-panel {
+  background: var(--app);
+  color: var(--text);
+}
+
+.codex-shot .workspace-split-resizer {
+  background: var(--border);
+}
+
+/* Headers: one quiet row with a medium-weight title and ghost icon buttons. */
+.codex-shot .workspace-pane-header,
+.codex-shot .document-pane-header,
+.codex-shot .inspector-header,
+.codex-shot .workspace-browser-toolbar {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: transparent;
+  color: var(--text);
+}
+
+.codex-shot .workspace-pane-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.codex-shot .workspace-pane-title svg {
+  color: var(--text-2);
+}
+
+.codex-shot .workspace-pane-actions .icon-button,
+.codex-shot .document-pane-actions .icon-button,
+.codex-shot .workspace-browser-toolbar .icon-button,
+.codex-shot .terminal-panel-close,
+.codex-shot .terminal-tab-add {
+  border-radius: 8px;
+  color: var(--text-2);
+}
+
+.codex-shot .workspace-pane-actions .icon-button:hover,
+.codex-shot .document-pane-actions .icon-button:hover,
+.codex-shot .workspace-browser-toolbar .icon-button:hover:not(:disabled),
+.codex-shot .terminal-panel-close:hover,
+.codex-shot .terminal-tab-add:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .workspace-browser-toolbar .icon-button:disabled {
+  color: var(--text-3);
+  opacity: .5;
+}
+
+.codex-shot .workspace-browser-address {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.codex-shot .workspace-browser-address:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.codex-shot .workspace-browser-address input {
+  color: var(--text);
+  background: transparent;
+}
+
+.codex-shot .workspace-browser-empty,
+.codex-shot .workspace-browser-loading,
+.codex-shot .panel-empty,
+.codex-shot .side-chat-state,
+.codex-shot .review-surface-empty,
+.codex-shot .review-file-empty {
+  color: var(--text-3);
+}
+
+.codex-shot .workspace-browser-empty strong,
+.codex-shot .side-chat-state strong {
+  color: var(--text);
+}
+
+/* ── Tabs (review, documents, terminal) ────────────────────────────── */
+
+.codex-shot .review-workspace-tabs,
+.codex-shot .document-tabs,
+.codex-shot .bottom-terminal-header,
+.codex-shot .terminal-tabs {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: transparent;
+}
+
+.codex-shot .review-active-tab,
+.codex-shot .document-tab,
+.codex-shot .terminal-tab {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  transition: background-color .15s, color .15s;
+}
+
+.codex-shot .document-tab:hover,
+.codex-shot .terminal-tab:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .review-active-tab,
+.codex-shot .document-tab.active,
+.codex-shot .terminal-tab.active {
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.codex-shot .review-active-tab > svg,
+.codex-shot .document-tab.active > svg,
+.codex-shot .terminal-tab.active > svg {
+  color: var(--accent);
+}
+
+.codex-shot .review-active-tab button,
+.codex-shot .document-tab-close,
+.codex-shot .terminal-tab-close {
+  border-radius: 6px;
+  color: var(--text-3);
+}
+
+.codex-shot .review-active-tab button:hover,
+.codex-shot .document-tab-close:hover,
+.codex-shot .terminal-tab-close:hover {
+  background: var(--active);
+  color: var(--text);
+}
+
+.codex-shot .review-new-tab {
+  border-radius: 8px;
+  color: var(--text-2);
+}
+
+.codex-shot .review-new-tab:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .review-popover {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 12px;
+  background: var(--popover);
+  color: var(--text);
+  box-shadow:
+    0 1px 2px hsl(var(--shadow-color) / 0.12),
+    0 12px 32px -8px hsl(var(--shadow-color) / 0.32);
+}
+
+.codex-shot .review-popover button {
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.codex-shot .review-popover button:hover {
+  background: var(--hover);
+}
+
+/* ── Tool launcher (empty side panel) ──────────────────────────────── */
+
+.codex-shot .workspace-launcher-item {
+  min-height: 44px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  transition: background-color .15s;
+}
+
+.codex-shot .workspace-launcher-item:hover {
+  background: var(--hover);
+}
+
+.codex-shot .workspace-launcher-item svg {
+  color: var(--text-2);
+}
+
+.codex-shot .workspace-launcher-item:hover svg {
+  color: var(--accent);
+}
+
+.codex-shot .workspace-launcher-item kbd {
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text-3);
+  font-family: var(--code-font);
+  font-size: 11px;
+}
+
+/* ── Review ────────────────────────────────────────────────────────── */
+
+.codex-shot .review-file-header,
+.codex-shot .review-file-row {
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--app);
+  color: var(--text);
+}
+
+.codex-shot .review-file-row:hover,
+.codex-shot .review-file-header:hover {
+  background: var(--panel-soft);
+}
+
+.codex-shot .review-file-kind {
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.codex-shot .review-file-chevron,
+.codex-shot .review-line-number {
+  color: var(--text-3);
+}
+
+.codex-shot .review-code-row.add {
+  background: color-mix(in srgb, var(--green) 13%, transparent);
+}
+
+.codex-shot .review-code-row.del,
+.codex-shot .review-code-row.remove,
+.codex-shot .review-code-row.delete {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+.codex-shot .review-code-row.hunk,
+.codex-shot .review-hunk {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--text-3);
+}
+
+/* ── File tree ─────────────────────────────────────────────────────── */
+
+.codex-shot .tree-row,
+.codex-shot .tree-file-row {
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--text) 85%, transparent);
+  font-size: 13px;
+}
+
+.codex-shot .tree-row:hover,
+.codex-shot .tree-file-row:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .tree-row.active,
+.codex-shot .tree-file-row.active,
+.codex-shot .tree-row.selected,
+.codex-shot .tree-file-row.selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+
+.codex-shot .tree-row svg,
+.codex-shot .tree-file-row svg {
+  color: var(--text-3);
+}
+
+.codex-shot .tree-leaf-badge {
+  color: var(--text-3);
+}
+
+.codex-shot .workspace-pane-header + label,
+.codex-shot .workspace-panel label:has(> input[type="search"]),
+.codex-shot .workspace-panel label:has(> input[placeholder]) {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text-3);
+}
+
+/* ── Bottom terminal ───────────────────────────────────────────────── */
+
+.codex-shot .bottom-terminal,
+.codex-shot .bottom-terminal-dock,
+.codex-shot .terminal-tab-bodies,
+.codex-shot .terminal-tab-body,
+.codex-shot .terminal-console {
+  background: var(--app);
+}
+
+.codex-shot .bottom-terminal-dock {
+  border-top: 1px solid var(--border);
+}
+
+.codex-shot .bottom-panel-resizer {
+  background: transparent;
+}
+
+.codex-shot .terminal-workspace-path {
+  color: var(--text-2);
+}
+
+.codex-shot .terminal-tab-body .xterm,
+.codex-shot .terminal-tab-body .xterm-viewport,
+.codex-shot .terminal-tab-body .xterm-scrollable-element {
+  background: var(--app) !important;
+}
+
+/* ── Inspector ─────────────────────────────────────────────────────── */
+
+.codex-shot .inspector-panel {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 14px;
+  background: var(--popover);
+  color: var(--text);
+  box-shadow:
+    0 1px 2px hsl(var(--shadow-color) / 0.12),
+    0 16px 40px -10px hsl(var(--shadow-color) / 0.38);
+}
+
+.codex-shot .inspector-content {
+  color: var(--text);
+}
+
+.codex-shot .env-row {
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.codex-shot .env-row:hover {
+  background: var(--hover);
+}
+
+.codex-shot .env-row svg {
+  color: var(--text-2);
+}
+
+.codex-shot .env-row-label {
+  color: var(--text-3);
+}
+
+.codex-shot .env-row-meta,
+.codex-shot .inspector-content .muted {
+  color: var(--text-3);
+}
+
+/* ── Side chat ─────────────────────────────────────────────────────── */
+
+.codex-shot .side-chat-messages {
+  background: transparent;
+}
+
+.codex-shot .side-chat-composer-dock {
+  background: linear-gradient(180deg, transparent, var(--app) 30%);
+}
