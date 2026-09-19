@@ -47,6 +47,10 @@ const MEMORY_CORE_MODULE: &str = include_str!("../resources/pidesktop-memory-cor
 const BROWSER_EXTENSION: &str = include_str!("../resources/pidesktop-browser.ts");
 const COMPUTER_EXTENSION: &str = include_str!("../resources/pidesktop-computer.ts");
 const MCP_EXTENSION: &str = include_str!("../resources/pidesktop-mcp.ts");
+const PROVIDERS_CORE_MODULE: &str = include_str!("../resources/pidesktop-providers-core.ts");
+const PROVIDERS_EXTENSION: &str = include_str!("../resources/pidesktop-providers.ts");
+/// Runtime ID used for events from the dedicated provider-management Pi process.
+const PROVIDER_SERVICE_RUNTIME_ID: &str = "pidesktop-provider-service";
 const MCP_SECRET_PLACEHOLDER: &str = "••••••••";
 
 #[cfg(windows)]
@@ -68,6 +72,8 @@ struct AppSettings {
     model: String,
     #[serde(alias = "thinking_level")]
     thinking_level: String,
+    /// `provider/model` keys the user hid from the composer model picker.
+    hidden_models: Vec<String>,
     #[serde(alias = "session_dir")]
     session_dir: String,
     agent_mode: String,
@@ -246,6 +252,7 @@ impl Default for AppSettings {
             provider: String::new(),
             model: String::new(),
             thinking_level: "medium".to_string(),
+            hidden_models: Vec::new(),
             session_dir: String::new(),
             agent_mode: "agent".to_string(),
             permission_mode: "ask".to_string(),
@@ -604,6 +611,8 @@ struct AppState {
     running_scheduled_tasks: Mutex<HashMap<String, Arc<AtomicBool>>>,
     workspace_searches: Mutex<HashMap<String, Arc<AtomicBool>>>,
     terminal_sessions: terminal::TerminalSessions,
+    /// Session-less Pi process that lists providers and runs login/logout for Settings.
+    provider_service: Mutex<Option<PiRpcClient>>,
 }
 
 impl Drop for AppState {
@@ -1474,6 +1483,15 @@ fn ensure_subagents_extension() -> Result<PathBuf, String> {
     ensure_bundled_extension("pidesktop-subagents.ts", SUBAGENTS_EXTENSION, "subagents")
 }
 
+fn ensure_providers_extension() -> Result<PathBuf, String> {
+    ensure_bundled_extension(
+        "pidesktop-providers-core.ts",
+        PROVIDERS_CORE_MODULE,
+        "providers core",
+    )?;
+    ensure_bundled_extension("pidesktop-providers.ts", PROVIDERS_EXTENSION, "providers")
+}
+
 fn ensure_memory_extension() -> Result<PathBuf, String> {
     ensure_bundled_extension(
         "pidesktop-memory-core.ts",
@@ -1879,6 +1897,14 @@ fn pi_start(
                 session_loaded = true;
             }
         }
+    }
+    // Lets the desktop refresh this runtime's model snapshot after provider changes.
+    // Optional: a chat must still start if the helper cannot be written.
+    if let Ok(providers_extension) = ensure_providers_extension() {
+        launch.extra_args.extend([
+            "-e".to_string(),
+            providers_extension.to_string_lossy().to_string(),
+        ]);
     }
     let runtime_id = format!(
         "runtime-{}-{}",
@@ -2862,6 +2888,88 @@ fn pi_send(state: State<'_, AppState>, runtime_id: String, line: String) -> Resu
         .ok_or_else(|| format!("Pi runtime is not running: {runtime_id}"))?
         .client
         .send_line(&line)
+}
+
+/// Start, or reuse, the Pi process that owns provider auth and catalogs for Settings.
+/// It loads only the provider extension, so user resources cannot slow it down.
+/// Spawning can stall (for example while antivirus scans pi.exe), so keep it off the UI thread.
+#[tauri::command]
+async fn provider_service_start(app: AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        start_provider_service(&app, &state)
+    })
+    .await
+    .map_err(|err| format!("provider service worker failed: {err}"))?
+}
+
+fn start_provider_service(app: &AppHandle, state: &AppState) -> Result<String, String> {
+    let mut service = state
+        .provider_service
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?;
+    if service.as_ref().is_some_and(|client| client.is_running()) {
+        return Ok(PROVIDER_SERVICE_RUNTIME_ID.to_string());
+    }
+    let settings = state
+        .settings
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?
+        .clone();
+    let extension = ensure_providers_extension()?;
+    let cwd = app_config_dir();
+    fs::create_dir_all(&cwd)
+        .map_err(|err| format!("failed to prepare provider service directory: {err}"))?;
+    let args = [
+        "--no-session",
+        "--no-tools",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-themes",
+        "--no-context-files",
+        "-e",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .chain([extension.to_string_lossy().to_string()])
+    .collect::<Vec<_>>();
+    let client = PiRpcClient::spawn(
+        app.clone(),
+        PROVIDER_SERVICE_RUNTIME_ID,
+        &effective_pi_binary(&settings, state),
+        &cwd.to_string_lossy(),
+        &args,
+        &[],
+        &runtime_secret_values(&settings),
+    )?;
+    *service = Some(client);
+    Ok(PROVIDER_SERVICE_RUNTIME_ID.to_string())
+}
+
+#[tauri::command(async)]
+fn provider_service_send(state: State<'_, AppState>, line: String) -> Result<(), String> {
+    state
+        .provider_service
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?
+        .as_ref()
+        .filter(|client| client.is_running())
+        .ok_or_else(|| "provider service is not running".to_string())?
+        .send_line(&line)
+}
+
+#[tauri::command]
+fn provider_service_stop(state: State<'_, AppState>) -> Result<(), String> {
+    let client = state
+        .provider_service
+        .lock()
+        .map_err(|_| "state lock poisoned".to_string())?
+        .take();
+    if let Some(client) = client {
+        client.kill();
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -4242,15 +4350,19 @@ fn checkout_pull_request(cwd: String, number: u64) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+// Scans every session file (seconds on large histories); run off the UI thread.
+#[tauri::command(async)]
 fn usage_summary(state: State<'_, AppState>) -> Result<UsageSummary, String> {
     use std::io::BufRead;
 
-    let settings = state
+    // Copy what the scan needs; holding the settings lock here would stall chat starts and saves.
+    let session_dir = state
         .settings
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
-    let sessions = list_sessions(&settings.session_dir);
+        .map_err(|_| "state lock poisoned".to_string())?
+        .session_dir
+        .clone();
+    let sessions = list_sessions(&session_dir);
     let mut summary = UsageSummary {
         sessions: sessions.len() as u64,
         ..UsageSummary::default()
@@ -5384,6 +5496,7 @@ pub fn run() {
             running_scheduled_tasks: Mutex::new(HashMap::new()),
             workspace_searches: Mutex::new(HashMap::new()),
             terminal_sessions: Mutex::new(HashMap::new()),
+            provider_service: Mutex::new(None),
         })
         .setup(|app| {
             initialize_tray(app)?;
@@ -5409,6 +5522,9 @@ pub fn run() {
             quit_app,
             pi_start,
             pi_send,
+            provider_service_start,
+            provider_service_send,
+            provider_service_stop,
             pi_stop,
             pi_is_running,
             pi_bind_session,

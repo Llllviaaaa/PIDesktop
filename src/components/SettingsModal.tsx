@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleAlert,
-  CloudDownload,
   FileCode2,
   FileDown,
   FolderGit2,
@@ -16,12 +15,10 @@ import {
   GitBranch,
   Globe2,
   Keyboard,
-  KeyRound,
   Network,
   MonitorCog,
   Palette,
   Plus,
-  Pencil,
   RefreshCw,
   Search,
   Save,
@@ -44,11 +41,9 @@ import {
 import { pi } from "../lib/pi";
 import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
 import { PetAvatar } from "./PetCompanion";
+import { ModelsPage } from "./ModelsPage";
 import type {
   AppSettings,
-  ModelProviderConfig,
-  ModelProviderInput,
-  ModelProviderModel,
   ResourceItem,
   SessionInfo,
   UsageSummary,
@@ -152,7 +147,7 @@ const NAVIGATION: Array<{ label: string; items: Array<{ id: SettingsPage; label:
     items: [
       { id: "general", label: "常规", icon: Settings2, keywords: "语言 启动 后续 文件 通知 language startup notifications" },
       { id: "appearance", label: "外观", icon: Palette, keywords: "主题 黑色 白色 字体 缩放 theme color font" },
-      { id: "agent", label: "配置", icon: Bot, keywords: "模型 提供商 推理 权限 审批 沙箱 model provider approval sandbox" },
+      { id: "agent", label: "配置", icon: Bot, keywords: "工作模式 权限 审批 沙箱 子 agent 规则 approval sandbox rules" },
       { id: "personalization", label: "个性化", icon: UserRound, keywords: "人格 指令 记忆 提示 personality instructions memory" },
       { id: "shortcuts", label: "键盘快捷键", icon: Keyboard, keywords: "按键 绑定 命令 keys bindings" },
       { id: "usage", label: "使用情况和计费", icon: BarChart3, keywords: "token 费用 统计 活动 cost statistics" },
@@ -162,7 +157,7 @@ const NAVIGATION: Array<{ label: string; items: Array<{ id: SettingsPage; label:
   {
     label: "集成",
     items: [
-      { id: "providers", label: "模型提供商", icon: ServerCog, keywords: "模型 提供商 API 密钥 endpoint provider model key" },
+      { id: "providers", label: "模型", icon: ServerCog, keywords: "模型 提供商 默认模型 推理 API 密钥 订阅 登录 OAuth ChatGPT Claude Copilot OpenRouter endpoint provider model key login" },
       { id: "skills", label: "技能", icon: Sparkles, keywords: "技能 skill instructions" },
       { id: "mcp", label: "MCP 服务器", icon: Network, keywords: "mcp tools stdio http server 工具 服务器" },
       { id: "browser", label: "浏览器", icon: Globe2, keywords: "edge chrome chromium 网页 自动化 截图 browser web automation screenshot" },
@@ -212,9 +207,6 @@ export function SettingsModal({
   const [archived, setArchived] = useState<SessionInfo[]>([]);
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
-  const [providers, setProviders] = useState<ModelProviderConfig[]>([]);
-  const [providersLoading, setProvidersLoading] = useState(true);
-  const [providersError, setProvidersError] = useState("");
   const [memoryText, setMemoryText] = useState("");
   const [memoryState, setMemoryState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [loadingData, setLoadingData] = useState(true);
@@ -236,7 +228,6 @@ export function SettingsModal({
   useEffect(() => {
     if (!isTauri) {
       setLoadingData(false);
-      setProvidersLoading(false);
       return;
     }
     let cancelled = false;
@@ -256,10 +247,6 @@ export function SettingsModal({
       setLoadingData(false);
     });
     void pi.usageSummary().then((summary) => { if (!cancelled) setUsage(summary); });
-    void pi.listModelProviders()
-      .then((items) => { if (!cancelled) { setProviders(items); setProvidersError(""); } })
-      .catch((error) => { if (!cancelled) setProvidersError(String(error)); })
-      .finally(() => { if (!cancelled) setProvidersLoading(false); });
     return () => { cancelled = true; };
   }, [cwd, isTauri]);
 
@@ -364,10 +351,10 @@ export function SettingsModal({
           </div>
         </header>
         <div className="settings-page-scroll">
-          <div className="settings-page">
+          <div className={`settings-page ${active === "providers" ? "wide" : ""}`}>
             {active === "general" && <GeneralPage form={form} update={update} />}
             {active === "appearance" && <AppearancePage form={form} update={update} catalog={appearanceCatalog} cwd={cwd} onReload={onReloadAppearance} />}
-            {active === "agent" && <AgentPage form={form} update={update} providers={providers} />}
+            {active === "agent" && <AgentPage form={form} update={update} onOpenModels={() => setActive("providers")} />}
             {active === "personalization" && <PersonalizationPage
               form={form}
               update={update}
@@ -421,17 +408,7 @@ export function SettingsModal({
               setArchived((items) => items.filter((item) => item.file !== session.file));
             }} />}
             {active === "usage" && <UsagePage usage={usage} />}
-            {active === "providers" && <ProvidersPage providers={providers} loading={providersLoading} error={providersError} onReload={async () => {
-              setProvidersLoading(true);
-              try {
-                setProviders(await pi.listModelProviders());
-                setProvidersError("");
-              } catch (error) {
-                setProvidersError(String(error));
-              } finally {
-                setProvidersLoading(false);
-              }
-            }} />}
+            {active === "providers" && <ModelsPage form={form} update={update} />}
             {active === "skills" && <SkillsPage resources={resources} loading={loadingData} />}
             {active === "mcp" && <McpPage form={form} update={update} />}
             {active === "browser" && <BrowserPage form={form} update={update} />}
@@ -743,18 +720,11 @@ function UsagePage({ usage }: { usage: UsageSummary | null }) {
   </>;
 }
 
-function AgentPage({ form, update, providers }: { form: AppSettings; update: Update; providers: ModelProviderConfig[] }) {
-  const reasoningLabels: Record<string, string> = { off: "关闭", minimal: "最少", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最高" };
-  const selectedProvider = providers.find((provider) => provider.id === form.provider);
-  const modelOptions = selectedProvider
-    ? selectedProvider.models.map((model) => ({ provider: selectedProvider.id, model }))
-    : providers.flatMap((provider) => provider.models.map((model) => ({ provider: provider.id, model })));
+function AgentPage({ form, update, onOpenModels }: { form: AppSettings; update: Update; onOpenModels: () => void }) {
   return <>
-    <PageHeading title="配置" description="设置新聊天使用的默认模型、推理等级和审批策略。" />
+    <PageHeading title="配置" description="设置新聊天的工作模式、审批策略和本地 Agent 能力。" />
     <Card title="默认模型">
-      <Row title="提供商" description="留空则使用 Pi 已配置的提供商。"><input list="provider-options" value={form.provider} onChange={(event) => update("provider", event.target.value)} placeholder="使用 Pi 默认值" /><datalist id="provider-options">{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</datalist></Row>
-      <Row title="模型" description="填写模型 ID 或 Pi 模糊匹配模式。"><input list="provider-model-options" value={form.model} onChange={(event) => update("model", event.target.value)} placeholder="使用 Pi 默认值" /><datalist id="provider-model-options">{modelOptions.map(({ provider, model }) => <option key={`${provider}-${model.id}`} value={model.id}>{provider} · {model.name}</option>)}</datalist></Row>
-      <Row title="推理等级"><select value={form.thinkingLevel} onChange={(event) => update("thinkingLevel", event.target.value)}>{["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((level) => <option key={level} value={level}>{reasoningLabels[level]}</option>)}</select></Row>
+      <Row title="默认模型和推理等级" description="已移到「模型」页，与提供商连接放在一起。"><button className="secondary-button" onClick={onOpenModels}>打开模型设置<ChevronRight size={14} /></button></Row>
     </Card>
     <Card title="权限">
       <Row title="默认工作模式" description="执行可修改代码；计划和问答仅使用只读工具。"><select value={form.agentMode} onChange={(event) => update("agentMode", event.target.value as AppSettings["agentMode"])}><option value="agent">执行</option><option value="plan">计划</option><option value="ask">问答</option></select></Row>
@@ -839,187 +809,6 @@ function HooksPage({ form, update }: { form: AppSettings; update: Update }) {
       </div>
     </section>)}
     <div className="security-note expanded"><ShieldAlert size={18} /><span><strong>Hooks 是你授权的本机代码。</strong>它们不经过模型工具审批。只配置你信任的命令，并保持“继承完整环境”关闭，除非命令确实需要凭据。</span></div>
-  </>;
-}
-
-const PROVIDER_APIS = [
-  ["openai-completions", "OpenAI Chat Completions"],
-  ["openai-responses", "OpenAI Responses"],
-  ["anthropic-messages", "Anthropic Messages"],
-  ["azure-openai-responses", "Azure OpenAI Responses"],
-  ["openai-codex-responses", "OpenAI Codex Responses"],
-  ["mistral-conversations", "Mistral Conversations"],
-  ["google-generative-ai", "Google Generative AI"],
-  ["google-vertex", "Google Vertex AI"],
-  ["bedrock-converse-stream", "Amazon Bedrock Converse"],
-] as const;
-
-function emptyProviderDraft(): ModelProviderInput {
-  return {
-    originalId: null,
-    id: "",
-    name: "",
-    baseUrl: "",
-    api: "openai-completions",
-    apiKey: "",
-    keepExistingApiKey: false,
-    authHeader: false,
-    models: [{ id: "", name: "", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 16384 }],
-  };
-}
-
-function mergeDiscoveredProviderModels(current: ModelProviderModel[], discovered: ModelProviderModel[]): ModelProviderModel[] {
-  const currentById = new Map(current.filter((model) => model.id.trim()).map((model) => [model.id, model]));
-  const merged = discovered.map((model) => {
-    const existing = currentById.get(model.id);
-    currentById.delete(model.id);
-    if (!existing) return model;
-    return {
-      ...model,
-      ...existing,
-      name: existing.name.trim() || model.name,
-      input: [...existing.input],
-      contextWindow: existing.contextWindow ?? model.contextWindow,
-      maxTokens: existing.maxTokens ?? model.maxTokens,
-    };
-  });
-  return [...merged, ...currentById.values()];
-}
-
-function ProvidersPage({ providers, loading, error, onReload }: { providers: ModelProviderConfig[]; loading: boolean; error: string; onReload: () => Promise<void> }) {
-  const [draft, setDraft] = useState<ModelProviderInput | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [discovering, setDiscovering] = useState(false);
-  const [notice, setNotice] = useState<{ kind: "success" | "warning" | "error"; text: string } | null>(null);
-  const sourceLabels: Record<ModelProviderConfig["apiKeySource"], string> = { none: "未配置凭据", stored: "已安全隐藏", environment: "环境变量", command: "命令获取" };
-
-  const editProvider = (provider: ModelProviderConfig) => {
-    setNotice(null);
-    setDraft({
-      originalId: provider.id,
-      id: provider.id,
-      name: provider.name === provider.id ? "" : provider.name,
-      baseUrl: provider.baseUrl,
-      api: provider.api || "openai-completions",
-      apiKey: "",
-      keepExistingApiKey: provider.hasApiKey,
-      authHeader: provider.authHeader,
-      models: provider.models.map((model) => ({ ...model, input: [...model.input] })),
-    });
-  };
-
-  const changeModel = (index: number, patch: Partial<ModelProviderModel>) => {
-    if (!draft) return;
-    setDraft({ ...draft, models: draft.models.map((model, modelIndex) => modelIndex === index ? { ...model, ...patch } : model) });
-  };
-
-  const saveProvider = async () => {
-    if (!draft) return;
-    setBusy(true);
-    setNotice(null);
-    try {
-      await pi.saveModelProvider(draft);
-      await onReload();
-      setDraft(null);
-      setNotice({ kind: "success", text: "提供商配置已写入 Pi 的 models.json。" });
-    } catch (nextError) {
-      setNotice({ kind: "error", text: String(nextError) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const discoverModels = async () => {
-    if (!draft) return;
-    const requested = draft;
-    setBusy(true);
-    setDiscovering(true);
-    setNotice(null);
-    try {
-      const discovered = await pi.discoverModelProviderModels(requested);
-      setDraft((current) => {
-        if (!current || current.baseUrl !== requested.baseUrl || current.api !== requested.api) return current;
-        return { ...current, models: mergeDiscoveredProviderModels(current.models, discovered) };
-      });
-      setNotice({ kind: "success", text: `已从提供商拉取 ${discovered.length} 个模型；保存提供商后写入 models.json。` });
-    } catch (nextError) {
-      setNotice({ kind: "error", text: String(nextError) });
-    } finally {
-      setDiscovering(false);
-      setBusy(false);
-    }
-  };
-
-  const removeProvider = async (provider: ModelProviderConfig) => {
-    if (!window.confirm(`删除模型提供商“${provider.name}”及其 ${provider.models.length} 个配置模型吗？`)) return;
-    setBusy(true);
-    setNotice(null);
-    try {
-      await pi.deleteModelProvider(provider.id);
-      await onReload();
-      if (draft?.originalId === provider.id) setDraft(null);
-      setNotice({ kind: "success", text: `已删除 ${provider.name}。` });
-    } catch (nextError) {
-      setNotice({ kind: "error", text: String(nextError) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const checkProvider = async (id: string) => {
-    setBusy(true);
-    setNotice(null);
-    try {
-      const result = await pi.checkModelProvider(id);
-      setNotice({ kind: result.ok ? "success" : "warning", text: result.message });
-    } catch (nextError) {
-      setNotice({ kind: "error", text: String(nextError) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return <>
-    <PageHeading title="模型提供商" description="连接提供商 API 自动拉取模型目录，并管理 Pi 原生 models.json 配置。" />
-    <div className="provider-toolbar">
-      <button className="primary-button" disabled={busy} onClick={() => { setDraft(emptyProviderDraft()); setNotice(null); }}><Plus size={14} />添加提供商</button>
-      <button className="secondary-button" disabled={loading || busy} onClick={() => void onReload()}><RefreshCw className={loading ? "spinner-icon" : ""} size={14} />刷新</button>
-    </div>
-    {(error || notice) && <div className={`provider-notice ${error || notice?.kind === "error" ? "error" : notice?.kind ?? "warning"}`}>
-      {error || notice?.kind === "error" ? <CircleAlert size={16} /> : notice?.kind === "success" ? <CheckCircle2 size={16} /> : <CircleAlert size={16} />}
-      <span>{error || notice?.text}</span>
-    </div>}
-
-    {draft && <section className="provider-editor">
-      <header><span><ServerCog size={17} /><strong>{draft.originalId ? `编辑 ${draft.originalId}` : "添加模型提供商"}</strong></span><button className="icon-button" onClick={() => setDraft(null)} title="关闭编辑器"><X size={16} /></button></header>
-      <div className="provider-fields">
-        <label><span>提供商 ID <em>必填</em></span><input autoFocus={!draft.originalId} disabled={Boolean(draft.originalId)} value={draft.id} onChange={(event) => setDraft({ ...draft, id: event.target.value })} placeholder="例如 openrouter 或 local-ollama" /></label>
-        <label><span>显示名称</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="不填则显示提供商 ID" /></label>
-        <label className="wide"><span>API 地址 <em>必填</em></span><input value={draft.baseUrl} onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} placeholder="https://api.example.com/v1" /></label>
-        <label><span>API 协议</span><select value={draft.api} onChange={(event) => setDraft({ ...draft, api: event.target.value })}>{PROVIDER_APIS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        <label><span>API 密钥或引用</span><div className="provider-secret-input"><KeyRound size={14} /><input type="password" autoComplete="new-password" value={draft.apiKey} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value, keepExistingApiKey: event.target.value ? false : draft.keepExistingApiKey })} placeholder={draft.keepExistingApiKey ? "已配置，留空则保留" : "sk-…、$ENV_VAR 或 !command"} /></div></label>
-      </div>
-      <div className="provider-options-row">
-        <span><strong>Authorization Bearer</strong><small>仅当非标准接口要求自动生成 Authorization 请求头时开启。</small></span><Switch label="Authorization Bearer" checked={draft.authHeader} onChange={(value) => setDraft({ ...draft, authHeader: value })} />
-        {draft.originalId && draft.keepExistingApiKey && <button className="secondary-button compact" onClick={() => setDraft({ ...draft, apiKey: "", keepExistingApiKey: false })}>清除已配置凭据</button>}
-      </div>
-      <div className="provider-models-heading"><span><strong>模型</strong><small>自动拉取会保留已有模型的手工字段；不支持枚举时仍可手动添加。</small></span><div className="provider-model-actions"><button className="secondary-button compact" disabled={busy || !draft.baseUrl.trim()} onClick={() => void discoverModels()} title="从提供商 API 拉取模型目录">{discovering ? <RefreshCw className="spinner-icon" size={13} /> : <CloudDownload size={13} />}{discovering ? "正在拉取" : "自动拉取"}</button><button className="secondary-button compact" disabled={busy} onClick={() => setDraft({ ...draft, models: [...draft.models, { id: "", name: "", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 16384 }] })}><Plus size={13} />添加模型</button></div></div>
-      <div className="provider-models">
-        {draft.models.length === 0 && <div className="provider-model-empty">此提供商没有自定义模型；可用于覆盖 Pi 内置提供商的地址。</div>}
-        {draft.models.map((model, index) => <div className="provider-model-row" key={`${index}-${model.id}`}>
-          <div className="provider-model-main"><label><span>模型 ID</span><input value={model.id} onChange={(event) => changeModel(index, { id: event.target.value })} placeholder="model-id" /></label><label><span>显示名称</span><input value={model.name} onChange={(event) => changeModel(index, { name: event.target.value })} placeholder="可选" /></label></div>
-          <div className="provider-model-meta"><label><span>上下文</span><input type="number" min="1" value={model.contextWindow ?? ""} onChange={(event) => changeModel(index, { contextWindow: event.target.value ? Number(event.target.value) : null })} placeholder="128000" /></label><label><span>最大输出</span><input type="number" min="1" value={model.maxTokens ?? ""} onChange={(event) => changeModel(index, { maxTokens: event.target.value ? Number(event.target.value) : null })} placeholder="16384" /></label><label className="provider-model-toggle"><Switch label="推理模型" checked={model.reasoning} onChange={(value) => changeModel(index, { reasoning: value })} /><span>推理</span></label><label className="provider-model-toggle"><Switch label="支持图片" checked={model.input.includes("image")} onChange={(value) => changeModel(index, { input: value ? ["text", "image"] : ["text"] })} /><span>图片</span></label><button className="icon-button danger" title="移除模型" onClick={() => setDraft({ ...draft, models: draft.models.filter((_, modelIndex) => modelIndex !== index) })}><Trash2 size={14} /></button></div>
-        </div>)}
-      </div>
-      <footer>{draft.originalId && <button className="secondary-button" disabled={busy} onClick={() => void checkProvider(draft.originalId!)}><CheckCircle2 size={14} />检查配置</button>}<span /><button className="secondary-button" disabled={busy} onClick={() => setDraft(null)}>取消</button><button className="primary-button" disabled={busy || !draft.id.trim()} onClick={() => void saveProvider()}>{busy ? "正在保存…" : "保存提供商"}</button></footer>
-    </section>}
-
-    <Card title="已配置的提供商">
-      {loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} />正在读取 models.json…</div> : providers.length === 0 ? <div className="settings-empty"><ServerCog size={22} />尚未配置模型提供商</div> : <div className="provider-list">{providers.map((provider) => <div key={provider.id}>
-        <span className="provider-icon"><ServerCog size={16} /></span><span><strong>{provider.name}</strong><small>{provider.id} · {provider.api || "继承 Pi 内置协议"}</small><code>{provider.baseUrl || "使用 Pi 内置 API 地址"}</code></span><span className={`provider-credential ${provider.hasApiKey ? "configured" : ""}`}><KeyRound size={12} />{sourceLabels[provider.apiKeySource]}</span><em>{provider.models.length} 个模型</em><button className="icon-button" title="编辑提供商" onClick={() => editProvider(provider)}><Pencil size={14} /></button><button className="icon-button danger" disabled={busy} title="删除提供商" onClick={() => void removeProvider(provider)}><Trash2 size={14} /></button>
-      </div>)}</div>}
-    </Card>
-    <div className="settings-info"><ServerCog size={17} /><span>配置直接保存到 <code>~/.pi/agent/models.json</code>。密钥不会从后端回传到页面，编辑时留空会保留原值；新任务会自动使用更新后的模型目录。</span></div>
   </>;
 }
 

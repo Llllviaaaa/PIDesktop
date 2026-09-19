@@ -4,6 +4,9 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+- Rebuild Settings → 模型 as a provider workspace: every Pi provider is listed with its connection status, subscriptions sign in through Pi's own login flow, API keys are saved to Pi's auth.json, and custom providers can fetch and pick models from their API, with context size and reasoning/image support filled in from Pi's model catalog or the model name.
+- Move the default model and reasoning level onto the Models page, and let each model be shown or hidden in the composer model picker.
+- Keep Settings responsive while usage statistics are calculated.
 - Replace the bundled `computer` and `browser` tools with Grok-style `computer_*` and `browser_*` APIs, including observe/control sessions and inspect-ref page actions.
 
 ## 0.2.27 - 2026-09-04
