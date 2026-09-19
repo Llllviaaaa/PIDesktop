@@ -105,6 +105,8 @@ export interface PiState {
   compact: () => Promise<void>;
   exportSession: () => Promise<string | null>;
   setModel: (model: ModelInfo) => Promise<void>;
+  /** Make live chats re-read credentials and models.json, then reload the picker's models. */
+  reloadProviderCatalog: () => Promise<void>;
   setThinkingLevel: (level: string) => Promise<void>;
   setRuntimeAgentMode: (mode: AppSettings["agentMode"]) => Promise<void>;
   setRuntimePermissionMode: (mode: AppSettings["permissionMode"]) => Promise<void>;

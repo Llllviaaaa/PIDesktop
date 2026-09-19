@@ -17,6 +17,8 @@ import {
 } from "./lib/managedQueue";
 import { persistModelCatalog, readStoredModelCatalog } from "./lib/modelCatalogCache";
 import { sameLocalPath } from "./lib/pathIdentity";
+import { decodeProviderMessage } from "../src-tauri/resources/pidesktop-providers-core";
+import { PROVIDER_SERVICE_COMMAND, PROVIDER_SERVICE_RUNTIME_ID } from "./lib/providerService";
 import { headlineForUiRequest } from "./lib/batchAsk";
 import {
   buildForkCommand,
@@ -382,7 +384,7 @@ export const usePiStore = create<PiState>((set, get) => {
       set({
         availableModels: models.data?.models ?? [],
         availableThinkingLevels: levels.data?.levels ?? ["off"],
-        commands: (commands.data?.commands ?? []).filter((item) => item.name !== PIDESKTOP_REWIND_COMMAND),
+        commands: (commands.data?.commands ?? []).filter((item) => item.name !== PIDESKTOP_REWIND_COMMAND && item.name !== PROVIDER_SERVICE_COMMAND),
       });
       persistCurrentModelCatalog();
     }).catch((error) => {
@@ -792,6 +794,9 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     handleEvent: (runtimeId, event) => {
+      // The Settings provider service and provider-catalog refresh replies are not chat traffic.
+      if (runtimeId === PROVIDER_SERVICE_RUNTIME_ID) return;
+      if (event.type === "extension_ui_request" && event.method === "notify" && decodeProviderMessage(event.message)) return;
       if (event.type === "agent_start") updateRuntime(runtimeId, { isStreaming: true });
       if (event.type === "agent_end" && !event.willRetry) updateRuntime(runtimeId, { isStreaming: false });
       if (event.type === "agent_settled") updateRuntime(runtimeId, { isStreaming: false });
@@ -1063,6 +1068,7 @@ export const usePiStore = create<PiState>((set, get) => {
 
     handleStatus: (status) => {
       const runtimeId = status.runtimeId;
+      if (runtimeId === PROVIDER_SERVICE_RUNTIME_ID) return;
       const intentionalStop = status.status === "exited" && intentionalRuntimeStops.delete(runtimeId);
       set((state) => {
         if (status.status === "exited") {
@@ -1396,6 +1402,30 @@ export const usePiStore = create<PiState>((set, get) => {
       const path = typeof response.data?.path === "string" ? response.data.path : null;
       if (path) toast(`已导出到 ${path}`, "info");
       return path;
+    },
+
+    reloadProviderCatalog: async () => {
+      const refreshRuntime = async (runtimeId: string) => {
+        // Runtimes started before the provider extension existed would send the slash command to the model.
+        const commands = await sendCommand(runtimeId, "get_commands");
+        if (!commands.data?.commands?.some((item) => item.name === PROVIDER_SERVICE_COMMAND)) return;
+        const request = JSON.stringify({ id: `refresh-${Date.now()}`, op: "refresh" });
+        await sendCommand(runtimeId, "prompt", { message: `/${PROVIDER_SERVICE_COMMAND} ${request}` }, 60_000);
+      };
+      const idle = Object.entries(get().runtimes)
+        .filter(([, runtime]) => runtime.status === "running" && !runtime.isStreaming)
+        .map(([runtimeId]) => runtimeId);
+      await Promise.allSettled(idle.map(refreshRuntime));
+      const runtimeId = get().runtimeId;
+      if (!runtimeId) return;
+      try {
+        const models = await sendCommand(runtimeId, "get_available_models");
+        if (get().runtimeId !== runtimeId) return;
+        set({ availableModels: models.data?.models ?? [] });
+        persistCurrentModelCatalog();
+      } catch (error) {
+        get().appendLog(`刷新模型目录失败：${error instanceof Error ? error.message : String(error)}`);
+      }
     },
 
     setModel: async (model) => {

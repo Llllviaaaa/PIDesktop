@@ -59,6 +59,7 @@ import {
 import { activeSessionTitle, sessionRecency, sessionTitle } from "./lib/sessionTitle";
 import { navigationKey, withoutArchivedSessions, type NavigationTarget as BaseNavigationTarget } from "./lib/navigationHistory";
 import { sameLocalPath } from "./lib/pathIdentity";
+import { filterHiddenModels } from "./lib/modelProviders";
 import { buildPetActivities, petStatusToAnimation, type PetActivityItem, type PetActivityStatus } from "./lib/petActivity";
 import { ACTIVE_RUNTIME_KEY, LAST_TASK_KEY, readPersistedTask, useRuntimeBootstrap } from "./hooks/useRuntimeBootstrap";
 import { usePiStore } from "./store";
@@ -206,6 +207,10 @@ export default function App() {
     toasts,
     notifications,
   } = store;
+  const pickerModels = useMemo(
+    () => filterHiddenModels(availableModels, settings?.hiddenModels, model),
+    [availableModels, settings?.hiddenModels, model],
+  );
   const [draftMode, setDraftMode] = useState(() => {
     if (!import.meta.env.DEV) return true;
     const fixture = new URLSearchParams(window.location.search).get("fixture");
@@ -749,6 +754,8 @@ export default function App() {
         return;
       }
       if (settingsOpen && event.key === "Escape") {
+        // Menus and dialogs inside Settings mark themselves so Escape closes them first.
+        if (document.querySelector("[data-escape-layer]")) return;
         event.preventDefault();
         setSettingsOpen(false);
         return;
@@ -1725,7 +1732,7 @@ export default function App() {
       disabled={false}
       attachments={attachments}
       commands={commands}
-      models={availableModels}
+      models={pickerModels}
       model={model}
       thinkingLevel={thinkingLevel}
       thinkingLevels={availableThinkingLevels}

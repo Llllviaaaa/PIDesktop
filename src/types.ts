@@ -274,6 +274,8 @@ export interface AppSettings {
   provider: string;
   model: string;
   thinkingLevel: string;
+  /** `provider/model` keys hidden from the composer model picker. */
+  hiddenModels?: string[];
   sessionDir: string;
   agentMode: "agent" | "plan" | "ask";
   permissionMode: "read-only" | "ask" | "workspace-write" | "full-access";
