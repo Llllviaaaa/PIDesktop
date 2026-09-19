@@ -1,0 +1,295 @@
+/*
+ * Vetta skin: settings center.
+ * Loaded in the `skin` layer; see skin-shell.css for the layering contract.
+ */
+
+.settings-center {
+  background: var(--app);
+  color: var(--text);
+}
+
+/* ── Navigation rail ───────────────────────────────────────────────── */
+
+.settings-navigation {
+  border-right: 0;
+  background: var(--sidebar-bg);
+  color: var(--text);
+}
+
+.settings-back {
+  border-radius: 10px;
+  color: var(--text-2);
+}
+
+.settings-back:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.settings-search {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text-3);
+}
+
+.settings-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.settings-search input {
+  color: var(--text);
+  background: transparent;
+}
+
+.settings-nav-scroll > div,
+.settings-nav-scroll h3,
+.settings-nav-scroll .settings-nav-group {
+  color: var(--text-3);
+}
+
+.settings-nav-scroll button {
+  min-height: 34px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13.5px;
+}
+
+.settings-nav-scroll button svg {
+  color: var(--text-2);
+}
+
+.settings-nav-scroll button:hover {
+  background: var(--hover);
+}
+
+.settings-nav-scroll button.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.settings-nav-scroll button.active svg {
+  color: var(--accent);
+}
+
+/* ── Content ───────────────────────────────────────────────────────── */
+
+.settings-content,
+.settings-page-scroll {
+  background: var(--app);
+}
+
+.settings-content-header {
+  border-bottom: 0;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.settings-page-heading h1,
+.settings-page-heading h2 {
+  color: var(--text);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.settings-page-heading p,
+.card-description,
+.setting-value-muted {
+  color: var(--text-3);
+}
+
+.settings-page h2,
+.settings-page h3 {
+  color: var(--text);
+}
+
+/* A card is a section heading followed by one bordered group of rows. */
+.settings-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-card > h2 {
+  margin: 0 0 8px 2px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-card > h2 + div {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.setting-row,
+.stacked-setting {
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  background: transparent;
+}
+
+.setting-row + .setting-row,
+.stacked-setting + .setting-row,
+.setting-row + .stacked-setting {
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.setting-row strong,
+.setting-row label,
+.stacked-setting strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.setting-row p,
+.setting-row small,
+.stacked-setting p {
+  color: var(--text-3);
+}
+
+/* Native form controls in the Vetta input style. */
+.settings-page select,
+.settings-page input[type="text"],
+.settings-page input[type="number"],
+.settings-page input[type="url"],
+.settings-page input[type="password"],
+.settings-page input:not([type]),
+.settings-page textarea,
+.shortcut-input {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--app);
+  color: var(--text);
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.settings-page select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a90a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+}
+
+.settings-page select:hover,
+.settings-page input:hover,
+.settings-page textarea:hover {
+  border-color: var(--border-strong);
+}
+
+.settings-page select:focus,
+.settings-page input:focus,
+.settings-page textarea:focus,
+.shortcut-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.settings-page select option {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.settings-switch {
+  background: color-mix(in srgb, var(--text-3) 45%, transparent);
+}
+
+.settings-switch.on,
+.settings-switch[aria-checked="true"] {
+  background: var(--accent);
+}
+
+.settings-page .primary-button {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.settings-page .primary-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 86%, var(--text));
+}
+
+.settings-page .secondary-button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+}
+
+.settings-page .secondary-button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.settings-page .icon-button {
+  border-radius: 8px;
+  color: var(--text-2);
+}
+
+.settings-page .icon-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.settings-page .icon-button.danger:hover {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+}
+
+.settings-info,
+.security-note {
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  color: var(--text-2);
+}
+
+.settings-empty {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.settings-save-status {
+  color: var(--text-3);
+}
+
+/* Appearance page theme swatches. */
+.theme-grid button {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.theme-grid button:hover {
+  border-color: var(--border-strong);
+}
+
+.theme-grid button.active,
+.theme-grid button[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.theme-preview {
+  border-radius: 8px;
+}
+
+/* Inputs nested in a search wrapper borrow the wrapper's frame. */
+.settings-page [class*="search"] input,
+.settings-page [class*="search"] input:hover,
+.settings-page [class*="search"] input:focus {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
