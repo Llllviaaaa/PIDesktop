@@ -21,6 +21,7 @@ const SUBAGENTS_EXTENSION: &str = include_str!("../resources/pidesktop-subagents
 const MEMORY_EXTENSION: &str = include_str!("../resources/pidesktop-memory.ts");
 const MEMORY_CORE_MODULE: &str = include_str!("../resources/pidesktop-memory-core.ts");
 const BROWSER_EXTENSION: &str = include_str!("../resources/pidesktop-browser.ts");
+const COMPUTER_CORE_MODULE: &str = include_str!("../resources/pidesktop-computer-core.ts");
 const COMPUTER_EXTENSION: &str = include_str!("../resources/pidesktop-computer.ts");
 const MCP_EXTENSION: &str = include_str!("../resources/pidesktop-mcp.ts");
 const PROVIDERS_CORE_MODULE: &str = include_str!("../resources/pidesktop-providers-core.ts");
@@ -45,6 +46,11 @@ pub(crate) fn ensure_browser_extension() -> Result<PathBuf, String> {
 
 pub(crate) fn ensure_computer_extension() -> Result<PathBuf, String> {
     ensure_bundled_extension("pidesktop-rules.ts", RULES_MODULE, "rules")?;
+    ensure_bundled_extension(
+        "pidesktop-computer-core.ts",
+        COMPUTER_CORE_MODULE,
+        "computer core",
+    )?;
     ensure_bundled_extension("pidesktop-computer.ts", COMPUTER_EXTENSION, "computer")
 }
 

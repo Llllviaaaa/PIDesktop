@@ -3,6 +3,17 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
 import { normalizePermissionMode, shouldConfirmInteractiveAction } from "./pidesktop-rules.ts";
+import {
+  assertSessionAllows,
+  captureWindowTitle as captureWindowTitleFor,
+  elementMapText,
+  sessionSummary,
+  sourcesFromCapture,
+  type ComputerSession,
+  type ComputerSource,
+  type ElementInfo,
+  type WindowInfo,
+} from "./pidesktop-computer-core.ts";
 
 interface ScreenshotResult {
   data: string;
@@ -20,31 +31,10 @@ interface ScreenshotResult {
   captureFallback?: string;
 }
 
-interface ElementInfo {
-  ref: string;
-  role: string;
-  name: string;
-  value?: string;
-  bounds: { x: number; y: number; width: number; height: number };
-  enabled: boolean;
-  focused: boolean;
-  focusable: boolean;
-  patterns: string[];
-}
-
 interface ObservationResult {
   elements: ElementInfo[];
   windowTitle: string;
   windowHandle: string;
-}
-
-interface WindowInfo {
-  title: string;
-  handle: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
 }
 
 interface WindowsResult {
@@ -56,24 +46,6 @@ interface HelperError {
   error: string;
 }
 
-interface ComputerSource {
-  id: string;
-  kind: "screen" | "window";
-  title: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface ComputerSession {
-  mode: "idle" | "observe" | "control";
-  sourceId: string | null;
-  sourceKind: "screen" | "window" | null;
-  windowTitle?: string;
-}
-
-const PRIMARY_SCREEN_ID = "screen:primary";
 let lastCapture: ScreenshotResult | undefined;
 let session: ComputerSession = { mode: "idle", sourceId: null, sourceKind: null };
 
@@ -143,59 +115,25 @@ async function observeElements(signal?: AbortSignal, windowTitle?: string, maxEl
 }
 
 function sessionState() {
-  return {
-    mode: session.mode,
-    sourceId: session.sourceId,
-    sourceKind: session.sourceKind,
-    windowTitle: session.windowTitle,
-  };
+  return sessionSummary(session);
 }
 
 async function listSources(signal?: AbortSignal): Promise<ComputerSource[]> {
   const windows = await listWindows(signal);
   const capture = lastCapture ?? await captureScreen(signal);
-  const sources: ComputerSource[] = [{
-    id: PRIMARY_SCREEN_ID,
-    kind: "screen",
-    title: "Primary desktop",
-    x: capture.left,
-    y: capture.top,
-    width: capture.width,
-    height: capture.height,
-  }];
-  for (const window of windows) {
-    sources.push({
-      id: `window:${window.handle}`,
-      kind: "window",
-      title: window.title,
-      x: window.x,
-      y: window.y,
-      width: window.width,
-      height: window.height,
-    });
-  }
-  return sources;
+  return sourcesFromCapture(capture, windows);
 }
 
 function requireSession(kind: "observe" | "control"): void {
-  if (session.mode === "idle") throw new Error("Start a computer session with computer_start before this action");
-  if (kind === "control" && session.mode !== "control") {
-    throw new Error("Interactive input requires an approved computer_start control session");
-  }
+  assertSessionAllows(session, kind);
 }
 
 function captureWindowTitle(): string | undefined {
-  return session.sourceKind === "window" ? session.windowTitle : undefined;
+  return captureWindowTitleFor(session);
 }
 
 function elementMap(elements: ElementInfo[]): string {
-  if (!elements.length) return "Foreground window did not expose UI Automation elements.";
-  const rows = elements.slice(0, 80).map((element) => {
-    const name = (element.name || element.value || "unnamed").replace(/\s+/g, " ").slice(0, 160);
-    return `${element.ref} ${element.role} “${name}” bounds=(${element.bounds.x},${element.bounds.y},${element.bounds.width},${element.bounds.height})`;
-  });
-  if (elements.length > rows.length) rows.push(`…${elements.length - rows.length} more elements omitted`);
-  return rows.join("\n");
+  return elementMapText(elements);
 }
 
 function screenshotDetails(capture: ScreenshotResult, extra: Record<string, unknown> = {}) {
