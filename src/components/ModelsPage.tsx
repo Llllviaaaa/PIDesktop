@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { describeError } from "../lib/errors";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Brain,
@@ -77,7 +78,7 @@ interface CheckState {
 type Notice = { kind: "success" | "error"; text: string } | null;
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return describeError(error);
 }
 
 function isCancelled(error: unknown): boolean {

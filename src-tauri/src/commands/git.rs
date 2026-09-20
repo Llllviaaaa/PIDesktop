@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::error::AppError;
 use crate::hidden_command;
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,10 +99,10 @@ pub(crate) fn parse_git_status(output: &str) -> Vec<GitFileChange> {
 }
 
 #[tauri::command(async)]
-pub(crate) fn git_list_branches(cwd: String) -> Result<Vec<GitBranchInfo>, String> {
+pub(crate) fn git_list_branches(cwd: String) -> Result<Vec<GitBranchInfo>, AppError> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
-        return Err("workspace no longer exists".to_string());
+        return Err(AppError::NotFound("workspace no longer exists".to_string()));
     }
     let output = run_git(
         &root,
@@ -135,28 +136,28 @@ pub(crate) fn git_list_branches(cwd: String) -> Result<Vec<GitBranchInfo>, Strin
 }
 
 #[tauri::command(async)]
-pub(crate) fn git_checkout_branch(cwd: String, branch: String) -> Result<(), String> {
+pub(crate) fn git_checkout_branch(cwd: String, branch: String) -> Result<(), AppError> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
-        return Err("workspace no longer exists".to_string());
+        return Err(AppError::NotFound("workspace no longer exists".to_string()));
     }
     let name = branch.trim();
     if name.is_empty() {
-        return Err("branch name required".to_string());
+        return Err(AppError::InvalidInput("branch name required".to_string()));
     }
     run_git(&root, &["checkout", name])?;
     Ok(())
 }
 
 #[tauri::command(async)]
-pub(crate) fn git_compare(cwd: String, base: String) -> Result<GitSnapshot, String> {
+pub(crate) fn git_compare(cwd: String, base: String) -> Result<GitSnapshot, AppError> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
-        return Err("workspace no longer exists".to_string());
+        return Err(AppError::NotFound("workspace no longer exists".to_string()));
     }
     let base = base.trim();
     if base.is_empty() {
-        return Err("base branch required".to_string());
+        return Err(AppError::InvalidInput("base branch required".to_string()));
     }
     let branch = run_git(&root, &["rev-parse", "--abbrev-ref", "HEAD"])
         .ok()
@@ -201,16 +202,18 @@ pub(crate) fn git_compare(cwd: String, base: String) -> Result<GitSnapshot, Stri
 }
 
 #[tauri::command(async)]
-pub(crate) fn git_review_snapshot(cwd: String, filter: String) -> Result<GitSnapshot, String> {
+pub(crate) fn git_review_snapshot(cwd: String, filter: String) -> Result<GitSnapshot, AppError> {
     if filter == "uncommitted" {
         return git_snapshot(cwd);
     }
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
-        return Err("workspace no longer exists".to_string());
+        return Err(AppError::NotFound("workspace no longer exists".to_string()));
     }
     if filter != "staged" && filter != "unstaged" {
-        return Err("unsupported review filter".to_string());
+        return Err(AppError::InvalidInput(
+            "unsupported review filter".to_string(),
+        ));
     }
     let branch = run_git(&root, &["rev-parse", "--abbrev-ref", "HEAD"])
         .ok()
@@ -247,10 +250,10 @@ pub(crate) fn git_review_snapshot(cwd: String, filter: String) -> Result<GitSnap
 pub(crate) fn git_list_commits(
     cwd: String,
     limit: Option<usize>,
-) -> Result<Vec<GitCommitInfo>, String> {
+) -> Result<Vec<GitCommitInfo>, AppError> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
-        return Err("workspace no longer exists".to_string());
+        return Err(AppError::NotFound("workspace no longer exists".to_string()));
     }
     let count = limit.unwrap_or(50).clamp(1, 200);
     let count_arg = format!("--max-count={count}");
@@ -286,14 +289,14 @@ pub(crate) fn git_list_commits(
 }
 
 #[tauri::command(async)]
-pub(crate) fn git_commit_snapshot(cwd: String, commit: String) -> Result<GitSnapshot, String> {
+pub(crate) fn git_commit_snapshot(cwd: String, commit: String) -> Result<GitSnapshot, AppError> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
-        return Err("workspace no longer exists".to_string());
+        return Err(AppError::NotFound("workspace no longer exists".to_string()));
     }
     let commit = commit.trim();
     if !(7..=40).contains(&commit.len()) || !commit.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        return Err("invalid commit id".to_string());
+        return Err(AppError::InvalidInput("invalid commit id".to_string()));
     }
     let branch = run_git(&root, &["rev-parse", "--abbrev-ref", "HEAD"])
         .ok()
@@ -356,13 +359,13 @@ pub(crate) fn git_commit_snapshot(cwd: String, commit: String) -> Result<GitSnap
 }
 
 #[tauri::command(async)]
-pub(crate) fn git_restore_files(cwd: String, paths: Vec<String>) -> Result<(), String> {
+pub(crate) fn git_restore_files(cwd: String, paths: Vec<String>) -> Result<(), AppError> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
-        return Err("workspace no longer exists".to_string());
+        return Err(AppError::NotFound("workspace no longer exists".to_string()));
     }
     if paths.is_empty() {
-        return Err("no paths to restore".to_string());
+        return Err(AppError::InvalidInput("no paths to restore".to_string()));
     }
     let mut restore_args = vec!["restore".to_string(), "--".to_string()];
     restore_args.extend(paths.iter().cloned());
@@ -370,7 +373,7 @@ pub(crate) fn git_restore_files(cwd: String, paths: Vec<String>) -> Result<(), S
         .args(&restore_args)
         .current_dir(&root)
         .output()
-        .map_err(|err| format!("failed to run git restore: {err}"))?;
+        .map_err(|err| AppError::Process(format!("failed to run git restore: {err}")))?;
     if output.status.success() {
         return Ok(());
     }
@@ -381,79 +384,81 @@ pub(crate) fn git_restore_files(cwd: String, paths: Vec<String>) -> Result<(), S
         .args(&checkout_args)
         .current_dir(&root)
         .output()
-        .map_err(|err| format!("failed to run git checkout: {err}"))?;
+        .map_err(|err| AppError::Process(format!("failed to run git checkout: {err}")))?;
     if retry.status.success() {
         return Ok(());
     }
     let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
     let err2 = String::from_utf8_lossy(&retry.stderr).trim().to_string();
-    Err(if !err.is_empty() {
+    Err(AppError::Git(if !err.is_empty() {
         err
     } else if !err2.is_empty() {
         err2
     } else {
         "git restore failed".to_string()
-    })
+    }))
 }
 
 pub(crate) fn run_git_path_command(
     root: &Path,
     args: &[&str],
     paths: &[String],
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let output = hidden_command("git")
         .args(args)
         .arg("--")
         .args(paths)
         .current_dir(root)
         .output()
-        .map_err(|err| format!("failed to run git: {err}"))?;
+        .map_err(|err| AppError::Process(format!("failed to run git: {err}")))?;
     if output.status.success() {
         return Ok(());
     }
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Err(if stderr.is_empty() {
+    Err(AppError::Git(if stderr.is_empty() {
         format!("git {} failed", args.join(" "))
     } else {
         stderr
-    })
+    }))
 }
 
-pub(crate) fn validate_git_paths(cwd: &str, paths: &[String]) -> Result<PathBuf, String> {
+pub(crate) fn validate_git_paths(cwd: &str, paths: &[String]) -> Result<PathBuf, AppError> {
     let root = PathBuf::from(cwd);
     if !root.is_dir() {
-        return Err("workspace no longer exists".to_string());
+        return Err(AppError::NotFound("workspace no longer exists".to_string()));
     }
     if paths.is_empty() {
-        return Err("no paths selected".to_string());
+        return Err(AppError::InvalidInput("no paths selected".to_string()));
     }
     if paths.iter().any(|path| path.trim().is_empty()) {
-        return Err("empty Git path is not allowed".to_string());
+        return Err(AppError::InvalidInput(
+            "empty Git path is not allowed".to_string(),
+        ));
     }
     Ok(root)
 }
 
 #[tauri::command(async)]
-pub(crate) fn git_stage_files(cwd: String, paths: Vec<String>) -> Result<(), String> {
+pub(crate) fn git_stage_files(cwd: String, paths: Vec<String>) -> Result<(), AppError> {
     let root = validate_git_paths(&cwd, &paths)?;
     run_git_path_command(&root, &["add"], &paths)
 }
 
 #[tauri::command(async)]
-pub(crate) fn git_unstage_files(cwd: String, paths: Vec<String>) -> Result<(), String> {
+pub(crate) fn git_unstage_files(cwd: String, paths: Vec<String>) -> Result<(), AppError> {
     let root = validate_git_paths(&cwd, &paths)?;
     match run_git_path_command(&root, &["restore", "--staged"], &paths) {
         Ok(()) => Ok(()),
         Err(first_error) => run_git_path_command(&root, &["reset", "HEAD"], &paths)
-            .map_err(|second_error| format!("{first_error}\n{second_error}")),
+            .map_err(|second_error| AppError::Git(format!("{first_error}\n{second_error}"))),
     }
 }
 
 #[tauri::command(async)]
-pub(crate) fn git_snapshot(cwd: String) -> Result<GitSnapshot, String> {
+pub(crate) fn git_snapshot(cwd: String) -> Result<GitSnapshot, AppError> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
-        return Err("workspace no longer exists".to_string());
+        return Err(AppError::NotFound("workspace no longer exists".to_string()));
     }
 
     let branch_output = run_git(&root, &["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -506,7 +511,7 @@ pub(crate) fn git_snapshot(cwd: String) -> Result<GitSnapshot, String> {
 }
 
 #[tauri::command(async)]
-pub(crate) fn git_repository_root(cwd: String) -> Result<Option<String>, String> {
+pub(crate) fn git_repository_root(cwd: String) -> Result<Option<String>, AppError> {
     let workspace = PathBuf::from(cwd.trim());
     if !workspace.is_dir() {
         return Ok(None);
@@ -520,14 +525,16 @@ pub(crate) fn git_repository_root(cwd: String) -> Result<Option<String>, String>
     }
 }
 
-pub(crate) fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn run_git(cwd: &Path, args: &[&str]) -> Result<String, AppError> {
     let output = hidden_command("git")
         .args(args)
         .current_dir(cwd)
         .output()
-        .map_err(|err| format!("failed to run git: {err}"))?;
+        .map_err(|err| AppError::Process(format!("failed to run git: {err}")))?;
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        return Err(AppError::Git(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }

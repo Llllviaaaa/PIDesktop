@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import { describeError } from "../lib/errors";
 import { subscribeToPi } from "../lib/pi";
 import { sameLocalPath } from "../lib/pathIdentity";
 import { usePiStore } from "../store";
@@ -89,7 +90,7 @@ export function useRuntimeBootstrap({
           try {
             await current.disconnect();
           } catch (error) {
-            current.appendLog(`关闭已归档的恢复任务失败：${error instanceof Error ? error.message : String(error)}`);
+            current.appendLog(`关闭已归档的恢复任务失败：${describeError(error)}`);
           }
           current.prepareNewTask();
           onDraftModeChange(true);
@@ -103,7 +104,7 @@ export function useRuntimeBootstrap({
       }
       if (!disposed) setRuntimeRecoveryDone(true);
     })().catch((error) => {
-      usePiStore.getState().appendLog(`初始化失败：${error instanceof Error ? error.message : String(error)}`);
+      usePiStore.getState().appendLog(`初始化失败：${describeError(error)}`);
       if (!disposed) setRuntimeRecoveryDone(true);
     });
     return () => {

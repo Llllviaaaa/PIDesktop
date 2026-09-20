@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { describeError } from "./lib/errors";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -970,7 +971,7 @@ export default function App() {
       try {
         return await pi.readAttachment(file);
       } catch (error) {
-        store.appendLog(`附件读取失败：${String(error)}`);
+        store.appendLog(`附件读取失败：${describeError(error)}`);
         return null;
       }
     }));
@@ -1036,7 +1037,7 @@ export default function App() {
         : [...current, attachment]);
       usePiStore.getState().showToast(`${attachment.fileName} 已添加到聊天`, "info");
     } catch (error) {
-      usePiStore.getState().showToast(error instanceof Error ? error.message : String(error), "error");
+      usePiStore.getState().showToast(describeError(error), "error");
     }
   }, [workspaceCwd, workspaceFilePath]);
   const workspaceOptions = useMemo(
@@ -1117,8 +1118,8 @@ export default function App() {
           return false;
         }
       } catch (error) {
-        current.appendLog(`创建 Worktree 失败：${String(error)}`);
-        current.showToast(`创建 Worktree 失败：${String(error)}`, "error");
+        current.appendLog(`创建 Worktree 失败：${describeError(error)}`);
+        current.showToast(`创建 Worktree 失败：${describeError(error)}`, "error");
         restoreInitialPrompt();
         return false;
       }
@@ -1164,14 +1165,14 @@ export default function App() {
   const revealWorkspaceInExplorer = useCallback((workspace: string) => {
     if (!workspace) return;
     void pi.openWorkspaceInFileManager(workspace).catch((error) => {
-      usePiStore.getState().showToast(`无法在资源管理器中打开项目：${String(error)}`, "error");
+      usePiStore.getState().showToast(`无法在资源管理器中打开项目：${describeError(error)}`, "error");
     });
   }, []);
 
   const revealWorkspaceInEditor = useCallback((workspace: string, editor: WorkspaceEditorInfo) => {
     if (!workspace) return;
     void pi.openWorkspaceInEditor(workspace, editor.id).catch((error) => {
-      usePiStore.getState().showToast(`无法在 ${editor.name} 中打开项目：${String(error)}`, "error");
+      usePiStore.getState().showToast(`无法在 ${editor.name} 中打开项目：${describeError(error)}`, "error");
     });
   }, []);
 
@@ -1181,7 +1182,7 @@ export default function App() {
     const current = usePiStore.getState();
     if (!current.settings || current.settings.defaultFileOpener === editor.id) return;
     void current.saveSettings({ ...current.settings, defaultFileOpener: editor.id }).catch((error) => {
-      current.showToast(`无法保存默认打开应用：${String(error)}`, "error");
+      current.showToast(`无法保存默认打开应用：${describeError(error)}`, "error");
     });
   }, [revealWorkspaceInEditor]);
 
@@ -1249,7 +1250,7 @@ export default function App() {
         const current = usePiStore.getState();
         if (!current.settings?.petEnabled) return;
         void current.saveSettings({ ...current.settings, petEnabled: false }).catch((error) => {
-          current.showToast(`关闭宠物失败：${String(error)}`, "error");
+          current.showToast(`关闭宠物失败：${describeError(error)}`, "error");
         });
       }),
     ]).then((unlisteners) => {
@@ -1298,7 +1299,7 @@ export default function App() {
     try {
       await Promise.all(archivedFiles.map((file) => pi.archiveSession(file)));
     } catch (error) {
-      usePiStore.getState().showToast(`归档失败：${String(error)}`, "error");
+      usePiStore.getState().showToast(`归档失败：${describeError(error)}`, "error");
       return;
     }
 
@@ -1315,7 +1316,7 @@ export default function App() {
       try {
         await usePiStore.getState().disconnect();
       } catch (error) {
-        closeWarning = error instanceof Error ? error.message : String(error);
+        closeWarning = describeError(error);
         usePiStore.getState().appendLog(`归档后关闭旧任务失败：${closeWarning}`);
       }
       await applyNavigationTarget({ kind: "home", workspace: activeTarget.cwd || fallbackWorkspace });
@@ -1324,7 +1325,7 @@ export default function App() {
     try {
       await usePiStore.getState().refreshSessions();
     } catch (error) {
-      usePiStore.getState().appendLog(`归档后刷新会话失败：${error instanceof Error ? error.message : String(error)}`);
+      usePiStore.getState().appendLog(`归档后刷新会话失败：${describeError(error)}`);
     }
     usePiStore.getState().showToast(
       closeWarning ? `${successMessage}；旧任务进程关闭失败，但已返回项目首页` : successMessage,
@@ -1518,7 +1519,7 @@ export default function App() {
       else await usePiStore.getState().refreshGit();
       usePiStore.getState().showToast("已撤销本地更改", "info");
     } catch (error) {
-      usePiStore.getState().showToast(error instanceof Error ? error.message : String(error), "error");
+      usePiStore.getState().showToast(describeError(error), "error");
     }
   }, [draftGit, newTask, refreshDraftGit, workspaceCwd]);
 
@@ -1539,7 +1540,7 @@ export default function App() {
         "info",
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = describeError(error);
       usePiStore.getState().showToast(message, "error");
     }
   }, [newTask, refreshDraftGit, workspaceCwd]);
@@ -1552,12 +1553,12 @@ export default function App() {
   }, []);
   const changeComposerModel = useCallback((next: ModelInfo) => {
     void usePiStore.getState().setModel(next).catch((error) => {
-      usePiStore.getState().appendLog(`切换模型失败：${error instanceof Error ? error.message : String(error)}`);
+      usePiStore.getState().appendLog(`切换模型失败：${describeError(error)}`);
     });
   }, []);
   const changeComposerThinking = useCallback((level: string) => {
     void usePiStore.getState().setThinkingLevel(level).catch((error) => {
-      usePiStore.getState().showToast(`设置推理等级失败：${error instanceof Error ? error.message : String(error)}`, "error");
+      usePiStore.getState().showToast(`设置推理等级失败：${describeError(error)}`, "error");
     });
   }, []);
   const startQuickChatFromComposer = useCallback(() => {
@@ -1578,7 +1579,7 @@ export default function App() {
       usePiStore.getState().showToast("权限模式已更新", "info");
     } catch (error) {
       await usePiStore.getState().setRuntimePermissionMode(previous).catch(() => undefined);
-      usePiStore.getState().showToast(`切换权限失败：${error instanceof Error ? error.message : String(error)}`, "error");
+      usePiStore.getState().showToast(`切换权限失败：${describeError(error)}`, "error");
     }
   }, []);
   const changeComposerAgentMode = useCallback(async (mode: AppSettings["agentMode"]) => {
@@ -1595,7 +1596,7 @@ export default function App() {
       usePiStore.getState().showToast(`已切换到${mode === "agent" ? "执行" : mode === "plan" ? "计划" : "问答"}模式`, "info");
     } catch (error) {
       await usePiStore.getState().setRuntimeAgentMode(previous).catch(() => undefined);
-      usePiStore.getState().showToast(`切换工作模式失败：${error instanceof Error ? error.message : String(error)}`, "error");
+      usePiStore.getState().showToast(`切换工作模式失败：${describeError(error)}`, "error");
     }
   }, []);
   const consumeComposerPrefill = useCallback(() => {
@@ -1713,7 +1714,7 @@ export default function App() {
       const path = await pi.exportSessionMarkdown(current.sessionFile, destination);
       current.showToast(`已导出到 ${path}`, "info");
     } catch (error) {
-      current.showToast(`导出失败：${error instanceof Error ? error.message : String(error)}`, "error");
+      current.showToast(`导出失败：${describeError(error)}`, "error");
     }
   }, []);
 
@@ -1916,7 +1917,7 @@ export default function App() {
                 navigateTo({ kind: "home", workspace: worktree.path });
                 store.showToast(`已创建工作树：${worktree.branch || worktree.path}`, "info");
               } catch (error) {
-                store.showToast(`创建工作树失败：${String(error)}`, "error");
+                store.showToast(`创建工作树失败：${describeError(error)}`, "error");
               }
             }}
             onArchiveProject={(workspace, projectSessions) => archiveConversations(
@@ -2165,7 +2166,7 @@ export default function App() {
                   navigateTo({ kind: "home", workspace: repositoryRoot });
                   store.showToast(`已检出 PR #${pullRequest.number}`, "info");
                 } catch (error) {
-                  store.showToast(`检出失败：${String(error)}`, "error");
+                  store.showToast(`检出失败：${describeError(error)}`, "error");
                   throw error;
                 }
               }}

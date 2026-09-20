@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { describeError } from "./lib/errors";
 import { pi, respondToExtension, sendCommand } from "./lib/pi";
 import { redactSensitiveText } from "./lib/redact";
 import {
@@ -365,7 +366,7 @@ export const usePiStore = create<PiState>((set, get) => {
       const current = managedFollowUpsByRuntime.get(runtimeId) ?? [];
       setManagedQueueForRuntime(runtimeId, insertManagedQueueItem(current, next, 0));
       if (get().runtimeId === runtimeId) {
-        toast(`发送待处理消息失败：${error instanceof Error ? error.message : String(error)}`, "error");
+        toast(`发送待处理消息失败：${describeError(error)}`, "error");
       }
     } finally {
       managedDrainInFlight.delete(runtimeId);
@@ -402,7 +403,7 @@ export const usePiStore = create<PiState>((set, get) => {
       persistCurrentModelCatalog();
     }).catch((error) => {
       if (get().runtimeId === runtimeId && expectedVersion === connectionVersion) {
-        get().appendLog(`刷新模型目录失败：${error instanceof Error ? error.message : String(error)}`);
+        get().appendLog(`刷新模型目录失败：${describeError(error)}`);
       }
     });
     const stateResponse = await stateRequest;
@@ -599,7 +600,7 @@ export const usePiStore = create<PiState>((set, get) => {
           await Promise.all([get().refreshSessions(), get().refreshGit()]);
         } catch (error) {
           if (connectVersion !== connectionVersion) return;
-          const message = error instanceof Error ? error.message : String(error);
+          const message = describeError(error);
           set({ connection: "exited", lastError: message });
           get().appendLog(message);
           toast(message, "error");
@@ -676,7 +677,7 @@ export const usePiStore = create<PiState>((set, get) => {
           }
         })
         .catch((error) => {
-          get().appendLog(`Workspace prewarm skipped: ${error instanceof Error ? error.message : String(error)}`);
+          get().appendLog(`Workspace prewarm skipped: ${describeError(error)}`);
         })
         .finally(() => {
           if (workspaceWarmups.get(key) === warmup) workspaceWarmups.delete(key);
@@ -724,7 +725,7 @@ export const usePiStore = create<PiState>((set, get) => {
         await get().refreshGit();
         return true;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = describeError(error);
         get().appendLog(`恢复 Pi runtime 失败：${message}`);
         return false;
       }
@@ -1096,7 +1097,7 @@ export const usePiStore = create<PiState>((set, get) => {
           .length;
         return matches[matches.length - 1 - sameTextAfter] ?? null;
       } catch (error) {
-        toast(error instanceof Error ? error.message : String(error), "error");
+        toast(describeError(error), "error");
         return null;
       }
     },
@@ -1117,7 +1118,7 @@ export const usePiStore = create<PiState>((set, get) => {
         await get().refreshSessions();
         return true;
       } catch (error) {
-        toast(error instanceof Error ? error.message : String(error), "error");
+        toast(describeError(error), "error");
         return false;
       }
     },
@@ -1140,7 +1141,7 @@ export const usePiStore = create<PiState>((set, get) => {
         await get().refreshSessions();
         return get().sendMessage(text, attachments);
       } catch (error) {
-        toast(error instanceof Error ? error.message : String(error), "error");
+        toast(describeError(error), "error");
         return false;
       }
     },
@@ -1222,7 +1223,7 @@ export const usePiStore = create<PiState>((set, get) => {
       } catch (error) {
         if (optimistic) rollbackOptimisticPrompt(runtimeId);
         if (!wasStreaming) activeTurnStartedAt = null;
-        toast(error instanceof Error ? error.message : String(error), "error");
+        toast(describeError(error), "error");
         return false;
       }
     },
@@ -1322,7 +1323,7 @@ export const usePiStore = create<PiState>((set, get) => {
           sessionTreeLoading: false,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = describeError(error);
         set({
           sessionTree: [],
           sessionTreeLeafId: null,
@@ -1355,7 +1356,7 @@ export const usePiStore = create<PiState>((set, get) => {
         await get().loadSessionTree();
         toast("已从此节点分叉并继续", "info");
       } catch (error) {
-        toast(error instanceof Error ? error.message : String(error), "error");
+        toast(describeError(error), "error");
       }
     },
 
@@ -1396,7 +1397,7 @@ export const usePiStore = create<PiState>((set, get) => {
         set({ availableModels: models.data?.models ?? [] });
         persistCurrentModelCatalog();
       } catch (error) {
-        get().appendLog(`刷新模型目录失败：${error instanceof Error ? error.message : String(error)}`);
+        get().appendLog(`刷新模型目录失败：${describeError(error)}`);
       }
     },
 
@@ -1457,7 +1458,7 @@ export const usePiStore = create<PiState>((set, get) => {
           } catch {
             // Keep the last confirmed UI value when the runtime cannot be queried.
           }
-          toast(`切换模型失败：${error instanceof Error ? error.message : String(error)}`, "error");
+          toast(`切换模型失败：${describeError(error)}`, "error");
         }
         throw error;
       } finally {
@@ -1500,7 +1501,7 @@ export const usePiStore = create<PiState>((set, get) => {
       try {
         set({ sessions: await pi.listSessions() });
       } catch (error) {
-        get().appendLog(`列出会话失败：${String(error)}`);
+        get().appendLog(`列出会话失败：${describeError(error)}`);
       }
     },
 
@@ -1510,7 +1511,7 @@ export const usePiStore = create<PiState>((set, get) => {
       try {
         set({ git: await pi.gitSnapshot(cwd) });
       } catch (error) {
-        get().appendLog(`读取 Git 更改失败：${String(error)}`);
+        get().appendLog(`读取 Git 更改失败：${describeError(error)}`);
       }
     },
 
@@ -1523,7 +1524,7 @@ export const usePiStore = create<PiState>((set, get) => {
       try {
         set({ settings: await pi.getSettings() });
       } catch (error) {
-        toast(`加载设置失败：${String(error)}`, "error");
+        toast(`加载设置失败：${describeError(error)}`, "error");
       }
     },
 
@@ -1566,7 +1567,7 @@ export const usePiStore = create<PiState>((set, get) => {
         }));
       } catch (error) {
         set((state) => ({
-          terminal: { ...state.terminal, running: false, output: `${state.terminal.output}\n${String(error)}` },
+          terminal: { ...state.terminal, running: false, output: `${state.terminal.output}\n${describeError(error)}` },
         }));
       }
     },

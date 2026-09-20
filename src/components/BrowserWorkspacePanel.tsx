@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { describeError } from "../lib/errors";
 import { ArrowLeft, ArrowRight, ExternalLink, Globe2, MessageSquarePlus, RefreshCw, SendHorizontal, X } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
@@ -66,7 +67,7 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
         url: currentUrl,
       }).then(() => setLoading(false)).catch((error) => {
         setLoading(false);
-        setNativeError(error instanceof Error ? error.message : String(error));
+        setNativeError(describeError(error));
       });
       return;
     }
@@ -152,7 +153,7 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
       action,
     }).then(() => setLoading(false)).catch((error) => {
       setLoading(false);
-      setNativeError(error instanceof Error ? error.message : String(error));
+      setNativeError(describeError(error));
     });
   };
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { describeError } from "../lib/errors";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
@@ -180,7 +181,7 @@ function TerminalTabView({
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     const inputDisposable = terminal.onData((data) => {
-      if (isTauri && startedRef.current) void invoke("terminal_write", { id, data }).catch((error) => terminal.writeln(`\r\n${String(error)}`));
+      if (isTauri && startedRef.current) void invoke("terminal_write", { id, data }).catch((error) => terminal.writeln(`\r\n${describeError(error)}`));
     });
 
     if (!isTauri) {
@@ -225,7 +226,7 @@ function TerminalTabView({
         startedRef.current = true;
         if (active) terminal.focus();
       } catch (error) {
-        terminal.writeln(`\r\n无法启动终端：${String(error)}`);
+        terminal.writeln(`\r\n无法启动终端：${describeError(error)}`);
       }
     });
 

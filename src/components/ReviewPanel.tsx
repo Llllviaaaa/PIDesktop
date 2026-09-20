@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { describeError } from "../lib/errors";
 import hljs from "highlight.js/lib/common";
 import {
   ArrowDown,
@@ -171,7 +172,7 @@ export function ReviewPanel({
         setCommitSha((current) => current || nextCommits[0]?.sha || "");
       })
       .catch((error) => {
-        if (!cancelled) onErrorRef.current?.(`无法加载审查来源：${error instanceof Error ? error.message : String(error)}`);
+        if (!cancelled) onErrorRef.current?.(`无法加载审查来源：${describeError(error)}`);
       });
     return () => { cancelled = true; };
   }, [cwd, git?.isRepository]);
@@ -288,7 +289,7 @@ export function ReviewPanel({
       setSnapshot(next);
     } catch (error) {
       if (requestId === loadRequestRef.current) {
-        onErrorRef.current?.(`加载审查内容失败：${error instanceof Error ? error.message : String(error)}`);
+        onErrorRef.current?.(`加载审查内容失败：${describeError(error)}`);
       }
     } finally {
       if (requestId === loadRequestRef.current) setLoading(false);

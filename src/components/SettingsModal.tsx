@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { describeError } from "../lib/errors";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
@@ -579,7 +580,7 @@ function AppearancePage({
       setExtensionNotice(success);
     } catch (error) {
       setExtensionState("error");
-      setExtensionNotice(error instanceof Error ? error.message : String(error));
+      setExtensionNotice(describeError(error));
     }
   };
 

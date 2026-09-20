@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { describeError } from "../lib/errors";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   AlertCircle,
@@ -133,7 +134,7 @@ export function ScheduledTasksPage({
       setTasks(nextTasks);
       setRuns(nextRuns);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      onError(describeError(error));
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -183,7 +184,7 @@ export function ScheduledTasksPage({
       setEditorOpen(false);
       await load(false);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      onError(describeError(error));
     } finally {
       setSaving(false);
     }
@@ -194,7 +195,7 @@ export function ScheduledTasksPage({
       await pi.saveScheduledTask({ ...task, enabled: !task.enabled });
       await load(false);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      onError(describeError(error));
     }
   };
 
@@ -207,7 +208,7 @@ export function ScheduledTasksPage({
       onTasksChanged();
       setExpandedRunId(result.run.id);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      onError(describeError(error));
     } finally {
       setRunningId(null);
     }
@@ -219,7 +220,7 @@ export function ScheduledTasksPage({
       await pi.cancelScheduledTask(task.id);
       await load(false);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      onError(describeError(error));
     } finally {
       setCancellingId(null);
     }
@@ -231,7 +232,7 @@ export function ScheduledTasksPage({
       setDeleteConfirmId(null);
       await load(false);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      onError(describeError(error));
     }
   };
 

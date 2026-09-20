@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { describeError } from "../lib/errors";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   CircleAlert,
@@ -94,7 +95,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
     try {
       setResources(await pi.listResources(cwd));
     } catch (error) {
-      setNotice({ tone: "error", text: `无法读取已安装插件：${String(error)}` });
+      setNotice({ tone: "error", text: `无法读取已安装插件：${describeError(error)}` });
     } finally {
       setResourcesLoading(false);
     }
@@ -118,7 +119,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
       const detail = await pi.packageDetail(name);
       if (detailRequestRef.current === requestId) setSelectedDetail(detail);
     } catch (error) {
-      if (detailRequestRef.current === requestId) setDetailError(String(error));
+      if (detailRequestRef.current === requestId) setDetailError(describeError(error));
     } finally {
       if (detailRequestRef.current === requestId) setDetailLoading(false);
     }
@@ -139,7 +140,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
           return next;
         });
       }).catch((error) => {
-        if (!cancelled) setCatalogError(String(error));
+        if (!cancelled) setCatalogError(describeError(error));
       }).finally(() => {
         if (!cancelled) setCatalogLoading(false);
       });
@@ -161,7 +162,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
       setPendingInstall(null);
       if (action === "install") setManualSource("");
     } catch (error) {
-      setNotice({ tone: "error", text: String(error) });
+      setNotice({ tone: "error", text: describeError(error) });
     } finally {
       setBusyKey("");
     }

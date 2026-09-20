@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { describeError } from "../lib/errors";
 import { ChevronLeft, ChevronRight, Code2, ExternalLink, Eye, FileText, PanelRightClose, X } from "lucide-react";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { pi } from "../lib/pi";
@@ -73,7 +74,7 @@ export function DocumentPane({ cwd, path, line, tabs = [], onSelectTab, onCloseT
         if (!disposed) setFile(content);
       })
       .catch((err) => {
-        if (!disposed) setError(err instanceof Error ? err.message : String(err));
+        if (!disposed) setError(describeError(err));
       });
     return () => {
       disposed = true;

@@ -1,6 +1,7 @@
 mod commands;
 #[cfg(windows)]
 mod computer;
+mod error;
 mod extensions;
 mod pi;
 mod scheduler;
@@ -36,6 +37,7 @@ use commands::memory::{
 use commands::project::{
     list_projects_cmd, register_project_cmd, remove_local_project_cmd, save_project_cmd,
 };
+use error::AppError;
 use extensions::{
     ensure_browser_extension, ensure_computer_extension, ensure_guard_extension,
     ensure_hooks_extension, ensure_mcp_extension, ensure_memory_extension,
@@ -687,14 +689,14 @@ fn load_json_list<T: for<'de> Deserialize<'de>>(path: &Path) -> Vec<T> {
         .unwrap_or_default()
 }
 
-pub(crate) fn save_json_list<T: Serialize>(path: &Path, values: &[T]) -> Result<(), String> {
+pub(crate) fn save_json_list<T: Serialize>(path: &Path, values: &[T]) -> Result<(), AppError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create data directory: {err}"))?;
+            .map_err(|err| AppError::Io(format!("failed to create data directory: {err}")))?;
     }
     let raw = serde_json::to_string_pretty(values)
-        .map_err(|err| format!("failed to serialize data: {err}"))?;
-    fs::write(path, raw).map_err(|err| format!("failed to write data: {err}"))
+        .map_err(|err| AppError::Other(format!("failed to serialize data: {err}")))?;
+    fs::write(path, raw).map_err(|err| AppError::Io(format!("failed to write data: {err}")))
 }
 
 #[tauri::command(async)]
@@ -990,7 +992,7 @@ fn execute_scheduled_task(
     state: &AppState,
     id: &str,
     trigger: &str,
-) -> Result<ScheduledRunResult, String> {
+) -> Result<ScheduledRunResult, AppError> {
     let reservation = reserve_scheduled_task(state, id)?;
     let started_at = current_time_ms();
     let task = {
@@ -1019,11 +1021,11 @@ fn execute_scheduled_task(
 
     // Once begin_run succeeds, keep every later failure inside the run result so
     // history cannot be left permanently in the `running` state.
-    let running_task_result = (|| -> Result<ScheduledTask, String> {
+    let running_task_result = (|| -> Result<ScheduledTask, AppError> {
         let mut tasks = state
             .scheduled_tasks
             .lock()
-            .map_err(|_| "scheduled task state lock poisoned".to_string())?;
+            .map_err(|_| AppError::locked("scheduled task"))?;
         let entry = tasks
             .iter_mut()
             .find(|entry| entry.id == id)
@@ -1040,7 +1042,7 @@ fn execute_scheduled_task(
         entry.last_message.clear();
         let snapshot = entry.clone();
         save_json_list(&scheduled_tasks_path(), &tasks)?;
-        Ok(snapshot)
+        Ok::<_, AppError>(snapshot)
     })();
     if let Ok(running_task) = &running_task_result {
         emit_scheduled_task(app, running_task);
@@ -1138,18 +1140,18 @@ fn execute_scheduled_task(
     run.session_file = detect_scheduled_session(&settings, &task, &before_sessions);
     let history_result = scheduler::finish_run(&scheduled_runs_path(), &run);
 
-    let task_result = (|| -> Result<Option<ScheduledTask>, String> {
+    let task_result = (|| -> Result<Option<ScheduledTask>, AppError> {
         let mut tasks = state
             .scheduled_tasks
             .lock()
-            .map_err(|_| "scheduled task state lock poisoned".to_string())?;
+            .map_err(|_| AppError::locked("scheduled task"))?;
         let completed = tasks.iter_mut().find(|entry| entry.id == id).map(|entry| {
             entry.last_status = run.status.clone();
             entry.last_message = truncate_scheduled_output(&message, 2_000);
             entry.clone()
         });
         save_json_list(&scheduled_tasks_path(), &tasks)?;
-        Ok(completed)
+        Ok::<_, AppError>(completed)
     })();
     if let Ok(Some(completed_task)) = &task_result {
         emit_scheduled_task(app, completed_task);
@@ -1190,32 +1192,40 @@ fn save_scheduled_task_cmd(
     app: AppHandle,
     state: State<'_, AppState>,
     mut task: ScheduledTask,
-) -> Result<ScheduledTask, String> {
+) -> Result<ScheduledTask, AppError> {
     if task.name.trim().is_empty() {
-        return Err("task name is required".to_string());
+        return Err(AppError::InvalidInput("task name is required".to_string()));
     }
     if task.prompt.trim().is_empty() {
-        return Err("task prompt is required".to_string());
+        return Err(AppError::InvalidInput(
+            "task prompt is required".to_string(),
+        ));
     }
     if !Path::new(&task.cwd).is_dir() {
-        return Err("task workspace does not exist".to_string());
+        return Err(AppError::InvalidInput(
+            "task workspace does not exist".to_string(),
+        ));
     }
     if !matches!(
         task.frequency.as_str(),
         "hourly" | "daily" | "weekdays" | "weekly"
     ) {
-        return Err("unsupported task frequency".to_string());
+        return Err(AppError::InvalidInput(
+            "unsupported task frequency".to_string(),
+        ));
     }
     if !is_safe_scheduled_permission_mode(&task.permission_mode) {
-        return Err(
+        return Err(AppError::InvalidInput(
             "scheduled task permission mode must be read-only, ask, or workspace-write".to_string(),
-        );
+        ));
     }
     if task
         .timeout_minutes
         .is_some_and(|minutes| !(1..=240).contains(&minutes))
     {
-        return Err("scheduled task timeout must be between 1 and 240 minutes".to_string());
+        return Err(AppError::InvalidInput(
+            "scheduled task timeout must be between 1 and 240 minutes".to_string(),
+        ));
     }
     task.hour = task.hour.min(23);
     task.minute = task.minute.min(59);
@@ -1249,7 +1259,7 @@ fn delete_scheduled_task_cmd(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let mut tasks = state
         .scheduled_tasks
         .lock()
@@ -1268,7 +1278,7 @@ async fn run_scheduled_task_cmd(
     app: AppHandle,
     id: String,
     next_run_at: Option<u64>,
-) -> Result<ScheduledRunResult, String> {
+) -> Result<ScheduledRunResult, AppError> {
     let _ = next_run_at;
     let runner_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -1292,7 +1302,7 @@ fn cancel_scheduled_task_cmd(state: State<'_, AppState>, id: String) -> Result<(
     Ok(())
 }
 
-fn initialize_scheduled_runner(app: &AppHandle) -> Result<(), String> {
+fn initialize_scheduled_runner(app: &AppHandle) -> Result<(), AppError> {
     let now = current_time_ms();
     scheduler::recover_interrupted_runs(&scheduled_runs_path(), now)?;
     let state = app.state::<AppState>();
@@ -2310,7 +2320,7 @@ fn discovered_model_from_value(value: &serde_json::Value, api: &str) -> Option<M
 fn parse_discovered_model_catalog(
     value: &serde_json::Value,
     api: &str,
-) -> Result<Vec<ModelProviderModel>, String> {
+) -> Result<Vec<ModelProviderModel>, AppError> {
     let items = value
         .get("data")
         .and_then(|value| value.as_array())
@@ -2326,14 +2336,16 @@ fn parse_discovered_model_catalog(
     let mut models = models.into_values().collect::<Vec<_>>();
     models.sort_by_key(|model| model.id.to_lowercase());
     if models.is_empty() {
-        return Err("模型接口没有返回可用于生成内容的模型".to_string());
+        return Err(AppError::NotFound(
+            "模型接口没有返回可用于生成内容的模型".to_string(),
+        ));
     }
     Ok(models)
 }
 
 fn discover_model_provider_models_blocking(
     provider: ModelProviderInput,
-) -> Result<Vec<ModelProviderModel>, String> {
+) -> Result<Vec<ModelProviderModel>, AppError> {
     let api = provider.api.trim();
     let endpoint = provider_models_endpoint(&provider.base_url, api)?;
     let api_key = configured_provider_api_key(&provider)?;
@@ -2356,12 +2368,14 @@ fn discover_model_provider_models_blocking(
     let response = match request.call() {
         Ok(response) => response,
         Err(ureq::Error::Status(status, _)) => {
-            return Err(format!(
+            return Err(AppError::Network(format!(
                 "提供商模型接口返回 HTTP {status}，请检查 API 地址、协议和密钥"
-            ));
+            )));
         }
         Err(ureq::Error::Transport(error)) => {
-            return Err(format!("无法连接提供商模型接口: {error}"));
+            return Err(AppError::Network(format!(
+                "无法连接提供商模型接口: {error}"
+            )));
         }
     };
     const MAX_CATALOG_BYTES: u64 = 8 * 1024 * 1024;
@@ -2372,7 +2386,9 @@ fn discover_model_provider_models_blocking(
         .read_to_end(&mut bytes)
         .map_err(|error| format!("无法读取提供商模型列表: {error}"))?;
     if bytes.len() as u64 > MAX_CATALOG_BYTES {
-        return Err("提供商模型列表超过 8 MB，已停止读取".to_string());
+        return Err(AppError::InvalidInput(
+            "提供商模型列表超过 8 MB，已停止读取".to_string(),
+        ));
     }
     let value = serde_json::from_slice::<serde_json::Value>(&bytes)
         .map_err(|error| format!("提供商模型接口返回了无效 JSON: {error}"))?;
@@ -2382,10 +2398,10 @@ fn discover_model_provider_models_blocking(
 #[tauri::command]
 async fn discover_model_provider_models(
     provider: ModelProviderInput,
-) -> Result<Vec<ModelProviderModel>, String> {
+) -> Result<Vec<ModelProviderModel>, AppError> {
     tauri::async_runtime::spawn_blocking(move || discover_model_provider_models_blocking(provider))
         .await
-        .map_err(|error| format!("模型目录后台任务失败: {error}"))?
+        .map_err(|error| AppError::Process(format!("模型目录后台任务失败: {error}")))?
 }
 
 #[tauri::command(async)]
@@ -3513,7 +3529,7 @@ fn safe_external_url(entry: &str) -> Option<String> {
         .map(|path| format!("https://github.com/{}", path.trim_end_matches(".git")))
 }
 
-fn npm_registry_json(url: &str) -> Result<serde_json::Value, String> {
+fn npm_registry_json(url: &str) -> Result<serde_json::Value, AppError> {
     let agent = ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(18))
         .user_agent("PiDesktop/0.2 package-marketplace")
@@ -3521,30 +3537,32 @@ fn npm_registry_json(url: &str) -> Result<serde_json::Value, String> {
     let response = agent
         .get(url)
         .call()
-        .map_err(|err| format!("无法连接 npm Registry: {err}"))?;
+        .map_err(|err| AppError::Network(format!("无法连接 npm Registry: {err}")))?;
     response
         .into_json::<serde_json::Value>()
-        .map_err(|err| format!("npm Registry 返回了无效数据: {err}"))
+        .map_err(|err| AppError::Network(format!("npm Registry 返回了无效数据: {err}")))
 }
 
-async fn run_marketplace_request<T, F>(request: F) -> Result<T, String>
+async fn run_marketplace_request<T, F>(request: F) -> Result<T, AppError>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    F: FnOnce() -> Result<T, AppError> + Send + 'static,
 {
     tauri::async_runtime::spawn_blocking(request)
         .await
-        .map_err(|err| format!("插件市场后台任务失败: {err}"))?
+        .map_err(|err| AppError::Process(format!("插件市场后台任务失败: {err}")))?
 }
 
 fn search_pi_packages_blocking(
     query: String,
     page: Option<u32>,
     page_size: Option<u32>,
-) -> Result<PackageCatalogPage, String> {
+) -> Result<PackageCatalogPage, AppError> {
     let query = query.trim();
     if query.chars().count() > 120 {
-        return Err("搜索词不能超过 120 个字符".to_string());
+        return Err(AppError::InvalidInput(
+            "搜索词不能超过 120 个字符".to_string(),
+        ));
     }
     let page = page.unwrap_or(0);
     let page_size = page_size.unwrap_or(30).clamp(1, 50);
@@ -3613,14 +3631,14 @@ async fn search_pi_packages(
     query: String,
     page: Option<u32>,
     page_size: Option<u32>,
-) -> Result<PackageCatalogPage, String> {
+) -> Result<PackageCatalogPage, AppError> {
     run_marketplace_request(move || search_pi_packages_blocking(query, page, page_size)).await
 }
 
-fn pi_package_detail_blocking(name: String) -> Result<PackageCatalogDetail, String> {
+fn pi_package_detail_blocking(name: String) -> Result<PackageCatalogDetail, AppError> {
     let name = npm_package_name(&name).ok_or_else(|| "无效的 npm 软件包名称".to_string())?;
     if name.chars().count() > 214 {
-        return Err("npm 软件包名称过长".to_string());
+        return Err(AppError::InvalidInput("npm 软件包名称过长".to_string()));
     }
     let url = format!(
         "https://registry.npmjs.org/{}/latest",
@@ -3629,7 +3647,9 @@ fn pi_package_detail_blocking(name: String) -> Result<PackageCatalogDetail, Stri
     let value = npm_registry_json(&url)?;
     let keywords = json_string_list(value.get("keywords"));
     if !keywords.iter().any(|keyword| keyword == "pi-package") {
-        return Err("该软件包没有 pi-package 标记，未进入 Pi 官方目录".to_string());
+        return Err(AppError::NotFound(
+            "该软件包没有 pi-package 标记，未进入 Pi 官方目录".to_string(),
+        ));
     }
     let manifest = value.get("pi").cloned().unwrap_or(serde_json::Value::Null);
     let license = value
@@ -3682,7 +3702,7 @@ fn pi_package_detail_blocking(name: String) -> Result<PackageCatalogDetail, Stri
 }
 
 #[tauri::command]
-async fn pi_package_detail(name: String) -> Result<PackageCatalogDetail, String> {
+async fn pi_package_detail(name: String) -> Result<PackageCatalogDetail, AppError> {
     run_marketplace_request(move || pi_package_detail_blocking(name)).await
 }
 
@@ -3999,7 +4019,7 @@ struct UsageSummary {
 }
 
 #[tauri::command(async)]
-fn list_pull_requests(cwd: String) -> Result<PullRequestCollection, String> {
+fn list_pull_requests(cwd: String) -> Result<PullRequestCollection, AppError> {
     let cwd_path = PathBuf::from(&cwd);
     let repository_root = run_git(&cwd_path, &["rev-parse", "--show-toplevel"])?;
     let repository_root = PathBuf::from(repository_root.trim());
@@ -4028,11 +4048,11 @@ fn list_pull_requests(cwd: String) -> Result<PullRequestCollection, String> {
         .map_err(|err| format!("无法启动 GitHub CLI（gh）：{err}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if stderr.is_empty() {
+        return Err(AppError::Git(if stderr.is_empty() {
             "GitHub CLI 未登录或当前仓库没有可访问的远程仓库".to_string()
         } else {
             stderr
-        });
+        }));
     }
     let raw: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|err| format!("failed to parse GitHub pull requests: {err}"))?;
@@ -4186,7 +4206,7 @@ struct WorktreeInfo {
 }
 
 #[tauri::command(async)]
-fn list_worktrees(cwd: String) -> Result<Vec<WorktreeInfo>, String> {
+fn list_worktrees(cwd: String) -> Result<Vec<WorktreeInfo>, AppError> {
     let root = PathBuf::from(cwd);
     let output = run_git(&root, &["worktree", "list", "--porcelain"])?;
     Ok(parse_worktrees(&output))
@@ -4197,7 +4217,7 @@ fn create_worktree(
     state: State<'_, AppState>,
     cwd: String,
     base: Option<String>,
-) -> Result<WorktreeInfo, String> {
+) -> Result<WorktreeInfo, AppError> {
     let cwd = PathBuf::from(cwd);
     let repo = run_git(&cwd, &["rev-parse", "--show-toplevel"])?;
     let repo = PathBuf::from(repo.trim());
@@ -4247,9 +4267,11 @@ fn create_worktree(
         .arg(&base)
         .current_dir(&repo)
         .output()
-        .map_err(|err| format!("failed to create worktree: {err}"))?;
+        .map_err(|err| AppError::Process(format!("failed to create worktree: {err}")))?;
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        return Err(AppError::Git(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
     }
     Ok(WorktreeInfo {
         path: target.to_string_lossy().to_string(),
@@ -5395,7 +5417,7 @@ mod tests {
     fn marketplace_requests_run_off_the_command_thread() {
         let command_thread = std::thread::current().id();
         let worker_thread = tauri::async_runtime::block_on(run_marketplace_request(|| {
-            Ok::<_, String>(std::thread::current().id())
+            Ok::<_, AppError>(std::thread::current().id())
         }))
         .expect("marketplace worker should complete");
         assert_ne!(command_thread, worker_thread);

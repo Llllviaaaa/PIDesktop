@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { describeError } from "../lib/errors";
 import { ChevronRight, ExternalLink, File, Folder, Paperclip, RefreshCw, Search, X } from "lucide-react";
 import { pi } from "../lib/pi";
 import type { WorkspaceDirEntry } from "../types";
@@ -36,7 +37,7 @@ export function FileTreePanel({ cwd, activePath, onOpenFile, onAddToChat, onOpen
         }
       })
       .catch((err) => {
-        if (!disposed) setError(err instanceof Error ? err.message : String(err));
+        if (!disposed) setError(describeError(err));
       });
     return () => {
       disposed = true;
