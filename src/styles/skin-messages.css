@@ -1,0 +1,723 @@
+/*
+ * Vetta skin: transcript.
+ *
+ * Presentation follows Open Vetta's chat views: a right-aligned user bubble
+ * with a tucked corner, a quiet "worked for" fold above each reply, process
+ * rows hanging off a thin left gutter, and tree-branch bullet lists.
+ * Loaded in the `skin` layer; see skin-shell.css for the layering contract.
+ */
+
+.codex-shot .conversation .message-row {
+  color: var(--text);
+}
+
+/* ── User bubble ───────────────────────────────────────────────────── */
+
+.codex-shot .user-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.codex-shot .user-message .user-content {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 18px 18px 6px 18px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+  box-shadow: none;
+}
+
+.codex-shot .user-message .user-content .markdown-body,
+.codex-shot .user-message .user-content .markdown-body p {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.codex-shot .user-message .user-content .markdown-body p + p {
+  margin-top: 6px;
+}
+
+.codex-shot .user-message-text.is-collapsed::after {
+  background: linear-gradient(to bottom, transparent, var(--panel-strong));
+}
+
+.codex-shot .user-message-expand {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app) 80%, transparent);
+  color: var(--text-2);
+  backdrop-filter: blur(4px);
+}
+
+.codex-shot .user-message-expand:hover {
+  background: var(--app);
+  color: var(--text);
+}
+
+.codex-shot .message-images img {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 12px;
+  background: var(--panel-soft);
+}
+
+.codex-shot .user-message-actions {
+  justify-content: flex-end;
+}
+
+.codex-shot .message-edit-card {
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 18px;
+  background: var(--panel);
+}
+
+.codex-shot .message-edit-submit {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+/* ── Work-log fold ─────────────────────────────────────────────────── */
+
+.codex-shot .work-log {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.codex-shot .assistant-message.work-only .work-log {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+
+.codex-shot .work-log-toggle {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px 0 6px;
+  margin-left: -6px;
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--text-2) 75%, transparent);
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: background-color .15s, color .15s;
+}
+
+.codex-shot .work-log-toggle:not(.is-static):hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+.codex-shot .work-log-toggle svg {
+  transition: transform .2s;
+  color: var(--text-3);
+}
+
+.codex-shot .work-log-toggle svg.open {
+  transform: rotate(90deg);
+}
+
+.codex-shot .work-log.is-live .work-log-toggle > span {
+  color: transparent;
+  background-image: linear-gradient(90deg, var(--tool-shimmer-base) 0%, var(--tool-shimmer-base) 40%, var(--tool-shimmer-peak) 50%, var(--tool-shimmer-base) 60%, var(--tool-shimmer-base) 100%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: text-shimmer 2.2s linear infinite;
+}
+
+/* Process rows hang off a thin gutter, like Vetta's progress groups. */
+.codex-shot .work-log-body {
+  margin: 4px 0 0 7px;
+  padding: 2px 0 2px 13px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: work-log-open 180ms ease-out both;
+}
+
+@keyframes work-log-open {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+
+.codex-shot .work-log-thinking,
+.codex-shot .work-log-note {
+  margin: 2px 0 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--text-2) 90%, transparent);
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1.65;
+}
+
+.codex-shot .tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ── Tool rows ─────────────────────────────────────────────────────── */
+
+.codex-shot .tool-step {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+
+.codex-shot .tool-step-heading {
+  width: auto;
+  max-width: 100%;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: -6px;
+  padding: 3px 8px 3px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  text-align: left;
+  transition: background-color .15s;
+}
+
+.codex-shot .tool-step-heading:not(:disabled) {
+  cursor: pointer;
+}
+
+.codex-shot .tool-step-heading:not(:disabled):hover {
+  background: var(--hover);
+}
+
+.codex-shot .tool-step-heading:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.codex-shot .tool-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--text-3);
+}
+
+.codex-shot .tool-summary {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.codex-shot .tool-verb {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--text) 82%, transparent);
+  font-weight: 500;
+}
+
+.codex-shot .tool-target {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .tool-target.is-command {
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-3) 16%, transparent);
+  color: var(--text-2);
+  font-family: var(--code-font);
+  font-size: 11.5px;
+}
+
+.codex-shot .tool-step-heading small {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.codex-shot .tool-step-heading small.tool-stat-add { color: var(--green); }
+.codex-shot .tool-step-heading small.tool-stat-del { color: var(--red); }
+
+.codex-shot .tool-status {
+  display: inline-flex;
+  color: var(--text-3);
+}
+
+.codex-shot .tool-step.error .tool-status,
+.codex-shot .tool-step.error .tool-icon {
+  color: var(--red);
+}
+
+.codex-shot .tool-step.is-running .tool-verb,
+.codex-shot .tool-step.is-running .tool-target:not(.is-command) {
+  color: transparent;
+  background-image: linear-gradient(90deg, var(--tool-shimmer-base) 0%, var(--tool-shimmer-base) 40%, var(--tool-shimmer-peak) 50%, var(--tool-shimmer-base) 60%, var(--tool-shimmer-base) 100%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: text-shimmer 2.2s linear infinite;
+}
+
+/* Expanded tool output drops into its own gutter under the row. */
+.codex-shot .tool-step > .tool-card,
+.codex-shot .tool-step > .tool-body {
+  margin: 2px 0 8px 9px;
+  padding-left: 12px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  animation: work-log-open 160ms ease-out both;
+}
+
+.codex-shot .tool-step > .tool-card {
+  padding: 0 0 0 12px;
+  background: transparent;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 0;
+}
+
+.codex-shot .tool-step > .tool-card > *,
+.codex-shot .tool-body .tool-card {
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+
+.codex-shot .tool-step > .tool-card > * + * {
+  margin-top: 6px;
+}
+
+.codex-shot .tool-io-section {
+  overflow: hidden;
+}
+
+.codex-shot .tool-io-label {
+  padding: 6px 10px 0;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.codex-shot .tool-io-text {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--code-font);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.codex-shot .tool-diff {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 10px;
+  background: var(--panel-soft);
+  font-family: var(--code-font);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.codex-shot .tool-diff-line {
+  color: var(--text-2);
+  background: transparent;
+}
+
+.codex-shot .tool-diff-line.is-add {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: color-mix(in srgb, var(--green) 70%, var(--text));
+}
+
+.codex-shot .tool-diff-line.is-del {
+  background: color-mix(in srgb, var(--red) 13%, transparent);
+  color: color-mix(in srgb, var(--red) 70%, var(--text));
+}
+
+.codex-shot .tool-diff-line.is-hunk {
+  color: var(--text-3);
+}
+
+.codex-shot .tool-diff-gutter {
+  color: inherit;
+  opacity: .7;
+}
+
+.codex-shot .tool-hit-loc { color: var(--accent); }
+.codex-shot .tool-hit-text { color: var(--text-2); }
+
+.codex-shot .tool-plan-step { color: var(--text-2); }
+.codex-shot .tool-plan-step.is-completed { color: var(--text-3); text-decoration: line-through; }
+.codex-shot .tool-plan-step.is-in_progress { color: var(--text); }
+
+.codex-shot .tool-search-sources a {
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+/* ── Assistant markdown ────────────────────────────────────────────── */
+
+.codex-shot .assistant-content .markdown-body,
+.codex-shot .notice-content .markdown-body {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.codex-shot .assistant-content .markdown-body p {
+  margin: 6px 0;
+}
+
+.codex-shot .assistant-content .markdown-body > :first-child { margin-top: 0; }
+.codex-shot .assistant-content .markdown-body > :last-child { margin-bottom: 0; }
+
+.codex-shot .assistant-content .markdown-body h1 { margin: 16px 0 10px; font-size: 20px; font-weight: 700; line-height: 1.3; }
+.codex-shot .assistant-content .markdown-body h2 { margin: 14px 0 8px; font-size: 17px; font-weight: 700; line-height: 1.3; border: 0; padding: 0; }
+.codex-shot .assistant-content .markdown-body h3 { margin: 12px 0 8px; font-size: 15px; font-weight: 650; line-height: 1.35; }
+.codex-shot .assistant-content .markdown-body h4 { margin: 10px 0 6px; font-size: 14px; font-weight: 650; }
+
+.codex-shot .assistant-content .markdown-body strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+/* Tree-branch bullets: a rail through every item, an L-hook on the last. */
+.codex-shot .assistant-content .markdown-body ul {
+  margin: 6px 0;
+  padding-left: 10px;
+  list-style: none;
+}
+
+.codex-shot .assistant-content .markdown-body ul > li {
+  position: relative;
+  margin: 0;
+  padding: 3px 0 3px 18px;
+  list-style: none;
+}
+
+.codex-shot .assistant-content .markdown-body ul > li::marker {
+  content: none;
+}
+
+.codex-shot .assistant-content .markdown-body ul > li > p {
+  margin: 0;
+}
+
+.codex-shot .assistant-content .markdown-body ul > li > p + p {
+  margin-top: 6px;
+}
+
+.codex-shot .assistant-content .markdown-body ul > li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-left: 1px solid color-mix(in srgb, var(--text-2) 32%, transparent);
+}
+
+.codex-shot .assistant-content .markdown-body ul > li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 0.95rem;
+  left: 0;
+  width: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--text-2) 32%, transparent);
+}
+
+.codex-shot .assistant-content .markdown-body ul > li:last-child::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 12px;
+  height: 0.95rem;
+  border-left: 1px solid color-mix(in srgb, var(--text-2) 32%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--text-2) 32%, transparent);
+  border-bottom-left-radius: 7px;
+}
+
+/* GFM task lists keep their checkbox instead of a branch. */
+.codex-shot .assistant-content .markdown-body ul > li:has(> input[type="checkbox"])::before,
+.codex-shot .assistant-content .markdown-body ul > li:has(> input[type="checkbox"])::after {
+  content: none;
+}
+
+.codex-shot .assistant-content .markdown-body ul > li:has(> input[type="checkbox"]) {
+  padding-left: 0;
+}
+
+.codex-shot .assistant-content .markdown-body input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.codex-shot .assistant-content .markdown-body ol {
+  margin: 6px 0;
+  padding-left: 22px;
+}
+
+.codex-shot .assistant-content .markdown-body ol > li {
+  margin: 2px 0;
+  padding-left: 2px;
+}
+
+.codex-shot .assistant-content .markdown-body ol > li::marker {
+  color: var(--accent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Links and file references render as small tinted capsules. */
+.codex-shot .assistant-content .markdown-body a,
+.codex-shot .assistant-content .markdown-body .file-ref {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.55;
+  text-decoration: none;
+  vertical-align: baseline;
+  transition: background-color .15s;
+}
+
+.codex-shot .assistant-content .markdown-body a:hover,
+.codex-shot .assistant-content .markdown-body .file-ref:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.codex-shot .assistant-content .markdown-body a svg,
+.codex-shot .assistant-content .markdown-body .file-ref svg {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+}
+
+.codex-shot .assistant-content .markdown-body :not(pre) > code {
+  padding: 1px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-3) 18%, transparent);
+  color: var(--text);
+  font-family: var(--code-font);
+  font-size: 12.5px;
+}
+
+.codex-shot .assistant-content .markdown-body blockquote {
+  margin: 8px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--text-2);
+}
+
+.codex-shot .assistant-content .markdown-body hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Code blocks: one card, slim language bar, no inherited line strut. */
+.codex-shot .markdown-code {
+  margin: 10px 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 12px;
+  background: var(--panel-soft);
+}
+
+.codex-shot .markdown-code-bar {
+  min-height: 32px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.codex-shot .markdown-code-copy {
+  border-radius: 6px;
+  color: var(--text-3);
+}
+
+.codex-shot .markdown-code-copy:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .markdown-code pre {
+  margin: 0;
+  padding: 10px 14px 12px;
+  background: transparent;
+  font-family: var(--code-font);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.codex-shot .markdown-code pre code {
+  display: block;
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.codex-shot .markdown-table-scroll {
+  margin: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.codex-shot .markdown-table-scroll table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.codex-shot .markdown-table-scroll th,
+.codex-shot .markdown-table-scroll td {
+  padding: 7px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.codex-shot .markdown-table-scroll th {
+  background: var(--panel-soft);
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.codex-shot .markdown-table-scroll tr:last-child > td {
+  border-bottom: 0;
+}
+
+/* ── Reply footer, notices and dividers ────────────────────────────── */
+
+.codex-shot .message-copy {
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--text-3) 85%, transparent);
+}
+
+.codex-shot .message-copy:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .message-time {
+  color: var(--text-3);
+}
+
+.codex-shot .response-waiting i {
+  background: var(--accent);
+}
+
+.codex-shot .compaction-divider {
+  border: 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.codex-shot .compaction-divider::before,
+.codex-shot .compaction-divider::after {
+  background: color-mix(in srgb, var(--border) 90%, transparent);
+  border: 0;
+}
+
+.codex-shot .compaction-divider span {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-soft) 80%, transparent);
+}
+
+.codex-shot .notice-message {
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-soft) 70%, transparent);
+  color: var(--text-2);
+}
+
+.codex-shot .terminal-message {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-soft);
+}
+
+.codex-shot .terminal-message pre {
+  color: var(--text-2);
+}
+
+/* ── Conversation cards (plan, changes, diff chip) ─────────────────── */
+
+.codex-shot .conversation-plan-card,
+.codex-shot .conversation-change-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 6px 24px -14px hsl(var(--shadow-color) / 0.35);
+}
+
+.codex-shot .conversation-plan-open,
+.codex-shot .conversation-change-open {
+  color: var(--text);
+  background: transparent;
+}
+
+.codex-shot .conversation-plan-open:hover,
+.codex-shot .conversation-change-open:hover {
+  background: var(--hover);
+}
+
+.codex-shot .conversation-plan-icon,
+.codex-shot .conversation-change-icon {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.codex-shot .conversation-plan-step {
+  color: var(--text-2);
+}
+
+.codex-shot .conversation-change-card button {
+  border-color: var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+}
+
+.codex-shot .conversation-change-card button:hover {
+  background: var(--hover);
+}
+
+.codex-shot .title-diff-chip {
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 8px;
+  background: var(--panel);
+}

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   Archive,
   BarChart3,
   Bot,
+  Boxes,
   CheckCircle2,
   ChevronRight,
   CircleAlert,
@@ -24,16 +25,13 @@ import {
   Save,
   ServerCog,
   Settings2,
-  Shield,
   ShieldAlert,
   SlidersHorizontal,
   Sparkles,
-  TerminalSquare,
   Trash2,
   Workflow,
   Undo2,
   Upload,
-  UserRound,
   ArrowDown,
   ArrowUp,
   X,
@@ -141,46 +139,57 @@ const DEFAULTS: AppSettings = {
   archivedSessions: [],
 };
 
-const NAVIGATION: Array<{ label: string; items: Array<{ id: SettingsPage; label: string; icon: typeof Settings2; keywords: string }> }> = [
-  {
-    label: "个人",
-    items: [
-      { id: "general", label: "常规", icon: Settings2, keywords: "语言 启动 后续 文件 通知 language startup notifications" },
-      { id: "appearance", label: "外观", icon: Palette, keywords: "主题 黑色 白色 字体 缩放 theme color font" },
-      { id: "agent", label: "配置", icon: Bot, keywords: "工作模式 权限 审批 沙箱 子 agent 规则 approval sandbox rules" },
-      { id: "personalization", label: "个性化", icon: UserRound, keywords: "人格 指令 记忆 提示 personality instructions memory" },
-      { id: "shortcuts", label: "键盘快捷键", icon: Keyboard, keywords: "按键 绑定 命令 keys bindings" },
-      { id: "usage", label: "使用情况和计费", icon: BarChart3, keywords: "token 费用 统计 活动 cost statistics" },
-      { id: "debug", label: "调试", icon: SlidersHorizontal, keywords: "程序 会话 日志 诊断 binary logging" },
-    ],
-  },
-  {
-    label: "集成",
-    items: [
-      { id: "providers", label: "模型", icon: ServerCog, keywords: "模型 提供商 默认模型 推理 API 密钥 订阅 登录 OAuth ChatGPT Claude Copilot OpenRouter endpoint provider model key login" },
-      { id: "skills", label: "技能", icon: Sparkles, keywords: "技能 skill instructions" },
-      { id: "mcp", label: "MCP 服务器", icon: Network, keywords: "mcp tools stdio http server 工具 服务器" },
-      { id: "browser", label: "浏览器", icon: Globe2, keywords: "edge chrome chromium 网页 自动化 截图 browser web automation screenshot" },
-      { id: "computer", label: "电脑操控", icon: MonitorCog, keywords: "windows 鼠标 键盘 窗口 截图 computer use mouse keyboard" },
-    ],
-  },
-  {
-    label: "编码",
-    items: [
-      { id: "review", label: "代码审查", icon: Shield, keywords: "review 检查 审阅 delivery" },
-      { id: "git", label: "Git", icon: FolderGit2, keywords: "branches commit pull request force push" },
-      { id: "environment", label: "环境", icon: TerminalSquare, keywords: "shell 输出 命令 local worktree output commands" },
-      { id: "hooks", label: "Hooks", icon: Workflow, keywords: "hooks lifecycle 自动 命令 tool session event" },
-      { id: "worktrees", label: "Worktrees", icon: GitBranch, keywords: "并行 隔离 本地 检出 parallel isolated" },
-    ],
-  },
-  {
-    label: "已归档",
-    items: [
-      { id: "archived", label: "已归档的聊天", icon: Archive, keywords: "会话 任务 恢复 删除 历史 sessions restore" },
-    ],
-  },
+/** Individual settings panels; kept stable so callers can deep-link to any of them. */
+const PAGE_INFO: Record<SettingsPage, { label: string; keywords: string }> = {
+  general: { label: "常规", keywords: "语言 启动 后续 文件 通知 language startup notifications" },
+  environment: { label: "环境", keywords: "shell 输出 命令 终端 local worktree output commands terminal" },
+  appearance: { label: "外观", keywords: "主题 黑色 白色 字体 缩放 宠物 theme color font pet" },
+  providers: { label: "模型", keywords: "模型 提供商 默认模型 推理 API 密钥 订阅 登录 OAuth ChatGPT Claude Copilot OpenRouter endpoint provider model key login" },
+  agent: { label: "工作方式", keywords: "工作模式 权限 审批 沙箱 子 agent 规则 计划 approval sandbox rules plan" },
+  personalization: { label: "个性化", keywords: "人格 指令 记忆 提示 personality instructions memory" },
+  skills: { label: "技能", keywords: "技能 skill instructions" },
+  mcp: { label: "MCP", keywords: "mcp tools stdio http server 工具 服务器" },
+  browser: { label: "浏览器", keywords: "edge chrome chromium 网页 自动化 截图 browser web automation screenshot" },
+  computer: { label: "电脑操控", keywords: "windows 鼠标 键盘 窗口 截图 computer use mouse keyboard" },
+  git: { label: "Git", keywords: "branches commit pull request force push 分支 提交" },
+  review: { label: "代码审查", keywords: "review 检查 审阅 delivery" },
+  worktrees: { label: "Worktrees", keywords: "并行 隔离 本地 检出 parallel isolated" },
+  hooks: { label: "Hooks", keywords: "hooks lifecycle 自动 命令 tool session event" },
+  shortcuts: { label: "快捷键", keywords: "按键 绑定 命令 keys bindings" },
+  archived: { label: "已归档", keywords: "会话 任务 恢复 删除 历史 sessions restore" },
+  usage: { label: "用量", keywords: "token 费用 统计 活动 cost statistics 使用情况 计费" },
+  debug: { label: "调试", keywords: "程序 会话 日志 诊断 binary logging" },
+};
+
+/**
+ * Settings navigation, modeled on Open Vetta's flat tab list. Each entry owns one
+ * or more panels: light panels stack as sections, heavy ones switch via sub-tabs.
+ */
+const SETTINGS_GROUPS: Array<{
+  id: string;
+  label: string;
+  description: string;
+  icon: typeof Settings2;
+  pages: SettingsPage[];
+  layout: "single" | "stack" | "tabs";
+}> = [
+  { id: "general", label: "通用", description: "启动、消息发送、通知与集成终端。", icon: Settings2, pages: ["general", "environment"], layout: "stack" },
+  { id: "appearance", label: "外观", description: "", icon: Palette, pages: ["appearance"], layout: "single" },
+  { id: "models", label: "模型", description: "", icon: ServerCog, pages: ["providers"], layout: "single" },
+  { id: "agent", label: "Agent", description: "工作模式、审批规则与长期指令。", icon: Bot, pages: ["agent", "personalization"], layout: "stack" },
+  { id: "capabilities", label: "能力扩展", description: "技能、MCP 服务器，以及浏览器和电脑操控工具。", icon: Boxes, pages: ["skills", "mcp", "browser", "computer"], layout: "tabs" },
+  { id: "coding", label: "代码与 Git", description: "分支、审查、Worktree 与生命周期 Hooks。", icon: FolderGit2, pages: ["git", "review", "worktrees", "hooks"], layout: "tabs" },
+  { id: "shortcuts", label: "快捷键", description: "", icon: Keyboard, pages: ["shortcuts"], layout: "single" },
+  { id: "archived", label: "已归档", description: "", icon: Archive, pages: ["archived"], layout: "single" },
+  { id: "advanced", label: "高级", description: "用量统计与 Pi 进程诊断。", icon: SlidersHorizontal, pages: ["usage", "debug"], layout: "stack" },
 ];
+
+function groupForPage(page: SettingsPage) {
+  return SETTINGS_GROUPS.find((group) => group.pages.includes(page)) ?? SETTINGS_GROUPS[0];
+}
+
+/** How a panel's own PageHeading renders once it sits inside a grouped page. */
+const PanelHeadingMode = createContext<"page" | "section" | "description">("page");
 
 export function SettingsModal({
   settings,
@@ -304,45 +313,118 @@ export function SettingsModal({
     void flushSettings().finally(onClose);
   };
 
-  const filteredNavigation = NAVIGATION.map((section) => ({
-    ...section,
-    items: section.items.filter((item) => `${item.label} ${item.keywords}`.toLowerCase().includes(query.toLowerCase())),
-  })).filter((section) => section.items.length > 0);
+  const needle = query.trim().toLowerCase();
+  const visibleGroups = SETTINGS_GROUPS.filter((group) => !needle || [
+    group.label,
+    group.description,
+    ...group.pages.map((page) => `${PAGE_INFO[page].label} ${PAGE_INFO[page].keywords}`),
+  ].join(" ").toLowerCase().includes(needle));
+  const activeGroup = groupForPage(active);
+
+  const renderPanel = (page: SettingsPage) => (
+    <>
+      {page === "general" && <GeneralPage form={form} update={update} />}
+      {page === "appearance" && <AppearancePage form={form} update={update} catalog={appearanceCatalog} cwd={cwd} onReload={onReloadAppearance} />}
+      {page === "agent" && <AgentPage form={form} update={update} onOpenModels={() => setActive("providers")} />}
+      {page === "personalization" && <PersonalizationPage
+        form={form}
+        update={update}
+        memoryText={memoryText}
+        memoryState={memoryState}
+        onMemoryChange={(value) => { setMemoryText(value); setMemoryState("idle"); }}
+        onMemorySave={async () => {
+          setMemoryState("saving");
+          try {
+            await pi.setLocalMemory(memoryText);
+            setMemoryState("saved");
+          } catch {
+            setMemoryState("error");
+          }
+        }}
+        onMemoryExport={async () => {
+          const destination = await saveDialog({
+            title: "导出本地记忆",
+            defaultPath: "pidesktop-memory.md",
+            filters: [{ name: "Markdown", extensions: ["md"] }],
+          });
+          if (typeof destination !== "string") return;
+          setMemoryState("saving");
+          try {
+            await pi.setLocalMemory(memoryText);
+            await pi.exportLocalMemory(destination);
+            setMemoryState("saved");
+          } catch {
+            setMemoryState("error");
+          }
+        }}
+        onMemoryDelete={async () => {
+          if (!window.confirm("删除 PIDesktop 本地记忆文件吗？此操作不能撤销。")) return;
+          try {
+            await pi.deleteLocalMemory();
+            setMemoryText("");
+            setMemoryState("idle");
+          } catch {
+            setMemoryState("error");
+          }
+        }}
+      />}
+      {page === "shortcuts" && <ShortcutsPage form={form} update={update} />}
+      {page === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
+        await pi.restoreSession(session.file);
+        setArchived((items) => items.filter((item) => item.file !== session.file));
+        setForm((current) => ({ ...current, archivedSessions: current.archivedSessions.filter((file) => file !== session.file) }));
+      }} onDelete={async (session) => {
+        if (!window.confirm(`将“${session.name || session.firstMessage || "未命名任务"}”移到 Pi Desktop 回收站吗？`)) return;
+        await pi.deleteSession(session.file);
+        setArchived((items) => items.filter((item) => item.file !== session.file));
+      }} />}
+      {page === "usage" && <UsagePage usage={usage} />}
+      {page === "providers" && <ModelsPage form={form} update={update} />}
+      {page === "skills" && <SkillsPage resources={resources} loading={loadingData} />}
+      {page === "mcp" && <McpPage form={form} update={update} />}
+      {page === "browser" && <BrowserPage form={form} update={update} />}
+      {page === "computer" && <ComputerPage form={form} update={update} />}
+      {page === "review" && <CodeReviewPage form={form} update={update} />}
+      {page === "environment" && <EnvironmentPage form={form} update={update} />}
+      {page === "hooks" && <HooksPage form={form} update={update} />}
+      {page === "git" && <GitPage form={form} update={update} />}
+      {page === "worktrees" && <WorktreesPage cwd={cwd} worktrees={worktrees} loading={loadingData} onCreated={(item) => setWorktrees((items) => [...items, item])} />}
+      {page === "debug" && <DebugPage form={form} update={update} />}
+    </>
+  );
 
   return (
     <div className="settings-center" role="dialog" aria-modal="true" aria-label="设置">
       <aside className="settings-navigation">
-        <button className="settings-back" onClick={closeSettings}><ChevronRight size={16} /> 返回应用</button>
+        <div className="settings-nav-title">
+          <button className="settings-back" onClick={closeSettings} title="返回应用" aria-label="返回应用"><ChevronRight size={16} /></button>
+          <h1>设置</h1>
+        </div>
         <label className="settings-search">
-          <Search size={16} />
+          <Search size={15} />
           <input autoFocus placeholder="搜索设置…" value={query} onChange={(event) => setQuery(event.target.value)} />
           {query && <button onClick={() => setQuery("")}><X size={13} /></button>}
         </label>
-        <div className="settings-nav-scroll">
-          {filteredNavigation.map((section) => (
-            <section key={section.label}>
-              <h3>{section.label}</h3>
-              {section.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.id}
-                    className={active === item.id ? "active" : ""}
-                    onClick={() => { setActive(item.id); setQuery(""); }}
-                  >
-                    <Icon size={16} /> {item.label}
-                  </button>
-                );
-              })}
-            </section>
-          ))}
-          {filteredNavigation.length === 0 && <div className="settings-no-results">没有匹配的设置</div>}
-        </div>
+        <nav className="settings-nav-scroll">
+          {visibleGroups.map((group) => {
+            const Icon = group.icon;
+            return (
+              <button
+                key={group.id}
+                className={activeGroup.id === group.id ? "active" : ""}
+                onClick={() => { setActive(group.pages[0]); setQuery(""); }}
+              >
+                <Icon size={16} /> <span>{group.label}</span>
+              </button>
+            );
+          })}
+          {visibleGroups.length === 0 && <div className="settings-no-results">没有匹配的设置</div>}
+        </nav>
       </aside>
 
       <main className="settings-content">
         <header className="settings-content-header">
-          <strong>{NAVIGATION.flatMap((section) => section.items).find((item) => item.id === active)?.label}</strong>
+          <span />
           <div>
             <span className={`settings-save-status ${saveState}`} aria-live="polite">
               {saveState === "pending" || saveState === "saving" ? "正在保存…" : saveState === "saved" ? "已保存" : saveState === "error" ? "保存失败" : ""}
@@ -352,73 +434,37 @@ export function SettingsModal({
         </header>
         <div className="settings-page-scroll">
           <div className={`settings-page ${active === "providers" ? "wide" : ""}`}>
-            {active === "general" && <GeneralPage form={form} update={update} />}
-            {active === "appearance" && <AppearancePage form={form} update={update} catalog={appearanceCatalog} cwd={cwd} onReload={onReloadAppearance} />}
-            {active === "agent" && <AgentPage form={form} update={update} onOpenModels={() => setActive("providers")} />}
-            {active === "personalization" && <PersonalizationPage
-              form={form}
-              update={update}
-              memoryText={memoryText}
-              memoryState={memoryState}
-              onMemoryChange={(value) => { setMemoryText(value); setMemoryState("idle"); }}
-              onMemorySave={async () => {
-                setMemoryState("saving");
-                try {
-                  await pi.setLocalMemory(memoryText);
-                  setMemoryState("saved");
-                } catch {
-                  setMemoryState("error");
-                }
-              }}
-              onMemoryExport={async () => {
-                const destination = await saveDialog({
-                  title: "导出本地记忆",
-                  defaultPath: "pidesktop-memory.md",
-                  filters: [{ name: "Markdown", extensions: ["md"] }],
-                });
-                if (typeof destination !== "string") return;
-                setMemoryState("saving");
-                try {
-                  await pi.setLocalMemory(memoryText);
-                  await pi.exportLocalMemory(destination);
-                  setMemoryState("saved");
-                } catch {
-                  setMemoryState("error");
-                }
-              }}
-              onMemoryDelete={async () => {
-                if (!window.confirm("删除 PIDesktop 本地记忆文件吗？此操作不能撤销。")) return;
-                try {
-                  await pi.deleteLocalMemory();
-                  setMemoryText("");
-                  setMemoryState("idle");
-                } catch {
-                  setMemoryState("error");
-                }
-              }}
-            />}
-            {active === "shortcuts" && <ShortcutsPage form={form} update={update} />}
-            {active === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
-              await pi.restoreSession(session.file);
-              setArchived((items) => items.filter((item) => item.file !== session.file));
-              setForm((current) => ({ ...current, archivedSessions: current.archivedSessions.filter((file) => file !== session.file) }));
-            }} onDelete={async (session) => {
-              if (!window.confirm(`将“${session.name || session.firstMessage || "未命名任务"}”移到 Pi Desktop 回收站吗？`)) return;
-              await pi.deleteSession(session.file);
-              setArchived((items) => items.filter((item) => item.file !== session.file));
-            }} />}
-            {active === "usage" && <UsagePage usage={usage} />}
-            {active === "providers" && <ModelsPage form={form} update={update} />}
-            {active === "skills" && <SkillsPage resources={resources} loading={loadingData} />}
-            {active === "mcp" && <McpPage form={form} update={update} />}
-            {active === "browser" && <BrowserPage form={form} update={update} />}
-            {active === "computer" && <ComputerPage form={form} update={update} />}
-            {active === "review" && <CodeReviewPage form={form} update={update} />}
-            {active === "environment" && <EnvironmentPage form={form} update={update} />}
-            {active === "hooks" && <HooksPage form={form} update={update} />}
-            {active === "git" && <GitPage form={form} update={update} />}
-            {active === "worktrees" && <WorktreesPage cwd={cwd} worktrees={worktrees} loading={loadingData} onCreated={(item) => setWorktrees((items) => [...items, item])} />}
-            {active === "debug" && <DebugPage form={form} update={update} />}
+            {activeGroup.layout === "single" ? renderPanel(active) : (
+              <>
+                <div className="settings-page-heading">
+                  <h1>{activeGroup.label}</h1>
+                  {activeGroup.description && <p>{activeGroup.description}</p>}
+                </div>
+                {activeGroup.layout === "tabs" ? (
+                  <>
+                    <div className="settings-subtabs" role="tablist" aria-label={activeGroup.label}>
+                      {activeGroup.pages.map((page) => (
+                        <button
+                          key={page}
+                          type="button"
+                          role="tab"
+                          aria-selected={active === page}
+                          className={active === page ? "active" : ""}
+                          onClick={() => setActive(page)}
+                        >
+                          {PAGE_INFO[page].label}
+                        </button>
+                      ))}
+                    </div>
+                    <PanelHeadingMode.Provider value="description">{renderPanel(active)}</PanelHeadingMode.Provider>
+                  </>
+                ) : (
+                  <PanelHeadingMode.Provider value="section">
+                    {activeGroup.pages.map((page) => <div key={page} className="settings-stack-panel">{renderPanel(page)}</div>)}
+                  </PanelHeadingMode.Provider>
+                )}
+              </>
+            )}
           </div>
         </div>
       </main>
@@ -429,6 +475,10 @@ export function SettingsModal({
 type Update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 
 function PageHeading({ title, description }: { title: string; description: string }) {
+  const mode = useContext(PanelHeadingMode);
+  if (mode === "description") return <p className="settings-panel-description">{description}</p>;
+  // Stacked panels read as one page: the group heading already introduces them.
+  if (mode === "section") return null;
   return <div className="settings-page-heading"><h1>{title}</h1><p>{description}</p></div>;
 }
 

@@ -1,0 +1,374 @@
+/*
+ * Vetta skin: new-session page and composer.
+ * Loaded in the `skin` layer; see skin-shell.css for the layering contract.
+ */
+
+/* ── New-session page ──────────────────────────────────────────────── */
+
+.codex-shot .new-task-screen.vetta-home {
+  position: relative;
+  isolation: isolate;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 32px 40px 48px;
+}
+
+/* Faint square grid that fades out toward the edges, as on Vetta's home. */
+.codex-shot .vetta-home-grid {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--text) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--text) 5%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  background-position: center center;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 20%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 20%, transparent 78%);
+}
+
+.codex-shot .vetta-home-grid::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 45% 38% at 50% 48%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%);
+}
+
+.codex-shot .vetta-home-intro {
+  width: min(720px, 100%);
+  margin: 0 auto 18px;
+  padding: 0 4px;
+  text-align: left;
+}
+
+.codex-shot .vetta-home .new-task-heading {
+  max-width: none;
+  margin: 0;
+  color: var(--text);
+  font-size: 30px;
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-align: left;
+}
+
+.codex-shot .vetta-home .project-underline {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 0;
+}
+
+.codex-shot .new-task-subtitle {
+  margin: 8px 0 0;
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.codex-shot .vetta-home .new-task-error {
+  margin: 10px 0 0;
+  color: var(--red);
+  font-size: 13px;
+}
+
+.codex-shot .vetta-home .starter-cards {
+  width: min(720px, 100%);
+  margin: 14px auto 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.codex-shot .vetta-home .starter-card {
+  min-height: 0;
+  height: 32px;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 1;
+  box-shadow: none;
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+
+.codex-shot .vetta-home .starter-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  color: var(--text);
+}
+
+.codex-shot .vetta-home .starter-icon {
+  display: inline-flex;
+  width: auto;
+  height: auto;
+  color: var(--text-3);
+}
+
+.codex-shot .vetta-home .starter-card:hover .starter-icon {
+  color: var(--accent);
+}
+
+.codex-shot .home-recent {
+  width: min(720px, 100%);
+  margin: 28px auto 0;
+}
+
+.codex-shot .home-recent-label {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.codex-shot .home-recent-item {
+  border-radius: 10px;
+  color: var(--text-2);
+}
+
+.codex-shot .home-recent-item:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* ── Composer card ─────────────────────────────────────────────────── */
+
+.codex-shot .composer-dock,
+:root[data-theme="dark"] .codex-shot .composer-dock {
+  background: linear-gradient(180deg, transparent, var(--app) 34%);
+}
+
+.codex-shot .composer-card,
+.codex-shot .composer-card.unified,
+.codex-shot .composer-card.follow-up,
+.codex-shot .task-start-composer .composer-card.with-chips {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow:
+    0 1px 2px hsl(var(--shadow-color) / 0.06),
+    0 10px 30px -12px hsl(var(--shadow-color) / 0.28);
+  transition: border-color .15s, box-shadow .15s;
+}
+
+:root[data-theme="light"] .codex-shot .composer-card,
+:root[data-theme="light"] .codex-shot .task-start-composer .composer-card.with-chips {
+  background: var(--app);
+}
+
+.codex-shot .composer-card:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.codex-shot .task-start-composer .composer-card.with-chips {
+  margin-top: 0;
+  padding: 10px 0 8px;
+}
+
+.codex-shot .composer-input {
+  color: var(--text);
+  background: transparent;
+  font-size: 14.5px;
+}
+
+.codex-shot .composer-input::placeholder {
+  color: var(--text-3);
+}
+
+.codex-shot .task-start-composer .composer-input {
+  min-height: 56px;
+  padding: 8px 18px 4px;
+  font-size: 14.5px;
+}
+
+.codex-shot .composer-toolbar,
+.codex-shot .task-start-composer .composer-toolbar {
+  padding-inline: 12px;
+}
+
+/* Workspace/environment context rides above the card like a folder tab. */
+.codex-shot .composer-context-tray {
+  width: calc(100% - 32px);
+  min-height: 36px;
+  margin: 0 auto -1px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: color-mix(in srgb, var(--panel-soft) 80%, var(--sidebar-bg));
+}
+
+.codex-shot .composer-context-tray .composer-chips {
+  padding: 5px 10px 5px;
+}
+
+.codex-shot .chip,
+.codex-shot .composer-context-tray .chip {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.codex-shot .chip:hover,
+.codex-shot .chip.active,
+.codex-shot .composer-context-tray .chip:hover {
+  border-color: transparent;
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .chip-permission {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.codex-shot .composer-icon-button,
+.codex-shot .model-combo,
+.codex-shot .compact-select {
+  border-radius: 10px;
+  color: var(--text-2);
+  background: transparent;
+}
+
+.codex-shot .composer-icon-button:hover,
+.codex-shot .model-combo:hover,
+.codex-shot .model-combo.active {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .model-combo {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.codex-shot .composer-context-usage,
+.codex-shot .composer-context-indicator {
+  color: var(--text-3);
+}
+
+/* Round send button: indigo when armed, a quiet disc when there is nothing to send. */
+.codex-shot .send-button,
+.codex-shot .stop-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color .15s, color .15s, transform .12s;
+}
+
+.codex-shot .send-button {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.codex-shot .send-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 86%, var(--text));
+}
+
+.codex-shot .send-button:active:not(:disabled),
+.codex-shot .stop-button:active {
+  transform: scale(.94);
+}
+
+.codex-shot .send-button:disabled,
+:root[data-theme="light"] .codex-shot .send-button:disabled,
+:root[data-theme="dark"] .codex-shot .send-button:disabled {
+  opacity: 1;
+  background: color-mix(in srgb, var(--text-3) 22%, transparent);
+  color: var(--text-3);
+}
+
+.codex-shot .stop-button {
+  background: var(--text);
+  color: var(--app);
+}
+
+.codex-shot .attachment-chip {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-soft);
+  color: var(--text-2);
+}
+
+/* ── Composer popovers ─────────────────────────────────────────────── */
+
+.codex-shot .command-menu,
+.codex-shot .composer-actions-menu,
+.codex-shot .permission-menu,
+.codex-shot .model-picker-menu,
+.codex-shot .workspace-context-menu {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 14px;
+  background: var(--popover);
+  color: var(--text);
+  box-shadow:
+    0 1px 2px hsl(var(--shadow-color) / 0.12),
+    0 16px 40px -10px hsl(var(--shadow-color) / 0.38);
+}
+
+.codex-shot .composer-actions-menu button,
+.codex-shot .permission-menu button,
+.codex-shot .model-picker-list button,
+.codex-shot .workspace-context-list button,
+.codex-shot .workspace-context-new,
+.codex-shot .command-menu button {
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.codex-shot .composer-actions-menu button:hover,
+.codex-shot .permission-menu button:hover,
+.codex-shot .model-picker-list button:hover,
+.codex-shot .workspace-context-list button:hover,
+.codex-shot .workspace-context-new:hover,
+.codex-shot .command-menu button:hover,
+.codex-shot .command-menu button.active {
+  background: var(--hover);
+}
+
+.codex-shot .composer-actions-menu button.active,
+.codex-shot .permission-menu button.active,
+.codex-shot .model-picker-list button.active,
+.codex-shot .thinking-picker-options button.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+
+.codex-shot .composer-actions-heading,
+.codex-shot .model-picker-provider,
+.codex-shot .thinking-picker-heading,
+.codex-shot .model-picker-heading {
+  color: var(--text-3);
+}
+
+.codex-shot .model-picker-search {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text-2);
+}
+
+.codex-shot .model-picker-search input {
+  color: var(--text);
+}
+
+.codex-shot .composer-actions-separator {
+  background: var(--border);
+}
+
+.codex-shot .composer-queue {
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--text-2);
+}

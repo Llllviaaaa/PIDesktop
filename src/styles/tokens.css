@@ -1,0 +1,52 @@
+/*
+ * Design tokens that are not part of the appearance palette, plus the small
+ * base reset Tailwind utilities need (preflight is not loaded, see index.css).
+ */
+:root {
+  --radius: 0.5rem;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  --popover: color-mix(in srgb, var(--panel) 82%, var(--text) 18%);
+  --shadow-color: 0 0% 0%;
+  --tool-shimmer-base: color-mix(in srgb, var(--text-2) 85%, var(--text));
+  --tool-shimmer-peak: color-mix(in srgb, var(--text) 72%, var(--accent));
+}
+
+:root[data-theme="light"] {
+  --popover: var(--app);
+}
+
+*,
+::before,
+::after {
+  border: 0 solid;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* Running text: a light band sweeps across while a tool or group is live. */
+.shimmer-text {
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    var(--tool-shimmer-base) 0%,
+    var(--tool-shimmer-base) 40%,
+    var(--tool-shimmer-peak) 50%,
+    var(--tool-shimmer-base) 60%,
+    var(--tool-shimmer-base) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: text-shimmer 2.2s linear infinite;
+}
+
+@keyframes text-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text { animation: none; color: var(--tool-shimmer-base); }
+}

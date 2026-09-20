@@ -1,0 +1,70 @@
+/*
+ * Stylesheet entry.
+ *
+ * Layer order keeps Tailwind utilities above the legacy stylesheet, so a
+ * component migrated to utility classes never loses to an older selector.
+ * The `skin` layer restyles legacy markup that has not been rewritten yet.
+ * Tailwind's preflight is left out on purpose: the legacy panels still rely
+ * on browser defaults for lists, headings and form controls.
+ */
+@layer theme, base, legacy, skin, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "./tokens.css" layer(base);
+@import "../styles.css" layer(legacy);
+@import "./models.css" layer(legacy);
+@import "./skin-shell.css" layer(skin);
+@import "./skin-composer.css" layer(skin);
+@import "./skin-messages.css" layer(skin);
+@import "./skin-settings.css" layer(skin);
+@import "./skin-panels.css" layer(skin);
+@import "./skin-light.css" layer(skin);
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * Tailwind color names follow the shadcn vocabulary Vetta uses, mapped onto
+ * the palette variables that App.tsx writes from the active appearance theme.
+ * Note the one naming trap: Tailwind `accent` is the hover surface, while the
+ * palette's `--accent` is the brand color and surfaces here as `primary`.
+ */
+@theme inline {
+  --color-background: var(--app);
+  --color-foreground: var(--text);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-text);
+  --color-secondary: var(--panel-strong);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--panel-soft);
+  --color-muted-foreground: var(--text-2);
+  --color-subtle-foreground: var(--text-3);
+  --color-accent: var(--hover);
+  --color-accent-foreground: var(--text);
+  --color-active: var(--active);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--border-strong);
+  --color-ring: var(--accent);
+  --color-sidebar: var(--sidebar-bg);
+  --color-sidebar-foreground: var(--sidebar-text);
+  --color-destructive: var(--red);
+  --color-success: var(--green);
+  --color-warning: var(--yellow);
+  --color-info: var(--blue);
+
+  --font-sans: var(--font-ui);
+  --font-mono: var(--code-font);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+
+  --animate-shimmer: text-shimmer 2.2s linear infinite;
+}

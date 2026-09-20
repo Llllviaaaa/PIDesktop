@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { ArrowUp, Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, Copy, Info, Link2, LoaderCircle, Pencil, RotateCcw, Share2, Terminal } from "lucide-react";
 import type { UiMessage, UiToolCall } from "../types";
 import { foldThinking } from "../lib/thinkingDisplay";
@@ -9,6 +10,12 @@ import { Markdown } from "./Markdown";
 import { ToolCall } from "./ToolCall";
 
 export const USER_MESSAGE_COLLAPSED_LINES = 6;
+
+/** A user message younger than this at mount was just sent, so its bubble animates in. */
+const USER_MESSAGE_ENTRY_WINDOW_MS = 1_500;
+const USER_BUBBLE_HIDDEN = { opacity: 0, scale: 0.82, x: 14, y: 12 };
+const USER_BUBBLE_VISIBLE = { opacity: 1, scale: 1, x: 0, y: 0 };
+const USER_BUBBLE_SPRING = { type: "spring", stiffness: 520, damping: 24, mass: 0.8 } as const;
 
 export function isUserMessageOverLineLimit(contentHeight: number, lineHeight: number): boolean {
   if (!Number.isFinite(contentHeight) || !Number.isFinite(lineHeight) || contentHeight <= 0 || lineHeight <= 0) {
@@ -99,6 +106,10 @@ export const Message = memo(function Message({
   const [rewinding, setRewinding] = useState(false);
   const [userMessageCollapsible, setUserMessageCollapsible] = useState(false);
   const [userMessageExpanded, setUserMessageExpanded] = useState(false);
+  const reduceMotion = useReducedMotion();
+  const [userBubbleEntering] = useState(
+    () => message.role === "user" && Date.now() - message.timestamp < USER_MESSAGE_ENTRY_WINDOW_MS,
+  );
   const assistantWorking = message.role === "assistant"
     && (message.isStreaming || (isLastAssistant && globalStreaming));
   const transcriptDensity = summaryMode ? "summary" : normalizeTranscriptDensity(density);
@@ -272,7 +283,13 @@ export const Message = memo(function Message({
       : message.content;
     return (
       <article className={`message-row user-message${userMessageState}`} id={`message-${message.id}`}>
-        <div className="user-content">
+        <motion.div
+          className="user-content"
+          initial={userBubbleEntering && !reduceMotion ? USER_BUBBLE_HIDDEN : false}
+          animate={USER_BUBBLE_VISIBLE}
+          transition={USER_BUBBLE_SPRING}
+          style={{ originX: 1, originY: 1 }}
+        >
           {message.images && message.images.length > 0 && (
             <div className="message-images">
               {message.images.map((image, index) => (
@@ -312,7 +329,7 @@ export const Message = memo(function Message({
                 : <ChevronDown size={14} strokeWidth={1.8} />}
             </button>
           )}
-        </div>
+        </motion.div>
         {message.content && (onEdit || onRewind) && (
           <div className="user-message-actions">
             {onEdit && (

@@ -2198,25 +2198,22 @@ export default function App() {
           >
             <div className={`conversation ${newTask ? "new-task-conversation" : ""} ${!newTask ? `density-${transcriptDensity}` : ""}`}>
               {newTask ? (
-                <div className="new-task-screen codex-home">
-                  <div className="home-mark cloud-mark" aria-hidden>
-                    {/* Match Codex cloud + prompt glyph */}
-                    <svg width="42" height="42" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M36 35.5H15.5c-4.3 0-7.8-3.3-7.8-7.4 0-3.5 2.4-6.5 5.7-7.3A10.2 10.2 0 0 1 33 14.2c.5 0 1 .05 1.5.12A7.1 7.1 0 0 1 43 21.3c0 3.9-3.1 7.1-7 7.2" />
-                      <path d="m18.2 24.8 3.2 3.2-3.2 3.2" />
-                      <path d="M24 31.2h5.2" />
-                    </svg>
+                <div className="new-task-screen codex-home vetta-home">
+                  <div className="vetta-home-grid" aria-hidden />
+                  <div className="vetta-home-intro">
+                    <h1 className="new-task-heading">
+                      {quickChat ? (
+                        "要聊些什么？"
+                      ) : (
+                        <>
+                          要在 <span className="project-underline">{taskWorkspaceName}</span> 内开发什么？
+                        </>
+                      )}
+                    </h1>
+                    <p className="new-task-subtitle">描述任务，按 Enter 发送；用 / 调出命令，@ 引用文件。</p>
+                    {store.lastError && <p className="new-task-error">{store.lastError}</p>}
                   </div>
-                  <h1 className="new-task-heading">
-                    {quickChat ? (
-                      "要聊些什么？"
-                    ) : (
-                      <>
-                        要在 <span className="project-underline">{taskWorkspaceName}</span> 内开发什么？
-                      </>
-                    )}
-                  </h1>
-                  {store.lastError && <p className="new-task-error">{store.lastError}</p>}
+                  {renderComposer("task-start")}
                   <div className="starter-cards">
                     {STARTERS.map((starter) => {
                       const Icon = starter.Icon;
@@ -2227,13 +2224,12 @@ export default function App() {
                           className={`starter-card tone-${starter.tone}`}
                           onClick={() => void sendFromComposer(starter.prompt)}
                         >
-                          <span className="starter-icon" aria-hidden><Icon size={18} strokeWidth={1.6} /></span>
+                          <span className="starter-icon" aria-hidden><Icon size={15} strokeWidth={1.7} /></span>
                           <span>{starter.title}</span>
                         </button>
                       );
                     })}
                   </div>
-                  {renderComposer("task-start")}
                   {recentWorkspaceSessions.length > 0 && (
                     <section className="home-recent" aria-label="最近对话">
                       <div className="home-recent-label">最近对话</div>

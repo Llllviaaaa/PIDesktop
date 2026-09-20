@@ -1,0 +1,473 @@
+/*
+ * Vetta skin: settings center.
+ *
+ * Mirrors Open Vetta's settings chrome: a 220px sidebar titled "设置" with a
+ * flat tab list, a centered 680px content column, 20px page titles, 15px
+ * section titles above rounded row groups, and 13px/12px setting rows.
+ * Loaded in the `skin` layer; see skin-shell.css for the layering contract.
+ */
+
+.settings-center {
+  grid-template-columns: 220px minmax(0, 1fr);
+  background: var(--app);
+  color: var(--text);
+  font-size: 13px;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────── */
+
+.settings-navigation {
+  width: auto;
+  min-width: 0;
+  padding: 10px 10px 12px;
+  border-right: 0;
+  background: var(--sidebar-bg);
+  color: var(--text);
+}
+
+.settings-nav-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 4px 0 0;
+}
+
+.settings-nav-title h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.settings-back {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  align-self: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 8px;
+  color: var(--text-2);
+}
+
+.settings-back:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.settings-search {
+  height: 34px;
+  margin: 8px 0 12px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text-3);
+}
+
+.settings-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.settings-search input {
+  color: var(--text);
+  background: transparent;
+  font-size: 13px;
+}
+
+.settings-nav-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-nav-scroll > button {
+  width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .15s, color .15s;
+}
+
+.settings-nav-scroll > button svg {
+  flex: 0 0 auto;
+  color: var(--text-2);
+}
+
+.settings-nav-scroll > button:hover {
+  background: var(--hover);
+}
+
+.settings-nav-scroll > button.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.settings-nav-scroll > button.active svg {
+  color: var(--accent);
+}
+
+.settings-no-results {
+  padding: 32px 10px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* ── Content column ────────────────────────────────────────────────── */
+
+.settings-content,
+.settings-page-scroll {
+  background: var(--app);
+}
+
+.settings-content-header {
+  height: 44px;
+  flex-basis: 44px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.settings-save-status {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.settings-page {
+  width: min(680px, calc(100% - 64px));
+  padding: 8px 0 72px;
+}
+
+.settings-page.wide {
+  width: min(1040px, calc(100% - 64px));
+}
+
+.settings-page-heading {
+  margin-bottom: 24px;
+}
+
+.settings-page-heading h1 {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.settings-page-heading p,
+.settings-panel-description {
+  max-width: 620px;
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.settings-panel-description {
+  margin: 0 0 18px;
+}
+
+/* Stacked panels share the group heading; only their sections show. */
+.settings-stack-panel + .settings-stack-panel {
+  margin-top: 8px;
+}
+
+/* Sub-tabs: a pill segmented control, like Vetta's mode switcher. */
+.settings-subtabs {
+  display: inline-flex;
+  gap: 2px;
+  margin: -6px 0 18px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  background: var(--panel);
+}
+
+.settings-subtabs button {
+  height: 28px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color .15s, color .15s;
+}
+
+.settings-subtabs button:hover {
+  color: var(--text);
+}
+
+.settings-subtabs button.active {
+  background: var(--app);
+  color: var(--text);
+  font-weight: 500;
+  box-shadow: 0 1px 2px hsl(var(--shadow-color) / 0.12), 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+:root[data-theme="dark"] .settings-subtabs button.active {
+  background: var(--active);
+}
+
+/* ── Sections and rows ─────────────────────────────────────────────── */
+
+.settings-card {
+  margin: 0 0 24px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-card > h2 {
+  margin: 0 0 10px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings-card > div,
+.settings-card > h2 + div {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.setting-row {
+  min-height: 60px;
+  gap: 24px;
+  padding: 14px 20px;
+  background: transparent;
+}
+
+.setting-row + .setting-row,
+.stacked-setting + .setting-row,
+.setting-row + .stacked-setting {
+  border-top: 1px solid var(--border);
+}
+
+.setting-row > span {
+  gap: 3px;
+}
+
+.setting-row > span strong,
+.stacked-setting strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.setting-row > span small,
+.stacked-setting small,
+.stacked-setting p,
+.card-description,
+.setting-value-muted {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.stacked-setting {
+  padding: 14px 20px;
+  background: transparent;
+}
+
+.stacked-setting > label,
+.stacked-setting > span:first-child,
+.stacked-setting > strong:first-child {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────── */
+
+.settings-page select,
+.settings-page input[type="text"],
+.settings-page input[type="number"],
+.settings-page input[type="url"],
+.settings-page input[type="password"],
+.settings-page input:not([type]),
+.settings-page textarea,
+.shortcut-input {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--app);
+  color: var(--text);
+  font-size: 13px;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.settings-page textarea {
+  padding: 10px 12px;
+  line-height: 1.6;
+}
+
+.settings-page select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0 32px 0 12px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a90a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+}
+
+.settings-page select:hover,
+.settings-page input:hover,
+.settings-page textarea:hover {
+  border-color: var(--border-strong);
+}
+
+.settings-page select:focus,
+.settings-page input:focus,
+.settings-page textarea:focus,
+.shortcut-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.settings-page select option {
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* Inputs nested in a search wrapper borrow the wrapper's frame. */
+.settings-page [class*="search"] input,
+.settings-page [class*="search"] input:hover,
+.settings-page [class*="search"] input:focus {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-switch {
+  width: 38px;
+  height: 22px;
+  background: color-mix(in srgb, var(--text-3) 45%, transparent);
+}
+
+.settings-switch span {
+  width: 18px;
+  height: 18px;
+  background: #fff;
+}
+
+.settings-switch.on {
+  background: var(--accent);
+}
+
+.settings-switch.on span {
+  background: #fff;
+}
+
+.settings-page .primary-button,
+.settings-page .secondary-button {
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.settings-page .primary-button {
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.settings-page .primary-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 86%, var(--text));
+}
+
+.settings-page .secondary-button {
+  border: 1px solid var(--border);
+  background: var(--app);
+  color: var(--text);
+}
+
+.settings-page .secondary-button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.settings-page .icon-button {
+  border-radius: 8px;
+  color: var(--text-2);
+}
+
+.settings-page .icon-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.settings-page .icon-button.danger:hover {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+}
+
+.settings-info,
+.security-note {
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.settings-info svg {
+  color: var(--accent);
+}
+
+.settings-info code {
+  font-size: 12px;
+}
+
+.settings-empty {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* ── Appearance ────────────────────────────────────────────────────── */
+
+.theme-grid button {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.theme-grid button:hover {
+  border-color: var(--border-strong);
+}
+
+.theme-grid button.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.theme-preview {
+  border-radius: 8px;
+}

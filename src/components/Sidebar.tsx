@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   Archive,
+  MessageSquare,
   AtSign,
   Bell,
   Check,
@@ -124,6 +125,22 @@ function relativeTime(session: SessionInfo): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days} 天`;
   return new Date(timestamp).toLocaleDateString();
+}
+
+/** Sidebar row timestamp: "2h", "5d" — short enough to sit beside a truncated title. */
+function compactRelativeTime(session: SessionInfo): string {
+  const parsedCreated = session.createdAt ? Date.parse(session.createdAt) : 0;
+  const timestamp = session.updatedAt || parsedCreated;
+  if (!timestamp) return "";
+  const minutes = Math.floor(Math.max(0, Date.now() - timestamp) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d`;
+  const months = Math.floor(days / 30);
+  return months < 12 ? `${months}mo` : `${Math.floor(days / 365)}y`;
 }
 
 export function Sidebar({
@@ -628,7 +645,9 @@ export function Sidebar({
                         }}
                         title={sessionTitle(session)}
                       >
+                        <MessageSquare className="thread-row-icon" size={15} strokeWidth={1.6} aria-hidden />
                         <span className="thread-title">{sessionTitle(session)}</span>
+                        {!running && !approval && <span className="thread-row-time">{compactRelativeTime(session)}</span>}
                       </button>
                       <div className="thread-row-actions">
                         {(running || approval) && (

@@ -1,12 +1,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -18,6 +19,7 @@ export default defineConfig(async () => ({
         manualChunks(id) {
           if (id.includes("node_modules/react-markdown") || id.includes("node_modules/remark-") || id.includes("node_modules/rehype-") || id.includes("node_modules/highlight.js")) return "markdown";
           if (id.includes("node_modules/lucide-react")) return "icons";
+          if (id.includes("node_modules/motion") || id.includes("node_modules/framer-motion")) return "motion";
           if (id.includes("node_modules/react") || id.includes("node_modules/zustand")) return "react-vendor";
         },
       },
