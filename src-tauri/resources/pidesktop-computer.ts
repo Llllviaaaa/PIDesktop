@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
@@ -227,7 +227,7 @@ export default function (pi: ExtensionAPI) {
       params: Record<string, unknown>,
       signal: AbortSignal | undefined,
       ctx: { ui: { confirm: (title: string, message: string) => Promise<boolean>; setStatus: (id: string, text?: string) => void } },
-    ) => Promise<{ content: Array<Record<string, unknown>>; details: Record<string, unknown> }>,
+    ) => Promise<AgentToolResult<Record<string, unknown>>>,
   ) => {
     pi.registerTool({
       name,

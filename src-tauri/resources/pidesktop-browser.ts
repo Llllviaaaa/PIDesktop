@@ -8,28 +8,6 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { shouldConfirmInteractiveAction } from "./pidesktop-rules.ts";
 
-type BrowserAction =
-  | "open"
-  | "inspect"
-  | "list_tabs"
-  | "new_tab"
-  | "switch_tab"
-  | "close_tab"
-  | "back"
-  | "forward"
-  | "reload"
-  | "hover"
-  | "click"
-  | "type"
-  | "press"
-  | "select"
-  | "upload"
-  | "download"
-  | "scroll"
-  | "wait"
-  | "screenshot"
-  | "close";
-
 interface PageSnapshot {
   url: string;
   title: string;
@@ -598,9 +576,13 @@ export function findBrowserExecutable(): string {
 async function waitForDevToolsPort(directory: string, child: ChildProcess): Promise<number> {
   const activePort = join(directory, "DevToolsActivePort");
   let spawnError: Error | null = null;
+  // Read through a function: TypeScript's control-flow analysis does not see the
+  // assignment made inside the "error" callback, so a direct read narrows to null.
+  const takeSpawnError = (): Error | null => spawnError;
   child.once("error", (error) => { spawnError = error; });
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    if (spawnError) throw new Error(`Could not start browser: ${spawnError.message}`);
+    const failure = takeSpawnError();
+    if (failure) throw new Error(`Could not start browser: ${failure.message}`);
     try {
       const [port] = (await readFile(activePort, "utf8")).split(/\r?\n/);
       const parsed = Number(port);
@@ -811,16 +793,6 @@ function keyEvent(combo: string): { key: string; code: string; windowsVirtualKey
   return { key: keyName, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode, modifiers, text: modifiers === 0 ? keyName : undefined };
 }
 
-function snapshotText(snapshot: PageSnapshot): string {
-  const elements = snapshot.elements
-    .map((element) => {
-      const state = [element.role ? `role=${element.role}` : "", element.value ? `value=${JSON.stringify(element.value)}` : "", element.checked !== undefined ? `checked=${element.checked}` : "", element.disabled ? "disabled" : ""].filter(Boolean).join(" ");
-      return `[${element.ref}] <${element.tag}${state ? ` ${state}` : ""}> ${element.text || element.placeholder || "(no label)"}${element.href ? ` -> ${element.href}` : ""}`;
-    })
-    .join("\n");
-  return `URL: ${snapshot.url}\nTitle: ${snapshot.title || "(untitled)"}\n\nPage text:\n${snapshot.text || "(empty)"}\n\nInteractive elements:\n${elements || "(none)"}`;
-}
-
 function tabsText(tabs: BrowserTab[]): string {
   return tabs.map((tab) => `${tab.active ? "*" : "-"} ${tab.id} · ${tab.title} · ${tab.url}`).join("\n") || "(no tabs)";
 }
@@ -1015,7 +987,7 @@ export default function (pi: ExtensionAPI) {
       onUpdate?.({ content: [{ type: "text", text: "browser_type…" }], details: { action: "type" } });
       await browser.ensureStarted(headless);
       if (params.tabId) await browser.switchTab(params.tabId);
-      const snapshot = await browser.type(parseElementRef(params.ref), undefined, params.text);
+      await browser.type(parseElementRef(params.ref), undefined, params.text);
       const capture = await browser.screenshot(false);
       ctx.ui.setStatus("pidesktop-browser", capture.snapshot.title || capture.snapshot.url);
       return resultFromSnapshot("type", capture.snapshot, { capture });
@@ -1037,7 +1009,7 @@ export default function (pi: ExtensionAPI) {
       onUpdate?.({ content: [{ type: "text", text: "browser_press…" }], details: { action: "press" } });
       await browser.ensureStarted(headless);
       if (params.tabId) await browser.switchTab(params.tabId);
-      const snapshot = await browser.press(params.key);
+      await browser.press(params.key);
       const capture = await browser.screenshot(false);
       ctx.ui.setStatus("pidesktop-browser", capture.snapshot.title || capture.snapshot.url);
       return resultFromSnapshot("press", capture.snapshot, { capture });
@@ -1061,7 +1033,7 @@ export default function (pi: ExtensionAPI) {
       const deltaX = Number(params.deltaX || 0);
       const deltaY = Number(params.deltaY || 0);
       if (!deltaX && !deltaY) throw new Error("browser_scroll requires a non-zero deltaX or deltaY");
-      const snapshot = await browser.scroll(deltaX, deltaY);
+      await browser.scroll(deltaX, deltaY);
       const capture = await browser.screenshot(false);
       ctx.ui.setStatus("pidesktop-browser", capture.snapshot.title || capture.snapshot.url);
       return resultFromSnapshot("scroll", capture.snapshot, { capture });
@@ -1084,7 +1056,7 @@ export default function (pi: ExtensionAPI) {
       onUpdate?.({ content: [{ type: "text", text: "browser_select…" }], details: { action: "select" } });
       await browser.ensureStarted(headless);
       if (params.tabId) await browser.switchTab(params.tabId);
-      const snapshot = await browser.select(undefined, params.selector, params.value);
+      await browser.select(undefined, params.selector, params.value);
       const capture = await browser.screenshot(false);
       ctx.ui.setStatus("pidesktop-browser", capture.snapshot.title || capture.snapshot.url);
       return resultFromSnapshot("select", capture.snapshot, { capture });
@@ -1165,7 +1137,7 @@ export default function (pi: ExtensionAPI) {
       onUpdate?.({ content: [{ type: "text", text: "browser_upload…" }], details: { action: "upload" } });
       await browser.ensureStarted(headless);
       if (params.tabId) await browser.switchTab(params.tabId);
-      const snapshot = await browser.upload(parseElementRef(params.ref), undefined, [params.filePath]);
+      await browser.upload(parseElementRef(params.ref), undefined, [params.filePath]);
       const capture = await browser.screenshot(false);
       ctx.ui.setStatus("pidesktop-browser", capture.snapshot.title || capture.snapshot.url);
       return resultFromSnapshot("upload", capture.snapshot, { capture, path: params.filePath });

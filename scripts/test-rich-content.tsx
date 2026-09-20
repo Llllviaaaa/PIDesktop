@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import React from "react";
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "../src/components/Markdown";
 import { Message } from "../src/components/Message";
@@ -27,7 +27,7 @@ assert.equal(document.blocks.length, 7);
 assert.equal(document.blocks[6].type, "links");
 if (document.blocks[6].type === "links") assert.equal(document.blocks[6].items[0].url, "https://example.com/docs?q=1");
 
-const markup = renderToStaticMarkup(<RichContent document={document} />);
+const markup = renderToStaticMarkup(createElement(RichContent, { document: document }));
 assert.match(markup, /class="pi-rich"/);
 assert.match(markup, /<dl/);
 assert.match(markup, /<ol/);
@@ -69,66 +69,47 @@ assert.equal(parseRichContent(" ".repeat(RICH_CONTENT_MAX_BYTES + 1)), null, "by
 assert.equal(parseRichContent("[".repeat(17) + "]".repeat(17)), null, "nesting limit should hold");
 
 const fencedSource = `\`\`\`pidesktop-rich\n${validSource}\n\`\`\``;
-const enabledMarkdown = renderToStaticMarkup(<Markdown content={fencedSource} allowRichContent />);
+const enabledMarkdown = renderToStaticMarkup(createElement(Markdown, { content: fencedSource, allowRichContent: true }));
 assert.match(enabledMarkdown, /class="pi-rich"/, "enabled Markdown should render the protocol");
-const disabledMarkdown = renderToStaticMarkup(<Markdown content={fencedSource} />);
+const disabledMarkdown = renderToStaticMarkup(createElement(Markdown, { content: fencedSource }));
 assert.doesNotMatch(disabledMarkdown, /class="pi-rich"/, "Markdown should be safe by default");
 assert.match(disabledMarkdown, /markdown-code/, "disabled rich content should remain a code fence");
 
-const completedAssistant = renderToStaticMarkup(<Message
-  message={{ id: "assistant-rich", role: "assistant", content: fencedSource }}
-  allowRichContent
-/>);
+const completedAssistant = renderToStaticMarkup(createElement(Message, { message: { id: "assistant-rich", timestamp: 0, role: "assistant", content: fencedSource }, allowRichContent: true }));
 assert.match(completedAssistant, /class="pi-rich"/, "completed opted-in assistant messages should render rich content");
-const defaultAssistant = renderToStaticMarkup(<Message
-  message={{ id: "assistant-default", role: "assistant", content: fencedSource }}
-/>);
+const defaultAssistant = renderToStaticMarkup(createElement(Message, { message: { id: "assistant-default", timestamp: 0, role: "assistant", content: fencedSource } }));
 assert.doesNotMatch(defaultAssistant, /class="pi-rich"/, "shared message surfaces should remain opted out by default");
-const streamingAssistant = renderToStaticMarkup(<Message
-  message={{ id: "assistant-streaming", role: "assistant", content: fencedSource, isStreaming: true }}
-  allowRichContent
-/>);
+const streamingAssistant = renderToStaticMarkup(createElement(Message, { message: { id: "assistant-streaming", timestamp: 0, role: "assistant", content: fencedSource, isStreaming: true }, allowRichContent: true }));
 assert.doesNotMatch(streamingAssistant, /class="pi-rich"/, "streaming JSON should not switch into rich rendering");
 assert.match(streamingAssistant, /markdown-code/, "streaming JSON should remain visible as code");
-const userMessage = renderToStaticMarkup(<Message
-  message={{ id: "user-rich", role: "user", content: fencedSource }}
-  allowRichContent
-/>);
+const userMessage = renderToStaticMarkup(createElement(Message, { message: { id: "user-rich", timestamp: 0, role: "user", content: fencedSource }, allowRichContent: true }));
 assert.doesNotMatch(userMessage, /class="pi-rich"/, "user messages should never render rich content");
-const errorAssistant = renderToStaticMarkup(<Message
-  message={{ id: "assistant-error", role: "assistant", content: fencedSource, isError: true }}
-  allowRichContent
-/>);
+const errorAssistant = renderToStaticMarkup(createElement(Message, { message: { id: "assistant-error", timestamp: 0, role: "assistant", content: fencedSource, isError: true }, allowRichContent: true }));
 assert.doesNotMatch(errorAssistant, /class="pi-rich"/, "error replies should keep their source visible");
-const globallyStreamingAssistant = renderToStaticMarkup(<Message
-  message={{ id: "assistant-global-stream", role: "assistant", content: fencedSource }}
-  allowRichContent
-  isLastAssistant
-  globalStreaming
-/>);
+const globallyStreamingAssistant = renderToStaticMarkup(createElement(Message, { message: { id: "assistant-global-stream", timestamp: 0, role: "assistant", content: fencedSource }, allowRichContent: true, isLastAssistant: true, globalStreaming: true }));
 assert.doesNotMatch(globallyStreamingAssistant, /class="pi-rich"/, "app-level streaming should keep the latest reply as source");
 const twoFences = `${fencedSource}\n\n${fencedSource}`;
-const repeatedRichContent = renderToStaticMarkup(<Markdown content={twoFences} allowRichContent />);
+const repeatedRichContent = renderToStaticMarkup(createElement(Markdown, { content: twoFences, allowRichContent: true }));
 assert.doesNotMatch(repeatedRichContent, /class="pi-rich"/, "more than one rich fence should fall back to code");
 assert.equal((repeatedRichContent.match(/class="markdown-code"/g) ?? []).length, 2, "both repeated fences should remain visible");
 const unclosedFence = `\`\`\`pidesktop-rich\n${validSource}`;
-const unclosedRichContent = renderToStaticMarkup(<Markdown content={unclosedFence} allowRichContent />);
+const unclosedRichContent = renderToStaticMarkup(createElement(Markdown, { content: unclosedFence, allowRichContent: true }));
 assert.doesNotMatch(unclosedRichContent, /class="pi-rich"/, "an unclosed rich fence should never render as UI");
 assert.match(unclosedRichContent, /markdown-code/, "an unclosed rich fence should keep its source visible");
 const quotedFence = fencedSource.split("\n").map((line) => `> ${line}`).join("\n");
-const quotedAndTopLevel = renderToStaticMarkup(<Markdown content={`${quotedFence}\n\n${fencedSource}`} allowRichContent />);
+const quotedAndTopLevel = renderToStaticMarkup(createElement(Markdown, { content: `${quotedFence}\n\n${fencedSource}`, allowRichContent: true }));
 assert.doesNotMatch(quotedAndTopLevel, /class="pi-rich"/, "a quoted rich fence should consume the one-fence budget");
 assert.equal((quotedAndTopLevel.match(/class="markdown-code"/g) ?? []).length, 2, "quoted and top-level fences should remain code");
 const listFence = `- nested\n\n  \`\`\`pidesktop-rich\n  ${validSource}\n  \`\`\``;
-const listedAndTopLevel = renderToStaticMarkup(<Markdown content={`${listFence}\n\n${fencedSource}`} allowRichContent />);
+const listedAndTopLevel = renderToStaticMarkup(createElement(Markdown, { content: `${listFence}\n\n${fencedSource}`, allowRichContent: true }));
 assert.doesNotMatch(listedAndTopLevel, /class="pi-rich"/, "a list-nested rich fence should consume the one-fence budget");
 assert.equal((listedAndTopLevel.match(/class="markdown-code"/g) ?? []).length, 2, "list-nested and top-level fences should remain code");
 const metadataFence = fencedSource.replace("```pidesktop-rich", "```pidesktop-rich extra");
-const metadataAndExact = renderToStaticMarkup(<Markdown content={`${metadataFence}\n\n${fencedSource}`} allowRichContent />);
+const metadataAndExact = renderToStaticMarkup(createElement(Markdown, { content: `${metadataFence}\n\n${fencedSource}`, allowRichContent: true }));
 assert.doesNotMatch(metadataAndExact, /class="pi-rich"/, "a rich language token with metadata should consume the one-fence budget");
 assert.equal((metadataAndExact.match(/class="markdown-code"/g) ?? []).length, 2, "metadata and exact fences should remain code");
 const suffixedFence = fencedSource.replace("```pidesktop-rich", "```pidesktop-rich:extra");
-const suffixedAndExact = renderToStaticMarkup(<Markdown content={`${suffixedFence}\n\n${fencedSource}`} allowRichContent />);
+const suffixedAndExact = renderToStaticMarkup(createElement(Markdown, { content: `${suffixedFence}\n\n${fencedSource}`, allowRichContent: true }));
 assert.doesNotMatch(suffixedAndExact, /class="pi-rich"/, "a punctuation-suffixed rich token should consume the one-fence budget");
 assert.equal((suffixedAndExact.match(/class="markdown-code"/g) ?? []).length, 2, "suffixed and exact fences should remain code");
 const noDocumentTitle = parseRichContent(JSON.stringify({
@@ -136,7 +117,7 @@ const noDocumentTitle = parseRichContent(JSON.stringify({
   blocks: [{ type: "metrics", title: "指标", items: [{ label: "x", value: "1" }] }],
 }));
 assert.ok(noDocumentTitle);
-const untitledMarkup = renderToStaticMarkup(<RichContent document={noDocumentTitle} />);
+const untitledMarkup = renderToStaticMarkup(createElement(RichContent, { document: noDocumentTitle }));
 assert.match(untitledMarkup, /<h3[^>]*pi-rich__sr-title[^>]*>结构化内容<\/h3>/, "untitled documents should retain a level-three heading");
 
 console.log("rich-content: all assertions passed");

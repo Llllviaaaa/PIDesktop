@@ -7,8 +7,8 @@ async function main() {
   const second = router.register("runtime-b", "same-id", "second", 1_000);
   assert.equal(router.size, 2);
 
-  assert.equal(router.handle("runtime-b", { type: "response", id: "same-id", command: "second", success: true, data: "b" }), true);
-  assert.equal((await second).data, "b");
+  assert.equal(router.handle("runtime-b", { type: "response", id: "same-id", command: "second", success: true, data: { sessionId: "b" } }), true);
+  assert.equal((await second).data?.sessionId, "b");
   assert.equal(router.size, 1);
 
   router.handle("runtime-a", { type: "response", id: "same-id", command: "first", success: false, error: "denied" });

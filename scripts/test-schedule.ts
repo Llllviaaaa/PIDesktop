@@ -7,6 +7,7 @@ const base: ScheduledTask = {
   name: "test",
   prompt: "test",
   cwd: "D:\\repo",
+  permissionMode: "ask",
   frequency: "daily",
   hour: 9,
   minute: 15,

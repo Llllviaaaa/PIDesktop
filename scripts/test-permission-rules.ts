@@ -49,7 +49,7 @@ assert(!shouldConfirmInteractiveAction("ask", false), "disabled computer approva
 {
   const decision = evaluateToolPermission({
     mode: "ask",
-    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [] },
+    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
     workspace,
     toolName: "write",
     input: { path: "C:/other/secret.txt", content: "x" },
@@ -119,7 +119,7 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
 {
   const decision = evaluateToolPermission({
     mode: "ask",
-    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: false, shellAllowPrefixes: [] },
+    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: false, shellAllowPrefixes: [], toolRules: [] },
     workspace,
     toolName: "edit",
     input: { filePath: "C:/other/file.ts" },
@@ -135,6 +135,7 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
       alwaysConfirmShell: false,
       blockWriteOutsideWorkspace: true,
       shellAllowPrefixes: ["git status", "npm test"],
+      toolRules: [],
     },
     workspace,
     toolName: "bash",
@@ -152,6 +153,7 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
       alwaysConfirmShell: false,
       blockWriteOutsideWorkspace: true,
       shellAllowPrefixes: ["git status"],
+      toolRules: [],
     },
     workspace,
     toolName: "shell",
@@ -168,6 +170,7 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
       alwaysConfirmShell: true,
       blockWriteOutsideWorkspace: true,
       shellAllowPrefixes: ["git status"],
+      toolRules: [],
     },
     workspace,
     toolName: "bash",
@@ -180,7 +183,7 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
 {
   const decision = evaluateToolPermission({
     mode: "workspace-write",
-    rules: { alwaysConfirmShell: false, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [] },
+    rules: { alwaysConfirmShell: false, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
     workspace,
     toolName: "write",
     input: { path: `${workspace}/src/main.ts`, content: "ok" },
@@ -201,7 +204,7 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
 
   const relativeWrite = evaluateToolPermission({
     mode: "workspace-write",
-    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [] },
+    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
     workspace,
     toolName: "write",
     input: { path: "src/main.ts", content: "ok" },
@@ -213,7 +216,7 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
 
   const relativeAsk = evaluateToolPermission({
     mode: "ask",
-    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [] },
+    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
     workspace,
     toolName: "edit",
     input: { filePath: "src/main.ts" },
@@ -225,7 +228,7 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
 
   const relativeEscape = evaluateToolPermission({
     mode: "ask",
-    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [] },
+    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
     workspace,
     toolName: "write",
     input: { path: "../../outside.txt", content: "x" },
@@ -255,7 +258,7 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
 
   const multiPathEscape = evaluateToolPermission({
     mode: "workspace-write",
-    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [] },
+    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
     workspace,
     toolName: "write",
     input: { paths: ["src/main.ts", "../../outside.txt"], content: "x" },
@@ -264,7 +267,7 @@ assert(evaluateToolPermission({ ...base, mode: "workspace-write", rules: broadWr
 
   const unscopedWrite = evaluateToolPermission({
     mode: "workspace-write",
-    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [] },
+    rules: { alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] },
     workspace,
     toolName: "write",
     input: { content: "x" },

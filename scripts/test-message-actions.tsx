@@ -54,6 +54,7 @@ assert.match(editing, /class="message-edit-submit"/);
 const completedThinking = renderToStaticMarkup(createElement(Message, {
   message: {
     id: "assistant-thinking-message",
+    timestamp: 0,
     role: "assistant",
     content: "The implementation is ready.",
     thinking: "Internal reasoning details",
@@ -71,6 +72,7 @@ assert.doesNotMatch(completedThinking, /work-log-body/);
 const completedTools = renderToStaticMarkup(createElement(Message, {
   message: {
     id: "assistant-tools-message",
+    timestamp: 0,
     role: "assistant",
     content: "Read the file.",
     durationMs: 1_000,
@@ -92,6 +94,7 @@ assert.doesNotMatch(completedTools, /export function App/);
 const streamingWork = renderToStaticMarkup(createElement(Message, {
   message: {
     id: "assistant-streaming-work",
+    timestamp: 0,
     role: "assistant",
     content: "",
     thinking: "Planning the read",
@@ -116,6 +119,7 @@ assert.doesNotMatch(streamingWork, /"path"/);
 const summaryWork = renderToStaticMarkup(createElement(Message, {
   message: {
     id: "assistant-summary",
+    timestamp: 0,
     role: "assistant",
     content: "Done.",
     thinking: "Hidden in summary mode",
@@ -162,6 +166,7 @@ assert.match(verboseCompaction, /Older turns were summarized/);
 const verboseWork = renderToStaticMarkup(createElement(Message, {
   message: {
     id: "verbose-tools",
+    timestamp: 0,
     role: "assistant",
     content: "Done.",
     thinking: "Shown in verbose mode",
@@ -180,6 +185,7 @@ assert.match(verboseWork, /读取 src\/store.ts/);
 const verboseEdit = renderToStaticMarkup(createElement(Message, {
   message: {
     id: "verbose-edit",
+    timestamp: 0,
     role: "assistant",
     content: "Done.",
     thinking: "Edit the title.",
@@ -200,6 +206,7 @@ assert.doesNotMatch(verboseEdit, /"old_string"/);
 const goalOnly = renderToStaticMarkup(createElement(Message, {
   message: {
     id: "goal-only-message",
+    timestamp: 0,
     role: "assistant",
     content: "",
     toolCalls: [{
@@ -223,6 +230,7 @@ assert.equal(foldWorkingLabel("正在压缩上下文"), "正在压缩上下文")
 const streamingAnswer = renderToStaticMarkup(createElement(Message, {
   message: {
     id: "assistant-streaming-answer",
+    timestamp: 0,
     role: "assistant",
     content: "Here is the conclusion.",
     thinking: "I should hide this once the answer starts.",
@@ -248,6 +256,7 @@ assert.match(streamingAnswer, /aria-label="展开工作过程"/);
 const streamingLiveTool = renderToStaticMarkup(createElement(Message, {
   message: {
     id: "assistant-live-tool",
+    timestamp: 0,
     role: "assistant",
     content: "Still editing the file.",
     thinking: "Keep the live tool visible.",

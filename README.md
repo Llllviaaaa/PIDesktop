@@ -65,6 +65,7 @@ Required checks:
 ```powershell
 npm run scan:secrets
 npm audit --audit-level=high
+npm run typecheck
 npm run test:unit
 npm run build
 ```

@@ -17,7 +17,7 @@ usePiStore.setState({
   runtimeId,
   connection: "running",
   isStreaming: false,
-  messages: [{ id: "message-1", role: "assistant", content: "done" }],
+  messages: [{ id: "message-1", timestamp: 0, role: "assistant", content: "done" }],
   runtimes: {
     [runtimeId]: {
       runtimeId,

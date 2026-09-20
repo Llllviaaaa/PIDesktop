@@ -19,6 +19,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json --noEmit",
     "prepare:pi-runtime": "node scripts/prepare-pi-runtime.mjs",
     "preview": "vite preview",
     "tauri": "tauri",

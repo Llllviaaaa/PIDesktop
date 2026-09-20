@@ -3,7 +3,7 @@ import { agentBrowserFromMessages, computerFromMessages, computerFromResult } fr
 import { updateToolCall } from "../src/lib/piToolCalls";
 import type { UiMessage } from "../src/types";
 
-const base: UiMessage[] = [{ id: "assistant-1", role: "assistant", content: "", toolCalls: [] }];
+const base: UiMessage[] = [{ id: "assistant-1", timestamp: 0, role: "assistant", content: "", toolCalls: [] }];
 const started = updateToolCall(base, "call-1", (call) => ({ ...call, running: true }), "read", { path: "a.ts" });
 assert.equal(started[0].toolCalls?.[0].name, "read");
 assert.equal(started[0].toolCalls?.[0].args.path, "a.ts");
@@ -48,6 +48,7 @@ assert.equal(computer?.elements?.[0]?.ref, "uia:1:42.1", "semantic element refs 
 
 const grokComputerMessages: UiMessage[] = [{
   id: "assistant-computer",
+  timestamp: 0,
   role: "assistant",
   content: "",
   toolCalls: [{
@@ -62,6 +63,7 @@ const grokComputerMessages: UiMessage[] = [{
 assert.equal(computerFromMessages(grokComputerMessages)?.width, 800, "Grok computer_* results should populate desktop state");
 const grokBrowserMessages: UiMessage[] = [{
   id: "assistant-browser",
+  timestamp: 0,
   role: "assistant",
   content: "",
   toolCalls: [{

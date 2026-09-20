@@ -41,10 +41,15 @@ interface SessionEntryLike {
   details?: unknown;
 }
 
-function checkpointForEntry(sessionManager: {
-  getChildren?: (entryId: string) => SessionEntryLike[];
-}, entryId: string): WorkspaceCheckpoint | null {
-  const checkpointEntry = sessionManager.getChildren?.(entryId)
+/**
+ * Pi types `ctx.sessionManager` as ReadonlySessionManager, which does not include
+ * `getChildren` even though the object handed to extensions is the full SessionManager.
+ * Take it as unknown and probe for the method: if a future Pi really does pass a
+ * read-only view, rewind silently finds no checkpoint and restores no files.
+ */
+function checkpointForEntry(sessionManager: unknown, entryId: string): WorkspaceCheckpoint | null {
+  const reader = sessionManager as { getChildren?: (entryId: string) => SessionEntryLike[] };
+  const checkpointEntry = reader.getChildren?.(entryId)
     .find((entry) => entry.type === "custom_message" && entry.customType === PIDESKTOP_CHECKPOINT_TYPE);
   return isWorkspaceCheckpoint(checkpointEntry?.details) ? checkpointEntry.details : null;
 }
