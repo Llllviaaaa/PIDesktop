@@ -695,7 +695,7 @@ fn save_json_list<T: Serialize>(path: &Path, values: &[T]) -> Result<(), String>
     fs::write(path, raw).map_err(|err| format!("failed to write data: {err}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn quick_chat_dir() -> Result<String, String> {
     let path = app_config_dir().join("quick-chat");
     fs::create_dir_all(&path)
@@ -911,7 +911,7 @@ fn list_projects_cmd(state: State<'_, AppState>) -> Result<Vec<ProjectConfig>, S
         .map_err(|_| "project state lock poisoned".to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn register_project_cmd(state: State<'_, AppState>, path: String) -> Result<ProjectConfig, String> {
     if path.trim().is_empty() {
         return Err("project path is required".to_string());
@@ -943,7 +943,7 @@ fn register_project_cmd(state: State<'_, AppState>, path: String) -> Result<Proj
     Ok(project)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn save_project_cmd(
     state: State<'_, AppState>,
     project: ProjectConfig,
@@ -968,7 +968,7 @@ fn save_project_cmd(
     Ok(project)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn remove_local_project_cmd(state: State<'_, AppState>, path: String) -> Result<(), String> {
     let key = normalize_path_key(&path);
     let mut projects = state
@@ -1259,7 +1259,7 @@ fn list_scheduled_tasks_cmd(state: State<'_, AppState>) -> Result<Vec<ScheduledT
         .map_err(|_| "scheduled task state lock poisoned".to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_scheduled_runs_cmd(
     task_id: Option<String>,
     limit: Option<u32>,
@@ -1271,7 +1271,7 @@ fn list_scheduled_runs_cmd(
     )
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn save_scheduled_task_cmd(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1330,7 +1330,7 @@ fn save_scheduled_task_cmd(
     Ok(task)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_scheduled_task_cmd(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1540,7 +1540,7 @@ fn local_memory_path() -> PathBuf {
     app_config_dir().join("memory.md")
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_local_memory() -> Result<String, String> {
     let path = local_memory_path();
     if !path.exists() {
@@ -1549,7 +1549,7 @@ fn get_local_memory() -> Result<String, String> {
     fs::read_to_string(&path).map_err(|err| format!("failed to read local memory: {err}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_local_memory(contents: String) -> Result<(), String> {
     const MAX_MEMORY_BYTES: usize = 256 * 1024;
     if contents.len() > MAX_MEMORY_BYTES {
@@ -1563,7 +1563,7 @@ fn set_local_memory(contents: String) -> Result<(), String> {
     fs::write(&path, contents).map_err(|err| format!("failed to write local memory: {err}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn export_local_memory(destination: String) -> Result<String, String> {
     let destination = PathBuf::from(destination.trim());
     if destination.as_os_str().is_empty() {
@@ -1582,7 +1582,7 @@ fn export_local_memory(destination: String) -> Result<String, String> {
     Ok(destination.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_local_memory() -> Result<(), String> {
     let path = local_memory_path();
     if !path.exists() {
@@ -1798,7 +1798,7 @@ fn build_pi_launch_config(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn pi_start(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -2624,7 +2624,7 @@ async fn discover_model_provider_models(
         .map_err(|error| format!("模型目录后台任务失败: {error}"))?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_model_providers() -> Result<Vec<ModelProviderConfig>, String> {
     let config = load_models_config()?;
     let mut items = config
@@ -2672,7 +2672,7 @@ fn list_model_providers() -> Result<Vec<ModelProviderConfig>, String> {
     Ok(items)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn save_model_provider(provider: ModelProviderInput) -> Result<(), String> {
     validate_model_provider(&provider)?;
     let id = provider.id.trim().to_string();
@@ -2789,7 +2789,7 @@ fn save_model_provider(provider: ModelProviderInput) -> Result<(), String> {
     save_models_config(&config)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_model_provider(id: String) -> Result<(), String> {
     let id = id.trim();
     if id.is_empty() {
@@ -2806,7 +2806,7 @@ fn delete_model_provider(id: String) -> Result<(), String> {
     save_models_config(&config)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn check_model_provider(
     state: State<'_, AppState>,
     id: String,
@@ -2881,7 +2881,7 @@ fn check_model_provider(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn pi_send(state: State<'_, AppState>, runtime_id: String, line: String) -> Result<(), String> {
     let guard = state
         .runtimes
@@ -2963,7 +2963,7 @@ fn provider_service_send(state: State<'_, AppState>, line: String) -> Result<(),
         .send_line(&line)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn provider_service_stop(state: State<'_, AppState>) -> Result<(), String> {
     let client = state
         .provider_service
@@ -2976,7 +2976,7 @@ fn provider_service_stop(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn pi_stop(state: State<'_, AppState>, runtime_id: String) -> Result<(), String> {
     let runtime = {
         let mut runtimes = state
@@ -3065,7 +3065,7 @@ fn paths_equal(left: &str, right: &str) -> bool {
     normalize(left) == normalize(right)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, String> {
     let settings = state
         .settings
@@ -3106,7 +3106,7 @@ fn list_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, Str
     ))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn session_message_timings_cmd(
     state: State<'_, AppState>,
     file: String,
@@ -3118,7 +3118,7 @@ fn session_message_timings_cmd(
     session_message_timings(&settings.session_dir, &file)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn session_messages_cmd(
     state: State<'_, AppState>,
     file: String,
@@ -3130,7 +3130,7 @@ fn session_messages_cmd(
     session_messages(&settings.session_dir, &file)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn session_history_cmd(state: State<'_, AppState>, file: String) -> Result<SessionHistory, String> {
     let settings = state
         .settings
@@ -3171,7 +3171,7 @@ fn session_history_markdown(history: &SessionHistory) -> String {
     output
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn export_session_markdown(
     state: State<'_, AppState>,
     file: String,
@@ -3196,7 +3196,7 @@ fn export_session_markdown(
     Ok(destination.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_archived_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, String> {
     let settings = state
         .settings
@@ -3209,7 +3209,7 @@ fn list_archived_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionI
         .collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn archive_session_cmd(state: State<'_, AppState>, file: String) -> Result<(), String> {
     let mut settings = state
         .settings
@@ -3224,7 +3224,7 @@ fn archive_session_cmd(state: State<'_, AppState>, file: String) -> Result<(), S
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn restore_session_cmd(state: State<'_, AppState>, file: String) -> Result<(), String> {
     let mut settings = state
         .settings
@@ -3234,7 +3234,7 @@ fn restore_session_cmd(state: State<'_, AppState>, file: String) -> Result<(), S
     save_settings(&settings)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_session_cmd(state: State<'_, AppState>, file: String) -> Result<(), String> {
     let settings = state
         .settings
@@ -3252,7 +3252,7 @@ fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, String> {
         .map(|guard| redact_mcp_secrets(&guard))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_settings(state: State<'_, AppState>, mut settings: AppSettings) -> Result<(), String> {
     let current = state
         .settings
@@ -3493,7 +3493,7 @@ fn collect_package_settings(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_resources(cwd: String) -> Result<Vec<ResourceItem>, String> {
     let mut items = Vec::new();
     if let Some(home) = dirs::home_dir() {
@@ -3574,7 +3574,7 @@ fn copy_appearance_directory(source: &Path, destination: &Path) -> Result<(), St
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_appearance_directory(cwd: String, kind: String, scope: String) -> Result<String, String> {
     let directory = appearance_directory(&cwd, &kind, &scope)?;
     fs::create_dir_all(&directory)
@@ -3584,7 +3584,7 @@ fn open_appearance_directory(cwd: String, kind: String, scope: String) -> Result
     Ok(path)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn install_appearance_extension(
     source: String,
     cwd: String,
@@ -3973,7 +3973,7 @@ fn confined_workspace_path(cwd: &str, relative: &str) -> Result<(PathBuf, PathBu
     Ok((root, canon))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_workspace_dir(cwd: String, path: Option<String>) -> Result<Vec<WorkspaceDirEntry>, String> {
     let rel = path.unwrap_or_default().replace('\\', "/");
     let (_root, dir) = confined_workspace_path(&cwd, &rel)?;
@@ -4058,7 +4058,7 @@ fn cancel_workspace_search(state: State<'_, AppState>, request_id: String) -> Re
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_workspace_file(cwd: String, path: String) -> Result<WorkspaceFileContent, String> {
     const MAX_BYTES: u64 = 512 * 1024;
     const MAX_BINARY_PREVIEW_BYTES: u64 = 10 * 1024 * 1024;
@@ -4119,7 +4119,7 @@ fn read_workspace_file(cwd: String, path: String) -> Result<WorkspaceFileContent
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn pi_package_action(
     state: State<'_, AppState>,
     action: String,
@@ -4234,7 +4234,7 @@ struct UsageSummary {
     total_cost: f64,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_pull_requests(cwd: String) -> Result<PullRequestCollection, String> {
     let cwd_path = PathBuf::from(&cwd);
     let repository_root = run_git(&cwd_path, &["rev-parse", "--show-toplevel"])?;
@@ -4334,7 +4334,7 @@ fn list_pull_requests(cwd: String) -> Result<PullRequestCollection, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn checkout_pull_request(cwd: String, number: u64) -> Result<(), String> {
     let cwd_path = PathBuf::from(cwd);
     let output = github_cli_command()
@@ -4421,14 +4421,14 @@ struct WorktreeInfo {
     is_main: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_worktrees(cwd: String) -> Result<Vec<WorktreeInfo>, String> {
     let root = PathBuf::from(cwd);
     let output = run_git(&root, &["worktree", "list", "--porcelain"])?;
     Ok(parse_worktrees(&output))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn create_worktree(
     state: State<'_, AppState>,
     cwd: String,
@@ -4543,7 +4543,7 @@ struct AttachmentPayload {
     text: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_attachment(file: String) -> Result<AttachmentPayload, String> {
     let path =
         fs::canonicalize(&file).map_err(|err| format!("failed to open attachment: {err}"))?;
@@ -4715,7 +4715,7 @@ fn parse_git_status(output: &str) -> Vec<GitFileChange> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_list_branches(cwd: String) -> Result<Vec<GitBranchInfo>, String> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
@@ -4752,7 +4752,7 @@ fn git_list_branches(cwd: String) -> Result<Vec<GitBranchInfo>, String> {
     Ok(branches)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_checkout_branch(cwd: String, branch: String) -> Result<(), String> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
@@ -4766,7 +4766,7 @@ fn git_checkout_branch(cwd: String, branch: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_compare(cwd: String, base: String) -> Result<GitSnapshot, String> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
@@ -4818,7 +4818,7 @@ fn git_compare(cwd: String, base: String) -> Result<GitSnapshot, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_review_snapshot(cwd: String, filter: String) -> Result<GitSnapshot, String> {
     if filter == "uncommitted" {
         return git_snapshot(cwd);
@@ -4861,7 +4861,7 @@ fn git_review_snapshot(cwd: String, filter: String) -> Result<GitSnapshot, Strin
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_list_commits(cwd: String, limit: Option<usize>) -> Result<Vec<GitCommitInfo>, String> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
@@ -4900,7 +4900,7 @@ fn git_list_commits(cwd: String, limit: Option<usize>) -> Result<Vec<GitCommitIn
         .collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_commit_snapshot(cwd: String, commit: String) -> Result<GitSnapshot, String> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
@@ -4970,7 +4970,7 @@ fn git_commit_snapshot(cwd: String, commit: String) -> Result<GitSnapshot, Strin
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_restore_files(cwd: String, paths: Vec<String>) -> Result<(), String> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
@@ -5044,13 +5044,13 @@ fn validate_git_paths(cwd: &str, paths: &[String]) -> Result<PathBuf, String> {
     Ok(root)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_stage_files(cwd: String, paths: Vec<String>) -> Result<(), String> {
     let root = validate_git_paths(&cwd, &paths)?;
     run_git_path_command(&root, &["add"], &paths)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_unstage_files(cwd: String, paths: Vec<String>) -> Result<(), String> {
     let root = validate_git_paths(&cwd, &paths)?;
     match run_git_path_command(&root, &["restore", "--staged"], &paths) {
@@ -5060,7 +5060,7 @@ fn git_unstage_files(cwd: String, paths: Vec<String>) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_snapshot(cwd: String) -> Result<GitSnapshot, String> {
     let root = PathBuf::from(&cwd);
     if !root.is_dir() {
@@ -5116,7 +5116,7 @@ fn git_snapshot(cwd: String) -> Result<GitSnapshot, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn git_repository_root(cwd: String) -> Result<Option<String>, String> {
     let workspace = PathBuf::from(cwd.trim());
     if !workspace.is_dir() {
@@ -5343,7 +5343,7 @@ fn resolve_workspace_editor(spec: &WorkspaceEditorSpec) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_workspace_editors() -> Vec<WorkspaceEditorInfo> {
     WORKSPACE_EDITOR_SPECS
         .iter()
@@ -5355,7 +5355,7 @@ fn list_workspace_editors() -> Vec<WorkspaceEditorInfo> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_workspace_in_editor(path: String, editor_id: String) -> Result<(), String> {
     let workspace = validate_workspace_directory(&path)?;
     let editor = workspace_editor_spec(&editor_id)
@@ -5370,7 +5370,7 @@ fn open_workspace_in_editor(path: String, editor_id: String) -> Result<(), Strin
         .map_err(|err| format!("failed to open workspace in {}: {err}", editor.name))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_workspace_in_file_manager(path: String) -> Result<(), String> {
     let workspace = validate_workspace_directory(&path)?;
 
