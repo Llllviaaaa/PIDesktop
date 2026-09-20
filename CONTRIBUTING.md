@@ -38,6 +38,29 @@ cargo test --locked
 
 Changes to Tauri commands, permission rules, credential handling, browser/computer automation, MCP hosting, scheduling, or workspace mutation should include targeted regression tests.
 
+## Language and user-facing copy
+
+The application interface is Chinese. Code, comments, commit messages,
+documentation and issues are English. There is no locale switcher and no
+translation layer: about 1,360 user-facing strings are written inline, so
+adding a second language is a product decision with real work behind it, not a
+configuration change. Write new interface copy in Chinese, inline, the way the
+surrounding code does.
+
+Copy currently lives in three layers, which is worth knowing before adding
+more:
+
+| Layer | Strings | Notes |
+| --- | --- | --- |
+| Renderer (`src/**/*.tsx`) | ~1,220 | Where interface copy belongs. |
+| Tauri commands (`src-tauri/src/**`) | ~62 | Error text the renderer shows verbatim. |
+| Pi extensions (`src-tauri/resources/pidesktop-*.ts`) | ~81 | Approval prompts and tool output. |
+
+Prefer keeping new copy in the renderer. A command that needs to explain a
+failure should return the right `AppError` kind (see `src-tauri/src/error.rs`)
+and let the renderer decide the wording; that keeps presentation in one layer
+and is also the step that would make a second locale tractable later.
+
 ## Pull requests
 
 - Describe the user-visible behavior and why the change is needed.
