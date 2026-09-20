@@ -19,7 +19,12 @@ import { persistModelCatalog, readStoredModelCatalog } from "./lib/modelCatalogC
 import { sameLocalPath } from "./lib/pathIdentity";
 import { decodeProviderMessage } from "../src-tauri/resources/pidesktop-providers-core";
 import { PROVIDER_SERVICE_COMMAND, PROVIDER_SERVICE_RUNTIME_ID } from "./lib/providerService";
-import { headlineForUiRequest } from "./lib/batchAsk";
+import {
+  completionNotification,
+  isSilentUiRequest,
+  uiRequestNotification,
+  type NotificationPlan,
+} from "./lib/eventNotifications";
 import {
   buildForkCommand,
   buildGetTreeCommand,
@@ -306,6 +311,14 @@ export const usePiStore = create<PiState>((set, get) => {
     const notification = new Notification(redactSensitiveText(title), { body: redactSensitiveText(body) });
     systemNotifications.set(id, notification);
     notification.onclose = () => systemNotifications.delete(id);
+  };
+
+  /** Record a planned notification and, if it is new, surface it to the OS. */
+  const raise = (plan: NotificationPlan | null) => {
+    if (!plan) return;
+    if (pushNotification(plan.draft)) {
+      notify(plan.draft.id, plan.osTitle, plan.osBody, plan.requiresApproval);
+    }
   };
 
   const command = (
@@ -803,7 +816,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (event.type === "agent_settled") queueMicrotask(() => void drainManagedFollowUp(runtimeId));
       if (event.type === "extension_ui_request") {
         const request = event as ExtensionUIRequest;
-        if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
+        if (!isSilentUiRequest(request.method)) {
           updateRuntime(runtimeId, { extensionRequest: request });
         }
       }
@@ -811,40 +824,18 @@ export const usePiStore = create<PiState>((set, get) => {
       if (runtimeId !== get().runtimeId) {
         if (event.type === "agent_end" && !event.willRetry) {
           const runtime = get().runtimes[runtimeId];
-          const project = runtime?.cwd.split(/[\\/]/).filter(Boolean).pop() || "后台任务";
-          const notification: NotificationDraft = {
-            id: `${runtimeId}:completion:${Date.now()}`,
-            kind: "completion",
-            title: "任务已完成",
-            body: project,
+          raise(completionNotification(runtimeId, {
             cwd: runtime?.cwd ?? "",
             sessionFile: runtime?.sessionFile ?? null,
-          };
-          if (pushNotification(notification)) notify(notification.id, "Pi 后台任务已完成", project);
+          }, true));
         }
         if (event.type === "agent_settled") void get().refreshSessions();
         if (event.type === "extension_ui_request") {
-          const request = event as ExtensionUIRequest;
-          if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
-            const runtime = get().runtimes[runtimeId];
-            const kind = request.method === "confirm" ? "approval" : "question";
-            const title = headlineForUiRequest(
-              request.method,
-              "title" in request ? request.title : undefined,
-              request.method === "input" ? request.placeholder : undefined,
-            ) || (kind === "approval" ? "需要确认" : "需要输入");
-            const notification: NotificationDraft = {
-              id: `${runtimeId}:request:${request.id}`,
-              kind,
-              title,
-              body: kind === "approval" ? "打开任务以确认本地操作。" : "打开任务以回答问题。",
-              cwd: runtime?.cwd ?? "",
-              sessionFile: runtime?.sessionFile ?? null,
-            };
-            if (pushNotification(notification)) {
-              notify(notification.id, "Pi 后台任务等待审批", title, true);
-            }
-          }
+          const runtime = get().runtimes[runtimeId];
+          raise(uiRequestNotification(runtimeId, event as ExtensionUIRequest, {
+            cwd: runtime?.cwd ?? "",
+            sessionFile: runtime?.sessionFile ?? null,
+          }, true));
         }
         return;
       }
@@ -859,17 +850,11 @@ export const usePiStore = create<PiState>((set, get) => {
           if (!event.willRetry) {
             set({ isStreaming: false });
             if ((managedFollowUpsByRuntime.get(runtimeId) ?? []).length === 0) {
-              const notification: NotificationDraft = {
-                id: `${runtimeId}:completion:${Date.now()}`,
-                kind: "completion",
-                title: "任务已完成",
-                body: get().sessionName || "本地编码任务已完成，可以开始检查。",
+              raise(completionNotification(runtimeId, {
                 cwd: get().cwd,
                 sessionFile: get().sessionFile,
-              };
-              if (pushNotification(notification)) {
-                notify(notification.id, "Pi 已完成", get().sessionName || "本地编码任务已完成，可以开始检查。");
-              }
+                sessionName: get().sessionName,
+              }, false));
             }
           }
           return;
@@ -1041,23 +1026,10 @@ export const usePiStore = create<PiState>((set, get) => {
             set({ composerPrefill: request.text });
           } else {
             set({ extensionRequest: request });
-            const kind = request.method === "confirm" ? "approval" : "question";
-            const title = headlineForUiRequest(
-              request.method,
-              "title" in request ? request.title : undefined,
-              request.method === "input" ? request.placeholder : undefined,
-            ) || (kind === "approval" ? "需要确认" : "需要输入");
-            const notification: NotificationDraft = {
-              id: `${runtimeId}:request:${request.id}`,
-              kind,
-              title,
-              body: kind === "approval" ? "有一项本地操作正在等待你的决定。" : "Pi 正在等待你的回答。",
+            raise(uiRequestNotification(runtimeId, request, {
               cwd: get().cwd,
               sessionFile: get().sessionFile,
-            };
-            if (pushNotification(notification)) {
-              notify(notification.id, "Pi 需要审批", title, true);
-            }
+            }, false));
           }
           return;
         }
