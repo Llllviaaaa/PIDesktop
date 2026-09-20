@@ -6,3 +6,5 @@
 pub(crate) mod git;
 pub(crate) mod memory;
 pub(crate) mod project;
+pub(crate) mod session;
+pub(crate) mod workspace;

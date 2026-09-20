@@ -37,6 +37,14 @@ use commands::memory::{
 use commands::project::{
     list_projects_cmd, register_project_cmd, remove_local_project_cmd, save_project_cmd,
 };
+use commands::session::{
+    archive_session_cmd, delete_session_cmd, export_session_markdown, list_archived_sessions_cmd,
+    list_sessions_cmd, restore_session_cmd, session_history_cmd, session_message_timings_cmd,
+    session_messages_cmd,
+};
+use commands::workspace::{
+    cancel_workspace_search, list_workspace_dir, read_workspace_file, search_workspace_files,
+};
 use error::AppError;
 use extensions::{
     ensure_browser_extension, ensure_computer_extension, ensure_guard_extension,
@@ -46,13 +54,8 @@ use extensions::{
 };
 use pi::process::{run_pi_print, PiPrintLimits};
 use pi::rpc::PiRpcClient;
-use pi::session_display::collapse_unchanged_session_forks;
-use pi::sessions::{
-    list_sessions, parse_session_file, session_history, session_message_timings, session_messages,
-    trash_session, validate_session_path, SessionHistory, SessionInfo, SessionMessageTiming,
-};
+use pi::sessions::{list_sessions, trash_session, validate_session_path};
 use scheduler::ScheduledRunRecord;
-use workspace_files::WorkspaceDirEntry;
 
 const PROVIDER_SERVICE_RUNTIME_ID: &str = "pidesktop-provider-service";
 const MCP_SECRET_PLACEHOLDER: &str = "••••••••";
@@ -2840,187 +2843,9 @@ fn list_pi_runtimes(state: State<'_, AppState>) -> Result<Vec<RuntimeInfo>, Stri
         .collect())
 }
 
-fn paths_equal(left: &str, right: &str) -> bool {
+pub(crate) fn paths_equal(left: &str, right: &str) -> bool {
     let normalize = |value: &str| value.trim_end_matches(['/', '\\']).to_lowercase();
     normalize(left) == normalize(right)
-}
-
-#[tauri::command(async)]
-fn list_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, String> {
-    let settings = state
-        .settings
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
-        .clone();
-    let (ephemeral_sessions, active_primary_sessions) = {
-        let runtimes = state
-            .runtimes
-            .lock()
-            .map_err(|_| "state lock poisoned".to_string())?;
-        let ephemeral = runtimes
-            .values()
-            .filter(|runtime| runtime.isolated)
-            .filter_map(|runtime| runtime.session_file.clone())
-            .collect::<Vec<_>>();
-        let primary = runtimes
-            .values()
-            .filter(|runtime| !runtime.isolated)
-            .filter_map(|runtime| runtime.session_file.clone())
-            .collect::<Vec<_>>();
-        (ephemeral, primary)
-    };
-    let archived = &settings.archived_sessions;
-    let sessions = list_sessions(&settings.session_dir)
-        .into_iter()
-        .filter(|session| !archived.iter().any(|file| file == &session.file))
-        .filter(|session| {
-            !ephemeral_sessions
-                .iter()
-                .any(|file| paths_equal(file, &session.file))
-        })
-        .collect();
-    Ok(collapse_unchanged_session_forks(
-        &settings.session_dir,
-        sessions,
-        &active_primary_sessions,
-    ))
-}
-
-#[tauri::command(async)]
-fn session_message_timings_cmd(
-    state: State<'_, AppState>,
-    file: String,
-) -> Result<Vec<SessionMessageTiming>, String> {
-    let settings = state
-        .settings
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
-    session_message_timings(&settings.session_dir, &file)
-}
-
-#[tauri::command(async)]
-fn session_messages_cmd(
-    state: State<'_, AppState>,
-    file: String,
-) -> Result<Vec<serde_json::Value>, String> {
-    let settings = state
-        .settings
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
-    session_messages(&settings.session_dir, &file)
-}
-
-#[tauri::command(async)]
-fn session_history_cmd(state: State<'_, AppState>, file: String) -> Result<SessionHistory, String> {
-    let settings = state
-        .settings
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
-    session_history(&settings.session_dir, &file)
-}
-
-fn session_message_markdown(message: &serde_json::Value) -> Option<(String, String)> {
-    let role = message.get("role")?.as_str()?;
-    let heading = match role {
-        "user" => "User",
-        "assistant" => "Assistant",
-        _ => return None,
-    };
-    let content = message.get("content")?;
-    let text = match content {
-        serde_json::Value::String(value) => value.clone(),
-        serde_json::Value::Array(blocks) => blocks
-            .iter()
-            .filter(|block| block.get("type").and_then(serde_json::Value::as_str) == Some("text"))
-            .filter_map(|block| block.get("text").and_then(serde_json::Value::as_str))
-            .collect::<Vec<_>>()
-            .join(""),
-        _ => String::new(),
-    };
-    (!text.trim().is_empty()).then(|| (heading.to_string(), text.trim().to_string()))
-}
-
-fn session_history_markdown(history: &SessionHistory) -> String {
-    let mut output = String::from("# PIDesktop conversation\n\n");
-    for message in &history.messages {
-        let Some((heading, text)) = session_message_markdown(message) else {
-            continue;
-        };
-        output.push_str(&format!("## {heading}\n\n{text}\n\n"));
-    }
-    output
-}
-
-#[tauri::command(async)]
-fn export_session_markdown(
-    state: State<'_, AppState>,
-    file: String,
-    destination: String,
-) -> Result<String, String> {
-    let settings = state
-        .settings
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
-        .clone();
-    let history = session_history(&settings.session_dir, &file)?;
-    let destination = PathBuf::from(destination.trim());
-    if destination.as_os_str().is_empty() {
-        return Err("conversation export path is required".to_string());
-    }
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create conversation export directory: {err}"))?;
-    }
-    fs::write(&destination, session_history_markdown(&history))
-        .map_err(|err| format!("failed to export conversation: {err}"))?;
-    Ok(destination.to_string_lossy().to_string())
-}
-
-#[tauri::command(async)]
-fn list_archived_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, String> {
-    let settings = state
-        .settings
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
-    Ok(settings
-        .archived_sessions
-        .iter()
-        .filter_map(|file| parse_session_file(Path::new(file)))
-        .collect())
-}
-
-#[tauri::command(async)]
-fn archive_session_cmd(state: State<'_, AppState>, file: String) -> Result<(), String> {
-    let mut settings = state
-        .settings
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
-    validate_session_path(&settings.session_dir, &file)?;
-    let normalized = file;
-    if !settings.archived_sessions.contains(&normalized) {
-        settings.archived_sessions.push(normalized);
-        save_settings(&settings)?;
-    }
-    Ok(())
-}
-
-#[tauri::command(async)]
-fn restore_session_cmd(state: State<'_, AppState>, file: String) -> Result<(), String> {
-    let mut settings = state
-        .settings
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
-    settings.archived_sessions.retain(|entry| entry != &file);
-    save_settings(&settings)
-}
-
-#[tauri::command(async)]
-fn delete_session_cmd(state: State<'_, AppState>, file: String) -> Result<(), String> {
-    let settings = state
-        .settings
-        .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
-    trash_session(&settings.session_dir, &file)
 }
 
 #[tauri::command]
@@ -3708,7 +3533,7 @@ async fn pi_package_detail(name: String) -> Result<PackageCatalogDetail, AppErro
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct WorkspaceFileContent {
+pub(crate) struct WorkspaceFileContent {
     path: String,
     file_name: String,
     text: Option<String>,
@@ -3728,7 +3553,10 @@ fn strip_windows_prefix(path: PathBuf) -> PathBuf {
     }
 }
 
-fn confined_workspace_path(cwd: &str, relative: &str) -> Result<(PathBuf, PathBuf), String> {
+pub(crate) fn confined_workspace_path(
+    cwd: &str,
+    relative: &str,
+) -> Result<(PathBuf, PathBuf), String> {
     let root = strip_windows_prefix(
         fs::canonicalize(cwd).map_err(|err| format!("workspace not found: {err}"))?,
     );
@@ -3755,152 +3583,6 @@ fn confined_workspace_path(cwd: &str, relative: &str) -> Result<(PathBuf, PathBu
         return Err("path is outside the workspace".to_string());
     }
     Ok((root, canon))
-}
-
-#[tauri::command(async)]
-fn list_workspace_dir(cwd: String, path: Option<String>) -> Result<Vec<WorkspaceDirEntry>, String> {
-    let rel = path.unwrap_or_default().replace('\\', "/");
-    let (_root, dir) = confined_workspace_path(&cwd, &rel)?;
-    if !dir.is_dir() {
-        return Err("not a directory".to_string());
-    }
-    let mut entries = Vec::new();
-    let reader = fs::read_dir(&dir).map_err(|err| format!("failed to list directory: {err}"))?;
-    for entry in reader.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name == "." || name == ".." {
-            continue;
-        }
-        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        let child = if rel.is_empty() {
-            name.clone()
-        } else {
-            format!("{}/{}", rel.trim_end_matches('/'), name)
-        };
-        entries.push(WorkspaceDirEntry {
-            name,
-            path: child,
-            is_dir,
-        });
-        if entries.len() >= 400 {
-            break;
-        }
-    }
-    entries.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-    Ok(entries)
-}
-
-#[tauri::command]
-async fn search_workspace_files(
-    state: State<'_, AppState>,
-    cwd: String,
-    query: String,
-    request_id: String,
-) -> Result<Vec<WorkspaceDirEntry>, String> {
-    let (root, _) = confined_workspace_path(&cwd, "")?;
-    let cancelled = Arc::new(AtomicBool::new(false));
-    {
-        let mut searches = state
-            .workspace_searches
-            .lock()
-            .map_err(|_| "workspace search state lock poisoned".to_string())?;
-        if let Some(previous) = searches.insert(request_id.clone(), Arc::clone(&cancelled)) {
-            previous.store(true, Ordering::Release);
-        }
-    }
-    let worker_cancelled = Arc::clone(&cancelled);
-    let worker = tauri::async_runtime::spawn_blocking(move || {
-        workspace_files::search(&root, &query, &worker_cancelled)
-    })
-    .await;
-    if let Ok(mut searches) = state.workspace_searches.lock() {
-        if searches
-            .get(&request_id)
-            .is_some_and(|active| Arc::ptr_eq(active, &cancelled))
-        {
-            searches.remove(&request_id);
-        }
-    }
-    worker.map_err(|err| format!("workspace search worker failed: {err}"))?
-}
-
-#[tauri::command]
-fn cancel_workspace_search(state: State<'_, AppState>, request_id: String) -> Result<(), String> {
-    if let Some(cancelled) = state
-        .workspace_searches
-        .lock()
-        .map_err(|_| "workspace search state lock poisoned".to_string())?
-        .get(&request_id)
-        .cloned()
-    {
-        cancelled.store(true, Ordering::Release);
-    }
-    Ok(())
-}
-
-#[tauri::command(async)]
-fn read_workspace_file(cwd: String, path: String) -> Result<WorkspaceFileContent, String> {
-    const MAX_BYTES: u64 = 512 * 1024;
-    const MAX_BINARY_PREVIEW_BYTES: u64 = 10 * 1024 * 1024;
-    let (_root, file) = confined_workspace_path(&cwd, &path)?;
-    if !file.is_file() {
-        return Err("not a file".to_string());
-    }
-    let metadata = fs::metadata(&file).map_err(|err| format!("failed to inspect file: {err}"))?;
-    let file_name = file
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("file")
-        .to_string();
-    let extension = file
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let mime_type = match extension.as_str() {
-        "png" => Some("image/png"),
-        "jpg" | "jpeg" => Some("image/jpeg"),
-        "gif" => Some("image/gif"),
-        "webp" => Some("image/webp"),
-        "bmp" => Some("image/bmp"),
-        "svg" => Some("image/svg+xml"),
-        "pdf" => Some("application/pdf"),
-        _ => None,
-    };
-    let binary_preview = mime_type.is_some() && metadata.len() <= MAX_BINARY_PREVIEW_BYTES;
-    let bytes = if metadata.len() > MAX_BYTES && !binary_preview {
-        let mut data = fs::read(&file).map_err(|err| format!("failed to read file: {err}"))?;
-        data.truncate(MAX_BYTES as usize);
-        data
-    } else {
-        fs::read(&file).map_err(|err| format!("failed to read file: {err}"))?
-    };
-    let text = if mime_type.is_some() {
-        None
-    } else {
-        String::from_utf8(bytes.clone()).ok()
-    };
-    let is_binary = text.is_none();
-    let data = binary_preview.then(|| base64::engine::general_purpose::STANDARD.encode(&bytes));
-    Ok(WorkspaceFileContent {
-        path,
-        file_name,
-        text,
-        mime_type: mime_type.map(str::to_string),
-        data,
-        truncated: metadata.len()
-            > if binary_preview {
-                MAX_BINARY_PREVIEW_BYTES
-            } else {
-                MAX_BYTES
-            },
-        is_binary,
-        size: metadata.len(),
-    })
 }
 
 #[tauri::command(async)]
@@ -4889,6 +4571,8 @@ pub fn run_computer_helper() -> i32 {
 mod tests {
     use super::*;
     use crate::commands::git::parse_git_status;
+    use crate::commands::session::session_history_markdown;
+    use crate::pi::sessions::SessionHistory;
     use std::collections::HashSet;
 
     #[test]
