@@ -6,10 +6,22 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { usePanelResize } from "./hooks/usePanelResize";
+import {
+  BOTTOM_PANEL_BOUNDS,
+  BOTTOM_PANEL_HEIGHT_KEY,
+  BOTTOM_PANEL_KEYS,
+  bottomPanelMaxHeight as panelMaxHeight,
+  SIDEBAR_BOUNDS,
+  SIDEBAR_KEYS,
+  SIDEBAR_WIDTH_KEY,
+  WORKSPACE_PANEL_BOUNDS,
+  WORKSPACE_PANEL_KEYS,
+  WORKSPACE_PANEL_WIDTH_KEY,
+  workspacePanelMaxWidth as panelMaxWidth,
+} from "./lib/panelLayout";
 import { describeError } from "./lib/errors";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -167,13 +179,6 @@ function WorkspaceEditorIcon({ editorId, size = 16 }: { editorId?: WorkspaceEdit
   return <FolderOpen size={size} strokeWidth={1.8} aria-hidden />;
 }
 
-const SIDEBAR_WIDTH_KEY = "pid-desktop:sidebar-width:v2";
-const WORKSPACE_PANEL_WIDTH_KEY = "pid-desktop:workspace-panel-width:v5";
-const BOTTOM_PANEL_HEIGHT_KEY = "pid-desktop:bottom-panel-height:v1";
-const WORKSPACE_PANEL_MIN_WIDTH = 320;
-const WORKSPACE_PANEL_MAX_WIDTH = 900;
-const BOTTOM_PANEL_MIN_HEIGHT = 180;
-const BOTTOM_PANEL_MAX_HEIGHT = 520;
 
 export default function App() {
   const store = usePiStore(useShallow(selectAppShellState));
@@ -235,18 +240,6 @@ export default function App() {
   }, [setTranscriptDensity, transcriptDensity]);
   const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth > 900);
   const [sidebarHoverPreview, setSidebarHoverPreview] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
-    return Number.isFinite(stored) && stored >= 200 && stored <= 380 ? stored : 240;
-  });
-  const [workspacePanelWidth, setWorkspacePanelWidth] = useState(() => {
-    const stored = Number(window.localStorage.getItem(WORKSPACE_PANEL_WIDTH_KEY));
-    return Number.isFinite(stored) && stored >= WORKSPACE_PANEL_MIN_WIDTH && stored <= WORKSPACE_PANEL_MAX_WIDTH ? stored : 420;
-  });
-  const [bottomPanelHeight, setBottomPanelHeight] = useState(() => {
-    const stored = Number(window.localStorage.getItem(BOTTOM_PANEL_HEIGHT_KEY));
-    return Number.isFinite(stored) && stored >= BOTTOM_PANEL_MIN_HEIGHT && stored <= BOTTOM_PANEL_MAX_HEIGHT ? stored : 280;
-  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("general");
   const [appearanceCatalog, setAppearanceCatalog] = useState(BUILTIN_APPEARANCE_CATALOG);
@@ -295,6 +288,51 @@ export default function App() {
   const [navigationVersion, setNavigationVersion] = useState(0);
   const isTauri = "__TAURI_INTERNALS__" in window;
   const layoutScale = Math.min(150, Math.max(75, settings?.uiScale ?? 100)) / 100;
+
+  const sidebarResize = usePanelResize({
+    storageKey: SIDEBAR_WIDTH_KEY,
+    bounds: SIDEBAR_BOUNDS,
+    keys: SIDEBAR_KEYS,
+    axis: "x",
+    growsWithPointer: true,
+    resizingClass: "sidebar-is-resizing",
+    scale: layoutScale,
+    maxSize: useCallback(() => SIDEBAR_BOUNDS.max, []),
+  });
+  const sidebarWidth = sidebarResize.size;
+
+  // The workspace panel and the conversation share the space the sidebar leaves.
+  const workspacePanelMaxWidth = useCallback(
+    () => panelMaxWidth(window.innerWidth, layoutScale, sidebarVisible ? sidebarWidth : 0),
+    [layoutScale, sidebarVisible, sidebarWidth],
+  );
+  const workspaceResize = usePanelResize({
+    storageKey: WORKSPACE_PANEL_WIDTH_KEY,
+    bounds: WORKSPACE_PANEL_BOUNDS,
+    keys: WORKSPACE_PANEL_KEYS,
+    axis: "x",
+    growsWithPointer: false,
+    resizingClass: "workspace-is-resizing",
+    scale: layoutScale,
+    maxSize: workspacePanelMaxWidth,
+  });
+  const workspacePanelWidth = workspaceResize.size;
+
+  const bottomPanelMaxHeight = useCallback(
+    () => panelMaxHeight(window.innerHeight, layoutScale),
+    [layoutScale],
+  );
+  const bottomResize = usePanelResize({
+    storageKey: BOTTOM_PANEL_HEIGHT_KEY,
+    bounds: BOTTOM_PANEL_BOUNDS,
+    keys: BOTTOM_PANEL_KEYS,
+    axis: "y",
+    growsWithPointer: false,
+    resizingClass: "bottom-panel-is-resizing",
+    scale: layoutScale,
+    maxSize: bottomPanelMaxHeight,
+  });
+  const bottomPanelHeight = bottomResize.size;
   const petFixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("pet") : null;
   const petActivityFixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("pet-activity") : null;
   const previewPet = petFixture && appearanceCatalog.pets.some((pet) => pet.id === petFixture) ? petFixture : null;
@@ -1336,174 +1374,6 @@ export default function App() {
   const canNavigateBack = navigationVersion >= 0 && navigationBackRef.current.length > 0;
   const canNavigateForward = navigationVersion >= 0 && navigationForwardRef.current.length > 0;
 
-  const beginSidebarResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = sidebarWidth;
-    const pointerId = event.pointerId;
-    const target = event.currentTarget;
-    const scale = Math.min(150, Math.max(75, settings?.uiScale ?? 100)) / 100;
-    const onMove = (move: PointerEvent) => {
-      if (move.pointerId !== pointerId) return;
-      const next = Math.min(380, Math.max(200, startWidth + (move.clientX - startX) / scale));
-      setSidebarWidth(next);
-    };
-    const onUp = (up: PointerEvent) => {
-      if (up.pointerId !== pointerId) return;
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.body.classList.remove("sidebar-is-resizing");
-      setSidebarWidth((current) => {
-        window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(current));
-        return current;
-      });
-    };
-    target.setPointerCapture(pointerId);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.body.classList.add("sidebar-is-resizing");
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  }, [settings?.uiScale, sidebarWidth]);
-
-  const resizeSidebarWithKeyboard = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const increment = event.shiftKey ? 24 : 8;
-    const next = event.key === "ArrowLeft"
-      ? Math.max(200, sidebarWidth - increment)
-      : event.key === "ArrowRight"
-        ? Math.min(380, sidebarWidth + increment)
-        : event.key === "Home"
-          ? 200
-          : event.key === "End"
-            ? 380
-            : null;
-    if (next === null) return;
-    event.preventDefault();
-    setSidebarWidth(next);
-    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
-  }, [sidebarWidth]);
-
-  const workspacePanelMaxWidth = useCallback(() => {
-    const mainStageMinWidth = 360;
-    const available = window.innerWidth / layoutScale - (sidebarVisible ? sidebarWidth : 0) - mainStageMinWidth;
-    return Math.max(WORKSPACE_PANEL_MIN_WIDTH, Math.min(WORKSPACE_PANEL_MAX_WIDTH, available));
-  }, [layoutScale, sidebarVisible, sidebarWidth]);
-
-  const beginWorkspaceResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    const target = event.currentTarget;
-    const pointerId = event.pointerId;
-    const startX = event.clientX;
-    const startWidth = workspacePanelWidth;
-    const onMove = (move: PointerEvent) => {
-      if (move.pointerId !== pointerId) return;
-      const next = Math.min(workspacePanelMaxWidth(), Math.max(WORKSPACE_PANEL_MIN_WIDTH, startWidth + (startX - move.clientX) / layoutScale));
-      setWorkspacePanelWidth(next);
-    };
-    const onUp = (up: PointerEvent) => {
-      if (up.pointerId !== pointerId) return;
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.body.classList.remove("workspace-is-resizing");
-      setWorkspacePanelWidth((current) => {
-        window.localStorage.setItem(WORKSPACE_PANEL_WIDTH_KEY, String(current));
-        return current;
-      });
-    };
-    target.setPointerCapture(pointerId);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.body.classList.add("workspace-is-resizing");
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  }, [layoutScale, workspacePanelMaxWidth, workspacePanelWidth]);
-
-  const resizeWorkspaceWithKeyboard = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const increment = event.shiftKey ? 32 : 10;
-    const maxWidth = workspacePanelMaxWidth();
-    const next = event.key === "ArrowLeft"
-      ? Math.min(maxWidth, workspacePanelWidth + increment)
-      : event.key === "ArrowRight"
-        ? Math.max(WORKSPACE_PANEL_MIN_WIDTH, workspacePanelWidth - increment)
-        : event.key === "Home"
-          ? WORKSPACE_PANEL_MIN_WIDTH
-          : event.key === "End"
-            ? maxWidth
-            : null;
-    if (next === null) return;
-    event.preventDefault();
-    setWorkspacePanelWidth(next);
-    window.localStorage.setItem(WORKSPACE_PANEL_WIDTH_KEY, String(next));
-  }, [workspacePanelMaxWidth, workspacePanelWidth]);
-
-  const bottomPanelMaxHeight = useCallback(
-    () => Math.max(BOTTOM_PANEL_MIN_HEIGHT, Math.min(BOTTOM_PANEL_MAX_HEIGHT, window.innerHeight / layoutScale - 240)),
-    [layoutScale],
-  );
-
-  const beginBottomPanelResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    const target = event.currentTarget;
-    const pointerId = event.pointerId;
-    const startY = event.clientY;
-    const startHeight = bottomPanelHeight;
-    const onMove = (move: PointerEvent) => {
-      if (move.pointerId !== pointerId) return;
-      const next = Math.min(bottomPanelMaxHeight(), Math.max(BOTTOM_PANEL_MIN_HEIGHT, startHeight + (startY - move.clientY) / layoutScale));
-      setBottomPanelHeight(next);
-    };
-    const onUp = (up: PointerEvent) => {
-      if (up.pointerId !== pointerId) return;
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.body.classList.remove("bottom-panel-is-resizing");
-      setBottomPanelHeight((current) => {
-        window.localStorage.setItem(BOTTOM_PANEL_HEIGHT_KEY, String(current));
-        return current;
-      });
-    };
-    target.setPointerCapture(pointerId);
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-    document.body.classList.add("bottom-panel-is-resizing");
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  }, [bottomPanelHeight, bottomPanelMaxHeight, layoutScale]);
-
-  const resizeBottomPanelWithKeyboard = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const increment = event.shiftKey ? 32 : 10;
-    const maxHeight = bottomPanelMaxHeight();
-    const next = event.key === "ArrowUp"
-      ? Math.min(maxHeight, bottomPanelHeight + increment)
-      : event.key === "ArrowDown"
-        ? Math.max(BOTTOM_PANEL_MIN_HEIGHT, bottomPanelHeight - increment)
-        : event.key === "Home"
-          ? BOTTOM_PANEL_MIN_HEIGHT
-          : event.key === "End"
-            ? maxHeight
-            : null;
-    if (next === null) return;
-    event.preventDefault();
-    setBottomPanelHeight(next);
-    window.localStorage.setItem(BOTTOM_PANEL_HEIGHT_KEY, String(next));
-  }, [bottomPanelHeight, bottomPanelMaxHeight]);
 
   const restoreGitFiles = useCallback(async (paths?: string[]) => {
     const workspace = workspaceCwd;
@@ -1943,8 +1813,8 @@ export default function App() {
             aria-valuemax={380}
             aria-valuenow={Math.round(sidebarWidth)}
             tabIndex={0}
-            onPointerDown={beginSidebarResize}
-            onKeyDown={resizeSidebarWithKeyboard}
+            onPointerDown={sidebarResize.beginResize}
+            onKeyDown={sidebarResize.resizeWithKeyboard}
           />
         )}
 
@@ -2351,12 +2221,12 @@ export default function App() {
             role="separator"
             aria-orientation="vertical"
             aria-label="调整对话与工作区宽度"
-            aria-valuemin={WORKSPACE_PANEL_MIN_WIDTH}
+            aria-valuemin={WORKSPACE_PANEL_BOUNDS.min}
             aria-valuemax={workspacePanelMaxWidth()}
             aria-valuenow={Math.round(workspacePanelWidth)}
             tabIndex={0}
-            onPointerDown={beginWorkspaceResize}
-            onKeyDown={resizeWorkspaceWithKeyboard}
+            onPointerDown={workspaceResize.beginResize}
+            onKeyDown={workspaceResize.resizeWithKeyboard}
           />
         )}
         {workspaceTool === "review" && (
@@ -2446,12 +2316,12 @@ export default function App() {
             role="separator"
             aria-orientation="horizontal"
             aria-label="调整终端高度"
-            aria-valuemin={BOTTOM_PANEL_MIN_HEIGHT}
+            aria-valuemin={BOTTOM_PANEL_BOUNDS.min}
             aria-valuemax={bottomPanelMaxHeight()}
             aria-valuenow={Math.round(bottomPanelHeight)}
             tabIndex={0}
-            onPointerDown={beginBottomPanelResize}
-            onKeyDown={resizeBottomPanelWithKeyboard}
+            onPointerDown={bottomResize.beginResize}
+            onKeyDown={bottomResize.resizeWithKeyboard}
           />
           <Suspense fallback={<div className="bottom-terminal page-loading">正在加载终端…</div>}>
             <TerminalWorkspacePanel
