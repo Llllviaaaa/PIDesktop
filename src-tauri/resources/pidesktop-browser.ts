@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { shouldConfirmInteractiveAction } from "./pidesktop-rules.ts";
 
 type BrowserAction =
   | "open"
@@ -882,7 +883,7 @@ export default function (pi: ExtensionAPI) {
     ctx: { ui: { confirm: (title: string, message: string) => Promise<boolean> } },
     summary: string,
   ) => {
-    if (!confirmActions) return;
+    if (!shouldConfirmInteractiveAction(permissionMode, confirmActions)) return;
     const allowed = await ctx.ui.confirm("Allow browser action?", summary);
     if (!allowed) throw new Error("Browser action denied by user");
   };

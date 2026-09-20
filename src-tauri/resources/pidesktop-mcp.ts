@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { shouldConfirmInteractiveAction } from "./pidesktop-rules.ts";
 
 const PROTOCOL_VERSION = "2025-11-25";
 const SUPPORTED_PROTOCOL_VERSIONS = new Set(["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]);
@@ -670,7 +671,10 @@ async function loadConfig(): Promise<McpServerConfig[]> {
 
 export default async function (pi: ExtensionAPI) {
   const permissionMode = process.env.PIDESKTOP_PERMISSION_MODE || "ask";
-  const confirmTools = process.env.PIDESKTOP_MCP_CONFIRM !== "0";
+  const confirmTools = shouldConfirmInteractiveAction(
+    permissionMode,
+    process.env.PIDESKTOP_MCP_CONFIRM !== "0",
+  );
   const statuses: ServerStatus[] = [];
   const connected: ConnectedServer[] = [];
   const usedNames = new Set<string>();
