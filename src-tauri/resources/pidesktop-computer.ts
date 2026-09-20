@@ -95,7 +95,8 @@ async function runHelper<T>(payload: Record<string, unknown>, signal?: AbortSign
       settled = true;
       clearTimeout(timeout);
       signal?.removeEventListener("abort", abort);
-      error ? reject(error) : resolve(value as T);
+      if (error) reject(error);
+      else resolve(value as T);
     };
     const abort = () => {
       child.kill();

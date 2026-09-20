@@ -6,6 +6,7 @@ const MAX_GROUP_ITEMS = 12;
 const MAX_TOTAL_ITEMS = 60;
 const MAX_TOTAL_TEXT = 12_000;
 const MAX_NESTING = 16;
+// eslint-disable-next-line no-control-regex -- rejecting control and bidi characters is what this guard is for
 const UNSAFE_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 
 export type RichTone = "neutral" | "info" | "success" | "warning" | "danger";

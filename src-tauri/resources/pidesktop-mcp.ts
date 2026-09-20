@@ -489,7 +489,7 @@ class HttpMcpClient implements McpClient {
       const parsed = JSON.parse(body) as JsonRpcMessage | JsonRpcMessage[];
       return Array.isArray(parsed) ? parsed : [parsed];
     } catch (error) {
-      if (timeoutController.signal.aborted) throw new Error("MCP HTTP request timed out or was cancelled");
+      if (timeoutController.signal.aborted) throw new Error("MCP HTTP request timed out or was cancelled", { cause: error });
       throw error;
     } finally {
       clearTimeout(timeout);

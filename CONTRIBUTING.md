@@ -26,6 +26,7 @@ Run these before opening a pull request:
 npm run scan:secrets
 npm audit --audit-level=high
 npm run typecheck
+npm run lint
 npm run test:unit
 npm run build
 

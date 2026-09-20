@@ -1700,6 +1700,7 @@ export default function App() {
     const current = usePiStore.getState();
     if (!current.sessionFile) return;
     const baseName = (current.sessionName || "pidesktop-conversation")
+      // eslint-disable-next-line no-control-regex -- stripping control characters is what this sanitiser is for
       .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-")
       .trim() || "pidesktop-conversation";
     const destination = await saveDialog({
