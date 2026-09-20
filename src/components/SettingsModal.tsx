@@ -793,7 +793,7 @@ function AgentPage({ form, update, onOpenModels }: { form: AppSettings; update: 
       <label className="stacked-setting"><span>Shell 允许前缀</span><textarea value={form.shellAllowPrefixes} onChange={(event) => update("shellAllowPrefixes", event.target.value)} placeholder={"git status\nnpm test\npnpm lint"} rows={4} /><small className="field-hint">每行或逗号分隔；仅在关闭“始终确认 Shell”后生效。</small></label>
     </Card>
     <Card title="工具规则">
-      <div className="tool-rules-heading"><span>按列表顺序匹配；只读与计划模式始终优先。</span><button type="button" className="secondary-button compact" onClick={() => update("toolRules", [...form.toolRules, { id: `rule-${Date.now().toString(36)}`, enabled: true, toolPattern: "bash", action: "confirm", commandPrefix: "", pathPrefix: "" }])}><Plus size={13} />添加规则</button></div>
+      <div className="tool-rules-heading"><span>按列表顺序匹配；只读与计划模式始终优先。完全访问下阻止规则仍然生效，确认规则则直接放行。</span><button type="button" className="secondary-button compact" onClick={() => update("toolRules", [...form.toolRules, { id: `rule-${Date.now().toString(36)}`, enabled: true, toolPattern: "bash", action: "confirm", commandPrefix: "", pathPrefix: "" }])}><Plus size={13} />添加规则</button></div>
       {form.toolRules.length === 0 && <div className="settings-empty compact">没有自定义工具规则</div>}
       <div className="tool-rule-list">{form.toolRules.map((rule, index) => {
         const change = (patch: Partial<typeof rule>) => update("toolRules", form.toolRules.map((item) => item.id === rule.id ? { ...item, ...patch } : item));

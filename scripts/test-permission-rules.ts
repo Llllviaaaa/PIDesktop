@@ -103,6 +103,12 @@ const customRules = {
 assert(evaluateToolPermission({ ...base, mode: "full-access", rules: customRules, toolName: "bash", input: { command: "npm run deploy prod" } }).action === "block", "explicit deny rules should apply even in full-access");
 assert(evaluateToolPermission({ ...base, mode: "ask", rules: customRules, toolName: "bash", input: { command: "npm test -- --run" } }).action === "allow", "explicit allow rules should skip confirmation");
 assert(evaluateToolPermission({ ...base, mode: "read-only", rules: customRules, toolName: "bash", input: { command: "npm test" } }).action === "block", "read-only must remain a hard cap over allow rules");
+const confirmRules = {
+  ...base.rules,
+  toolRules: [{ id: "confirm-bash", enabled: true, toolPattern: "bash", action: "confirm" as const, commandPrefix: "", pathPrefix: "" }],
+};
+assert(evaluateToolPermission({ ...base, mode: "full-access", rules: confirmRules, toolName: "bash", input: { command: "ls" } }).action === "allow", "confirm rules must not prompt in full-access");
+assert(evaluateToolPermission({ ...base, mode: "ask", rules: confirmRules, toolName: "bash", input: { command: "ls" } }).action === "confirm", "confirm rules must still prompt outside full-access");
 const broadWriteAllow = {
   ...base.rules,
   toolRules: [{ id: "allow-write", enabled: true, toolPattern: "write", action: "allow" as const, commandPrefix: "", pathPrefix: "" }],

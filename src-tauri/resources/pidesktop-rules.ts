@@ -339,6 +339,9 @@ export function evaluateToolPermission(options: {
     if (customRule.action === "block") {
       return { action: "block", reason: `Blocked by tool rule: ${customRule.id}` };
     }
+    // Block rules stay a hard cap under full-access, but "confirm" means "ask me",
+    // and full-access is the mode where the user asked not to be asked.
+    if (mode === "full-access") return { action: "allow" };
     return {
       action: "confirm",
       title: "Allow tool call?",

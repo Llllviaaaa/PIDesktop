@@ -1453,14 +1453,18 @@ fn ensure_guard_extension() -> Result<PathBuf, String> {
 }
 
 fn ensure_browser_extension() -> Result<PathBuf, String> {
+    // Imports the shared rule helpers; do not rely on the guard having written them first.
+    ensure_bundled_extension("pidesktop-rules.ts", RULES_MODULE, "rules")?;
     ensure_bundled_extension("pidesktop-browser.ts", BROWSER_EXTENSION, "browser")
 }
 
 fn ensure_computer_extension() -> Result<PathBuf, String> {
+    ensure_bundled_extension("pidesktop-rules.ts", RULES_MODULE, "rules")?;
     ensure_bundled_extension("pidesktop-computer.ts", COMPUTER_EXTENSION, "computer")
 }
 
 fn ensure_mcp_extension() -> Result<PathBuf, String> {
+    ensure_bundled_extension("pidesktop-rules.ts", RULES_MODULE, "rules")?;
     ensure_bundled_extension("pidesktop-mcp.ts", MCP_EXTENSION, "MCP")
 }
 
