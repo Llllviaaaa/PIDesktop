@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { describeError } from "../lib/errors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queries";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   CircleAlert,
@@ -63,6 +65,8 @@ function packageKinds(detail: PackageCatalogDetail | null, item?: PackageCatalog
   return inferred.length > 0 ? inferred : ["软件包"];
 }
 
+const NO_RESOURCES: ResourceItem[] = [];
+
 export function PluginMarketplacePage({ cwd }: { cwd: string }) {
   const [tab, setTab] = useState<MarketplaceTab>("discover");
   const [query, setQuery] = useState("");
@@ -73,37 +77,35 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
   const [selectedDetail, setSelectedDetail] = useState<PackageCatalogDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
-  const [resources, setResources] = useState<ResourceItem[]>([]);
-  const [resourcesLoading, setResourcesLoading] = useState(true);
+
   const [scope, setScope] = useState<PackageScope>("user");
   const [pendingInstall, setPendingInstall] = useState<{ source: string; label: string } | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualSource, setManualSource] = useState("");
   const [busyKey, setBusyKey] = useState("");
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [dismissedLoadError, setDismissedLoadError] = useState<unknown>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const detailRequestRef = useRef(0);
+
+  const queryClient = useQueryClient();
+  const isTauri = "__TAURI_INTERNALS__" in window;
+  // Shares its cache with the Settings skills page: both list the same resources.
+  const resourcesQuery = useQuery({
+    queryKey: queryKeys.resources(cwd),
+    queryFn: () => pi.listResources(cwd),
+    enabled: isTauri,
+  });
+  const resources = resourcesQuery.data ?? NO_RESOURCES;
+  const resourcesLoading = isTauri && resourcesQuery.isFetching && !resourcesQuery.data;
+  const reloadResources = () => queryClient.invalidateQueries({ queryKey: queryKeys.resources(cwd) });
+  const loadError = resourcesQuery.error;
+  const loadNotice = loadError && loadError !== dismissedLoadError
+    ? { tone: "error" as const, text: `无法读取已安装插件：${describeError(loadError)}` }
+    : null;
+  const shownNotice = notice ?? loadNotice;
   const packages = resources.filter((item) => item.kind === "package");
   const looseResources = resources.filter((item) => item.kind !== "package");
-
-  const reloadResources = useCallback(async () => {
-    if (!("__TAURI_INTERNALS__" in window)) {
-      setResourcesLoading(false);
-      return;
-    }
-    setResourcesLoading(true);
-    try {
-      setResources(await pi.listResources(cwd));
-    } catch (error) {
-      setNotice({ tone: "error", text: `无法读取已安装插件：${describeError(error)}` });
-    } finally {
-      setResourcesLoading(false);
-    }
-  }, [cwd]);
-
-  useEffect(() => {
-    void reloadResources();
-  }, [reloadResources]);
 
   const installedScopes = (name: string) => packages
     .filter((item) => packageNameFromSource(item.path) === name)
@@ -220,7 +222,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
         <button className="primary-button" disabled={!manualSource.trim() || Boolean(busyKey)} onClick={() => setPendingInstall({ source: manualSource.trim(), label: manualSource.trim() })}>检查并安装</button>
       </div>}
 
-      {notice && <div className={`marketplace-notice ${notice.tone}`}><span>{notice.text}</span><button title="关闭" onClick={() => setNotice(null)}><X size={13} /></button></div>}
+      {shownNotice && <div className={`marketplace-notice ${shownNotice.tone}`}><span>{shownNotice.text}</span><button title="关闭" onClick={() => { setNotice(null); setDismissedLoadError(loadError); }}><X size={13} /></button></div>}
 
       {tab === "discover" ? <div className="marketplace-browser">
         <section className="marketplace-results" aria-label="软件包搜索结果">

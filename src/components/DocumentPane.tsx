@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { describeError } from "../lib/errors";
 import { ChevronLeft, ChevronRight, Code2, ExternalLink, Eye, FileText, PanelRightClose, X } from "lucide-react";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { pi } from "../lib/pi";
+import { queryKeys } from "../lib/queries";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { Markdown } from "./Markdown";
 import type { WorkspaceFileContent } from "../types";
 
@@ -53,33 +56,22 @@ function parseDelimited(text: string, path: string): string[][] {
 }
 
 export function DocumentPane({ cwd, path, line, tabs = [], onSelectTab, onCloseTab, onBack, onClose }: DocumentPaneProps) {
-  const [file, setFile] = useState<WorkspaceFileContent | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState(false);
+  const fileQuery = useQuery({
+    queryKey: queryKeys.file(cwd, path),
+    queryFn: () => pi.readWorkspaceFile(cwd, path),
+    enabled: Boolean(cwd && path),
+  });
+  const file: WorkspaceFileContent | null = fileQuery.data ?? null;
+  const error = fileQuery.error ? describeError(fileQuery.error) : null;
+  // Each file opens in its rendered view.
+  useSyncOnChange([cwd, path], () => setSource(false));
   const fileName = path.split(/[\\/]/).filter(Boolean).pop() || path;
   const project = cwd.split(/[\\/]/).filter(Boolean).pop() || "项目";
   const markdown = isMarkdown(path);
   const delimited = isDelimited(path);
   const html = isHtml(path);
   const table = file?.text && delimited ? parseDelimited(file.text, path) : [];
-
-  useEffect(() => {
-    if (!cwd || !path) return;
-    let disposed = false;
-    setFile(null);
-    setError(null);
-    setSource(false);
-    void pi.readWorkspaceFile(cwd, path)
-      .then((content) => {
-        if (!disposed) setFile(content);
-      })
-      .catch((err) => {
-        if (!disposed) setError(describeError(err));
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [cwd, path]);
 
   const openExternally = () => {
     const absolute = /^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)

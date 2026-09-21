@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
 import { CircleAlert, LoaderCircle, Target } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { deriveActiveGoal, type ActiveGoal } from "../lib/activeGoal";
+import { useClock } from "../hooks/useClock";
 import { usePiStore } from "../store";
 
 function formatElapsed(goal: ActiveGoal, now: number): string {
@@ -16,15 +16,9 @@ function formatElapsed(goal: ActiveGoal, now: number): string {
 
 export function ActiveGoalBar() {
   const goal = usePiStore(useShallow((state) => deriveActiveGoal(state.messages)));
-  const [now, setNow] = useState(() => Date.now());
-  const goalId = goal?.id;
-
-  useEffect(() => {
-    if (!goalId) return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
-  }, [goalId]);
+  // A shared 30-second clock; formatElapsed clamps, so a tick older than the
+  // goal's start still reads as "just started".
+  const now = useClock();
 
   if (!goal) return null;
 

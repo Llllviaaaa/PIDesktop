@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queries";
 import { describeError } from "../lib/errors";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -86,13 +88,45 @@ function isCancelled(error: unknown): boolean {
   return /cancel|abort/i.test(errorText(error));
 }
 
+const NO_PROVIDERS: ProviderSummary[] = [];
+const NO_CONFIGS: ModelProviderConfig[] = [];
+
 export function ModelsPage({ form, update }: { form: AppSettings; update: Update }) {
   const isTauri = "__TAURI_INTERNALS__" in window;
   const reloadProviderCatalog = usePiStore((state) => state.reloadProviderCatalog);
-  const [providers, setProviders] = useState<ProviderSummary[]>([]);
-  const [configs, setConfigs] = useState<ModelProviderConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const queryClient = useQueryClient();
+  const providersQuery = useQuery({
+    queryKey: queryKeys.modelProviders(),
+    queryFn: () => providerService.list(),
+    enabled: isTauri,
+  });
+  // models.json only marks which providers are custom; it never holds up the list.
+  const configsQuery = useQuery({
+    queryKey: queryKeys.modelConfigs(),
+    queryFn: () => pi.listModelProviders(),
+    enabled: isTauri,
+  });
+  const providers = providersQuery.data ?? NO_PROVIDERS;
+  const configs = configsQuery.data ?? NO_CONFIGS;
+  // "Refresh" asks the provider service to re-read credentials and models.json first.
+  const refreshMutation = useMutation({
+    mutationFn: async () => {
+      await providerService.refresh();
+      await Promise.all([
+        queryClient.fetchQuery({ queryKey: queryKeys.modelProviders(), queryFn: () => providerService.list(), staleTime: 0 }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.modelConfigs() }),
+      ]);
+    },
+  });
+  const refresh = () => refreshMutation.mutateAsync().catch(() => undefined);
+  const retry = () => {
+    refreshMutation.reset();
+    void providersQuery.refetch();
+    void configsQuery.refetch();
+  };
+  const loading = providersQuery.isFetching || refreshMutation.isPending;
+  const failure = refreshMutation.error ?? providersQuery.error;
+  const loadError = failure ? errorText(failure) : "";
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [login, setLogin] = useState<LoginState | null>(null);
@@ -111,29 +145,6 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
     const current = activeLogin();
     if (current?.id === id) setLoginState(patch(current));
   };
-
-  const load = useCallback(async (refresh = false) => {
-    setLoading(true);
-    try {
-      // models.json only marks which providers are custom; never let it delay the provider list.
-      void pi.listModelProviders().then(setConfigs, () => undefined);
-      if (refresh) await providerService.refresh();
-      setProviders(await providerService.list());
-      setLoadError("");
-    } catch (error) {
-      setLoadError(errorText(error));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isTauri) {
-      setLoading(false);
-      return;
-    }
-    void load();
-  }, [isTauri, load]);
 
   useEffect(() => providerService.onDialog((request) => {
     const current = loginRef.current;
@@ -157,7 +168,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
   const hidden = useMemo(() => new Set(form.hiddenModels ?? []), [form.hiddenModels]);
 
   const applyProviders = (next: ProviderSummary[], text: string) => {
-    setProviders(next);
+    queryClient.setQueryData(queryKeys.modelProviders(), next);
     setNotice({ kind: "success", text });
     void reloadProviderCatalog();
   };
@@ -241,7 +252,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
   };
 
   const afterConfigChange = async (text: string, nextSelected?: string) => {
-    await load(true);
+    await refresh();
     if (nextSelected) setSelectedId(nextSelected);
     setNotice({ kind: "success", text });
     void reloadProviderCatalog();
@@ -267,7 +278,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
           <h1>模型</h1>
           <p>连接模型提供商，选择新任务默认使用的模型，并决定哪些模型出现在输入框的模型选择器中。</p>
         </div>
-        <button className="secondary-button compact" disabled={loading || !isTauri} onClick={() => void load(true)} title="重新读取凭据和 models.json">
+        <button className="secondary-button compact" disabled={loading || !isTauri} onClick={() => void refresh()} title="重新读取凭据和 models.json">
           <RefreshCw size={13} className={loading ? "spinner-icon" : ""} />刷新
         </button>
       </div>
@@ -323,7 +334,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
               <CircleAlert size={20} />
               <strong>无法读取模型提供商</strong>
               <p>{loadError}</p>
-              <button className="secondary-button compact" onClick={() => void load()}>重试</button>
+              <button className="secondary-button compact" onClick={retry}>重试</button>
             </div>
           ) : !selected ? (
             <div className="models-empty-state">

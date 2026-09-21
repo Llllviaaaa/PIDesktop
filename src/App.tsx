@@ -8,6 +8,8 @@ import {
   useState,
 } from "react";
 import { useSyncOnChange } from "./hooks/useSyncOnChange";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "./lib/queries";
 import { useShallow } from "zustand/react/shallow";
 import { usePanelResize } from "./hooks/usePanelResize";
 import {
@@ -186,6 +188,8 @@ export default function App() {
   // Store actions are stable references. Calling them unbound keeps hooks from
   // having to list the whole `store` object, which changes on every update.
   const { prepareNewTask, setViewedSession, connect, appendLog, switchSession } = store;
+  const queryClient = useQueryClient();
+  const isTauri = "__TAURI_INTERNALS__" in window;
   const {
     connection,
     cwd,
@@ -246,7 +250,6 @@ export default function App() {
   const [sidebarHoverPreview, setSidebarHoverPreview] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("general");
-  const [appearanceCatalog, setAppearanceCatalog] = useState(BUILTIN_APPEARANCE_CATALOG);
   const [hubView, setHubView] = useState<HubView | null>(null);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab | null>(null);
   const [inspectorOpenView, setInspectorOpenView] = useState<InspectorTab | null>(null);
@@ -268,8 +271,14 @@ export default function App() {
   // Codex home defaults to Local; Worktree only when settings or user toggle says so.
   const [taskEnvironment, setTaskEnvironment] = useState<"local" | "worktree">("local");
   const [draftWorkspace, setDraftWorkspace] = useState(() => window.localStorage.getItem("pid-desktop:last-workspace") || "");
-  const [draftBranch, setDraftBranch] = useState("");
-  const [draftGit, setDraftGit] = useState<GitSnapshot | null>(null);
+  // The home composer shows the chosen workspace's branch and uncommitted changes.
+  const draftGitQuery = useQuery({
+    queryKey: queryKeys.gitSnapshot(draftWorkspace),
+    queryFn: () => pi.gitSnapshot(draftWorkspace),
+    enabled: isTauri && Boolean(draftWorkspace),
+  });
+  const draftGit: GitSnapshot | null = isTauri && draftWorkspace && !draftGitQuery.isError ? draftGitQuery.data ?? null : null;
+  const draftBranch = draftGit?.isRepository ? draftGit.branch || "" : "";
   const [registeredProjects, setRegisteredProjects] = useState<ProjectConfig[]>([]);
   const [quickChat, setQuickChat] = useState(false);
   const [goalEditPrefill, setGoalEditPrefill] = useState<string | null>(null);
@@ -290,7 +299,6 @@ export default function App() {
   const navigationForwardRef = useRef<NavigationTarget[]>([]);
   const sidebarHoverCloseTimerRef = useRef<number | null>(null);
   const [navigationAvailability, setNavigationAvailability] = useState({ back: false, forward: false });
-  const isTauri = "__TAURI_INTERNALS__" in window;
   const layoutScale = Math.min(150, Math.max(75, settings?.uiScale ?? 100)) / 100;
 
   const sidebarResize = usePanelResize({
@@ -339,6 +347,13 @@ export default function App() {
   const bottomPanelHeight = bottomResize.size;
   const petFixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("pet") : null;
   const petActivityFixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("pet-activity") : null;
+  const appearanceQuery = useQuery({
+    queryKey: queryKeys.appearance(cwd),
+    queryFn: () => loadAppearanceCatalog(cwd),
+    enabled: isTauri,
+  });
+  // A catalog that fails to load falls back to the built-in themes and pets.
+  const appearanceCatalog = (!appearanceQuery.isError && appearanceQuery.data) || BUILTIN_APPEARANCE_CATALOG;
   const previewPet = petFixture && appearanceCatalog.pets.some((pet) => pet.id === petFixture) ? petFixture : null;
   const activePet = useMemo(
     () => resolveAppearancePet(appearanceCatalog, previewPet ?? settings?.petCharacter ?? "cat"),
@@ -410,19 +425,16 @@ export default function App() {
   }, [isTauri]);
 
   const reloadAppearanceCatalog = useCallback(async () => {
-    if (!isTauri) {
-      setAppearanceCatalog(BUILTIN_APPEARANCE_CATALOG);
-      return;
-    }
-    try {
-      setAppearanceCatalog(await loadAppearanceCatalog(cwd));
-    } catch (error) {
-      setAppearanceCatalog(BUILTIN_APPEARANCE_CATALOG);
-      throw error;
-    }
-  }, [cwd, isTauri]);
-
+    if (!isTauri) return;
+    await queryClient.invalidateQueries({ queryKey: queryKeys.appearance(cwd) });
+    const failure = queryClient.getQueryState(queryKeys.appearance(cwd))?.error;
+    if (failure) throw failure;
+  }, [cwd, isTauri, queryClient]);
+  // Opening or closing Settings picks up themes and pets installed meanwhile.
+  const settingsOpenSeenRef = useRef(settingsOpen);
   useEffect(() => {
+    if (settingsOpenSeenRef.current === settingsOpen) return;
+    settingsOpenSeenRef.current = settingsOpen;
     void reloadAppearanceCatalog().catch(() => undefined);
   }, [reloadAppearanceCatalog, settingsOpen]);
 
@@ -949,47 +961,17 @@ export default function App() {
   }, [isTauri]);
 
   useEffect(() => {
-    let disposed = false;
-    if (!isTauri || !draftWorkspace) {
-      setDraftBranch("");
-      setDraftGit(null);
-      return;
-    }
+    if (!isTauri || !draftWorkspace) return;
     if (!runtimeRecoveryDone || !newTask || hubView !== null || connection !== "disconnected" || startupAutoConnectRef.current) return;
     // A home composer needs an active blank runtime: the model catalog and
     // model/thinking commands are runtime RPCs, not static settings data.
-    void Promise.all([
-      connect(draftWorkspace),
-      pi.gitSnapshot(draftWorkspace),
-    ])
-      .then(([, snapshot]) => {
-        if (!disposed) {
-          setDraftGit(snapshot);
-          setDraftBranch(snapshot.isRepository ? (snapshot.branch || "") : "");
-        }
-      })
-      .catch(() => {
-        if (!disposed) {
-          setDraftGit(null);
-          setDraftBranch("");
-        }
-      });
-    return () => {
-      disposed = true;
-    };
+    void connect(draftWorkspace).catch(() => undefined);
   }, [connection, draftWorkspace, hubView, isTauri, newTask, runtimeRecoveryDone, startupAutoConnectRef, connect]);
 
   const refreshDraftGit = useCallback(async () => {
     if (!isTauri || !draftWorkspace) return;
-    try {
-      const snapshot = await pi.gitSnapshot(draftWorkspace);
-      setDraftGit(snapshot);
-      setDraftBranch(snapshot.isRepository ? (snapshot.branch || "") : "");
-    } catch {
-      setDraftGit(null);
-      setDraftBranch("");
-    }
-  }, [draftWorkspace, isTauri]);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.gitSnapshot(draftWorkspace) });
+  }, [draftWorkspace, isTauri, queryClient]);
 
   const selectWorkspace = useCallback((workspace: string) => {
     window.localStorage.setItem("pid-desktop:last-workspace", workspace);

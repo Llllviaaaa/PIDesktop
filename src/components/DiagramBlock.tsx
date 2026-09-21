@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import DOMPurify from "dompurify";
+import { queryKeys } from "../lib/queries";
 import { Check, Code2, Copy, Download, Eye, LoaderCircle, Maximize2, Minus, Plus, RotateCcw, TriangleAlert, X } from "lucide-react";
 
 export type DiagramKind = "mermaid" | "plantuml";
@@ -159,7 +161,21 @@ export function DiagramBlock({ kind, source }: { kind: DiagramKind; source: stri
   const [expanded, setExpanded] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [panning, setPanning] = useState(false);
-  const [state, setState] = useState<DiagramState>({ status: "loading", svg: "", error: "" });
+  // Rendering is deterministic for a given source and theme, so a diagram that
+  // appears twice, or re-renders after scrolling back, is drawn once.
+  const rendered = useQuery({
+    queryKey: queryKeys.diagram(kind, dark, source),
+    queryFn: async () => {
+      const svg = kind === "mermaid" ? await renderMermaid(source, dark) : await renderPlantUml(source, dark);
+      return kind === "mermaid" ? svg : sanitizePlantUmlSvg(svg);
+    },
+    staleTime: Infinity,
+  });
+  const state: DiagramState = rendered.isSuccess
+    ? { status: "ready", svg: rendered.data, error: "" }
+    : rendered.isError
+      ? { status: "error", svg: "", error: rendered.error instanceof Error ? rendered.error.message : String(rendered.error) }
+      : { status: "loading", svg: "", error: "" };
   const lightboxViewportRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{
     pointerId: number;
@@ -174,32 +190,6 @@ export function DiagramBlock({ kind, source }: { kind: DiagramKind; source: stri
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     return () => observer.disconnect();
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading", svg: "", error: "" });
-    const renderer = kind === "mermaid" ? renderMermaid(source, dark) : renderPlantUml(source, dark);
-    void renderer.then((svg) => {
-      if (!cancelled) {
-        setState({
-          status: "ready",
-          svg: kind === "mermaid" ? svg : sanitizePlantUmlSvg(svg),
-          error: "",
-        });
-      }
-    }).catch((error) => {
-      if (!cancelled) {
-        setState({
-          status: "error",
-          svg: "",
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [dark, kind, source]);
 
   useEffect(() => {
     if (!expanded) return;

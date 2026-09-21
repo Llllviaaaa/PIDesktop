@@ -1,7 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { DesktopPetWindow } from "./components/DesktopPetWindow";
+import { queryClient } from "./lib/queryClient";
 import { moveManagedQueueItem, removeManagedQueueItem } from "./lib/managedQueue";
 import { usePiStore } from "./store";
 import type { AssistantMessage, UiMessage } from "./types";
@@ -394,6 +396,8 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    {desktopPetWindow ? <DesktopPetWindow /> : <App />}
+    <QueryClientProvider client={queryClient}>
+      {desktopPetWindow ? <DesktopPetWindow /> : <App />}
+    </QueryClientProvider>
   </React.StrictMode>,
 );

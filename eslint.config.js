@@ -49,11 +49,10 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       "react-hooks/exhaustive-deps": "error",
-      // The remaining set-state-in-effect warnings are data loading on mount
-      // (setLoading before a fetch), a clock, and two effects that also write
-      // localStorage. Replacing those means choosing a data-loading approach,
-      // not a mechanical fix. Resets that follow a prop use useSyncOnChange.
-      "react-hooks/set-state-in-effect": "warn",
+      // Data from the backend goes through TanStack Query (src/lib/queries.ts),
+      // state that follows a prop through useSyncOnChange, and clocks through
+      // useSyncExternalStore. An effect only talks to things outside React.
+      "react-hooks/set-state-in-effect": "error",
     },
   },
 

@@ -30,6 +30,9 @@ import {
   X,
 } from "lucide-react";
 import { pi } from "../lib/pi";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queries";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import type { AppNotification, ProjectConfig, SessionInfo } from "../types";
 import { sessionTitle } from "../lib/sessionTitle";
 import {
@@ -82,6 +85,12 @@ interface PositionedThreadPreview {
 }
 
 const PINNED_SESSIONS_KEY = "pid-desktop:pinned-sessions";
+const NO_PROJECTS: ProjectConfig[] = [];
+
+function sameOrder(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((file, index) => file === right[index]);
+}
+
 const COLLAPSED_PROJECTS_KEY = "pid-desktop:collapsed-projects";
 const SIDEBAR_SESSION_ORDER_KEY = "pid-desktop:sidebar-session-order";
 
@@ -181,26 +190,46 @@ export function Sidebar({
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [collapsedProjectPaths, setCollapsedProjectPaths] = useState(() => readStringList(COLLAPSED_PROJECTS_KEY));
+  useEffect(() => {
+    window.localStorage.setItem(COLLAPSED_PROJECTS_KEY, JSON.stringify(collapsedProjectPaths));
+  }, [collapsedProjectPaths]);
   const [pinnedSessionFiles, setPinnedSessionFiles] = useState(() => readStringList(PINNED_SESSIONS_KEY));
   const [persistedSessionOrder, setPersistedSessionOrder] = useState(() => readStringList(SIDEBAR_SESSION_ORDER_KEY));
-  const [projectConfigs, setProjectConfigs] = useState<ProjectConfig[]>([]);
   const [projectMenu, setProjectMenu] = useState<PositionedProjectMenu | null>(null);
   const [threadPreview, setThreadPreview] = useState<PositionedThreadPreview | null>(null);
   const [branchByWorkspace, setBranchByWorkspace] = useState<Record<string, string>>({});
   const [editingProject, setEditingProject] = useState<string | null>(null);
   const [aliasDraft, setAliasDraft] = useState("");
-  const lastOpenedSessionFile = useRef<string | null>(null);
+  const queryClient = useQueryClient();
+  const projectsQuery = useQuery({
+    queryKey: queryKeys.projects(),
+    queryFn: () => pi.listProjects().catch((): ProjectConfig[] => []),
+  });
+  const projectConfigs = projectsQuery.data ?? NO_PROJECTS;
+  const setProjectConfigs = useCallback(
+    (update: (current: ProjectConfig[]) => ProjectConfig[]) =>
+      queryClient.setQueryData<ProjectConfig[]>(queryKeys.projects(), (current) => update(current ?? [])),
+    [queryClient],
+  );
+  const loadProjectConfigs = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.projects() }),
+    [queryClient],
+  );
+  // The session whose project was last auto-expanded; see the sync further down.
+  const [expandedForSession, setExpandedForSession] = useState<string | null>(null);
   const stableSessionOrder = useMemo(
     () => reconcileSidebarSessionOrder(persistedSessionOrder, sessions),
     [persistedSessionOrder, sessions],
   );
 
-  useEffect(() => {
-    if (stableSessionOrder.length === persistedSessionOrder.length
-      && stableSessionOrder.every((file, index) => file === persistedSessionOrder[index])) return;
+  // Remember the reconciled order so new sessions keep their slot across restarts.
+  useSyncOnChange([stableSessionOrder], () => {
+    if (sameOrder(stableSessionOrder, persistedSessionOrder)) return;
     setPersistedSessionOrder(stableSessionOrder);
-    window.localStorage.setItem(SIDEBAR_SESSION_ORDER_KEY, JSON.stringify(stableSessionOrder));
-  }, [persistedSessionOrder, stableSessionOrder]);
+  });
+  useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_SESSION_ORDER_KEY, JSON.stringify(persistedSessionOrder));
+  }, [persistedSessionOrder]);
 
   const projectConfig = (workspace: string): ProjectConfig => projectConfigs.find((project) => pathsEqual(project.path, workspace)) ?? {
     path: workspace,
@@ -213,19 +242,9 @@ export function Sidebar({
   const setProjectCollapsed = useCallback((workspace: string, collapsed: boolean) => {
     setCollapsedProjectPaths((current) => {
       const withoutWorkspace = current.filter((path) => !pathsEqual(path, workspace));
-      const next = collapsed ? [...withoutWorkspace, workspace] : withoutWorkspace;
-      window.localStorage.setItem(COLLAPSED_PROJECTS_KEY, JSON.stringify(next));
-      return next;
+      return collapsed ? [...withoutWorkspace, workspace] : withoutWorkspace;
     });
     setThreadPreview(null);
-  }, []);
-
-  const loadProjectConfigs = useCallback(async () => {
-    try {
-      setProjectConfigs(await pi.listProjects());
-    } catch {
-      setProjectConfigs([]);
-    }
   }, []);
 
   const groups = useMemo(() => {
@@ -378,19 +397,18 @@ export function Sidebar({
   }, []);
 
   useEffect(() => {
-    void loadProjectConfigs();
     const reload = () => void loadProjectConfigs();
     window.addEventListener("pid-desktop:projects-changed", reload);
     return () => window.removeEventListener("pid-desktop:projects-changed", reload);
   }, [loadProjectConfigs]);
 
-  useEffect(() => {
-    if (!currentSessionFile || lastOpenedSessionFile.current === currentSessionFile) return;
+  useSyncOnChange([currentSessionFile, sessions], () => {
+    if (!currentSessionFile || expandedForSession === currentSessionFile) return;
     const activeSession = sessions.find((session) => sameLocalPath(session.file, currentSessionFile));
     if (!activeSession) return;
-    lastOpenedSessionFile.current = currentSessionFile;
+    setExpandedForSession(currentSessionFile);
     setProjectCollapsed(activeSession.cwd, false);
-  }, [currentSessionFile, sessions, setProjectCollapsed]);
+  });
 
   return (
     <aside

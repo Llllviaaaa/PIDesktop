@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { describeError } from "../lib/errors";
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queries";
 import {
   ExternalLink,
   GitBranch,
@@ -31,12 +34,8 @@ function updatedLabel(value: string): string {
 }
 
 export function PullRequestsPage({ cwd, workspaceOptions, onOpenUrl, onCheckout, onReview }: PullRequestsPageProps) {
-  const [collection, setCollection] = useState<PullRequestCollection | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [checkingOut, setCheckingOut] = useState<number | null>(null);
   const [selectedWorkspace, setSelectedWorkspace] = useState(cwd);
-  const [repositoryRoot, setRepositoryRoot] = useState("");
   const [selectionTouched, setSelectionTouched] = useState(false);
   const availableWorkspaces = useMemo(
     () => uniqueWorkspacePaths([cwd, ...workspaceOptions]),
@@ -51,45 +50,31 @@ export function PullRequestsPage({ cwd, workspaceOptions, onOpenUrl, onCheckout,
     setSelectionTouched(false);
   }
 
-  const load = useCallback(async () => {
-    if (availableWorkspaces.length === 0) {
-      setCollection(null);
-      setError("先打开一个 Git 项目，再查看拉取请求。");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const resolved = await findGitWorkspace(
-        selectedWorkspace || cwd,
-        availableWorkspaces,
-        pi.gitRepositoryRoot,
-        !selectionTouched,
-      );
+  const requested = selectedWorkspace || cwd;
+  const pullRequests = useQuery({
+    queryKey: queryKeys.pullRequests(requested, availableWorkspaces, selectionTouched),
+    queryFn: async () => {
+      const resolved = await findGitWorkspace(requested, availableWorkspaces, pi.gitRepositoryRoot, !selectionTouched);
       if (!resolved) {
-        setCollection(null);
-        setRepositoryRoot("");
-        setError(selectionTouched
+        throw new Error(selectionTouched
           ? "所选工作区不是 Git 仓库，请切换到其他项目。"
           : "没有找到可用的 Git 项目，请先打开或注册一个 Git 仓库。");
-        return;
       }
-      const nextCollection = await pi.listPullRequests(resolved.repositoryRoot);
-      setSelectedWorkspace(resolved.workspace);
-      setRepositoryRoot(resolved.repositoryRoot);
-      setCollection(nextCollection);
-    } catch (loadError) {
-      setCollection(null);
-      setRepositoryRoot("");
-      setError(loadError instanceof Error ? loadError.message : String(loadError));
-    } finally {
-      setLoading(false);
-    }
-  }, [availableWorkspaces, cwd, selectedWorkspace, selectionTouched]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+      const collection = await pi.listPullRequests(resolved.repositoryRoot);
+      return { ...resolved, collection };
+    },
+    enabled: availableWorkspaces.length > 0,
+  });
+  const loaded = pullRequests.isError ? undefined : pullRequests.data;
+  const collection: PullRequestCollection | null = loaded?.collection ?? null;
+  const repositoryRoot = loaded?.repositoryRoot ?? "";
+  // Auto-resolution may land on a different project than the one requested; show that one.
+  const shownWorkspace = loaded?.workspace ?? selectedWorkspace;
+  const loading = pullRequests.isFetching;
+  const error = availableWorkspaces.length === 0
+    ? "先打开一个 Git 项目，再查看拉取请求。"
+    : pullRequests.error ? describeError(pullRequests.error) : "";
+  const load = () => void pullRequests.refetch();
 
   const checkout = async (pullRequest: PullRequestInfo) => {
     if (!repositoryRoot) return;
@@ -116,7 +101,7 @@ export function PullRequestsPage({ cwd, workspaceOptions, onOpenUrl, onCheckout,
             <label className="repository-picker">
               <span>仓库</span>
               <select
-                value={selectedWorkspace}
+                value={shownWorkspace}
                 onChange={(event) => {
                   setSelectionTouched(true);
                   setSelectedWorkspace(event.target.value);
@@ -129,7 +114,7 @@ export function PullRequestsPage({ cwd, workspaceOptions, onOpenUrl, onCheckout,
               </select>
             </label>
           )}
-          <button type="button" className="icon-button" title="刷新拉取请求" onClick={() => void load()} disabled={loading}>
+          <button type="button" className="icon-button" title="刷新拉取请求" onClick={load} disabled={loading}>
             <RefreshCw size={16} className={loading ? "spinner-icon" : ""} />
           </button>
         </div>

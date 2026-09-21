@@ -1,5 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { describeError } from "../lib/errors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queries";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
@@ -192,6 +195,10 @@ function groupForPage(page: SettingsPage) {
 /** How a panel's own PageHeading renders once it sits inside a grouped page. */
 const PanelHeadingMode = createContext<"page" | "section" | "description">("page");
 
+const NO_SESSIONS: SessionInfo[] = [];
+const NO_RESOURCES: ResourceItem[] = [];
+const NO_WORKTREES: WorktreeInfo[] = [];
+
 export function SettingsModal({
   settings,
   cwd,
@@ -213,13 +220,8 @@ export function SettingsModal({
   const [active, setActive] = useState<SettingsPage>(initialPage);
   const [query, setQuery] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
-  const [resources, setResources] = useState<ResourceItem[]>([]);
-  const [archived, setArchived] = useState<SessionInfo[]>([]);
-  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
-  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [memoryText, setMemoryText] = useState("");
   const [memoryState, setMemoryState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [loadingData, setLoadingData] = useState(true);
   const editedRef = useRef(false);
   const pendingSaveRef = useRef<AppSettings | null>(null);
   const saveTimerRef = useRef<number | null>(null);
@@ -239,30 +241,53 @@ export function SettingsModal({
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);
   }, []);
-  useEffect(() => {
-    if (!isTauri) {
-      setLoadingData(false);
-      return;
-    }
-    let cancelled = false;
-    setLoadingData(true);
-    void Promise.all([
-      pi.listArchivedSessions(),
-      pi.listResources(cwd),
-      cwd ? pi.listWorktrees(cwd).catch(() => []) : Promise.resolve([]),
-      pi.getLocalMemory().catch(() => ""),
-    ]).then(([nextArchived, nextResources, nextWorktrees, nextMemory]) => {
-      if (cancelled) return;
-      setArchived(nextArchived);
-      setForm((current) => ({ ...current, archivedSessions: nextArchived.map((session) => session.file) }));
-      setResources(nextResources);
-      setWorktrees(nextWorktrees);
-      setMemoryText(nextMemory);
-      setLoadingData(false);
-    });
-    void pi.usageSummary().then((summary) => { if (!cancelled) setUsage(summary); });
-    return () => { cancelled = true; };
-  }, [cwd, isTauri]);
+  const queryClient = useQueryClient();
+  const archivedQuery = useQuery({
+    queryKey: queryKeys.archivedSessions(),
+    queryFn: () => pi.listArchivedSessions(),
+    enabled: isTauri,
+  });
+  const resourcesQuery = useQuery({
+    queryKey: queryKeys.resources(cwd),
+    queryFn: () => pi.listResources(cwd),
+    enabled: isTauri,
+  });
+  const worktreesQuery = useQuery({
+    queryKey: queryKeys.worktrees(cwd),
+    queryFn: () => (cwd ? pi.listWorktrees(cwd).catch((): WorktreeInfo[] => []) : Promise.resolve([])),
+    enabled: isTauri,
+  });
+  const memoryQuery = useQuery({
+    queryKey: queryKeys.localMemory(),
+    queryFn: () => pi.getLocalMemory().catch(() => ""),
+    enabled: isTauri,
+  });
+  const usageQuery = useQuery({
+    queryKey: queryKeys.usage(),
+    queryFn: () => pi.usageSummary(),
+    enabled: isTauri,
+  });
+  const archived = archivedQuery.data ?? NO_SESSIONS;
+  const resources = resourcesQuery.data ?? NO_RESOURCES;
+  const worktrees = worktreesQuery.data ?? NO_WORKTREES;
+  const usage = usageQuery.data ?? null;
+  // A failed load used to leave this spinning forever; now it ends and shows what loaded.
+  const loadingData = isTauri && (archivedQuery.isPending || resourcesQuery.isPending
+    || worktreesQuery.isPending || memoryQuery.isPending);
+
+  // The form carries the archive list, and the memory editor starts from the saved text.
+  const archivedData = archivedQuery.data;
+  useSyncOnChange([archivedData], () => {
+    if (archivedData) setForm((current) => ({ ...current, archivedSessions: archivedData.map((session) => session.file) }));
+  });
+  const savedMemory = memoryQuery.data;
+  useSyncOnChange([savedMemory], () => {
+    if (savedMemory !== undefined) setMemoryText(savedMemory);
+  });
+  const dropArchived = (file: string) => queryClient.setQueryData<SessionInfo[]>(
+    queryKeys.archivedSessions(),
+    (items) => items?.filter((item) => item.file !== file),
+  );
 
   const normalizeSettings = (value: AppSettings): AppSettings => {
     return {
@@ -341,6 +366,7 @@ export function SettingsModal({
           setMemoryState("saving");
           try {
             await pi.setLocalMemory(memoryText);
+            queryClient.setQueryData(queryKeys.localMemory(), memoryText);
             setMemoryState("saved");
           } catch {
             setMemoryState("error");
@@ -366,6 +392,7 @@ export function SettingsModal({
           if (!window.confirm("删除 PIDesktop 本地记忆文件吗？此操作不能撤销。")) return;
           try {
             await pi.deleteLocalMemory();
+            queryClient.setQueryData(queryKeys.localMemory(), "");
             setMemoryText("");
             setMemoryState("idle");
           } catch {
@@ -376,12 +403,12 @@ export function SettingsModal({
       {page === "shortcuts" && <ShortcutsPage form={form} update={update} />}
       {page === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
         await pi.restoreSession(session.file);
-        setArchived((items) => items.filter((item) => item.file !== session.file));
+        dropArchived(session.file);
         setForm((current) => ({ ...current, archivedSessions: current.archivedSessions.filter((file) => file !== session.file) }));
       }} onDelete={async (session) => {
         if (!window.confirm(`将“${session.name || session.firstMessage || "未命名任务"}”移到 Pi Desktop 回收站吗？`)) return;
         await pi.deleteSession(session.file);
-        setArchived((items) => items.filter((item) => item.file !== session.file));
+        dropArchived(session.file);
       }} />}
       {page === "usage" && <UsagePage usage={usage} />}
       {page === "providers" && <ModelsPage form={form} update={update} />}
@@ -393,7 +420,7 @@ export function SettingsModal({
       {page === "environment" && <EnvironmentPage form={form} update={update} />}
       {page === "hooks" && <HooksPage form={form} update={update} />}
       {page === "git" && <GitPage form={form} update={update} />}
-      {page === "worktrees" && <WorktreesPage cwd={cwd} worktrees={worktrees} loading={loadingData} onCreated={(item) => setWorktrees((items) => [...items, item])} />}
+      {page === "worktrees" && <WorktreesPage cwd={cwd} worktrees={worktrees} loading={loadingData} onCreated={(item) => queryClient.setQueryData<WorktreeInfo[]>(queryKeys.worktrees(cwd), (items) => [...(items ?? []), item])} />}
       {page === "debug" && <DebugPage form={form} update={update} />}
     </>
   );

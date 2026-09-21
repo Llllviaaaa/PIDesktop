@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { describeError } from "../lib/errors";
 import { ChevronRight, ExternalLink, File, Folder, Paperclip, RefreshCw, Search, X } from "lucide-react";
 import { pi } from "../lib/pi";
+import { queryKeys } from "../lib/queries";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { searchWorkspace } from "../lib/workspaceSearch";
 import type { WorkspaceDirEntry } from "../types";
 
 interface FileTreePanelProps {
@@ -13,59 +17,34 @@ interface FileTreePanelProps {
   onClose: () => void;
 }
 
+const NO_ENTRIES: WorkspaceDirEntry[] = [];
 export function FileTreePanel({ cwd, activePath, onOpenFile, onAddToChat, onOpenExternal, onClose }: FileTreePanelProps) {
   const [query, setQuery] = useState("");
-  const [roots, setRoots] = useState<WorkspaceDirEntry[]>([]);
-  const [matches, setMatches] = useState<WorkspaceDirEntry[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const searchSequence = useRef(0);
+  const queryClient = useQueryClient();
+  const needle = query.trim();
+  // Search once typing pauses; the previous search is cancelled on the backend.
+  const settledNeedle = useDebouncedValue(needle, 140);
 
-  useEffect(() => {
-    if (!cwd) {
-      setRoots([]);
-      setError(null);
-      return;
-    }
-    let disposed = false;
-    void pi.listWorkspaceDir(cwd)
-      .then((entries) => {
-        if (!disposed) {
-          setRoots(entries);
-          setError(null);
-        }
-      })
-      .catch((err) => {
-        if (!disposed) setError(describeError(err));
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [cwd, refreshKey]);
+  const rootsQuery = useQuery({
+    queryKey: queryKeys.directory(cwd, ""),
+    queryFn: () => pi.listWorkspaceDir(cwd),
+    enabled: Boolean(cwd),
+  });
+  const roots = (cwd && rootsQuery.data) || NO_ENTRIES;
+  const error = cwd && rootsQuery.error ? describeError(rootsQuery.error) : null;
 
-  useEffect(() => {
-    const needle = query.trim();
-    if (!cwd || !needle) {
-      setMatches([]);
-      setSearching(false);
-      return;
-    }
-    let disposed = false;
-    const requestId = `workspace-search-${Date.now()}-${++searchSequence.current}`;
-    setSearching(true);
-    const timer = window.setTimeout(() => {
-      void pi.searchWorkspaceFiles(cwd, needle, requestId)
-        .then((entries) => { if (!disposed) setMatches(entries); })
-        .catch(() => { if (!disposed) setMatches([]); })
-        .finally(() => { if (!disposed) setSearching(false); });
-    }, 140);
-    return () => {
-      disposed = true;
-      window.clearTimeout(timer);
-      void pi.cancelWorkspaceSearch(requestId).catch(() => undefined);
-    };
-  }, [cwd, query, refreshKey]);
+  const searchQuery = useQuery({
+    queryKey: queryKeys.search(cwd, settledNeedle),
+    queryFn: ({ signal }) => searchWorkspace(cwd, settledNeedle, signal),
+    enabled: Boolean(cwd && settledNeedle),
+    // Keep showing the last matches while the next search runs, as before.
+    placeholderData: keepPreviousData,
+  });
+  const searching = Boolean(cwd && needle) && (needle !== settledNeedle || searchQuery.isFetching);
+  const matches = cwd && needle && !searchQuery.isError ? searchQuery.data ?? NO_ENTRIES : NO_ENTRIES;
+
+  // Refreshing reloads everything read from this workspace, expanded folders included.
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: queryKeys.workspace(cwd) });
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -78,7 +57,7 @@ export function FileTreePanel({ cwd, activePath, onOpenFile, onAddToChat, onOpen
       <header className="workspace-pane-header">
         <span className="workspace-pane-title"><Folder size={15} strokeWidth={1.75} /><strong>文件</strong></span>
         <div className="workspace-pane-actions">
-          <button type="button" className="icon-button" title="刷新文件" onClick={() => setRefreshKey((value) => value + 1)}>
+          <button type="button" className="icon-button" title="刷新文件" onClick={refresh}>
             <RefreshCw size={13} strokeWidth={1.75} />
           </button>
           <button type="button" className="icon-button" title="关闭文件" onClick={onClose}>
@@ -138,18 +117,17 @@ function TreeNode({
   onOpenExternal: (path: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [children, setChildren] = useState<WorkspaceDirEntry[] | null>(null);
-  const [loading, setLoading] = useState(false);
+
   const active = activePath?.replace(/\\/g, "/") === entry.path.replace(/\\/g, "/");
 
-  useEffect(() => {
-    if (!open || !entry.isDir || children) return;
-    setLoading(true);
-    void pi.listWorkspaceDir(cwd, entry.path)
-      .then(setChildren)
-      .catch(() => setChildren([]))
-      .finally(() => setLoading(false));
-  }, [children, cwd, entry.isDir, entry.path, open]);
+  const childrenQuery = useQuery({
+    queryKey: queryKeys.directory(cwd, entry.path),
+    queryFn: () => pi.listWorkspaceDir(cwd, entry.path),
+    enabled: open && entry.isDir,
+  });
+  // An unreadable folder shows as empty rather than as an error, as before.
+  const children = childrenQuery.isError ? NO_ENTRIES : childrenQuery.data ?? null;
+  const loading = open && entry.isDir && childrenQuery.isPending;
 
   const visibleChildren = useMemo(() => {
     if (!children) return [];

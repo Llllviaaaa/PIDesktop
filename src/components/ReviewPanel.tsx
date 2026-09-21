@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queries";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { describeError } from "../lib/errors";
 import hljs from "highlight.js/lib/common";
@@ -98,6 +100,8 @@ const AUXILIARY_TOOLS: Array<{ id: ReviewAuxiliaryTool; label: string; Icon: typ
   { id: "side-chat", label: "侧边聊天", Icon: MessageSquarePlus },
 ];
 
+const NO_BRANCHES: GitBranchInfo[] = [];
+const NO_COMMITS: GitCommitInfo[] = [];
 const NO_FILES: GitFileChange[] = [];
 
 export function ReviewPanel({
@@ -119,8 +123,6 @@ export function ReviewPanel({
   const messages = usePiStore((state) => state.messages);
   const [filter, setFilter] = useState<ReviewFilter>("uncommitted");
   const [snapshot, setSnapshot] = useState<GitSnapshot | null>(git);
-  const [branches, setBranches] = useState<GitBranchInfo[]>([]);
-  const [commits, setCommits] = useState<GitCommitInfo[]>([]);
   const [baseBranch, setBaseBranch] = useState("");
   const [commitSha, setCommitSha] = useState("");
   const [loading, setLoading] = useState(false);
@@ -145,7 +147,7 @@ export function ReviewPanel({
   const panelRef = useRef<HTMLElement | null>(null);
   const loadRequestRef = useRef(0);
   const onErrorRef = useRef(onError);
-  const gitRef = useRef(git);
+
   const activeSnapshot = filter === "uncommitted" ? git : snapshot;
   const files = activeSnapshot?.files ?? NO_FILES;
 
@@ -153,45 +155,53 @@ export function ReviewPanel({
     onErrorRef.current = onError;
   }, [onError]);
 
-  // Branches and commits reload only when the workspace or its repository status
-  // changes, not on every git refresh, so the effect below reads git through a ref.
-  useEffect(() => {
-    gitRef.current = git;
-  }, [git]);
-
   // The uncommitted view mirrors the live git snapshot.
   useSyncOnChange([filter, git], () => {
     if (filter === "uncommitted") setSnapshot(git);
   });
 
+  const inTauri = "__TAURI_INTERNALS__" in window;
+  const isRepository = Boolean(git?.isRepository);
+  // Branches and commits load per workspace, not on every git refresh.
+  const sourcesEnabled = Boolean(cwd) && inTauri && isRepository;
+  const sourcesQuery = useQuery({
+    queryKey: queryKeys.reviewSources(cwd),
+    queryFn: async () => {
+      try {
+        const [branches, commits] = await Promise.all([pi.gitListBranches(cwd), pi.gitListCommits(cwd)]);
+        return { branches, commits };
+      } catch (error) {
+        onErrorRef.current?.(`无法加载审查来源：${describeError(error)}`);
+        throw error;
+      }
+    },
+    enabled: sourcesEnabled,
+  });
+  const sources = sourcesEnabled && !sourcesQuery.isError ? sourcesQuery.data : undefined;
+  const branches = sources?.branches ?? NO_BRANCHES;
+  const commits = sources?.commits ?? NO_COMMITS;
+
+  // Pick a comparison base and a commit once they are known, unless one is already chosen.
+  useSyncOnChange([sources], () => {
+    if (!sources) return;
+    const fallbackBase = sources.branches.find((branch) => !branch.current)?.name ?? "";
+    setBaseBranch((current) => current || fallbackBase);
+    setCommitSha((current) => current || sources.commits[0]?.sha || "");
+  });
+
+  // Leaving a repository falls back to the uncommitted view.
+  useSyncOnChange([cwd, isRepository], () => {
+    if (!cwd || !inTauri || isRepository) return;
+    setFilter("uncommitted");
+    setSnapshot(git);
+    setBaseBranch("");
+    setCommitSha("");
+    setLoading(false);
+  });
   useEffect(() => {
-    if (!cwd || !("__TAURI_INTERNALS__" in window)) return;
-    if (!git?.isRepository) {
-      loadRequestRef.current += 1;
-      setFilter("uncommitted");
-      setSnapshot(gitRef.current);
-      setBranches([]);
-      setCommits([]);
-      setBaseBranch("");
-      setCommitSha("");
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    void Promise.all([pi.gitListBranches(cwd), pi.gitListCommits(cwd)])
-      .then(([nextBranches, nextCommits]) => {
-        if (cancelled) return;
-        setBranches(nextBranches);
-        setCommits(nextCommits);
-        const fallbackBase = nextBranches.find((branch) => !branch.current)?.name ?? "";
-        setBaseBranch((current) => current || fallbackBase);
-        setCommitSha((current) => current || nextCommits[0]?.sha || "");
-      })
-      .catch((error) => {
-        if (!cancelled) onErrorRef.current?.(`无法加载审查来源：${describeError(error)}`);
-      });
-    return () => { cancelled = true; };
-  }, [cwd, git?.isRepository]);
+    // Invalidate any snapshot request still in flight for the old filter.
+    if (cwd && inTauri && !isRepository) loadRequestRef.current += 1;
+  }, [cwd, inTauri, isRepository]);
 
   useEffect(() => {
     if (!filterOpen && !optionsOpen && !reviewOpen && !commitOpen && !toolsOpen) return;
