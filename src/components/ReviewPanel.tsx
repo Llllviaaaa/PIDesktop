@@ -97,6 +97,8 @@ const AUXILIARY_TOOLS: Array<{ id: ReviewAuxiliaryTool; label: string; Icon: typ
   { id: "side-chat", label: "侧边聊天", Icon: MessageSquarePlus },
 ];
 
+const NO_FILES: GitFileChange[] = [];
+
 export function ReviewPanel({
   cwd,
   git,
@@ -137,12 +139,19 @@ export function ReviewPanel({
   const panelRef = useRef<HTMLElement | null>(null);
   const loadRequestRef = useRef(0);
   const onErrorRef = useRef(onError);
+  const gitRef = useRef(git);
   const activeSnapshot = filter === "uncommitted" ? git : snapshot;
-  const files = activeSnapshot?.files ?? [];
+  const files = activeSnapshot?.files ?? NO_FILES;
 
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+
+  // Branches and commits reload only when the workspace or its repository status
+  // changes, not on every git refresh, so the effect below reads git through a ref.
+  useEffect(() => {
+    gitRef.current = git;
+  }, [git]);
 
   useEffect(() => {
     if (filter === "uncommitted") setSnapshot(git);
@@ -153,7 +162,7 @@ export function ReviewPanel({
     if (!git?.isRepository) {
       loadRequestRef.current += 1;
       setFilter("uncommitted");
-      setSnapshot(git);
+      setSnapshot(gitRef.current);
       setBranches([]);
       setCommits([]);
       setBaseBranch("");

@@ -726,6 +726,9 @@ function LoginPanel({ login, onCancel, onAnswer }: { login: LoginState; onCancel
   const [value, setValue] = useState("");
   const [copied, setCopied] = useState("");
   useEffect(() => setValue(""), [login.dialog?.id]);
+  const deviceCode = login.device?.userCode;
+  const verificationUri = login.device?.verificationUri;
+  const authUrl = login.authUrl;
   const copy = (text: string, key: string) => {
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(key);
@@ -748,20 +751,20 @@ function LoginPanel({ login, onCancel, onAnswer }: { login: LoginState; onCancel
         <button className="secondary-button compact" onClick={onCancel}>取消</button>
       </header>
       {login.progress && <p className="models-hint">{login.progress}</p>}
-      {login.device?.userCode && (
+      {deviceCode && (
         <div className="models-device">
-          <span>在 {login.device.verificationUri ?? "授权页面"} 输入以下代码：</span>
-          <code>{login.device.userCode}</code>
+          <span>在 {verificationUri ?? "授权页面"} 输入以下代码：</span>
+          <code>{deviceCode}</code>
           <div className="models-actions">
-            <button className="secondary-button compact" onClick={() => copy(login.device!.userCode!, "code")}>{copied === "code" ? <Check size={13} /> : <Copy size={13} />}复制代码</button>
-            {login.device.verificationUri && <button className="secondary-button compact" onClick={() => void openUrl(login.device!.verificationUri!)}><ExternalLink size={13} />打开页面</button>}
+            <button className="secondary-button compact" onClick={() => copy(deviceCode, "code")}>{copied === "code" ? <Check size={13} /> : <Copy size={13} />}复制代码</button>
+            {verificationUri && <button className="secondary-button compact" onClick={() => void openUrl(verificationUri)}><ExternalLink size={13} />打开页面</button>}
           </div>
         </div>
       )}
-      {login.authUrl && !login.device && (
+      {authUrl && !login.device && (
         <div className="models-actions">
-          <button className="secondary-button compact" onClick={() => void openUrl(login.authUrl!)}><ExternalLink size={13} />重新打开授权页面</button>
-          <button className="secondary-button compact" onClick={() => copy(login.authUrl!, "url")}>{copied === "url" ? <Check size={13} /> : <Copy size={13} />}复制链接</button>
+          <button className="secondary-button compact" onClick={() => void openUrl(authUrl)}><ExternalLink size={13} />重新打开授权页面</button>
+          <button className="secondary-button compact" onClick={() => copy(authUrl, "url")}>{copied === "url" ? <Check size={13} /> : <Copy size={13} />}复制链接</button>
         </div>
       )}
       {dialog?.method === "select" && (

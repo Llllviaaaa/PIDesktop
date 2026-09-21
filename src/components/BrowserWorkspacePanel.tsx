@@ -28,7 +28,7 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
   const inputRef = useRef<HTMLInputElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const nativeWebviewRef = useRef<Webview | null>(null);
-  const nativeLabelRef = useRef(`workspace-browser-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const [nativeLabel] = useState(() => `workspace-browser-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const disposedRef = useRef(false);
   const isTauri = "__TAURI_INTERNALS__" in window;
   const currentUrl = historyIndex >= 0 ? history[historyIndex] : "";
@@ -62,7 +62,7 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
       setLoading(true);
       setNativeError(null);
       void invoke("browser_webview_action", {
-        label: nativeLabelRef.current,
+        label: nativeLabel,
         action: "navigate",
         url: currentUrl,
       }).then(() => setLoading(false)).catch((error) => {
@@ -77,7 +77,7 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
     const rect = viewport.getBoundingClientRect();
     setLoading(true);
     setNativeError(null);
-    const webview = new Webview(getCurrentWindow(), nativeLabelRef.current, {
+    const webview = new Webview(getCurrentWindow(), nativeLabel, {
       url: currentUrl,
       x: rect.left,
       y: rect.top,
@@ -100,7 +100,7 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
       setLoading(false);
       setNativeError(String(event.payload || "无法创建内嵌浏览器"));
     });
-  }, [currentUrl, isTauri, placeNativeWebview]);
+  }, [currentUrl, isTauri, nativeLabel, placeNativeWebview]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -149,7 +149,7 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
     if (!nativeWebviewRef.current) return;
     setLoading(true);
     void invoke("browser_webview_action", {
-      label: nativeLabelRef.current,
+      label: nativeLabel,
       action,
     }).then(() => setLoading(false)).catch((error) => {
       setLoading(false);

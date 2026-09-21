@@ -196,7 +196,9 @@ export function attachForkPointsToUi(messages: UiMessage[], points: ForkPoint[])
 
 export function buildPromptPayload(text: string, attachments: AttachmentPayload[]) {
   const trimmed = text.trim();
-  const imageAttachments = attachments.filter((item) => item.kind === "image" && item.data);
+  const imageAttachments = attachments.filter(
+    (item): item is AttachmentPayload & { data: string } => item.kind === "image" && Boolean(item.data),
+  );
   const fileReferences = attachments
     .filter((item) => item.kind !== "image")
     .map((item) => `- ${item.fileName}: ${item.path}`);
@@ -205,7 +207,7 @@ export function buildPromptPayload(text: string, attachments: AttachmentPayload[
     : trimmed;
   const images = imageAttachments.map((item) => ({
     type: "image" as const,
-    data: item.data!,
+    data: item.data,
     mimeType: item.mimeType,
   }));
   return { message, images };

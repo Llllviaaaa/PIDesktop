@@ -182,6 +182,9 @@ function WorkspaceEditorIcon({ editorId, size = 16 }: { editorId?: WorkspaceEdit
 
 export default function App() {
   const store = usePiStore(useShallow(selectAppShellState));
+  // Store actions are stable references. Calling them unbound keeps hooks from
+  // having to list the whole `store` object, which changes on every update.
+  const { prepareNewTask, setViewedSession, connect, appendLog, switchSession } = store;
   const {
     connection,
     cwd,
@@ -285,7 +288,7 @@ export default function App() {
   const navigationBackRef = useRef<NavigationTarget[]>([]);
   const navigationForwardRef = useRef<NavigationTarget[]>([]);
   const sidebarHoverCloseTimerRef = useRef<number | null>(null);
-  const [navigationVersion, setNavigationVersion] = useState(0);
+  const [navigationAvailability, setNavigationAvailability] = useState({ back: false, forward: false });
   const isTauri = "__TAURI_INTERNALS__" in window;
   const layoutScale = Math.min(150, Math.max(75, settings?.uiScale ?? 100)) / 100;
 
@@ -856,7 +859,7 @@ export default function App() {
       }
       if (shortcut === normalize(shortcuts.newChat) && connection === "running") {
         event.preventDefault();
-        store.prepareNewTask();
+        prepareNewTask();
         setDraftMode(true);
         setQuickChat(false);
         setHubView(null);
@@ -877,7 +880,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [connection, cycleTranscriptDensity, settings, settingsOpen, store.prepareNewTask, togglePrimarySidebar, toggleWorkspaceSidebar, toggleWorkspaceTool]);
+  }, [connection, cycleTranscriptDensity, settings, settingsOpen, prepareNewTask, togglePrimarySidebar, toggleWorkspaceSidebar, toggleWorkspaceTool]);
 
   useEffect(() => {
     if (!editingTitle) setTitleDraft(resolvedThreadTitle);
@@ -890,14 +893,14 @@ export default function App() {
 
   useEffect(() => {
     const viewedSession = !newTask && !hubView && !settingsOpen ? sessionFile : null;
-    store.setViewedSession(viewedSession);
-    const markVisibleSessionViewed = () => store.setViewedSession(viewedSession);
+    setViewedSession(viewedSession);
+    const markVisibleSessionViewed = () => setViewedSession(viewedSession);
     window.addEventListener("focus", markVisibleSessionViewed);
     return () => {
       window.removeEventListener("focus", markVisibleSessionViewed);
-      store.setViewedSession(null);
+      setViewedSession(null);
     };
-  }, [hubView, newTask, sessionFile, settingsOpen, store.setViewedSession]);
+  }, [hubView, newTask, sessionFile, settingsOpen, setViewedSession]);
 
   useEffect(() => {
     if (workspaceTool !== "side-chat") return;
@@ -949,7 +952,7 @@ export default function App() {
     // A home composer needs an active blank runtime: the model catalog and
     // model/thinking commands are runtime RPCs, not static settings data.
     void Promise.all([
-      store.connect(draftWorkspace),
+      connect(draftWorkspace),
       pi.gitSnapshot(draftWorkspace),
     ])
       .then(([, snapshot]) => {
@@ -967,7 +970,7 @@ export default function App() {
     return () => {
       disposed = true;
     };
-  }, [connection, draftWorkspace, hubView, isTauri, newTask, runtimeRecoveryDone, store.connect]);
+  }, [connection, draftWorkspace, hubView, isTauri, newTask, runtimeRecoveryDone, startupAutoConnectRef, connect]);
 
   const refreshDraftGit = useCallback(async () => {
     if (!isTauri || !draftWorkspace) return;
@@ -1009,7 +1012,7 @@ export default function App() {
       try {
         return await pi.readAttachment(file);
       } catch (error) {
-        store.appendLog(`附件读取失败：${describeError(error)}`);
+        appendLog(`附件读取失败：${describeError(error)}`);
         return null;
       }
     }));
@@ -1020,7 +1023,7 @@ export default function App() {
       }
       return next;
     });
-  }, [store.appendLog]);
+  }, [appendLog]);
 
   const openPreviewFile = useCallback((path: string, line?: number) => {
     setHubView(null);
@@ -1050,8 +1053,8 @@ export default function App() {
     if (!cwd) return;
     const worktree = await pi.createWorktree(cwd, git?.branch);
     window.localStorage.setItem("pid-desktop:last-workspace", worktree.path);
-    await store.connect(worktree.path);
-  }, [cwd, git?.branch, store.connect]);
+    await connect(worktree.path);
+  }, [cwd, git?.branch, connect]);
 
   const permissionLabel = settings?.permissionMode === "read-only"
     ? "只读"
@@ -1091,6 +1094,7 @@ export default function App() {
     () => Object.values(runtimes).filter((runtime) => runtime.extensionRequest && runtime.sessionFile).map((runtime) => runtime.sessionFile as string),
     [runtimes],
   );
+  const changedFiles = git?.files ?? [];
   const gitDiffStats = useMemo(() => {
     const { add, del } = aggregateDiffStats(git?.diff);
     return { additions: add, deletions: del };
@@ -1257,17 +1261,26 @@ export default function App() {
     setDraftMode(false);
     setQuickChat(target.cwd.toLowerCase().endsWith("quick-chat"));
     setHubView(null);
-    await store.switchSession(target.cwd, target.file);
-  }, [openProjectHome, startNewTask, store.switchSession]);
+    await switchSession(target.cwd, target.file);
+  }, [openProjectHome, startNewTask, switchSession]);
+
+  // The history stacks are refs so navigation never re-renders mid-update; this
+  // copies what the back and forward buttons need into state after each change.
+  const syncNavigationAvailability = useCallback(() => {
+    setNavigationAvailability({
+      back: navigationBackRef.current.length > 0,
+      forward: navigationForwardRef.current.length > 0,
+    });
+  }, []);
 
   const navigateTo = useCallback((target: NavigationTarget) => {
     const current = currentNavigationTarget();
     if (navigationKey(current) === navigationKey(target)) return;
     navigationBackRef.current.push(current);
     navigationForwardRef.current = [];
-    setNavigationVersion((value) => value + 1);
+    syncNavigationAvailability();
     void applyNavigationTarget(target);
-  }, [applyNavigationTarget, currentNavigationTarget]);
+  }, [applyNavigationTarget, currentNavigationTarget, syncNavigationAvailability]);
 
   const openPetActivity = useCallback((activity: DesktopPetNavigationRequest) => {
     if (activity.notificationId) usePiStore.getState().markNotificationRead(activity.notificationId);
@@ -1305,17 +1318,17 @@ export default function App() {
     const target = navigationBackRef.current.pop();
     if (!target) return;
     navigationForwardRef.current.push(currentNavigationTarget());
-    setNavigationVersion((value) => value + 1);
+    syncNavigationAvailability();
     void applyNavigationTarget(target);
-  }, [applyNavigationTarget, currentNavigationTarget]);
+  }, [applyNavigationTarget, currentNavigationTarget, syncNavigationAvailability]);
 
   const navigateForward = useCallback(() => {
     const target = navigationForwardRef.current.pop();
     if (!target) return;
     navigationBackRef.current.push(currentNavigationTarget());
-    setNavigationVersion((value) => value + 1);
+    syncNavigationAvailability();
     void applyNavigationTarget(target);
-  }, [applyNavigationTarget, currentNavigationTarget]);
+  }, [applyNavigationTarget, currentNavigationTarget, syncNavigationAvailability]);
 
   const forgetArchivedSessions = useCallback((archivedFiles: string[]) => {
     navigationBackRef.current = withoutArchivedSessions(navigationBackRef.current, archivedFiles);
@@ -1324,8 +1337,8 @@ export default function App() {
     if (persistedTask && archivedFiles.some((file) => sameLocalPath(file, persistedTask.sessionFile))) {
       window.localStorage.removeItem(LAST_TASK_KEY);
     }
-    setNavigationVersion((value) => value + 1);
-  }, []);
+    syncNavigationAvailability();
+  }, [syncNavigationAvailability]);
 
   const archiveConversations = useCallback(async (
     targets: Array<Pick<SessionInfo, "cwd" | "file">>,
@@ -1371,8 +1384,8 @@ export default function App() {
     );
   }, [applyNavigationTarget, forgetArchivedSessions]);
 
-  const canNavigateBack = navigationVersion >= 0 && navigationBackRef.current.length > 0;
-  const canNavigateForward = navigationVersion >= 0 && navigationForwardRef.current.length > 0;
+  const canNavigateBack = navigationAvailability.back;
+  const canNavigateForward = navigationAvailability.forward;
 
 
   const restoreGitFiles = useCallback(async (paths?: string[]) => {
@@ -2179,9 +2192,9 @@ export default function App() {
                           <span className="conversation-change-icon"><FileDiff size={15} strokeWidth={1.7} /></span>
                           <div>
                             <strong>
-                              {git!.files.length === 1
-                                ? `已编辑 ${git!.files[0].path.split(/[\\/]/).pop()}`
-                                : `已编辑 ${git!.files.length} 个文件`}
+                              {changedFiles.length === 1
+                                ? `已编辑 ${changedFiles[0].path.split(/[\\/]/).pop()}`
+                                : `已编辑 ${changedFiles.length} 个文件`}
                             </strong>
                             <span>
                               {gitDiffStats.additions > 0 && <em>+{gitDiffStats.additions}</em>}

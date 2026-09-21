@@ -16,14 +16,15 @@ function formatElapsed(goal: ActiveGoal, now: number): string {
 
 export function ActiveGoalBar() {
   const goal = usePiStore(useShallow((state) => deriveActiveGoal(state.messages)));
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  const goalId = goal?.id;
 
   useEffect(() => {
-    if (!goal) return;
+    if (!goalId) return;
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
-  }, [goal?.id]);
+  }, [goalId]);
 
   if (!goal) return null;
 

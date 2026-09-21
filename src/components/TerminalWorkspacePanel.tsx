@@ -140,7 +140,13 @@ function TerminalTabView({
   const fitRef = useRef<FitAddon | null>(null);
   const startedRef = useRef(false);
   const isTauri = "__TAURI_INTERNALS__" in window;
-  const theme = useMemo(readTerminalTheme, []);
+  const [theme] = useState(readTerminalTheme);
+  // Startup is async; focus only if the tab is still the active one when it finishes.
+  const activeRef = useRef(active);
+
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -224,7 +230,7 @@ function TerminalTabView({
           rows: terminal.rows,
         });
         startedRef.current = true;
-        if (active) terminal.focus();
+        if (activeRef.current) terminal.focus();
       } catch (error) {
         terminal.writeln(`\r\n无法启动终端：${describeError(error)}`);
       }

@@ -89,9 +89,10 @@ async function login(
     await runtime.login(request.providerId, request.method, {
       signal: controller.signal,
       prompt: async (prompt) => {
-        if (shouldAutoAnswerSecret(prompt.type, request.apiKey, usedApiKey)) {
+        const apiKey = request.apiKey;
+        if (apiKey && shouldAutoAnswerSecret(prompt.type, apiKey, usedApiKey)) {
           usedApiKey = true;
-          return request.apiKey!;
+          return apiKey;
         }
         const signal = prompt.signal ?? controller.signal;
         reply({ id: request.id, type: "auth", event: { type: "prompt", promptType: prompt.type, message: prompt.message } });

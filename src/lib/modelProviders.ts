@@ -175,8 +175,8 @@ export function normalizeModelId(id: string): string {
     .trim()
     .toLowerCase()
     .replace(/^models\//, "")
-    .split("/")
-    .pop()!
+    // keep the last path segment: "vendor/model" and "models/vendor/model" become "model"
+    .replace(/^.*\//, "")
     .replace(/:[^:]*$/, "")
     .replace(/[._\s]+/g, "-")
     .replace(/-+/g, "-")
@@ -244,14 +244,17 @@ export function enrichModel(model: ModelProviderModel, catalog: ModelCatalog): E
   const hasImage = model.input.includes("image");
   const fromApi = Boolean(model.contextWindow || model.maxTokens || model.reasoning || hasImage);
   const match = matchCatalogModel(catalog, model.id);
-  const guess = match ? null : guessCapabilities(model.id);
-  const reasoning = model.reasoning || (match ? match.model.reasoning : guess!.reasoning);
-  const image = hasImage || (match ? match.model.input.includes("image") : guess!.image);
+  // A catalog match is authoritative; name-based guesses only fill in when there is none.
+  const known = match
+    ? { reasoning: match.model.reasoning, image: match.model.input.includes("image") }
+    : guessCapabilities(model.id);
+  const reasoning = model.reasoning || known.reasoning;
+  const image = hasImage || known.image;
   const contextWindow = model.contextWindow || match?.model.contextWindow || DEFAULT_CONTEXT_WINDOW;
   const maxTokens = model.maxTokens || match?.model.maxTokens || DEFAULT_MAX_TOKENS;
   const source: CapabilitySource = fromApi && model.contextWindow ? "api"
     : match ? "catalog"
-      : guess!.reasoning || guess!.image ? "guess" : "default";
+      : known.reasoning || known.image ? "guess" : "default";
   return {
     model: { ...model, reasoning, input: image ? ["text", "image"] : ["text"], contextWindow, maxTokens },
     source,

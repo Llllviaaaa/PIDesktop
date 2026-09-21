@@ -228,7 +228,8 @@ export function InspectorPanel({
   const compareStats = useMemo(() => aggregateDiffStats(compareSnap?.diff), [compareSnap?.diff]);
   const compareFileStats = useMemo(() => normalizeStatMap(perFileDiffStats(compareSnap?.diff)), [compareSnap?.diff]);
   const branch = git?.isRepository ? (git.branch || "游离 HEAD") : "非 Git 仓库";
-  const hasChanges = (git?.files.length ?? 0) > 0;
+  const changedFiles = git?.files ?? [];
+  const hasChanges = changedFiles.length > 0;
   const sources = useMemo(() => deriveEnvSources(messages, 80), [messages]);
   const outputs = useMemo(() => deriveTaskOutputs(messages), [messages]);
   const plan = useMemo(() => deriveTaskPlan(messages), [messages]);
@@ -349,10 +350,11 @@ export function InspectorPanel({
     }
   };
 
+  const gitDiff = git?.diff;
   const selectedDiff = useMemo(() => {
-    if (!selectedFile || !git?.diff) return "";
-    return extractFileDiff(git.diff, selectedFile);
-  }, [git?.diff, selectedFile]);
+    if (!selectedFile || !gitDiff) return "";
+    return extractFileDiff(gitDiff, selectedFile);
+  }, [gitDiff, selectedFile]);
 
   const selectedStats = selectedFile ? fileStats.get(normalizePath(selectedFile)) : undefined;
   const selectedChange = selectedFile ? git?.files.find((file) => file.path === selectedFile) : undefined;
@@ -488,7 +490,7 @@ export function InspectorPanel({
                       {diffStats.del > 0 && <em className="diff-del-stat">-{diffStats.del.toLocaleString()}</em>}
                     </>
                   ) : (
-                    <em className="muted">{git!.files.length} 文件</em>
+                    <em className="muted">{changedFiles.length} 文件</em>
                   )
                 ) : (
                   <em className="muted">无</em>
@@ -711,7 +713,7 @@ export function InspectorPanel({
           <div className="review-overview">
             <span className="review-overview-icon"><FileDiff size={18} strokeWidth={1.7} /></span>
             <span className="review-overview-copy">
-              <strong>{hasChanges ? `已编辑 ${git!.files.length} 个文件` : (git?.isRepository ? "没有未提交更改" : "不是 Git 仓库")}</strong>
+              <strong>{hasChanges ? `已编辑 ${changedFiles.length} 个文件` : (git?.isRepository ? "没有未提交更改" : "不是 Git 仓库")}</strong>
               <small title={branch}>{git?.isRepository ? branch : "打开 Git 工作区以审查更改"}</small>
             </span>
             {hasChanges && (
@@ -733,9 +735,9 @@ export function InspectorPanel({
           </div>
           {hasChanges ? (
             <section className="review-file-section">
-              <div className="review-section-heading"><span>更改</span><small>{git!.files.length}</small></div>
+              <div className="review-section-heading"><span>更改</span><small>{changedFiles.length}</small></div>
               <div className="changed-file-list review-file-list">
-              {git!.files.map((file) => {
+              {changedFiles.map((file) => {
                 const stats = fileStats.get(normalizePath(file.path));
                 const fileName = reviewFileName(file.path);
                 const directory = reviewFileDirectory(file.path);

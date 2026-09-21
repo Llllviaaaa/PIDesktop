@@ -264,10 +264,12 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
       text: messageId === "fixture-stream-user" ? "按照paseo" : "",
     }),
     editAndResend: async (entryId, text) => {
+      // eslint-disable-next-line no-console -- the performance fixture reports through the console
       console.info(`[performance-fixture] edited resend ${entryId}: ${text}`);
       return true;
     },
     rewindMessage: async (entryId) => {
+      // eslint-disable-next-line no-console -- the performance fixture reports through the console
       console.info(`[performance-fixture] rewound ${entryId}`);
       return true;
     },
@@ -382,6 +384,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
           });
           usePiStore.getState().handleEvent("fixture-runtime", { type: "agent_end", messages: [] });
           unsubscribe();
+          // eslint-disable-next-line no-console -- the performance fixture reports through the console
           console.info(`[performance-fixture] ${updateCount} updates -> ${messageCommits} message commits`);
         }, 2);
       }, 40);

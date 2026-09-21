@@ -2,16 +2,16 @@ import type { UiMessage, UiToolCall, WorkStep } from "../types";
 import { foldThinking } from "./thinkingDisplay";
 
 function mergeToolCalls(messages: UiMessage[]): UiToolCall[] | undefined {
-  const order: string[] = [];
+  // A Map keeps first-insertion order even when a later update replaces the value,
+  // which is the order calls were first seen in.
   const byId = new Map<string, UiToolCall>();
   for (const message of messages) {
     for (const call of message.toolCalls ?? []) {
-      if (!byId.has(call.id)) order.push(call.id);
       byId.set(call.id, { ...byId.get(call.id), ...call });
     }
   }
-  if (!order.length) return undefined;
-  return order.map((id) => byId.get(id)!);
+  if (!byId.size) return undefined;
+  return [...byId.values()];
 }
 
 function lastContent(messages: UiMessage[]): string {

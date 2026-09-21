@@ -13,7 +13,7 @@ test("panel layout", async () => {
     localStorage: {
       getItem(key: string) {
         if (throwOnAccess) throw new Error("site data blocked");
-        return store.has(key) ? store.get(key)! : null;
+        return store.get(key) ?? null;
       },
       setItem(key: string, value: string) {
         if (throwOnAccess) throw new Error("site data blocked");

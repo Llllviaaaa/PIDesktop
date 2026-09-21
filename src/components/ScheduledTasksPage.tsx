@@ -292,6 +292,7 @@ export function ScheduledTasksPage({
           <div className="scheduled-run-list">
             {runs.map((run) => {
               const expanded = expandedRunId === run.id;
+              const sessionFile = run.sessionFile;
               return (
                 <article className={`scheduled-run-row ${run.status}`} key={run.id}>
                   <button type="button" className="scheduled-run-summary" onClick={() => setExpandedRunId(expanded ? null : run.id)} aria-expanded={expanded}>
@@ -304,7 +305,7 @@ export function ScheduledTasksPage({
                     <div className="scheduled-run-detail">
                       <div className="scheduled-run-path"><span>{workspaceName(run.cwd)}</span><code>{run.cwd}</code>{run.exitCode != null && <em>退出码 {run.exitCode}</em>}</div>
                       <pre>{run.output || (run.status === "running" ? "Pi 正在执行任务..." : "运行完成，没有文本输出。")}</pre>
-                      {run.sessionFile && <button type="button" className="secondary-button" onClick={() => onOpenSession(run.cwd, run.sessionFile!)}><MessageSquare size={14} />打开会话</button>}
+                      {sessionFile && <button type="button" className="secondary-button" onClick={() => onOpenSession(run.cwd, sessionFile)}><MessageSquare size={14} />打开会话</button>}
                     </div>
                   )}
                 </article>

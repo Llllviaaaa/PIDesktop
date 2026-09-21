@@ -93,6 +93,9 @@ function addItems(state: ParseState, count: number): void {
   if (state.itemCount > MAX_TOTAL_ITEMS) throw new Error("too many items");
 }
 
+// Required text either parses or throws, so only the optional form can be undefined.
+function readText(value: unknown, state: ParseState, maxLength: number): string;
+function readText(value: unknown, state: ParseState, maxLength: number, optional: true): string | undefined;
 function readText(
   value: unknown,
   state: ParseState,
@@ -160,8 +163,8 @@ function parseMetrics(value: UnknownRecord, state: ParseState): RichMetricsBlock
       if (!isRecord(item)) throw new Error("metric expected");
       assertKeys(item, ["label", "value", "detail", "tone"]);
       return {
-        label: readText(item.label, state, 60)!,
-        value: readText(item.value, state, 80)!,
+        label: readText(item.label, state, 60),
+        value: readText(item.value, state, 80),
         detail: readText(item.detail, state, 1000, true),
         tone: readTone(item.tone),
       };
@@ -175,7 +178,7 @@ function parseCallout(value: UnknownRecord, state: ParseState): RichCalloutBlock
   return {
     type: "callout",
     title: readTitle(value, state),
-    body: readText(value.body, state, 1000)!,
+    body: readText(value.body, state, 1000),
     tone: readTone(value.tone),
   };
 }
@@ -191,7 +194,7 @@ function parseSteps(value: UnknownRecord, state: ParseState): RichStepsBlock {
       if (!isRecord(item)) throw new Error("step expected");
       assertKeys(item, ["title", "description", "status"]);
       return {
-        title: readText(item.title, state, 120)!,
+        title: readText(item.title, state, 120),
         description: readText(item.description, state, 1000, true),
         status: readStatus(item.status),
       };
@@ -207,10 +210,10 @@ function parseComparison(value: UnknownRecord, state: ParseState): RichCompariso
   if (!Array.isArray(value.rows) || value.rows.length < 1 || value.rows.length > 30) throw new Error("invalid rows");
   if (value.columns.length * value.rows.length > 240) throw new Error("too many cells");
   addItems(state, value.rows.length);
-  const columns = value.columns.map((column) => readText(column, state, 80)!);
+  const columns = value.columns.map((column) => readText(column, state, 80));
   const rows = value.rows.map((row) => {
     if (!Array.isArray(row) || row.length !== columns.length) throw new Error("row width mismatch");
-    return row.map((cell) => readText(cell, state, 1000)!);
+    return row.map((cell) => readText(cell, state, 1000));
   });
   return { type: "comparison", title: readTitle(value, state), columns, rows };
 }
@@ -226,7 +229,7 @@ function parseProgress(value: UnknownRecord, state: ParseState): RichProgressBlo
       if (!isRecord(item)) throw new Error("progress item expected");
       assertKeys(item, ["label", "value", "detail", "tone"]);
       return {
-        label: readText(item.label, state, 80)!,
+        label: readText(item.label, state, 80),
         value: readNumber(item.value, 0, 100),
         detail: readText(item.detail, state, 1000, true),
         tone: readTone(item.tone),
@@ -247,7 +250,7 @@ function parseBars(value: UnknownRecord, state: ParseState): RichBarsBlock {
       assertKeys(item, ["label", "value", "max", "unit", "tone"]);
       const max = readNumber(item.max, Number.MIN_VALUE, 1_000_000_000_000);
       return {
-        label: readText(item.label, state, 80)!,
+        label: readText(item.label, state, 80),
         value: readNumber(item.value, 0, max),
         max,
         unit: readText(item.unit, state, 20, true),
@@ -268,7 +271,7 @@ function parseLinks(value: UnknownRecord, state: ParseState): RichLinksBlock {
       if (!isRecord(item)) throw new Error("link expected");
       assertKeys(item, ["label", "url", "description"]);
       return {
-        label: readText(item.label, state, 120)!,
+        label: readText(item.label, state, 120),
         url: readHttpUrl(item.url, state),
         description: readText(item.description, state, 1000, true),
       };

@@ -30,7 +30,8 @@ test("managed queue", async () => {
   assert.equal(removed.index, 1);
   assert.deepEqual(removed.queue.map(({ id }) => id), ["a", "b"]);
 
-  queue = insertManagedQueueItem(removed.queue, removed.item!, removed.index);
+  assert.ok(removed.item, "removing an existing id returns the item");
+  queue = insertManagedQueueItem(removed.queue, removed.item, removed.index);
   assert.deepEqual(queue.map(({ id }) => id), ["a", "c", "b"]);
   assert.strictEqual(removeManagedQueueItem(queue, "missing").queue, queue);
 });

@@ -70,9 +70,16 @@ function savePetPosition(position: PetPosition): void {
   window.localStorage.setItem(PET_POSITION_KEY, JSON.stringify(position));
 }
 
-function PetSpritesheetAvatar({ pet, state }: { pet: AppearancePetDefinition; state: PetAnimationState }) {
+function PetSpritesheetAvatar({
+  pet,
+  spritesheet,
+  state,
+}: {
+  pet: AppearancePetDefinition;
+  spritesheet: NonNullable<AppearancePetDefinition["spritesheet"]>;
+  state: PetAnimationState;
+}) {
   const [frame, setFrame] = useState(0);
-  const spritesheet = pet.spritesheet!;
   const sequence = spritesheet.states[state] ?? spritesheet.states.idle;
 
   useEffect(() => {
@@ -108,7 +115,7 @@ export function PetAvatar({
   state?: PetAnimationState;
 }) {
   if (pet.assetDataUrl && pet.spritesheet) {
-    return <PetSpritesheetAvatar pet={pet} state={state} />;
+    return <PetSpritesheetAvatar pet={pet} spritesheet={pet.spritesheet} state={state} />;
   }
   if (pet.assetDataUrl) {
     return <img className="pet-avatar pet-avatar-image" src={pet.assetDataUrl} alt="" draggable={false} />;
