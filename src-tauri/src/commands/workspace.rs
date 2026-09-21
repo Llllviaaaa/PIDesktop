@@ -1,15 +1,7 @@
 //! Reading the workspace tree, searching it, and opening files in it.
 
-use std::fs;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
-use tauri::State;
-
 use crate::workspace_files::{self, WorkspaceDirEntry};
-use base64::Engine;
-
-use crate::{confined_workspace_path, AppState, WorkspaceFileContent};
+use crate::*;
 
 #[tauri::command(async)]
 pub(crate) fn list_workspace_dir(
@@ -164,4 +156,138 @@ pub(crate) fn read_workspace_file(
         is_binary,
         size: metadata.len(),
     })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceFileContent {
+    pub(crate) path: String,
+    pub(crate) file_name: String,
+    pub(crate) text: Option<String>,
+    pub(crate) mime_type: Option<String>,
+    pub(crate) data: Option<String>,
+    pub(crate) truncated: bool,
+    pub(crate) is_binary: bool,
+    pub(crate) size: u64,
+}
+
+pub(crate) fn confined_workspace_path(
+    cwd: &str,
+    relative: &str,
+) -> Result<(PathBuf, PathBuf), String> {
+    let root = strip_windows_prefix(
+        fs::canonicalize(cwd).map_err(|err| format!("workspace not found: {err}"))?,
+    );
+    let requested = strip_windows_prefix(PathBuf::from(relative));
+    if requested
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err("path is outside the workspace".to_string());
+    }
+    let joined = if requested.is_absolute() {
+        requested
+    } else {
+        root.join(requested)
+    };
+    let canon = if joined.exists() {
+        strip_windows_prefix(
+            fs::canonicalize(&joined).map_err(|err| format!("path not found: {err}"))?,
+        )
+    } else {
+        joined
+    };
+    if !canon.starts_with(&root) {
+        return Err("path is outside the workspace".to_string());
+    }
+    Ok((root, canon))
+}
+
+pub(crate) fn validate_workspace_directory(path: &str) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("workspace path is empty".to_string());
+    }
+    let workspace = PathBuf::from(trimmed);
+    if !workspace.is_absolute() {
+        return Err("workspace path must be absolute".to_string());
+    }
+    let metadata = fs::metadata(&workspace)
+        .map_err(|err| format!("workspace path is not available: {err}"))?;
+    if !metadata.is_dir() {
+        return Err("workspace path is not a directory".to_string());
+    }
+    Ok(workspace)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn confines_relative_and_absolute_files_to_the_workspace() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "pid-desktop-workspace-path-{}-{stamp}",
+            std::process::id()
+        ));
+        let workspace = directory.join("workspace");
+        let outside = directory.join("outside.html");
+        let inside = workspace.join("inside.html");
+        fs::create_dir_all(&workspace).expect("temporary workspace should be created");
+        fs::write(&inside, "<h1>inside</h1>").expect("workspace file should be written");
+        fs::write(&outside, "<h1>outside</h1>").expect("outside file should be written");
+
+        let cwd = workspace.to_string_lossy();
+        assert_eq!(
+            confined_workspace_path(&cwd, "inside.html")
+                .expect("relative workspace path should be accepted")
+                .1,
+            strip_windows_prefix(fs::canonicalize(&inside).expect("inside file should resolve")),
+        );
+        assert_eq!(
+            confined_workspace_path(&cwd, &inside.to_string_lossy())
+                .expect("absolute workspace path should be accepted")
+                .1,
+            strip_windows_prefix(fs::canonicalize(&inside).expect("inside file should resolve")),
+        );
+        let forward_slash_inside = inside.to_string_lossy().replace('\\', "/");
+        let content = read_workspace_file(cwd.to_string(), forward_slash_inside)
+            .expect("forward-slash absolute HTML path should be readable");
+        assert_eq!(content.text.as_deref(), Some("<h1>inside</h1>"));
+        assert!(confined_workspace_path(&cwd, &outside.to_string_lossy()).is_err());
+        assert!(confined_workspace_path(&cwd, "../outside.html").is_err());
+
+        fs::remove_dir_all(directory).expect("temporary path fixture should be removed");
+    }
+
+    #[test]
+    fn validates_workspace_directory_before_opening_file_manager() {
+        assert!(validate_workspace_directory("").is_err());
+        assert!(validate_workspace_directory("relative/path").is_err());
+
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "pid-desktop-file-manager-{}-{stamp}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("temporary workspace should be created");
+        let file = directory.join("not-a-workspace.txt");
+        fs::write(&file, b"test").expect("temporary file should be created");
+
+        assert_eq!(
+            validate_workspace_directory(&directory.to_string_lossy())
+                .expect("existing absolute directory should be accepted"),
+            directory
+        );
+        assert!(validate_workspace_directory(&file.to_string_lossy()).is_err());
+
+        fs::remove_dir_all(directory).expect("temporary workspace should be removed");
+    }
 }

@@ -197,3 +197,32 @@ pub(crate) fn delete_session_cmd(state: State<'_, AppState>, file: String) -> Re
         .map_err(|_| "state lock poisoned".to_string())?;
     trash_session(&settings.session_dir, &file)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exports_conversation_as_readable_markdown() {
+        let history = SessionHistory {
+            messages: vec![
+                serde_json::json!({ "role": "user", "content": "Explain this" }),
+                serde_json::json!({
+                    "role": "assistant",
+                    "content": [
+                        { "type": "thinking", "thinking": "private" },
+                        { "type": "text", "text": "Here is the answer.\n\n```ts\nconst ok = true;\n```" }
+                    ]
+                }),
+                serde_json::json!({ "role": "toolResult", "content": [{ "type": "text", "text": "hidden tool output" }] }),
+            ],
+            timings: Vec::new(),
+        };
+        let markdown = session_history_markdown(&history);
+        assert!(markdown.contains("## User\n\nExplain this"));
+        assert!(markdown.contains("## Assistant\n\nHere is the answer."));
+        assert!(markdown.contains("```ts\nconst ok = true;\n```"));
+        assert!(!markdown.contains("private"));
+        assert!(!markdown.contains("hidden tool output"));
+    }
+}

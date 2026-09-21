@@ -538,3 +538,89 @@ pub(crate) fn run_git(cwd: &Path, args: &[&str]) -> Result<String, AppError> {
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::*;
+
+    #[test]
+    fn parses_git_index_and_worktree_status_separately() {
+        let changes = parse_git_status(
+            " M src/working.ts\nM  src/staged.ts\nMM src/both.ts\n?? src/new.ts\nR  old.ts -> renamed.ts\n",
+        );
+        assert_eq!(changes.len(), 5);
+        assert!(!changes[0].staged);
+        assert!(changes[0].unstaged);
+        assert_eq!(changes[0].worktree_status, "M");
+        assert!(changes[1].staged);
+        assert!(!changes[1].unstaged);
+        assert_eq!(changes[1].index_status, "M");
+        assert!(changes[2].staged && changes[2].unstaged);
+        assert!(changes[3].untracked && changes[3].unstaged);
+        assert_eq!(changes[4].path, "renamed.ts");
+    }
+
+    #[test]
+    fn stages_and_unstages_selected_files() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "pid-desktop-git-index-{}-{stamp}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("temporary repository should be created");
+        run_git(&directory, &["init"]).expect("git repository should initialize");
+        fs::write(directory.join("tracked.txt"), "first\n")
+            .expect("tracked file should be written");
+        run_git(&directory, &["add", "tracked.txt"]).expect("file should stage");
+        run_git(
+            &directory,
+            &[
+                "-c",
+                "user.email=pid-desktop@example.invalid",
+                "-c",
+                "user.name=PIDesktop Tests",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                "initial",
+            ],
+        )
+        .expect("fixture commit should be created");
+        fs::write(directory.join("tracked.txt"), "second\n")
+            .expect("tracked file should be modified");
+
+        let cwd = directory.to_string_lossy().to_string();
+        let paths = vec!["tracked.txt".to_string()];
+        let working = git_snapshot(cwd.clone()).expect("working snapshot should load");
+        assert!(working.files[0].unstaged);
+        let unstaged_review = git_review_snapshot(cwd.clone(), "unstaged".to_string())
+            .expect("unstaged review should load");
+        assert_eq!(unstaged_review.files.len(), 1);
+        assert!(unstaged_review.diff.contains("-first"));
+        git_stage_files(cwd.clone(), paths.clone()).expect("file should stage");
+        let staged = git_snapshot(cwd.clone()).expect("staged snapshot should load");
+        assert!(staged.files[0].staged);
+        assert!(!staged.files[0].unstaged);
+        let staged_review = git_review_snapshot(cwd.clone(), "staged".to_string())
+            .expect("staged review should load");
+        assert_eq!(staged_review.files.len(), 1);
+        assert!(staged_review.diff.contains("+second"));
+        let commits = git_list_commits(cwd.clone(), Some(5)).expect("commits should load");
+        assert_eq!(commits.len(), 1);
+        let commit_review = git_commit_snapshot(cwd.clone(), commits[0].sha.clone())
+            .expect("commit review should load");
+        assert_eq!(commit_review.files.len(), 1);
+        assert!(commit_review.diff.contains("+first"));
+        git_unstage_files(cwd.clone(), paths).expect("file should unstage");
+        let unstaged = git_snapshot(cwd).expect("unstaged snapshot should load");
+        assert!(!unstaged.files[0].staged);
+        assert!(unstaged.files[0].unstaged);
+
+        fs::remove_dir_all(directory).expect("temporary repository should be removed");
+    }
+}
