@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useSyncOnChange } from "./hooks/useSyncOnChange";
 import { useShallow } from "zustand/react/shallow";
 import { usePanelResize } from "./hooks/usePanelResize";
 import {
@@ -600,17 +601,19 @@ export default function App() {
     setSidebarVisible(true);
   }, [cancelSidebarHoverClose]);
 
+  // Showing the sidebar ends any hover preview; the pending close timer goes with it.
+  useSyncOnChange([sidebarVisible], () => {
+    if (sidebarVisible) setSidebarHoverPreview(false);
+  });
   useEffect(() => {
-    if (!sidebarVisible) return;
-    cancelSidebarHoverClose();
-    setSidebarHoverPreview(false);
+    if (sidebarVisible) cancelSidebarHoverClose();
   }, [cancelSidebarHoverClose, sidebarVisible]);
 
   useEffect(() => () => cancelSidebarHoverClose(), [cancelSidebarHoverClose]);
 
-  useEffect(() => {
+  useSyncOnChange([workspaceSidebarVisible], () => {
     if (!workspaceSidebarVisible) setWorkspaceFocusMode(false);
-  }, [workspaceSidebarVisible]);
+  });
 
   useEffect(() => {
     if (!inspectorTab && !toolsMenuOpen && !moreOpen && !appMenu && !workspaceFocusMode) return;
@@ -703,12 +706,14 @@ export default function App() {
     };
   }, [isTauri]);
 
-  useEffect(() => {
-    if (!settings) return;
-    // Apply product default once settings arrive; user can still toggle chips afterward.
-    setTaskEnvironment(settings.defaultTaskEnvironment === "worktree" ? "worktree" : "local");
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync when settings object first becomes available / default changes
-  }, [settings?.defaultTaskEnvironment]);
+  // Apply the product default when settings arrive or the default changes; the
+  // user can still toggle the chips afterwards.
+  const defaultTaskEnvironment = settings?.defaultTaskEnvironment;
+  const settingsLoaded = Boolean(settings);
+  useSyncOnChange([settingsLoaded, defaultTaskEnvironment], () => {
+    if (!settingsLoaded) return;
+    setTaskEnvironment(defaultTaskEnvironment === "worktree" ? "worktree" : "local");
+  });
 
   useEffect(() => {
     window.localStorage.setItem("pid-desktop:task-environment", taskEnvironment);
@@ -882,12 +887,13 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [connection, cycleTranscriptDensity, settings, settingsOpen, prepareNewTask, togglePrimarySidebar, toggleWorkspaceSidebar, toggleWorkspaceTool]);
 
-  useEffect(() => {
+  useSyncOnChange([editingTitle, resolvedThreadTitle], () => {
     if (!editingTitle) setTitleDraft(resolvedThreadTitle);
-  }, [editingTitle, resolvedThreadTitle]);
+  });
 
+  // A different conversation drops any message being edited and follows new output.
+  useSyncOnChange([runtimeId, sessionFile], () => setEditingMessage(null));
   useEffect(() => {
-    setEditingMessage(null);
     autoFollowConversationRef.current = true;
   }, [runtimeId, sessionFile]);
 
@@ -902,7 +908,8 @@ export default function App() {
     };
   }, [hubView, newTask, sessionFile, settingsOpen, setViewedSession]);
 
-  useEffect(() => {
+  // Keep the side-chat panel pointed at a chat that belongs to this session.
+  useSyncOnChange([activeSideChatId, currentSideChats, newTask, sessionFile, workspaceTool], () => {
     if (workspaceTool !== "side-chat") return;
     if (!sessionFile || newTask) {
       setWorkspaceTool(null);
@@ -913,13 +920,13 @@ export default function App() {
     const replacement = currentSideChats[currentSideChats.length - 1];
     if (replacement) setActiveSideChatId(replacement.id);
     else setWorkspaceTool(null);
-  }, [activeSideChatId, currentSideChats, newTask, sessionFile, workspaceTool]);
+  });
 
-  useEffect(() => {
+  useSyncOnChange([draftWorkspace, sessions], () => {
     if (draftWorkspace || sessions.length === 0) return;
     const firstProject = sessions.find((session) => !session.cwd.toLowerCase().endsWith("quick-chat"))?.cwd;
     if (firstProject) setDraftWorkspace(firstProject);
-  }, [draftWorkspace, sessions]);
+  });
 
   useEffect(() => {
     if (!isTauri) return;

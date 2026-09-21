@@ -57,7 +57,12 @@ export function ConversationMessages({
     return null;
   }, [displayMessages]);
 
-  useEffect(() => setVisibleCount(120), [conversationKey]);
+  // Start each conversation from the most recent page.
+  const [pagedConversation, setPagedConversation] = useState(conversationKey);
+  if (pagedConversation !== conversationKey) {
+    setPagedConversation(conversationKey);
+    setVisibleCount(120);
+  }
 
   useEffect(() => {
     if (!autoFollowRef.current) return;

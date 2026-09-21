@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import {
   ArrowUp,
   CircleAlert,
@@ -82,8 +83,10 @@ function PetSpritesheetAvatar({
   const [frame, setFrame] = useState(0);
   const sequence = spritesheet.states[state] ?? spritesheet.states.idle;
 
+  // A new pet, state or animation starts from its first frame.
+  useSyncOnChange([pet.id, sequence.frameDurationMs, sequence.frames, sequence.loop, state], () => setFrame(0));
+
   useEffect(() => {
-    setFrame(0);
     if (sequence.frames <= 1 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const timer = window.setInterval(() => {
       setFrame((current) => current + 1 < sequence.frames ? current + 1 : sequence.loop ? 0 : current);

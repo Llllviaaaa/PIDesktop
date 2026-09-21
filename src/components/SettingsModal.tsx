@@ -230,7 +230,11 @@ export function SettingsModal({
   useEffect(() => {
     if (!editedRef.current) setForm({ ...DEFAULTS, ...settings, language: "zh-CN" });
   }, [settings]);
-  useEffect(() => setActive(initialPage), [initialPage]);
+  const [requestedPage, setRequestedPage] = useState(initialPage);
+  if (requestedPage !== initialPage) {
+    setRequestedPage(initialPage);
+    setActive(initialPage);
+  }
   useEffect(() => () => {
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);

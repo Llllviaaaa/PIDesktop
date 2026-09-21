@@ -84,6 +84,15 @@ function AgentMarks({ running, completed }: { running: number; completed: number
 }
 
 /** Codex-style docked task detail panel with real Local/branch/changes/sources actions. */
+/**
+ * The view a tab opens on. This used to be computed twice: the initial state
+ * filtered initialTab through the list of home tabs, but a mount-time effect
+ * immediately replaced it with this unfiltered form, so this is what users saw.
+ */
+function viewFor(openView: InspectorTab | null | undefined, initialTab: InspectorTab): InspectorTab | null {
+  return openView ?? (initialTab === "changes" ? null : initialTab);
+}
+
 export function InspectorPanel({
   initialTab,
   openView = null,
@@ -170,10 +179,7 @@ export function InspectorPanel({
   onOpenSideChat?: (id: string) => void;
   onOpenFile?: (path: string) => void;
 }) {
-  const homeTabs: InspectorTab[] = ["changes", "tree", "terminal", "browser", "computer", "logs", "compare", "agents", "sources", "plan", "outputs", "processes"];
-  const [view, setView] = useState<InspectorTab | null>(
-    openView ?? (initialTab === "changes" ? null : homeTabs.includes(initialTab) ? initialTab : null),
-  );
+  const [view, setView] = useState<InspectorTab | null>(() => viewFor(openView, initialTab));
   const [menu, setMenu] = useState<MenuKind>(null);
   const [branches, setBranches] = useState<GitBranchInfo[]>([]);
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
@@ -201,13 +207,16 @@ export function InspectorPanel({
     onRefreshGit();
   }, [cwd, git, onRefreshGit]);
 
-  useEffect(() => {
-    setView(openView ?? (initialTab === "changes" ? null : initialTab));
+  // Opening a different tab or view starts it fresh.
+  const [shownTab, setShownTab] = useState({ initialTab, openView });
+  if (shownTab.initialTab !== initialTab || shownTab.openView !== openView) {
+    setShownTab({ initialTab, openView });
+    setView(viewFor(openView, initialTab));
     setSelectedFile(null);
     setCommentTarget(null);
     setCommentDraft("");
     setMenu(null);
-  }, [initialTab, openView]);
+  }
 
   useEffect(() => {
     if (!cwd) return;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { describeError } from "../lib/errors";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -548,9 +549,10 @@ function ProviderDetail({
     const visible = provider.models.find((model) => !hidden.has(modelKey(provider.id, model.id)));
     return (defaultModel && provider.models.some((model) => model.id === defaultModel) ? defaultModel : visible?.id) ?? provider.models[0]?.id ?? "";
   });
-  useEffect(() => {
+  // Finishing a sign-in, or the provider's configured state changing, ends key replacement.
+  useSyncOnChange([login, provider.configured], () => {
     if (!login) setReplacingKey(false);
-  }, [login, provider.configured]);
+  });
 
   return (
     <div className="models-detail-scroll">
@@ -725,7 +727,12 @@ function ConnectForm({ provider, custom, busy, replacing, onLogin, onCancelRepla
 function LoginPanel({ login, onCancel, onAnswer }: { login: LoginState; onCancel: () => void; onAnswer: (value: string | undefined) => void }) {
   const [value, setValue] = useState("");
   const [copied, setCopied] = useState("");
-  useEffect(() => setValue(""), [login.dialog?.id]);
+  const dialogId = login.dialog?.id;
+  const [answeringDialog, setAnsweringDialog] = useState(dialogId);
+  if (answeringDialog !== dialogId) {
+    setAnsweringDialog(dialogId);
+    setValue("");
+  }
   const deviceCode = login.device?.userCode;
   const verificationUri = login.device?.verificationUri;
   const authUrl = login.authUrl;

@@ -43,10 +43,13 @@ export function PullRequestsPage({ cwd, workspaceOptions, onOpenUrl, onCheckout,
     [cwd, workspaceOptions],
   );
 
-  useEffect(() => {
+  // Switching project resets the picker to that project.
+  const [followedCwd, setFollowedCwd] = useState(cwd);
+  if (followedCwd !== cwd) {
+    setFollowedCwd(cwd);
     setSelectedWorkspace(cwd);
     setSelectionTouched(false);
-  }, [cwd]);
+  }
 
   const load = useCallback(async () => {
     if (availableWorkspaces.length === 0) {

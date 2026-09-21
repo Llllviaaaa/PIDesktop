@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowRight, Check, CircleHelp, ShieldCheck, X } from "lucide-react";
 import type { ExtensionUIRequest } from "../types";
 import {
@@ -13,6 +13,10 @@ import {
 } from "../lib/batchAsk";
 
 const OTHER_VALUE = "__other__";
+
+function initialDialogValue(request: ExtensionUIRequest): string {
+  return request.method === "editor" ? request.prefill ?? "" : "";
+}
 
 export function extensionRequestHeadline(request: ExtensionUIRequest): string {
   return headlineForUiRequest(
@@ -38,13 +42,16 @@ function BatchAskDialog({
   const complete = isBatchAskComplete(envelope, answers);
   const many = envelope.questions.length > 1;
 
-  useEffect(() => {
+  // A new batch of questions starts from the first one with nothing answered.
+  const [shownEnvelope, setShownEnvelope] = useState(envelope);
+  if (shownEnvelope !== envelope) {
+    setShownEnvelope(envelope);
     setIndex(0);
     setAnswers({});
     setOtherDraft("");
     setOtherOpen(false);
     setReviewing(false);
-  }, [envelope]);
+  }
 
   const setAnswer = (next: BatchAskAnswer) => {
     setAnswers((current) => ({ ...current, [next.id]: next }));
@@ -286,16 +293,18 @@ export function ExtensionDialog({
   request: ExtensionUIRequest;
   onAnswer: (response: { value?: string; confirmed?: boolean; cancelled?: true }) => void;
 }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(() => initialDialogValue(request));
   const [selected, setSelected] = useState<string | null>(null);
   const batch = request.method === "input"
     ? parseBatchAskEnvelope(request.title, request.placeholder)
     : null;
 
-  useEffect(() => {
-    setValue(request.method === "editor" ? request.prefill ?? "" : "");
+  const [shownRequest, setShownRequest] = useState(request);
+  if (shownRequest !== request) {
+    setShownRequest(request);
+    setValue(initialDialogValue(request));
     setSelected(null);
-  }, [request]);
+  }
 
   if (request.method === "notify" || request.method === "setStatus" || request.method === "setWidget" || request.method === "setTitle" || request.method === "set_editor_text") {
     return null;

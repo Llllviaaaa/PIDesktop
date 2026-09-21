@@ -25,12 +25,12 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
 
   {
-    // The codebase leans on `any` in a few Pi payload boundaries and uses
-    // non-null assertions sparingly; both are reported as warnings so a lint
-    // run stays actionable instead of turning into a wall of errors.
+    // `any` is tolerated at a few Pi payload boundaries. Non-null assertions are
+    // errors: every one that existed was a guarantee the type checker could be
+    // shown instead.
     rules: {
       "@typescript-eslint/no-explicit-any": "warn",
-      "@typescript-eslint/no-non-null-assertion": "warn",
+      "@typescript-eslint/no-non-null-assertion": "error",
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrors: "none" },
@@ -48,15 +48,12 @@ export default tseslint.config(
     plugins: { "react-hooks": reactHooks },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      // The compiler-aware rules in eslint-plugin-react-hooks v7 fire 41 times
-      // across code that predates them, mostly effects that seed state from Pi
-      // events. They are warnings so the gate is adoptable today; work them
-      // down and promote each one back to "error" as it reaches zero.
+      "react-hooks/exhaustive-deps": "error",
+      // The remaining set-state-in-effect warnings are data loading on mount
+      // (setLoading before a fetch), a clock, and two effects that also write
+      // localStorage. Replacing those means choosing a data-loading approach,
+      // not a mechanical fix. Resets that follow a prop use useSyncOnChange.
       "react-hooks/set-state-in-effect": "warn",
-      "react-hooks/purity": "warn",
-      "react-hooks/refs": "warn",
-      "react-hooks/use-memo": "warn",
-      "react-hooks/preserve-manual-memoization": "warn",
     },
   },
 

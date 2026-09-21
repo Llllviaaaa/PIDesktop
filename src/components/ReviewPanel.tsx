@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { describeError } from "../lib/errors";
 import hljs from "highlight.js/lib/common";
 import {
@@ -131,8 +132,13 @@ export function ReviewPanel({
   const [commitOpen, setCommitOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQueryState] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
+  // A new query starts at its first match.
+  const setSearchQuery = (next: string) => {
+    setSearchQueryState(next);
+    setSearchIndex(0);
+  };
   const [busyFile, setBusyFile] = useState<string | null>(null);
   const [commentTarget, setCommentTarget] = useState<{ path: string; row: number; line: number | null } | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
@@ -153,9 +159,10 @@ export function ReviewPanel({
     gitRef.current = git;
   }, [git]);
 
-  useEffect(() => {
+  // The uncommitted view mirrors the live git snapshot.
+  useSyncOnChange([filter, git], () => {
     if (filter === "uncommitted") setSnapshot(git);
-  }, [filter, git]);
+  });
 
   useEffect(() => {
     if (!cwd || !("__TAURI_INTERNALS__" in window)) return;
@@ -200,7 +207,6 @@ export function ReviewPanel({
     return () => document.removeEventListener("pointerdown", closeMenus);
   }, [commitOpen, filterOpen, optionsOpen, reviewOpen, toolsOpen]);
 
-  useEffect(() => setSearchIndex(0), [searchQuery]);
 
   const stats = useMemo(() => aggregateDiffStats(activeSnapshot?.diff), [activeSnapshot?.diff]);
   const fileStats = useMemo(() => normalizeStatMap(perFileDiffStats(activeSnapshot?.diff)), [activeSnapshot?.diff]);
