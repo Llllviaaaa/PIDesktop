@@ -81,16 +81,20 @@ impl Drop for ScheduledTaskRunGuard<'_> {
 pub(crate) fn reserve_scheduled_task<'a>(
     state: &'a AppState,
     id: &str,
-) -> Result<ScheduledTaskRunGuard<'a>, String> {
+) -> Result<ScheduledTaskRunGuard<'a>, AppError> {
     let mut running = state
         .running_scheduled_tasks
         .lock()
-        .map_err(|_| "scheduled runner state lock poisoned".to_string())?;
+        .map_err(|_| AppError::locked("scheduled runner"))?;
     if running.len() >= MAX_CONCURRENT_SCHEDULED_RUNS {
-        return Err("scheduled runner is at its concurrency limit".to_string());
+        return Err(AppError::Other(
+            "scheduled runner is at its concurrency limit".to_string(),
+        ));
     }
     if running.contains_key(id) {
-        return Err("scheduled task is already running".to_string());
+        return Err(AppError::Other(
+            "scheduled task is already running".to_string(),
+        ));
     }
     let cancelled = Arc::new(AtomicBool::new(false));
     running.insert(id.to_string(), Arc::clone(&cancelled));
@@ -135,17 +139,17 @@ pub(crate) fn execute_scheduled_task(
         let tasks = state
             .scheduled_tasks
             .lock()
-            .map_err(|_| "scheduled task state lock poisoned".to_string())?;
+            .map_err(|_| AppError::locked("scheduled task"))?;
         tasks
             .iter()
             .find(|task| task.id == id)
             .cloned()
-            .ok_or_else(|| "scheduled task not found".to_string())?
+            .ok_or_else(|| AppError::NotFound("scheduled task not found".to_string()))?
     };
     let settings = state
         .settings
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .clone();
     let pi_binary = effective_pi_binary(&settings, state);
     let before_sessions: HashMap<String, Option<u64>> = list_sessions(&settings.session_dir)
@@ -165,7 +169,7 @@ pub(crate) fn execute_scheduled_task(
         let entry = tasks
             .iter_mut()
             .find(|entry| entry.id == id)
-            .ok_or_else(|| "scheduled task not found".to_string())?;
+            .ok_or_else(|| AppError::NotFound("scheduled task not found".to_string()))?;
         entry.last_run_at = Some(started_at);
         if trigger == "scheduled" {
             entry.next_run_at = entry
@@ -207,9 +211,11 @@ pub(crate) fn execute_scheduled_task(
                     output_bytes: 128 * 1024,
                 },
             )
-            .map_err(|err| format!("failed to run scheduled Pi task: {err}"))
+            .map_err(|err| AppError::Process(format!("failed to run scheduled Pi task: {err}")))
         })(),
-        Err(err) => Err(format!("failed to mark scheduled task as running: {err}")),
+        Err(err) => Err(AppError::Other(format!(
+            "failed to mark scheduled task as running: {err}"
+        ))),
     };
     let (run_status, success, exit_code, message) = match execution {
         Ok(output) => {
@@ -265,7 +271,7 @@ pub(crate) fn execute_scheduled_task(
                 redact_runtime_output(&settings, &message),
             )
         }
-        Err(err) => ("error".to_string(), false, None, err),
+        Err(err) => ("error".to_string(), false, None, err.to_string()),
     };
     let finished_at = current_time_ms();
     run.status = run_status;
@@ -305,19 +311,19 @@ pub(crate) fn execute_scheduled_task(
 #[tauri::command]
 pub(crate) fn list_scheduled_tasks_cmd(
     state: State<'_, AppState>,
-) -> Result<Vec<ScheduledTask>, String> {
+) -> Result<Vec<ScheduledTask>, AppError> {
     state
         .scheduled_tasks
         .lock()
         .map(|tasks| tasks.clone())
-        .map_err(|_| "scheduled task state lock poisoned".to_string())
+        .map_err(|_| AppError::locked("scheduled task"))
 }
 
 #[tauri::command(async)]
 pub(crate) fn list_scheduled_runs_cmd(
     task_id: Option<String>,
     limit: Option<u32>,
-) -> Result<Vec<ScheduledRunRecord>, String> {
+) -> Result<Vec<ScheduledRunRecord>, AppError> {
     scheduler::list_runs(
         &scheduled_runs_path(),
         task_id.as_deref(),
@@ -381,7 +387,7 @@ pub(crate) fn save_scheduled_task_cmd(
     let mut tasks = state
         .scheduled_tasks
         .lock()
-        .map_err(|_| "scheduled task state lock poisoned".to_string())?;
+        .map_err(|_| AppError::locked("scheduled task"))?;
     if let Some(existing) = tasks.iter_mut().find(|entry| entry.id == task.id) {
         *existing = task.clone();
     } else {
@@ -401,7 +407,7 @@ pub(crate) fn delete_scheduled_task_cmd(
     let mut tasks = state
         .scheduled_tasks
         .lock()
-        .map_err(|_| "scheduled task state lock poisoned".to_string())?;
+        .map_err(|_| AppError::locked("scheduled task"))?;
     tasks.retain(|task| task.id != id);
     save_json_list(&scheduled_tasks_path(), &tasks)?;
     let _ = app.emit(
@@ -424,21 +430,21 @@ pub(crate) async fn run_scheduled_task_cmd(
         execute_scheduled_task(&runner_app, &state, &id, "manual")
     })
     .await
-    .map_err(|err| format!("scheduled task worker failed: {err}"))?
+    .map_err(|err| AppError::Process(format!("scheduled task worker failed: {err}")))?
 }
 
 #[tauri::command]
 pub(crate) fn cancel_scheduled_task_cmd(
     state: State<'_, AppState>,
     id: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let cancellation = state
         .running_scheduled_tasks
         .lock()
-        .map_err(|_| "scheduled runner state lock poisoned".to_string())?
+        .map_err(|_| AppError::locked("scheduled runner"))?
         .get(&id)
         .cloned()
-        .ok_or_else(|| "scheduled task is not running".to_string())?;
+        .ok_or_else(|| AppError::NotFound("scheduled task is not running".to_string()))?;
     cancellation.store(true, Ordering::Release);
     Ok(())
 }
@@ -450,7 +456,7 @@ pub(crate) fn initialize_scheduled_runner(app: &AppHandle) -> Result<(), AppErro
     let mut tasks = state
         .scheduled_tasks
         .lock()
-        .map_err(|_| "scheduled task state lock poisoned".to_string())?;
+        .map_err(|_| AppError::locked("scheduled task"))?;
     for task in tasks.iter_mut() {
         if !is_safe_scheduled_permission_mode(&task.permission_mode) {
             task.permission_mode = default_scheduled_permission_mode();

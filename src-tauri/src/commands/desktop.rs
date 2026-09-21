@@ -3,10 +3,10 @@
 use crate::*;
 
 #[tauri::command(async)]
-pub(crate) fn quick_chat_dir() -> Result<String, String> {
+pub(crate) fn quick_chat_dir() -> Result<String, AppError> {
     let path = app_config_dir().join("quick-chat");
     fs::create_dir_all(&path)
-        .map_err(|err| format!("failed to create quick chat directory: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to create quick chat directory: {err}")))?;
     Ok(path.to_string_lossy().to_string())
 }
 
@@ -23,13 +23,15 @@ pub(crate) struct AttachmentPayload {
 }
 
 #[tauri::command(async)]
-pub(crate) fn read_attachment(file: String) -> Result<AttachmentPayload, String> {
-    let path =
-        fs::canonicalize(&file).map_err(|err| format!("failed to open attachment: {err}"))?;
-    let metadata =
-        fs::metadata(&path).map_err(|err| format!("failed to inspect attachment: {err}"))?;
+pub(crate) fn read_attachment(file: String) -> Result<AttachmentPayload, AppError> {
+    let path = fs::canonicalize(&file)
+        .map_err(|err| AppError::Io(format!("failed to open attachment: {err}")))?;
+    let metadata = fs::metadata(&path)
+        .map_err(|err| AppError::Io(format!("failed to inspect attachment: {err}")))?;
     if !metadata.is_file() {
-        return Err("attachment must be a file".to_string());
+        return Err(AppError::InvalidInput(
+            "attachment must be a file".to_string(),
+        ));
     }
 
     let extension = path
@@ -46,9 +48,10 @@ pub(crate) fn read_attachment(file: String) -> Result<AttachmentPayload, String>
 
     if mime_type.starts_with("image/") {
         if metadata.len() > 12 * 1024 * 1024 {
-            return Err("images are limited to 12 MB".to_string());
+            return Err(AppError::Io("images are limited to 12 MB".to_string()));
         }
-        let bytes = fs::read(&path).map_err(|err| format!("failed to read image: {err}"))?;
+        let bytes =
+            fs::read(&path).map_err(|err| AppError::Io(format!("failed to read image: {err}")))?;
         return Ok(AttachmentPayload {
             path: path.to_string_lossy().to_string(),
             file_name,
@@ -72,7 +75,8 @@ pub(crate) fn read_attachment(file: String) -> Result<AttachmentPayload, String>
         });
     }
 
-    let bytes = fs::read(&path).map_err(|err| format!("failed to read attachment: {err}"))?;
+    let bytes =
+        fs::read(&path).map_err(|err| AppError::Io(format!("failed to read attachment: {err}")))?;
     let text = String::from_utf8(bytes).ok();
     Ok(AttachmentPayload {
         path: path.to_string_lossy().to_string(),
@@ -158,22 +162,32 @@ pub(crate) fn list_workspace_editors() -> Vec<WorkspaceEditorInfo> {
 }
 
 #[tauri::command(async)]
-pub(crate) fn open_workspace_in_editor(path: String, editor_id: String) -> Result<(), String> {
+pub(crate) fn open_workspace_in_editor(path: String, editor_id: String) -> Result<(), AppError> {
     let workspace = validate_workspace_directory(&path)?;
-    let editor = workspace_editor_spec(&editor_id)
-        .ok_or_else(|| format!("unsupported workspace editor: {editor_id}"))?;
-    let executable = resolve_workspace_editor(editor)
-        .ok_or_else(|| format!("{} is not installed or cannot be found", editor.name))?;
+    let editor = workspace_editor_spec(&editor_id).ok_or_else(|| {
+        AppError::InvalidInput(format!("unsupported workspace editor: {editor_id}"))
+    })?;
+    let executable = resolve_workspace_editor(editor).ok_or_else(|| {
+        AppError::NotFound(format!(
+            "{} is not installed or cannot be found",
+            editor.name
+        ))
+    })?;
 
     hidden_command(&executable)
         .arg(&workspace)
         .spawn()
         .map(|_| ())
-        .map_err(|err| format!("failed to open workspace in {}: {err}", editor.name))
+        .map_err(|err| {
+            AppError::Process(format!(
+                "failed to open workspace in {}: {err}",
+                editor.name
+            ))
+        })
 }
 
 #[tauri::command(async)]
-pub(crate) fn open_workspace_in_file_manager(path: String) -> Result<(), String> {
+pub(crate) fn open_workspace_in_file_manager(path: String) -> Result<(), AppError> {
     let workspace = validate_workspace_directory(&path)?;
 
     #[cfg(windows)]
@@ -182,7 +196,7 @@ pub(crate) fn open_workspace_in_file_manager(path: String) -> Result<(), String>
             .arg(&workspace)
             .spawn()
             .map(|_| ())
-            .map_err(|err| format!("failed to open File Explorer: {err}"))
+            .map_err(|err| AppError::Process(format!("failed to open File Explorer: {err}")))
     }
 
     #[cfg(target_os = "macos")]
@@ -191,7 +205,7 @@ pub(crate) fn open_workspace_in_file_manager(path: String) -> Result<(), String>
             .arg(&workspace)
             .spawn()
             .map(|_| ())
-            .map_err(|err| format!("failed to open Finder: {err}"))
+            .map_err(|err| AppError::Process(format!("failed to open Finder: {err}")))
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]
@@ -200,7 +214,7 @@ pub(crate) fn open_workspace_in_file_manager(path: String) -> Result<(), String>
             .arg(&workspace)
             .spawn()
             .map(|_| ())
-            .map_err(|err| format!("failed to open file manager: {err}"))
+            .map_err(|err| AppError::Process(format!("failed to open file manager: {err}")))
     }
 }
 

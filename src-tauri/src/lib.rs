@@ -106,28 +106,37 @@ fn browser_webview_action(
     label: String,
     action: String,
     url: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let webview = app
         .get_webview(&label)
-        .ok_or_else(|| "browser webview is not available".to_string())?;
+        .ok_or_else(|| AppError::NotFound("browser webview is not available".to_string()))?;
     match action.as_str() {
         "navigate" => {
-            let raw = url.ok_or_else(|| "browser URL is required".to_string())?;
-            let parsed =
-                tauri::Url::parse(&raw).map_err(|err| format!("invalid browser URL: {err}"))?;
+            let raw =
+                url.ok_or_else(|| AppError::InvalidInput("browser URL is required".to_string()))?;
+            let parsed = tauri::Url::parse(&raw)
+                .map_err(|err| AppError::InvalidInput(format!("invalid browser URL: {err}")))?;
             if !matches!(parsed.scheme(), "http" | "https") {
-                return Err("browser only supports HTTP(S) URLs".to_string());
+                return Err(AppError::InvalidInput(
+                    "browser only supports HTTP(S) URLs".to_string(),
+                ));
             }
-            webview.navigate(parsed).map_err(|err| err.to_string())
+            webview
+                .navigate(parsed)
+                .map_err(|err| AppError::Other(err.to_string()))
         }
         "back" => webview
             .eval("history.back()")
-            .map_err(|err| err.to_string()),
+            .map_err(|err| AppError::Other(err.to_string())),
         "forward" => webview
             .eval("history.forward()")
-            .map_err(|err| err.to_string()),
-        "reload" => webview.reload().map_err(|err| err.to_string()),
-        _ => Err("unsupported browser action".to_string()),
+            .map_err(|err| AppError::Other(err.to_string())),
+        "reload" => webview
+            .reload()
+            .map_err(|err| AppError::Other(err.to_string())),
+        _ => Err(AppError::InvalidInput(
+            "unsupported browser action".to_string(),
+        )),
     }
 }
 

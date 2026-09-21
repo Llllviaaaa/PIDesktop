@@ -49,7 +49,7 @@ pub(crate) fn build_pi_launch_config(
     cwd: &str,
     permission_mode: &str,
     is_quick_chat: bool,
-) -> Result<PiLaunchConfig, String> {
+) -> Result<PiLaunchConfig, AppError> {
     let guard_extension = ensure_guard_extension()?;
     let browser_extension = settings
         .browser_enabled
@@ -80,8 +80,9 @@ pub(crate) fn build_pi_launch_config(
         .then(ensure_memory_extension)
         .transpose()?;
     let mcp_config = if settings.mcp_enabled {
-        let mut raw = serde_json::to_vec(&settings.mcp_servers)
-            .map_err(|err| format!("failed to serialize MCP runtime config: {err}"))?;
+        let mut raw = serde_json::to_vec(&settings.mcp_servers).map_err(|err| {
+            AppError::Other(format!("failed to serialize MCP runtime config: {err}"))
+        })?;
         let encoded = base64::engine::general_purpose::STANDARD.encode(&raw);
         raw.fill(0);
         encoded
@@ -90,16 +91,18 @@ pub(crate) fn build_pi_launch_config(
     };
     let hooks_config = if settings.hooks_enabled {
         base64::engine::general_purpose::STANDARD.encode(
-            serde_json::to_vec(&settings.hooks)
-                .map_err(|err| format!("failed to serialize hooks runtime config: {err}"))?,
+            serde_json::to_vec(&settings.hooks).map_err(|err| {
+                AppError::Other(format!("failed to serialize hooks runtime config: {err}"))
+            })?,
         )
     } else {
         String::new()
     };
-    let tool_rules_config = base64::engine::general_purpose::STANDARD.encode(
-        serde_json::to_vec(&settings.tool_rules)
-            .map_err(|err| format!("failed to serialize tool rules: {err}"))?,
-    );
+    let tool_rules_config =
+        base64::engine::general_purpose::STANDARD
+            .encode(serde_json::to_vec(&settings.tool_rules).map_err(|err| {
+                AppError::Other(format!("failed to serialize tool rules: {err}"))
+            })?);
     let mut sensitive_values = runtime_secret_values(settings);
     if !mcp_config.is_empty() {
         sensitive_values.push(mcp_config.clone());
@@ -194,7 +197,9 @@ pub(crate) fn build_pi_launch_config(
         (
             "PIDESKTOP_COMPUTER_HELPER".to_string(),
             std::env::current_exe()
-                .map_err(|err| format!("failed to locate Pi Desktop executable: {err}"))?
+                .map_err(|err| {
+                    AppError::Other(format!("failed to locate Pi Desktop executable: {err}"))
+                })?
                 .to_string_lossy()
                 .to_string(),
         ),
@@ -252,10 +257,12 @@ pub(crate) fn pi_start(
     cwd: String,
     session_file: Option<String>,
     isolated: Option<bool>,
-) -> Result<PiStartResult, String> {
+) -> Result<PiStartResult, AppError> {
     let cwd_path = PathBuf::from(&cwd);
     if !cwd_path.is_dir() {
-        return Err(format!("workspace does not exist: {cwd}"));
+        return Err(AppError::NotFound(format!(
+            "workspace does not exist: {cwd}"
+        )));
     }
 
     let is_isolated = isolated.unwrap_or(false);
@@ -263,7 +270,7 @@ pub(crate) fn pi_start(
         let mut runtimes = state
             .runtimes
             .lock()
-            .map_err(|_| "state lock poisoned".to_string())?;
+            .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?;
         runtimes.retain(|_, runtime| runtime.client.is_running());
         if let Some(ref requested_session) = session_file {
             if let Some((runtime_id, _)) = runtimes.iter().find(|(_, runtime)| {
@@ -316,7 +323,7 @@ pub(crate) fn pi_start(
     let settings = state
         .settings
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .clone();
     let pi_binary = effective_pi_binary(&settings, &state);
     #[cfg(windows)]
@@ -375,7 +382,7 @@ pub(crate) fn pi_start(
     state
         .runtimes
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .insert(
             runtime_id.clone(),
             PiRuntime {
@@ -396,7 +403,7 @@ pub(crate) fn resolve_session_for_launch(
     configured_root: &str,
     requested_session: &str,
     is_isolated: bool,
-) -> Result<Option<PathBuf>, String> {
+) -> Result<Option<PathBuf>, AppError> {
     if is_isolated && !Path::new(requested_session).is_file() {
         return Ok(None);
     }
@@ -435,25 +442,25 @@ pub(crate) fn pi_send(
     state: State<'_, AppState>,
     runtime_id: String,
     line: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let guard = state
         .runtimes
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?;
     guard
         .get(&runtime_id)
-        .ok_or_else(|| format!("Pi runtime is not running: {runtime_id}"))?
+        .ok_or_else(|| AppError::NotFound(format!("Pi runtime is not running: {runtime_id}")))?
         .client
         .send_line(&line)
 }
 
 #[tauri::command(async)]
-pub(crate) fn pi_stop(state: State<'_, AppState>, runtime_id: String) -> Result<(), String> {
+pub(crate) fn pi_stop(state: State<'_, AppState>, runtime_id: String) -> Result<(), AppError> {
     let runtime = {
         let mut runtimes = state
             .runtimes
             .lock()
-            .map_err(|_| "state lock poisoned".to_string())?;
+            .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?;
         let runtime = runtimes.remove(&runtime_id);
         #[cfg(windows)]
         if runtimes.is_empty() {
@@ -471,7 +478,7 @@ pub(crate) fn pi_stop(state: State<'_, AppState>, runtime_id: String) -> Result<
             let session_dir = state
                 .settings
                 .lock()
-                .map_err(|_| "state lock poisoned".to_string())?
+                .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
                 .session_dir
                 .clone();
             let _ = trash_session(&session_dir, &file);
@@ -484,11 +491,11 @@ pub(crate) fn pi_stop(state: State<'_, AppState>, runtime_id: String) -> Result<
 pub(crate) fn pi_is_running(
     state: State<'_, AppState>,
     runtime_id: String,
-) -> Result<bool, String> {
+) -> Result<bool, AppError> {
     let mut runtimes = state
         .runtimes
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?;
     let is_running = runtimes
         .get(&runtime_id)
         .is_some_and(|runtime| runtime.client.is_running());
@@ -503,24 +510,24 @@ pub(crate) fn pi_bind_session(
     state: State<'_, AppState>,
     runtime_id: String,
     session_file: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let mut runtimes = state
         .runtimes
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?;
     let runtime = runtimes
         .get_mut(&runtime_id)
-        .ok_or_else(|| format!("Pi runtime is not running: {runtime_id}"))?;
+        .ok_or_else(|| AppError::NotFound(format!("Pi runtime is not running: {runtime_id}")))?;
     runtime.session_file = Some(session_file);
     Ok(())
 }
 
 #[tauri::command]
-pub(crate) fn list_pi_runtimes(state: State<'_, AppState>) -> Result<Vec<RuntimeInfo>, String> {
+pub(crate) fn list_pi_runtimes(state: State<'_, AppState>) -> Result<Vec<RuntimeInfo>, AppError> {
     let mut runtimes = state
         .runtimes
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?;
     runtimes.retain(|_, runtime| runtime.client.is_running());
     Ok(runtimes
         .iter()

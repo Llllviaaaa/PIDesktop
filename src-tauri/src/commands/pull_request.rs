@@ -63,7 +63,7 @@ pub(crate) fn list_pull_requests(cwd: String) -> Result<PullRequestCollection, A
         ])
         .current_dir(&repository_root)
         .output()
-        .map_err(|err| format!("无法启动 GitHub CLI（gh）：{err}"))?;
+        .map_err(|err| AppError::Git(format!("无法启动 GitHub CLI（gh）：{err}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(AppError::Git(if stderr.is_empty() {
@@ -73,7 +73,7 @@ pub(crate) fn list_pull_requests(cwd: String) -> Result<PullRequestCollection, A
         }));
     }
     let raw: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|err| format!("failed to parse GitHub pull requests: {err}"))?;
+        .map_err(|err| AppError::Git(format!("failed to parse GitHub pull requests: {err}")))?;
     let items = raw
         .as_array()
         .into_iter()
@@ -137,21 +137,21 @@ pub(crate) fn list_pull_requests(cwd: String) -> Result<PullRequestCollection, A
 }
 
 #[tauri::command(async)]
-pub(crate) fn checkout_pull_request(cwd: String, number: u64) -> Result<(), String> {
+pub(crate) fn checkout_pull_request(cwd: String, number: u64) -> Result<(), AppError> {
     let cwd_path = PathBuf::from(cwd);
     let output = github_cli_command()
         .args(["pr", "checkout", &number.to_string()])
         .current_dir(cwd_path)
         .output()
-        .map_err(|err| format!("无法启动 GitHub CLI（gh）：{err}"))?;
+        .map_err(|err| AppError::Git(format!("无法启动 GitHub CLI（gh）：{err}")))?;
     if output.status.success() {
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         Err(if stderr.is_empty() {
-            "检出拉取请求失败".to_string()
+            AppError::Git("检出拉取请求失败".to_string())
         } else {
-            stderr
+            AppError::Git(stderr)
         })
     }
 }
@@ -201,7 +201,7 @@ pub(crate) fn create_worktree(
         .as_secs();
     let root = app_config_dir().join("worktrees");
     fs::create_dir_all(&root)
-        .map_err(|err| format!("failed to create worktree directory: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to create worktree directory: {err}")))?;
     let target = root.join(format!("{safe_name}-{stamp}"));
     let base = base
         .filter(|value| !value.trim().is_empty())
@@ -209,7 +209,7 @@ pub(crate) fn create_worktree(
     let branch_prefix = state
         .settings
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .branch_prefix
         .trim()
         .to_string();

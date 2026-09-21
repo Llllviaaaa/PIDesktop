@@ -7,14 +7,15 @@ use crate::*;
 pub(crate) fn list_workspace_dir(
     cwd: String,
     path: Option<String>,
-) -> Result<Vec<WorkspaceDirEntry>, String> {
+) -> Result<Vec<WorkspaceDirEntry>, AppError> {
     let rel = path.unwrap_or_default().replace('\\', "/");
     let (_root, dir) = confined_workspace_path(&cwd, &rel)?;
     if !dir.is_dir() {
-        return Err("not a directory".to_string());
+        return Err(AppError::InvalidInput("not a directory".to_string()));
     }
     let mut entries = Vec::new();
-    let reader = fs::read_dir(&dir).map_err(|err| format!("failed to list directory: {err}"))?;
+    let reader = fs::read_dir(&dir)
+        .map_err(|err| AppError::Io(format!("failed to list directory: {err}")))?;
     for entry in reader.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         if name == "." || name == ".." {
@@ -49,14 +50,14 @@ pub(crate) async fn search_workspace_files(
     cwd: String,
     query: String,
     request_id: String,
-) -> Result<Vec<WorkspaceDirEntry>, String> {
+) -> Result<Vec<WorkspaceDirEntry>, AppError> {
     let (root, _) = confined_workspace_path(&cwd, "")?;
     let cancelled = Arc::new(AtomicBool::new(false));
     {
         let mut searches = state
             .workspace_searches
             .lock()
-            .map_err(|_| "workspace search state lock poisoned".to_string())?;
+            .map_err(|_| AppError::locked("workspace search"))?;
         if let Some(previous) = searches.insert(request_id.clone(), Arc::clone(&cancelled)) {
             previous.store(true, Ordering::Release);
         }
@@ -74,18 +75,21 @@ pub(crate) async fn search_workspace_files(
             searches.remove(&request_id);
         }
     }
-    worker.map_err(|err| format!("workspace search worker failed: {err}"))?
+    worker
+        .map_err(|err| AppError::Process(format!("workspace search worker failed: {err}")))?
+        // workspace_files::search only fails when a newer search cancels it.
+        .map_err(AppError::Cancelled)
 }
 
 #[tauri::command]
 pub(crate) fn cancel_workspace_search(
     state: State<'_, AppState>,
     request_id: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     if let Some(cancelled) = state
         .workspace_searches
         .lock()
-        .map_err(|_| "workspace search state lock poisoned".to_string())?
+        .map_err(|_| AppError::locked("workspace search"))?
         .get(&request_id)
         .cloned()
     {
@@ -98,14 +102,15 @@ pub(crate) fn cancel_workspace_search(
 pub(crate) fn read_workspace_file(
     cwd: String,
     path: String,
-) -> Result<WorkspaceFileContent, String> {
+) -> Result<WorkspaceFileContent, AppError> {
     const MAX_BYTES: u64 = 512 * 1024;
     const MAX_BINARY_PREVIEW_BYTES: u64 = 10 * 1024 * 1024;
     let (_root, file) = confined_workspace_path(&cwd, &path)?;
     if !file.is_file() {
-        return Err("not a file".to_string());
+        return Err(AppError::InvalidInput("not a file".to_string()));
     }
-    let metadata = fs::metadata(&file).map_err(|err| format!("failed to inspect file: {err}"))?;
+    let metadata = fs::metadata(&file)
+        .map_err(|err| AppError::Io(format!("failed to inspect file: {err}")))?;
     let file_name = file
         .file_name()
         .and_then(|value| value.to_str())
@@ -128,11 +133,12 @@ pub(crate) fn read_workspace_file(
     };
     let binary_preview = mime_type.is_some() && metadata.len() <= MAX_BINARY_PREVIEW_BYTES;
     let bytes = if metadata.len() > MAX_BYTES && !binary_preview {
-        let mut data = fs::read(&file).map_err(|err| format!("failed to read file: {err}"))?;
+        let mut data =
+            fs::read(&file).map_err(|err| AppError::Io(format!("failed to read file: {err}")))?;
         data.truncate(MAX_BYTES as usize);
         data
     } else {
-        fs::read(&file).map_err(|err| format!("failed to read file: {err}"))?
+        fs::read(&file).map_err(|err| AppError::Io(format!("failed to read file: {err}")))?
     };
     let text = if mime_type.is_some() {
         None
@@ -174,16 +180,19 @@ pub(crate) struct WorkspaceFileContent {
 pub(crate) fn confined_workspace_path(
     cwd: &str,
     relative: &str,
-) -> Result<(PathBuf, PathBuf), String> {
+) -> Result<(PathBuf, PathBuf), AppError> {
     let root = strip_windows_prefix(
-        fs::canonicalize(cwd).map_err(|err| format!("workspace not found: {err}"))?,
+        fs::canonicalize(cwd)
+            .map_err(|err| AppError::NotFound(format!("workspace not found: {err}")))?,
     );
     let requested = strip_windows_prefix(PathBuf::from(relative));
     if requested
         .components()
         .any(|part| matches!(part, Component::ParentDir))
     {
-        return Err("path is outside the workspace".to_string());
+        return Err(AppError::InvalidInput(
+            "path is outside the workspace".to_string(),
+        ));
     }
     let joined = if requested.is_absolute() {
         requested
@@ -192,30 +201,39 @@ pub(crate) fn confined_workspace_path(
     };
     let canon = if joined.exists() {
         strip_windows_prefix(
-            fs::canonicalize(&joined).map_err(|err| format!("path not found: {err}"))?,
+            fs::canonicalize(&joined)
+                .map_err(|err| AppError::NotFound(format!("path not found: {err}")))?,
         )
     } else {
         joined
     };
     if !canon.starts_with(&root) {
-        return Err("path is outside the workspace".to_string());
+        return Err(AppError::InvalidInput(
+            "path is outside the workspace".to_string(),
+        ));
     }
     Ok((root, canon))
 }
 
-pub(crate) fn validate_workspace_directory(path: &str) -> Result<PathBuf, String> {
+pub(crate) fn validate_workspace_directory(path: &str) -> Result<PathBuf, AppError> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err("workspace path is empty".to_string());
+        return Err(AppError::InvalidInput(
+            "workspace path is empty".to_string(),
+        ));
     }
     let workspace = PathBuf::from(trimmed);
     if !workspace.is_absolute() {
-        return Err("workspace path must be absolute".to_string());
+        return Err(AppError::InvalidInput(
+            "workspace path must be absolute".to_string(),
+        ));
     }
     let metadata = fs::metadata(&workspace)
-        .map_err(|err| format!("workspace path is not available: {err}"))?;
+        .map_err(|err| AppError::NotFound(format!("workspace path is not available: {err}")))?;
     if !metadata.is_dir() {
-        return Err("workspace path is not a directory".to_string());
+        return Err(AppError::InvalidInput(
+            "workspace path is not a directory".to_string(),
+        ));
     }
     Ok(workspace)
 }

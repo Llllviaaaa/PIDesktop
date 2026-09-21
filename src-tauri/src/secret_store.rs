@@ -1,5 +1,6 @@
+use crate::error::AppError;
 #[cfg(windows)]
-pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
+pub fn protect(data: &[u8]) -> Result<Vec<u8>, AppError> {
     use std::ptr::null;
     use windows_sys::Win32::Foundation::{GetLastError, LocalFree};
     use windows_sys::Win32::Security::Cryptography::{
@@ -26,10 +27,10 @@ pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
         )
     };
     if ok == 0 {
-        return Err(format!(
+        return Err(AppError::Other(format!(
             "Windows could not protect credentials ({})",
             unsafe { GetLastError() }
-        ));
+        )));
     }
 
     let protected =
@@ -42,7 +43,7 @@ pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(windows)]
-pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
+pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, AppError> {
     use std::ptr::{null, null_mut};
     use windows_sys::Win32::Foundation::{GetLastError, LocalFree};
     use windows_sys::Win32::Security::Cryptography::{
@@ -69,10 +70,10 @@ pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
         )
     };
     if ok == 0 {
-        return Err(format!(
+        return Err(AppError::Other(format!(
             "Windows could not unlock credentials ({})",
             unsafe { GetLastError() }
-        ));
+        )));
     }
 
     let plaintext =
@@ -87,12 +88,12 @@ pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
 // Non-Windows builds rely on a user-only (0600) file. Windows, the primary
 // desktop target, additionally encrypts the payload with the current user's DPAPI key.
 #[cfg(not(windows))]
-pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
+pub fn protect(data: &[u8]) -> Result<Vec<u8>, AppError> {
     Ok(data.to_vec())
 }
 
 #[cfg(not(windows))]
-pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
+pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, AppError> {
     Ok(data.to_vec())
 }
 

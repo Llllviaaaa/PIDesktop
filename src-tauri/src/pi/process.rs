@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use std::io::Read;
 #[cfg(windows)]
 use std::path::Path;
@@ -41,7 +42,7 @@ pub(crate) fn run_pi_print(
     prompt: &str,
     cancelled: &AtomicBool,
     limits: PiPrintLimits,
-) -> Result<PiPrintOutput, String> {
+) -> Result<PiPrintOutput, AppError> {
     let mut command = if cfg!(windows) {
         build_windows_command(pi_binary, cwd, std::iter::empty(), extra_args, Some(prompt))
     } else {
@@ -54,16 +55,16 @@ pub(crate) fn run_pi_print(
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command
         .spawn()
-        .map_err(|err| format!("failed to run Pi process: {err}"))?;
+        .map_err(|err| AppError::Process(format!("failed to run Pi process: {err}")))?;
     let pid = child.id();
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| "failed to capture scheduled Pi stdout".to_string())?;
+        .ok_or_else(|| AppError::Process("failed to capture scheduled Pi stdout".to_string()))?;
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| "failed to capture scheduled Pi stderr".to_string())?;
+        .ok_or_else(|| AppError::Process("failed to capture scheduled Pi stderr".to_string()))?;
     let stdout_reader = std::thread::spawn(move || read_limited(stdout, limits.output_bytes));
     let stderr_reader = std::thread::spawn(move || read_limited(stderr, limits.output_bytes));
 
@@ -90,17 +91,19 @@ pub(crate) fn run_pi_print(
                 let _ = kill_process_tree(pid);
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!("failed to inspect scheduled Pi process: {err}"));
+                return Err(AppError::Process(format!(
+                    "failed to inspect scheduled Pi process: {err}"
+                )));
             }
         }
     };
 
     let (stdout, stdout_truncated) = stdout_reader
         .join()
-        .map_err(|_| "scheduled Pi stdout reader panicked".to_string())?;
+        .map_err(|_| AppError::Process("scheduled Pi stdout reader panicked".to_string()))?;
     let (stderr, stderr_truncated) = stderr_reader
         .join()
-        .map_err(|_| "scheduled Pi stderr reader panicked".to_string())?;
+        .map_err(|_| AppError::Process("scheduled Pi stderr reader panicked".to_string()))?;
     Ok(PiPrintOutput {
         status,
         stdout,
@@ -133,7 +136,7 @@ fn read_limited(mut reader: impl Read, limit: usize) -> (Vec<u8>, bool) {
 
 /// Kill a process and all of its descendants. On Windows `taskkill /T` tears
 /// down the whole cmd -> node -> shell tree; elsewhere we signal the direct child.
-pub(crate) fn kill_process_tree(pid: u32) -> Result<(), String> {
+pub(crate) fn kill_process_tree(pid: u32) -> Result<(), AppError> {
     #[cfg(windows)]
     {
         let mut command = Command::new("taskkill");
@@ -143,15 +146,15 @@ pub(crate) fn kill_process_tree(pid: u32) -> Result<(), String> {
         let output = command
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output()
-            .map_err(|err| format!("taskkill failed: {err}"))?;
+            .map_err(|err| AppError::Process(format!("taskkill failed: {err}")))?;
         if output.status.success() {
             Ok(())
         } else {
-            Err(format!(
+            Err(AppError::Process(format!(
                 "taskkill exited with {}: {}",
                 output.status.code().unwrap_or(-1),
                 String::from_utf8_lossy(&output.stderr)
-            ))
+            )))
         }
     }
     #[cfg(not(windows))]

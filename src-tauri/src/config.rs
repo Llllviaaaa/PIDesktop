@@ -494,7 +494,7 @@ pub(crate) fn redact_mcp_secrets(settings: &AppSettings) -> AppSettings {
 pub(crate) fn resolve_mcp_secret_placeholders(
     incoming: &mut AppSettings,
     current: &AppSettings,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     for server in &mut incoming.mcp_servers {
         let existing = current.mcp_servers.iter().find(|item| item.id == server.id);
         for (key, value) in &mut server.env {
@@ -524,57 +524,61 @@ pub(crate) fn resolve_mcp_secret_placeholders(
     Ok(())
 }
 
-pub(crate) fn load_mcp_secrets() -> Result<McpSecrets, String> {
+pub(crate) fn load_mcp_secrets() -> Result<McpSecrets, AppError> {
     let path = mcp_secrets_path();
     if !path.exists() {
         return Ok(McpSecrets::new());
     }
     let protected = fs::read(&path)
-        .map_err(|err| format!("failed to read encrypted MCP credentials: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to read encrypted MCP credentials: {err}")))?;
     let mut plaintext = secret_store::unprotect(&protected)?;
     let parsed = serde_json::from_slice(&plaintext)
-        .map_err(|err| format!("encrypted MCP credentials are invalid: {err}"));
+        .map_err(|err| AppError::Other(format!("encrypted MCP credentials are invalid: {err}")));
     plaintext.fill(0);
     parsed
 }
 
-pub(crate) fn save_mcp_secrets(secrets: &McpSecrets) -> Result<(), String> {
+pub(crate) fn save_mcp_secrets(secrets: &McpSecrets) -> Result<(), AppError> {
     let path = mcp_secrets_path();
     if secrets.is_empty() {
         if path.exists() {
-            fs::remove_file(path)
-                .map_err(|err| format!("failed to remove encrypted MCP credentials: {err}"))?;
+            fs::remove_file(path).map_err(|err| {
+                AppError::Io(format!("failed to remove encrypted MCP credentials: {err}"))
+            })?;
         }
         return Ok(());
     }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create settings directory: {err}"))?;
+            .map_err(|err| AppError::Io(format!("failed to create settings directory: {err}")))?;
     }
     let mut plaintext = serde_json::to_vec(secrets)
-        .map_err(|err| format!("failed to serialize MCP credentials: {err}"))?;
+        .map_err(|err| AppError::Other(format!("failed to serialize MCP credentials: {err}")))?;
     let protected = secret_store::protect(&plaintext);
     plaintext.fill(0);
     fs::write(&path, protected?)
-        .map_err(|err| format!("failed to write encrypted MCP credentials: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to write encrypted MCP credentials: {err}")))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-            .map_err(|err| format!("failed to restrict MCP credential permissions: {err}"))?;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).map_err(|err| {
+            AppError::Io(format!(
+                "failed to restrict MCP credential permissions: {err}"
+            ))
+        })?;
     }
     Ok(())
 }
 
-pub(crate) fn write_public_settings(settings: &AppSettings) -> Result<(), String> {
+pub(crate) fn write_public_settings(settings: &AppSettings) -> Result<(), AppError> {
     let path = settings_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create settings directory: {err}"))?;
+            .map_err(|err| AppError::Io(format!("failed to create settings directory: {err}")))?;
     }
     let raw = serde_json::to_string_pretty(&without_mcp_secrets(settings))
-        .map_err(|err| format!("failed to serialize settings: {err}"))?;
-    fs::write(path, raw).map_err(|err| format!("failed to write settings: {err}"))
+        .map_err(|err| AppError::Other(format!("failed to serialize settings: {err}")))?;
+    fs::write(path, raw).map_err(|err| AppError::Io(format!("failed to write settings: {err}")))
 }
 
 pub(crate) fn load_settings() -> AppSettings {
@@ -625,7 +629,7 @@ pub(crate) fn load_settings() -> AppSettings {
     settings
 }
 
-pub(crate) fn save_settings(settings: &AppSettings) -> Result<(), String> {
+pub(crate) fn save_settings(settings: &AppSettings) -> Result<(), AppError> {
     save_mcp_secrets(&collect_mcp_secrets(settings))?;
     write_public_settings(settings)?;
     let _ = fs::remove_file(app_config_dir().join("mcp-servers.json"));
@@ -651,17 +655,21 @@ pub(crate) fn models_config_path() -> PathBuf {
     pi_agent_dir().join("models.json")
 }
 
-pub(crate) fn load_models_config() -> Result<serde_json::Value, String> {
+pub(crate) fn load_models_config() -> Result<serde_json::Value, AppError> {
     let path = models_config_path();
     if !path.exists() {
         return Ok(serde_json::json!({ "providers": {} }));
     }
-    let raw =
-        fs::read_to_string(&path).map_err(|err| format!("无法读取 {}: {err}", path.display()))?;
-    let value: serde_json::Value = json5::from_str(&raw)
-        .map_err(|err| format!("{} 不是有效的 JSON/JSONC: {err}", path.display()))?;
+    let raw = fs::read_to_string(&path)
+        .map_err(|err| AppError::Io(format!("无法读取 {}: {err}", path.display())))?;
+    let value: serde_json::Value = json5::from_str(&raw).map_err(|err| {
+        AppError::Other(format!("{} 不是有效的 JSON/JSONC: {err}", path.display()))
+    })?;
     if !value.is_object() {
-        return Err(format!("{} 的根节点必须是对象", path.display()));
+        return Err(AppError::Other(format!(
+            "{} 的根节点必须是对象",
+            path.display()
+        )));
     }
     Ok(value)
 }

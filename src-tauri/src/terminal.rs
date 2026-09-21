@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Mutex;
@@ -58,12 +59,16 @@ pub fn terminal_create(
     shell: String,
     cols: u16,
     rows: u16,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     if id.trim().is_empty() {
-        return Err("terminal id is required".to_string());
+        return Err(AppError::InvalidInput(
+            "terminal id is required".to_string(),
+        ));
     }
     if !std::path::Path::new(&cwd).is_dir() {
-        return Err("terminal workspace does not exist".to_string());
+        return Err(AppError::NotFound(
+            "terminal workspace does not exist".to_string(),
+        ));
     }
 
     let pty_system = native_pty_system();
@@ -74,32 +79,34 @@ pub fn terminal_create(
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|error| format!("failed to open terminal: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to open terminal: {error}")))?;
 
     let mut command = shell_command(&shell);
     command.cwd(&cwd);
     let child = pair
         .slave
         .spawn_command(command)
-        .map_err(|error| format!("failed to start terminal shell: {error}"))?;
+        .map_err(|error| AppError::Process(format!("failed to start terminal shell: {error}")))?;
     drop(pair.slave);
 
     let mut reader = pair
         .master
         .try_clone_reader()
-        .map_err(|error| format!("failed to read terminal output: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to read terminal output: {error}")))?;
     let writer = pair
         .master
         .take_writer()
-        .map_err(|error| format!("failed to open terminal input: {error}"))?;
+        .map_err(|error| AppError::Io(format!("failed to open terminal input: {error}")))?;
 
     {
         let mut sessions = state
             .terminal_sessions
             .lock()
-            .map_err(|_| "terminal state lock poisoned".to_string())?;
+            .map_err(|_| AppError::locked("terminal"))?;
         if sessions.contains_key(&id) {
-            return Err("terminal already exists".to_string());
+            return Err(AppError::InvalidInput(
+                "terminal already exists".to_string(),
+            ));
         }
         sessions.insert(
             id.clone(),
@@ -139,19 +146,19 @@ pub fn terminal_write(
     state: State<'_, crate::AppState>,
     id: String,
     data: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let mut sessions = state
         .terminal_sessions
         .lock()
-        .map_err(|_| "terminal state lock poisoned".to_string())?;
+        .map_err(|_| AppError::locked("terminal"))?;
     let session = sessions
         .get_mut(&id)
-        .ok_or_else(|| "terminal is not available".to_string())?;
+        .ok_or_else(|| AppError::NotFound("terminal is not available".to_string()))?;
     session
         .writer
         .write_all(data.as_bytes())
         .and_then(|_| session.writer.flush())
-        .map_err(|error| format!("failed to write to terminal: {error}"))
+        .map_err(|error| AppError::Io(format!("failed to write to terminal: {error}")))
 }
 
 #[tauri::command]
@@ -160,14 +167,14 @@ pub fn terminal_resize(
     id: String,
     cols: u16,
     rows: u16,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let sessions = state
         .terminal_sessions
         .lock()
-        .map_err(|_| "terminal state lock poisoned".to_string())?;
+        .map_err(|_| AppError::locked("terminal"))?;
     let session = sessions
         .get(&id)
-        .ok_or_else(|| "terminal is not available".to_string())?;
+        .ok_or_else(|| AppError::NotFound("terminal is not available".to_string()))?;
     session
         .master
         .resize(PtySize {
@@ -176,20 +183,20 @@ pub fn terminal_resize(
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|error| format!("failed to resize terminal: {error}"))
+        .map_err(|error| AppError::Process(format!("failed to resize terminal: {error}")))
 }
 
 #[tauri::command]
-pub fn terminal_close(state: State<'_, crate::AppState>, id: String) -> Result<(), String> {
+pub fn terminal_close(state: State<'_, crate::AppState>, id: String) -> Result<(), AppError> {
     let mut sessions = state
         .terminal_sessions
         .lock()
-        .map_err(|_| "terminal state lock poisoned".to_string())?;
+        .map_err(|_| AppError::locked("terminal"))?;
     if let Some(mut session) = sessions.remove(&id) {
         session
             .child
             .kill()
-            .map_err(|error| format!("failed to close terminal: {error}"))?;
+            .map_err(|error| AppError::Process(format!("failed to close terminal: {error}")))?;
     }
     Ok(())
 }

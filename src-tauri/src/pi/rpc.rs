@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -163,7 +164,7 @@ impl PiRpcClient {
         extra_args: &[String],
         environment: &[(String, String)],
         sensitive_values: &[String],
-    ) -> Result<Self, String> {
+    ) -> Result<Self, AppError> {
         let redactor = SecretRedactor::new(sensitive_values);
         let mut command = build_pi_rpc_command(pi_binary, cwd, extra_args);
         command.envs(environment.iter().map(|(key, value)| (key, value)));
@@ -174,20 +175,20 @@ impl PiRpcClient {
 
         let mut child = command
             .spawn()
-            .map_err(|err| format!("failed to spawn `{}`: {err}", pi_binary))?;
+            .map_err(|err| AppError::Process(format!("failed to spawn `{}`: {err}", pi_binary)))?;
 
         let stdin = child
             .stdin
             .take()
-            .ok_or_else(|| "failed to open pi stdin".to_string())?;
+            .ok_or_else(|| AppError::Process("failed to open pi stdin".to_string()))?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| "failed to open pi stdout".to_string())?;
+            .ok_or_else(|| AppError::Process("failed to open pi stdout".to_string()))?;
         let stderr = child
             .stderr
             .take()
-            .ok_or_else(|| "failed to open pi stderr".to_string())?;
+            .ok_or_else(|| AppError::Process("failed to open pi stderr".to_string()))?;
 
         let pid = child.id();
         let child = Arc::new(Mutex::new(child));
@@ -328,11 +329,11 @@ impl PiRpcClient {
     }
 
     /// Write one JSON command line to pi's stdin.
-    pub fn send_line(&self, line: &str) -> Result<(), String> {
+    pub fn send_line(&self, line: &str) -> Result<(), AppError> {
         let mut stdin = self
             .stdin
             .lock()
-            .map_err(|_| "stdin lock poisoned".to_string())?;
+            .map_err(|_| AppError::Locked("stdin lock poisoned".to_string()))?;
         let payload = if line.ends_with('\n') {
             line.to_string()
         } else {
@@ -341,7 +342,7 @@ impl PiRpcClient {
         let result = stdin
             .write_all(payload.as_bytes())
             .and_then(|_| stdin.flush())
-            .map_err(|err| format!("failed to write to pi stdin: {err}"));
+            .map_err(|err| AppError::Process(format!("failed to write to pi stdin: {err}")));
         if result.is_ok()
             && serde_json::from_str::<serde_json::Value>(line)
                 .ok()

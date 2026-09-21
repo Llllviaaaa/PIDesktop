@@ -20,6 +20,11 @@ test("errors", async () => {
   const spawned = { kind: "process", message: "模型目录后台任务失败: panicked" };
   assert.equal(isRetryable(spawned), true, "a dead worker can be started again");
 
+  // A cancelled request is an expected outcome, never something to retry.
+  const cancelled = { kind: "cancelled", message: "workspace search cancelled" };
+  assert.equal(errorKind(cancelled), "cancelled");
+  assert.equal(isRetryable(cancelled), false);
+
   // Commands that have not been migrated still reject with a bare string.
   assert.equal(describeError("workspace no longer exists"), "workspace no longer exists");
   assert.equal(errorKind("workspace no longer exists"), null, "an unmigrated error has no kind");

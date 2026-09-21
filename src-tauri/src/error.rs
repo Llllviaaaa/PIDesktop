@@ -13,9 +13,11 @@
 //! { "kind": "git", "message": "not a git repository" }
 //! ```
 //!
-//! Modules still returning plain `String` convert through `From<String>` into
-//! [`AppError::Other`]. That is the remaining migration surface; classify a
-//! call site when you touch it rather than guessing from the message text.
+//! Every command returns `AppError`, and each failure is classified where it
+//! happens. `From<String>` still exists for the few internal helpers that keep
+//! string errors (the native computer helper's protocol, workspace search);
+//! a caller that lets one of those through with `?` gets [`AppError::Other`],
+//! so map it to a real kind at the call site instead.
 
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
@@ -43,6 +45,9 @@ pub(crate) enum AppError {
     /// A child process could not be started or died unexpectedly.
     #[error("{0}")]
     Process(String),
+    /// The user or a newer request cancelled the work. An expected outcome, not a fault.
+    #[error("{0}")]
+    Cancelled(String),
     /// Not yet classified. See the module docs.
     #[error("{0}")]
     Other(String),
@@ -58,6 +63,7 @@ impl AppError {
             Self::Git(_) => "git",
             Self::Network(_) => "network",
             Self::Process(_) => "process",
+            Self::Cancelled(_) => "cancelled",
             Self::Other(_) => "other",
         }
     }
@@ -121,6 +127,7 @@ mod tests {
             AppError::Git(String::new()),
             AppError::Network(String::new()),
             AppError::Process(String::new()),
+            AppError::Cancelled(String::new()),
             AppError::Other(String::new()),
         ];
         let kinds: std::collections::HashSet<_> = variants.iter().map(AppError::kind).collect();

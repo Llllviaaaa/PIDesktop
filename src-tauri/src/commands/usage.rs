@@ -18,14 +18,14 @@ pub(crate) struct UsageSummary {
 
 // Scans every session file (seconds on large histories); run off the UI thread.
 #[tauri::command(async)]
-pub(crate) fn usage_summary(state: State<'_, AppState>) -> Result<UsageSummary, String> {
+pub(crate) fn usage_summary(state: State<'_, AppState>) -> Result<UsageSummary, AppError> {
     use std::io::BufRead;
 
     // Copy what the scan needs; holding the settings lock here would stall chat starts and saves.
     let session_dir = state
         .settings
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .session_dir
         .clone();
     let sessions = list_sessions(&session_dir);

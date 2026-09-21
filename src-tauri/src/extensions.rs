@@ -4,6 +4,7 @@
 //! written into the Pi config directory on demand, so a release ships one
 //! executable and no loose script files.
 
+use crate::error::AppError;
 use std::fs;
 use std::path::PathBuf;
 
@@ -27,7 +28,7 @@ const MCP_EXTENSION: &str = include_str!("../resources/pidesktop-mcp.ts");
 const PROVIDERS_CORE_MODULE: &str = include_str!("../resources/pidesktop-providers-core.ts");
 const PROVIDERS_EXTENSION: &str = include_str!("../resources/pidesktop-providers.ts");
 
-pub(crate) fn ensure_guard_extension() -> Result<PathBuf, String> {
+pub(crate) fn ensure_guard_extension() -> Result<PathBuf, AppError> {
     // Helper modules are imported by the guard extension; keep all files in sync on disk.
     ensure_bundled_extension("pidesktop-rules.ts", RULES_MODULE, "rules")?;
     ensure_bundled_extension(
@@ -38,13 +39,13 @@ pub(crate) fn ensure_guard_extension() -> Result<PathBuf, String> {
     ensure_bundled_extension("pidesktop-guard.ts", GUARD_EXTENSION, "guard")
 }
 
-pub(crate) fn ensure_browser_extension() -> Result<PathBuf, String> {
+pub(crate) fn ensure_browser_extension() -> Result<PathBuf, AppError> {
     // Imports the shared rule helpers; do not rely on the guard having written them first.
     ensure_bundled_extension("pidesktop-rules.ts", RULES_MODULE, "rules")?;
     ensure_bundled_extension("pidesktop-browser.ts", BROWSER_EXTENSION, "browser")
 }
 
-pub(crate) fn ensure_computer_extension() -> Result<PathBuf, String> {
+pub(crate) fn ensure_computer_extension() -> Result<PathBuf, AppError> {
     ensure_bundled_extension("pidesktop-rules.ts", RULES_MODULE, "rules")?;
     ensure_bundled_extension(
         "pidesktop-computer-core.ts",
@@ -54,22 +55,22 @@ pub(crate) fn ensure_computer_extension() -> Result<PathBuf, String> {
     ensure_bundled_extension("pidesktop-computer.ts", COMPUTER_EXTENSION, "computer")
 }
 
-pub(crate) fn ensure_mcp_extension() -> Result<PathBuf, String> {
+pub(crate) fn ensure_mcp_extension() -> Result<PathBuf, AppError> {
     ensure_bundled_extension("pidesktop-rules.ts", RULES_MODULE, "rules")?;
     ensure_bundled_extension("pidesktop-mcp.ts", MCP_EXTENSION, "MCP")
 }
 
-pub(crate) fn ensure_plan_extension() -> Result<PathBuf, String> {
+pub(crate) fn ensure_plan_extension() -> Result<PathBuf, AppError> {
     ensure_bundled_extension("pidesktop-plan-core.ts", PLAN_CORE_MODULE, "plan core")?;
     ensure_bundled_extension("pidesktop-plan.ts", PLAN_EXTENSION, "plan")
 }
 
-pub(crate) fn ensure_hooks_extension() -> Result<PathBuf, String> {
+pub(crate) fn ensure_hooks_extension() -> Result<PathBuf, AppError> {
     ensure_bundled_extension("pidesktop-hooks-core.ts", HOOKS_CORE_MODULE, "hooks core")?;
     ensure_bundled_extension("pidesktop-hooks.ts", HOOKS_EXTENSION, "hooks")
 }
 
-pub(crate) fn ensure_subagents_extension() -> Result<PathBuf, String> {
+pub(crate) fn ensure_subagents_extension() -> Result<PathBuf, AppError> {
     ensure_bundled_extension(
         "pidesktop-subagents-core.ts",
         SUBAGENTS_CORE_MODULE,
@@ -78,7 +79,7 @@ pub(crate) fn ensure_subagents_extension() -> Result<PathBuf, String> {
     ensure_bundled_extension("pidesktop-subagents.ts", SUBAGENTS_EXTENSION, "subagents")
 }
 
-pub(crate) fn ensure_providers_extension() -> Result<PathBuf, String> {
+pub(crate) fn ensure_providers_extension() -> Result<PathBuf, AppError> {
     ensure_bundled_extension(
         "pidesktop-providers-core.ts",
         PROVIDERS_CORE_MODULE,
@@ -87,7 +88,7 @@ pub(crate) fn ensure_providers_extension() -> Result<PathBuf, String> {
     ensure_bundled_extension("pidesktop-providers.ts", PROVIDERS_EXTENSION, "providers")
 }
 
-pub(crate) fn ensure_memory_extension() -> Result<PathBuf, String> {
+pub(crate) fn ensure_memory_extension() -> Result<PathBuf, AppError> {
     ensure_bundled_extension(
         "pidesktop-memory-core.ts",
         MEMORY_CORE_MODULE,
@@ -100,29 +101,33 @@ pub(crate) fn ensure_bundled_extension(
     file_name: &str,
     contents: &str,
     label: &str,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, AppError> {
     let path = app_config_dir().join("extensions").join(file_name);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create extension directory: {err}"))?;
+            .map_err(|err| AppError::Io(format!("failed to create extension directory: {err}")))?;
     }
     let should_write = fs::read_to_string(&path)
         .map(|current| current != contents)
         .unwrap_or(true);
     if should_write {
-        fs::write(&path, contents)
-            .map_err(|err| format!("failed to install Pi Desktop {label} extension: {err}"))?;
+        fs::write(&path, contents).map_err(|err| {
+            AppError::Io(format!(
+                "failed to install Pi Desktop {label} extension: {err}"
+            ))
+        })?;
     }
     Ok(path)
 }
 
-pub(crate) fn ensure_personal_instructions(contents: &str) -> Result<PathBuf, String> {
+pub(crate) fn ensure_personal_instructions(contents: &str) -> Result<PathBuf, AppError> {
     let path = app_config_dir().join("personal-instructions.md");
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create instructions directory: {err}"))?;
+        fs::create_dir_all(parent).map_err(|err| {
+            AppError::Io(format!("failed to create instructions directory: {err}"))
+        })?;
     }
     fs::write(&path, contents)
-        .map_err(|err| format!("failed to write personal instructions: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to write personal instructions: {err}")))?;
     Ok(path)
 }

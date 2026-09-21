@@ -20,6 +20,7 @@ export type AppErrorKind =
   | "git"
   | "network"
   | "process"
+  | "cancelled"
   | "other";
 
 const KINDS: readonly string[] = [
@@ -30,6 +31,7 @@ const KINDS: readonly string[] = [
   "git",
   "network",
   "process",
+  "cancelled",
   "other",
 ];
 

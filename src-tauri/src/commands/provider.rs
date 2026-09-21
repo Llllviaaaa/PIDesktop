@@ -77,19 +77,21 @@ pub(crate) struct ModelProviderCheckResult {
     pub(crate) message: String,
 }
 
-pub(crate) fn save_models_config(value: &serde_json::Value) -> Result<(), String> {
+pub(crate) fn save_models_config(value: &serde_json::Value) -> Result<(), AppError> {
     let path = models_config_path();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| format!("无法创建 Pi 配置目录: {err}"))?;
+        fs::create_dir_all(parent)
+            .map_err(|err| AppError::Io(format!("无法创建 Pi 配置目录: {err}")))?;
     }
     if path.exists() {
         let backup = path.with_extension("json.pidesktop.bak");
-        fs::copy(&path, &backup).map_err(|err| format!("无法备份 models.json: {err}"))?;
+        fs::copy(&path, &backup)
+            .map_err(|err| AppError::Io(format!("无法备份 models.json: {err}")))?;
     }
     let raw = serde_json::to_string_pretty(value)
-        .map_err(|err| format!("无法序列化 models.json: {err}"))?;
+        .map_err(|err| AppError::Other(format!("无法序列化 models.json: {err}")))?;
     fs::write(&path, format!("{raw}\n"))
-        .map_err(|err| format!("无法写入 {}: {err}", path.display()))
+        .map_err(|err| AppError::Io(format!("无法写入 {}: {err}", path.display())))
 }
 
 pub(crate) fn api_key_source(value: Option<&str>) -> String {
@@ -135,26 +137,32 @@ pub(crate) fn model_from_value(value: &serde_json::Value) -> Option<ModelProvide
     })
 }
 
-pub(crate) fn validate_model_provider(provider: &ModelProviderInput) -> Result<(), String> {
+pub(crate) fn validate_model_provider(provider: &ModelProviderInput) -> Result<(), AppError> {
     let id = provider.id.trim();
     if id.is_empty()
         || !id.chars().all(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
         })
     {
-        return Err("提供商 ID 只能包含字母、数字、点、短横线和下划线".to_string());
+        return Err(AppError::InvalidInput(
+            "提供商 ID 只能包含字母、数字、点、短横线和下划线".to_string(),
+        ));
     }
     if provider.original_id.is_none() && provider.models.is_empty() {
-        return Err("新提供商至少需要配置一个模型".to_string());
+        return Err(AppError::InvalidInput(
+            "新提供商至少需要配置一个模型".to_string(),
+        ));
     }
     if provider.original_id.is_none() && provider.base_url.trim().is_empty() {
-        return Err("新提供商需要 API 地址".to_string());
+        return Err(AppError::InvalidInput("新提供商需要 API 地址".to_string()));
     }
     if !(provider.base_url.trim().is_empty()
         || provider.base_url.starts_with("http://")
         || provider.base_url.starts_with("https://"))
     {
-        return Err("API 地址必须以 http:// 或 https:// 开头".to_string());
+        return Err(AppError::InvalidInput(
+            "API 地址必须以 http:// 或 https:// 开头".to_string(),
+        ));
     }
     let supported_apis = [
         "anthropic-messages",
@@ -168,16 +176,20 @@ pub(crate) fn validate_model_provider(provider: &ModelProviderInput) -> Result<(
         "bedrock-converse-stream",
     ];
     if !provider.api.trim().is_empty() && !supported_apis.contains(&provider.api.as_str()) {
-        return Err("不支持的 Pi API 协议".to_string());
+        return Err(AppError::InvalidInput("不支持的 Pi API 协议".to_string()));
     }
     let mut model_ids = std::collections::HashSet::new();
     for model in &provider.models {
         let model_id = model.id.trim();
         if model_id.is_empty() || !model_ids.insert(model_id.to_string()) {
-            return Err("模型 ID 必须非空且不能重复".to_string());
+            return Err(AppError::InvalidInput(
+                "模型 ID 必须非空且不能重复".to_string(),
+            ));
         }
         if model.context_window == Some(0) || model.max_tokens == Some(0) {
-            return Err(format!("模型 {model_id} 的 token 数必须大于 0"));
+            return Err(AppError::InvalidInput(format!(
+                "模型 {model_id} 的 token 数必须大于 0"
+            )));
         }
     }
     Ok(())
@@ -185,7 +197,7 @@ pub(crate) fn validate_model_provider(provider: &ModelProviderInput) -> Result<(
 
 pub(crate) fn configured_provider_api_key(
     provider: &ModelProviderInput,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, AppError> {
     let configured = if !provider.api_key.trim().is_empty() {
         Some(provider.api_key.trim().to_string())
     } else if provider.keep_existing_api_key {
@@ -209,10 +221,10 @@ pub(crate) fn configured_provider_api_key(
         .transpose()
 }
 
-pub(crate) fn resolve_provider_config_value(value: &str) -> Result<String, String> {
+pub(crate) fn resolve_provider_config_value(value: &str) -> Result<String, AppError> {
     if let Some(script) = value.strip_prefix('!') {
         if script.trim().is_empty() {
-            return Err("API 密钥命令不能为空".to_string());
+            return Err(AppError::InvalidInput("API 密钥命令不能为空".to_string()));
         }
         #[cfg(windows)]
         let output = hidden_command("cmd.exe")
@@ -220,16 +232,16 @@ pub(crate) fn resolve_provider_config_value(value: &str) -> Result<String, Strin
             .output();
         #[cfg(not(windows))]
         let output = hidden_command("/bin/sh").args(["-lc", script]).output();
-        let output = output.map_err(|_| "无法执行 API 密钥命令".to_string())?;
+        let output = output.map_err(|_| AppError::Process("无法执行 API 密钥命令".to_string()))?;
         if !output.status.success() {
-            return Err("API 密钥命令执行失败".to_string());
+            return Err(AppError::Process("API 密钥命令执行失败".to_string()));
         }
         let secret = String::from_utf8(output.stdout)
-            .map_err(|_| "API 密钥命令没有返回有效文本".to_string())?
+            .map_err(|_| AppError::Other("API 密钥命令没有返回有效文本".to_string()))?
             .trim()
             .to_string();
         if secret.is_empty() {
-            return Err("API 密钥命令返回了空值".to_string());
+            return Err(AppError::Other("API 密钥命令返回了空值".to_string()));
         }
         return Ok(secret);
     }
@@ -258,7 +270,9 @@ pub(crate) fn resolve_provider_config_value(value: &str) -> Result<String, Strin
                 .iter()
                 .position(|character| *character == '}')
                 .map(|offset| index + 2 + offset)
-                .ok_or_else(|| "API 密钥中的环境变量缺少右花括号".to_string())?;
+                .ok_or_else(|| {
+                    AppError::InvalidInput("API 密钥中的环境变量缺少右花括号".to_string())
+                })?;
             (
                 characters[index + 2..end].iter().collect::<String>(),
                 end + 1,
@@ -277,36 +291,42 @@ pub(crate) fn resolve_provider_config_value(value: &str) -> Result<String, Strin
             continue;
         };
         if name.is_empty() {
-            return Err("API 密钥中的环境变量名称不能为空".to_string());
+            return Err(AppError::InvalidInput(
+                "API 密钥中的环境变量名称不能为空".to_string(),
+            ));
         }
-        let environment_value =
-            std::env::var(&name).map_err(|_| format!("环境变量 {name} 未设置，无法拉取模型"))?;
+        let environment_value = std::env::var(&name)
+            .map_err(|_| AppError::NotFound(format!("环境变量 {name} 未设置，无法拉取模型")))?;
         resolved.push_str(&environment_value);
         index = next_index;
     }
     Ok(resolved)
 }
 
-pub(crate) fn provider_models_endpoint(base_url: &str, api: &str) -> Result<String, String> {
+pub(crate) fn provider_models_endpoint(base_url: &str, api: &str) -> Result<String, AppError> {
     let base_url = base_url.trim().trim_end_matches('/');
     if !(base_url.starts_with("http://") || base_url.starts_with("https://")) {
-        return Err("自动拉取需要有效的 http:// 或 https:// API 地址".to_string());
+        return Err(AppError::InvalidInput(
+            "自动拉取需要有效的 http:// 或 https:// API 地址".to_string(),
+        ));
     }
     if base_url.contains('?') || base_url.contains('#') {
-        return Err("自动拉取使用的 API 地址不能包含查询参数或片段".to_string());
+        return Err(AppError::InvalidInput(
+            "自动拉取使用的 API 地址不能包含查询参数或片段".to_string(),
+        ));
     }
     if matches!(
         api,
         "azure-openai-responses" | "google-vertex" | "bedrock-converse-stream"
     ) {
-        return Err(format!(
+        return Err(AppError::InvalidInput(format!(
             "{} 没有可从当前 API 地址通用枚举的模型接口，请手动添加模型",
             match api {
                 "azure-openai-responses" => "Azure OpenAI",
                 "google-vertex" => "Google Vertex AI",
                 _ => "Amazon Bedrock",
             }
-        ));
+        )));
     }
     if base_url.ends_with("/models") {
         return Ok(base_url.to_string());
@@ -464,7 +484,9 @@ pub(crate) fn parse_discovered_model_catalog(
         .and_then(|value| value.as_array())
         .or_else(|| value.get("models").and_then(|value| value.as_array()))
         .or_else(|| value.as_array())
-        .ok_or_else(|| "模型接口返回的数据中没有 data 或 models 列表".to_string())?;
+        .ok_or_else(|| {
+            AppError::Network("模型接口返回的数据中没有 data 或 models 列表".to_string())
+        })?;
     let mut models = HashMap::new();
     for item in items {
         if let Some(model) = discovered_model_from_value(item, api) {
@@ -522,14 +544,14 @@ pub(crate) fn discover_model_provider_models_blocking(
         .into_reader()
         .take(MAX_CATALOG_BYTES + 1)
         .read_to_end(&mut bytes)
-        .map_err(|error| format!("无法读取提供商模型列表: {error}"))?;
+        .map_err(|error| AppError::Network(format!("无法读取提供商模型列表: {error}")))?;
     if bytes.len() as u64 > MAX_CATALOG_BYTES {
         return Err(AppError::InvalidInput(
             "提供商模型列表超过 8 MB，已停止读取".to_string(),
         ));
     }
     let value = serde_json::from_slice::<serde_json::Value>(&bytes)
-        .map_err(|error| format!("提供商模型接口返回了无效 JSON: {error}"))?;
+        .map_err(|error| AppError::Network(format!("提供商模型接口返回了无效 JSON: {error}")))?;
     parse_discovered_model_catalog(&value, api)
 }
 
@@ -543,7 +565,7 @@ pub(crate) async fn discover_model_provider_models(
 }
 
 #[tauri::command(async)]
-pub(crate) fn list_model_providers() -> Result<Vec<ModelProviderConfig>, String> {
+pub(crate) fn list_model_providers() -> Result<Vec<ModelProviderConfig>, AppError> {
     let config = load_models_config()?;
     let mut items = config
         .get("providers")
@@ -591,26 +613,28 @@ pub(crate) fn list_model_providers() -> Result<Vec<ModelProviderConfig>, String>
 }
 
 #[tauri::command(async)]
-pub(crate) fn save_model_provider(provider: ModelProviderInput) -> Result<(), String> {
+pub(crate) fn save_model_provider(provider: ModelProviderInput) -> Result<(), AppError> {
     validate_model_provider(&provider)?;
     let id = provider.id.trim().to_string();
     if let Some(original_id) = provider.original_id.as_deref() {
         if original_id != id {
-            return Err("编辑现有提供商时不能修改 ID".to_string());
+            return Err(AppError::InvalidInput(
+                "编辑现有提供商时不能修改 ID".to_string(),
+            ));
         }
     }
 
     let mut config = load_models_config()?;
     let root = config
         .as_object_mut()
-        .ok_or_else(|| "models.json 的根节点必须是对象".to_string())?;
+        .ok_or_else(|| AppError::Other("models.json 的根节点必须是对象".to_string()))?;
     let providers = root
         .entry("providers")
         .or_insert_with(|| serde_json::json!({}))
         .as_object_mut()
-        .ok_or_else(|| "models.json 的 providers 必须是对象".to_string())?;
+        .ok_or_else(|| AppError::Other("models.json 的 providers 必须是对象".to_string()))?;
     if provider.original_id.is_none() && providers.contains_key(&id) {
-        return Err(format!("提供商 {id} 已存在"));
+        return Err(AppError::InvalidInput(format!("提供商 {id} 已存在")));
     }
 
     let mut provider_object = providers
@@ -708,18 +732,18 @@ pub(crate) fn save_model_provider(provider: ModelProviderInput) -> Result<(), St
 }
 
 #[tauri::command(async)]
-pub(crate) fn delete_model_provider(id: String) -> Result<(), String> {
+pub(crate) fn delete_model_provider(id: String) -> Result<(), AppError> {
     let id = id.trim();
     if id.is_empty() {
-        return Err("提供商 ID 不能为空".to_string());
+        return Err(AppError::InvalidInput("提供商 ID 不能为空".to_string()));
     }
     let mut config = load_models_config()?;
     let providers = config
         .get_mut("providers")
         .and_then(|value| value.as_object_mut())
-        .ok_or_else(|| "models.json 的 providers 必须是对象".to_string())?;
+        .ok_or_else(|| AppError::Other("models.json 的 providers 必须是对象".to_string()))?;
     if providers.remove(id).is_none() {
-        return Err(format!("未找到提供商 {id}"));
+        return Err(AppError::NotFound(format!("未找到提供商 {id}")));
     }
     save_models_config(&config)
 }
@@ -728,16 +752,16 @@ pub(crate) fn delete_model_provider(id: String) -> Result<(), String> {
 pub(crate) fn check_model_provider(
     state: State<'_, AppState>,
     id: String,
-) -> Result<ModelProviderCheckResult, String> {
+) -> Result<ModelProviderCheckResult, AppError> {
     let providers = list_model_providers()?;
     let provider = providers
         .iter()
         .find(|provider| provider.id == id)
-        .ok_or_else(|| format!("未找到提供商 {id}"))?;
+        .ok_or_else(|| AppError::NotFound(format!("未找到提供商 {id}")))?;
     let settings = state
         .settings
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .clone();
     let pi_binary = effective_pi_binary(&settings, &state);
 
@@ -770,7 +794,7 @@ pub(crate) fn check_model_provider(
     };
     let output = command
         .output()
-        .map_err(|err| format!("无法运行 Pi 配置检查: {err}"))?;
+        .map_err(|err| AppError::Process(format!("无法运行 Pi 配置检查: {err}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8(output.stderr)
             .map(|value| value.trim().to_string())
@@ -803,32 +827,38 @@ pub(crate) fn check_model_provider(
 /// It loads only the provider extension, so user resources cannot slow it down.
 /// Spawning can stall (for example while antivirus scans pi.exe), so keep it off the UI thread.
 #[tauri::command]
-pub(crate) async fn provider_service_start(app: AppHandle) -> Result<String, String> {
+pub(crate) async fn provider_service_start(app: AppHandle) -> Result<String, AppError> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         start_provider_service(&app, &state)
     })
     .await
-    .map_err(|err| format!("provider service worker failed: {err}"))?
+    .map_err(|err| AppError::Process(format!("provider service worker failed: {err}")))?
 }
 
-pub(crate) fn start_provider_service(app: &AppHandle, state: &AppState) -> Result<String, String> {
+pub(crate) fn start_provider_service(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<String, AppError> {
     let mut service = state
         .provider_service
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?;
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?;
     if service.as_ref().is_some_and(|client| client.is_running()) {
         return Ok(PROVIDER_SERVICE_RUNTIME_ID.to_string());
     }
     let settings = state
         .settings
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .clone();
     let extension = ensure_providers_extension()?;
     let cwd = app_config_dir();
-    fs::create_dir_all(&cwd)
-        .map_err(|err| format!("failed to prepare provider service directory: {err}"))?;
+    fs::create_dir_all(&cwd).map_err(|err| {
+        AppError::Io(format!(
+            "failed to prepare provider service directory: {err}"
+        ))
+    })?;
     let args = [
         "--no-session",
         "--no-tools",
@@ -860,23 +890,23 @@ pub(crate) fn start_provider_service(app: &AppHandle, state: &AppState) -> Resul
 pub(crate) fn provider_service_send(
     state: State<'_, AppState>,
     line: String,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     state
         .provider_service
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .as_ref()
         .filter(|client| client.is_running())
-        .ok_or_else(|| "provider service is not running".to_string())?
+        .ok_or_else(|| AppError::NotFound("provider service is not running".to_string()))?
         .send_line(&line)
 }
 
 #[tauri::command(async)]
-pub(crate) fn provider_service_stop(state: State<'_, AppState>) -> Result<(), String> {
+pub(crate) fn provider_service_stop(state: State<'_, AppState>) -> Result<(), AppError> {
     let client = state
         .provider_service
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .take();
     if let Some(client) = client {
         client.kill();

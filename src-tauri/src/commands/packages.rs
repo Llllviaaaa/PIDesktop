@@ -130,7 +130,7 @@ pub(crate) fn collect_package_settings(
 }
 
 #[tauri::command(async)]
-pub(crate) fn list_resources(cwd: String) -> Result<Vec<ResourceItem>, String> {
+pub(crate) fn list_resources(cwd: String) -> Result<Vec<ResourceItem>, AppError> {
     let mut items = Vec::new();
     if let Some(home) = dirs::home_dir() {
         let agent = home.join(".pi").join("agent");
@@ -162,49 +162,66 @@ pub(crate) fn list_resources(cwd: String) -> Result<Vec<ResourceItem>, String> {
     Ok(items)
 }
 
-pub(crate) fn appearance_directory(cwd: &str, kind: &str, scope: &str) -> Result<PathBuf, String> {
+pub(crate) fn appearance_directory(
+    cwd: &str,
+    kind: &str,
+    scope: &str,
+) -> Result<PathBuf, AppError> {
     let folder = match kind {
         "theme" => "themes",
         "pet" => "pets",
-        _ => return Err(format!("unsupported appearance extension kind: {kind}")),
+        _ => {
+            return Err(AppError::InvalidInput(format!(
+                "unsupported appearance extension kind: {kind}"
+            )))
+        }
     };
     match scope {
         "user" => dirs::home_dir()
             .map(|home| home.join(".pi").join("agent").join(folder))
-            .ok_or_else(|| "cannot resolve the user home directory".to_string()),
+            .ok_or_else(|| AppError::Other("cannot resolve the user home directory".to_string())),
         "project" => Ok(validate_workspace_directory(cwd)?.join(".pi").join(folder)),
-        _ => Err(format!("unsupported appearance extension scope: {scope}")),
+        _ => Err(AppError::InvalidInput(format!(
+            "unsupported appearance extension scope: {scope}"
+        ))),
     }
 }
 
-pub(crate) fn validate_json_object(path: &Path, label: &str) -> Result<(), String> {
-    let raw = fs::read_to_string(path).map_err(|err| format!("failed to read {label}: {err}"))?;
+pub(crate) fn validate_json_object(path: &Path, label: &str) -> Result<(), AppError> {
+    let raw = fs::read_to_string(path)
+        .map_err(|err| AppError::Io(format!("failed to read {label}: {err}")))?;
     let value = serde_json::from_str::<serde_json::Value>(&raw)
-        .map_err(|err| format!("{label} is not valid JSON: {err}"))?;
+        .map_err(|err| AppError::InvalidInput(format!("{label} is not valid JSON: {err}")))?;
     if !value.is_object() {
-        return Err(format!("{label} must contain a JSON object"));
+        return Err(AppError::InvalidInput(format!(
+            "{label} must contain a JSON object"
+        )));
     }
     Ok(())
 }
 
-pub(crate) fn copy_appearance_directory(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::create_dir(destination).map_err(|err| format!("failed to create pet directory: {err}"))?;
-    for entry in
-        fs::read_dir(source).map_err(|err| format!("failed to read pet directory: {err}"))?
+pub(crate) fn copy_appearance_directory(source: &Path, destination: &Path) -> Result<(), AppError> {
+    fs::create_dir(destination)
+        .map_err(|err| AppError::Io(format!("failed to create pet directory: {err}")))?;
+    for entry in fs::read_dir(source)
+        .map_err(|err| AppError::Io(format!("failed to read pet directory: {err}")))?
     {
-        let entry = entry.map_err(|err| format!("failed to read pet directory entry: {err}"))?;
+        let entry = entry
+            .map_err(|err| AppError::Io(format!("failed to read pet directory entry: {err}")))?;
         let file_type = entry
             .file_type()
-            .map_err(|err| format!("failed to inspect pet directory entry: {err}"))?;
+            .map_err(|err| AppError::Io(format!("failed to inspect pet directory entry: {err}")))?;
         if file_type.is_symlink() {
-            return Err("pet directories cannot contain symbolic links".to_string());
+            return Err(AppError::InvalidInput(
+                "pet directories cannot contain symbolic links".to_string(),
+            ));
         }
         let target = destination.join(entry.file_name());
         if file_type.is_dir() {
             copy_appearance_directory(&entry.path(), &target)?;
         } else if file_type.is_file() {
             fs::copy(entry.path(), target)
-                .map_err(|err| format!("failed to copy pet asset: {err}"))?;
+                .map_err(|err| AppError::Io(format!("failed to copy pet asset: {err}")))?;
         }
     }
     Ok(())
@@ -215,10 +232,13 @@ pub(crate) fn open_appearance_directory(
     cwd: String,
     kind: String,
     scope: String,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     let directory = appearance_directory(&cwd, &kind, &scope)?;
-    fs::create_dir_all(&directory)
-        .map_err(|err| format!("failed to create appearance extension directory: {err}"))?;
+    fs::create_dir_all(&directory).map_err(|err| {
+        AppError::Io(format!(
+            "failed to create appearance extension directory: {err}"
+        ))
+    })?;
     let path = directory.to_string_lossy().to_string();
     open_workspace_in_file_manager(path.clone())?;
     Ok(path)
@@ -230,14 +250,20 @@ pub(crate) fn install_appearance_extension(
     cwd: String,
     kind: String,
     scope: String,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     let source = fs::canonicalize(&source)
-        .map_err(|err| format!("failed to resolve the selected extension: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to resolve the selected extension: {err}")))?;
     let target_root = appearance_directory(&cwd, &kind, &scope)?;
-    fs::create_dir_all(&target_root)
-        .map_err(|err| format!("failed to create appearance extension directory: {err}"))?;
-    let canonical_target_root = fs::canonicalize(&target_root)
-        .map_err(|err| format!("failed to resolve appearance extension directory: {err}"))?;
+    fs::create_dir_all(&target_root).map_err(|err| {
+        AppError::Io(format!(
+            "failed to create appearance extension directory: {err}"
+        ))
+    })?;
+    let canonical_target_root = fs::canonicalize(&target_root).map_err(|err| {
+        AppError::Io(format!(
+            "failed to resolve appearance extension directory: {err}"
+        ))
+    })?;
 
     let destination = if kind == "theme" {
         if !source.is_file()
@@ -247,58 +273,63 @@ pub(crate) fn install_appearance_extension(
                 .map(str::to_ascii_lowercase)
                 != Some("json".to_string())
         {
-            return Err("a theme extension must be a JSON file".to_string());
+            return Err(AppError::InvalidInput(
+                "a theme extension must be a JSON file".to_string(),
+            ));
         }
         validate_json_object(&source, "theme file")?;
-        let name = source
-            .file_name()
-            .ok_or_else(|| "the selected theme has no file name".to_string())?;
+        let name = source.file_name().ok_or_else(|| {
+            AppError::InvalidInput("the selected theme has no file name".to_string())
+        })?;
         let destination = target_root.join(name);
         if destination.exists() {
             if fs::canonicalize(&destination).ok().as_ref() == Some(&source) {
                 return Ok(destination.to_string_lossy().to_string());
             }
-            return Err(format!(
+            return Err(AppError::InvalidInput(format!(
                 "a theme named {} already exists",
                 name.to_string_lossy()
-            ));
+            )));
         }
         fs::copy(&source, &destination)
-            .map_err(|err| format!("failed to import the theme: {err}"))?;
+            .map_err(|err| AppError::Io(format!("failed to import the theme: {err}")))?;
         destination
     } else {
         let source_directory = if source.is_dir() {
             source
         } else if source.file_name().and_then(|value| value.to_str()) == Some("pet.json") {
-            source
-                .parent()
-                .map(Path::to_path_buf)
-                .ok_or_else(|| "cannot resolve the selected pet directory".to_string())?
+            source.parent().map(Path::to_path_buf).ok_or_else(|| {
+                AppError::NotFound("cannot resolve the selected pet directory".to_string())
+            })?
         } else {
-            return Err("a pet extension must be a directory containing pet.json".to_string());
+            return Err(AppError::InvalidInput(
+                "a pet extension must be a directory containing pet.json".to_string(),
+            ));
         };
         let manifest = source_directory.join("pet.json");
         if !manifest.is_file() {
-            return Err("the selected pet directory does not contain pet.json".to_string());
+            return Err(AppError::InvalidInput(
+                "the selected pet directory does not contain pet.json".to_string(),
+            ));
         }
         validate_json_object(&manifest, "pet.json")?;
         if canonical_target_root.starts_with(&source_directory) {
-            return Err(
+            return Err(AppError::InvalidInput(
                 "the selected pet directory cannot contain the extension destination".to_string(),
-            );
+            ));
         }
-        let name = source_directory
-            .file_name()
-            .ok_or_else(|| "the selected pet directory has no name".to_string())?;
+        let name = source_directory.file_name().ok_or_else(|| {
+            AppError::InvalidInput("the selected pet directory has no name".to_string())
+        })?;
         let destination = target_root.join(name);
         if destination.exists() {
             if fs::canonicalize(&destination).ok().as_ref() == Some(&source_directory) {
                 return Ok(destination.to_string_lossy().to_string());
             }
-            return Err(format!(
+            return Err(AppError::InvalidInput(format!(
                 "a pet named {} already exists",
                 name.to_string_lossy()
-            ));
+            )));
         }
         copy_appearance_directory(&source_directory, &destination)?;
         destination
@@ -501,7 +532,8 @@ pub(crate) async fn search_pi_packages(
 }
 
 pub(crate) fn pi_package_detail_blocking(name: String) -> Result<PackageCatalogDetail, AppError> {
-    let name = npm_package_name(&name).ok_or_else(|| "无效的 npm 软件包名称".to_string())?;
+    let name = npm_package_name(&name)
+        .ok_or_else(|| AppError::InvalidInput("无效的 npm 软件包名称".to_string()))?;
     if name.chars().count() > 214 {
         return Err(AppError::InvalidInput("npm 软件包名称过长".to_string()));
     }
@@ -578,14 +610,16 @@ pub(crate) fn pi_package_action(
     source: Option<String>,
     cwd: Option<String>,
     scope: Option<String>,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     if !matches!(action.as_str(), "install" | "remove" | "update") {
-        return Err("unsupported Pi package action".to_string());
+        return Err(AppError::InvalidInput(
+            "unsupported Pi package action".to_string(),
+        ));
     }
     let settings = state
         .settings
         .lock()
-        .map_err(|_| "state lock poisoned".to_string())?
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .clone();
     let pi_binary = effective_pi_binary(&settings, &state);
     let working_directory = cwd
@@ -595,16 +629,18 @@ pub(crate) fn pi_package_action(
         .unwrap_or_else(|| PathBuf::from("."));
     let scope = scope.unwrap_or_else(|| "user".to_string());
     if !matches!(scope.as_str(), "user" | "project") {
-        return Err("unsupported Pi package scope".to_string());
+        return Err(AppError::InvalidInput(
+            "unsupported Pi package scope".to_string(),
+        ));
     }
     let source = source
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let mut arguments = match action.as_str() {
         "install" | "remove" => {
-            let value = source
-                .clone()
-                .ok_or_else(|| "Pi package source is required".to_string())?;
+            let value = source.clone().ok_or_else(|| {
+                AppError::InvalidInput("Pi package source is required".to_string())
+            })?;
             vec![action.clone(), value]
         }
         "update" => source
@@ -655,19 +691,19 @@ pub(crate) fn pi_package_action(
     let output = command
         .current_dir(working_directory)
         .output()
-        .map_err(|err| format!("failed to run Pi package command: {err}"))?;
+        .map_err(|err| AppError::Process(format!("failed to run Pi package command: {err}")))?;
     let stdout = redact_runtime_output(&settings, String::from_utf8_lossy(&output.stdout).trim());
     let stderr = redact_runtime_output(&settings, String::from_utf8_lossy(&output.stderr).trim());
     if output.status.success() {
         Ok(if stdout.is_empty() { stderr } else { stdout })
     } else {
         Err(if stderr.is_empty() {
-            format!(
+            AppError::Process(format!(
                 "Pi package command exited with {}",
                 output.status.code().unwrap_or(-1)
-            )
+            ))
         } else {
-            stderr
+            AppError::Process(stderr)
         })
     }
 }
