@@ -2,7 +2,7 @@
 
 Notable user-facing changes are documented in this file.
 
-## Unreleased
+## 0.2.28 - 2026-09-23
 
 - Run every filesystem, git, npm and HTTP command off the UI thread. 54 of 72 Tauri commands were synchronous, so a slow git repository, an unreachable model endpoint or an npm install could stall the window.
 - Command failures now carry a kind (io, notFound, invalidInput, locked, git, network, process) instead of a bare string, so the interface can tell a retryable network problem from a rejected path.
@@ -10,7 +10,6 @@ Notable user-facing changes are documented in this file.
 - Settings no longer shows a loading spinner forever when the archive or resource list fails to load.
 - The file tree's refresh button now also reloads folders that are expanded, and reopening a panel shows its last contents immediately while refreshing.
 - A diagram that appears more than once in a conversation is rendered once.
-
 - Rebuild Settings → 模型 as a provider workspace: every Pi provider is listed with its connection status, subscriptions sign in through Pi's own login flow, API keys are saved to Pi's auth.json, and custom providers can fetch and pick models from their API, with context size and reasoning/image support filled in from Pi's model catalog or the model name.
 - Move the default model and reasoning level onto the Models page, and let each model be shown or hidden in the composer model picker.
 - Keep Settings responsive while usage statistics are calculated.
