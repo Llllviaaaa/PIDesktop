@@ -4,6 +4,7 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+- The plan no longer trails every later turn as a full card at the bottom of the chat. While a turn runs, its plan is one line above the composer (第 X/Y 步 and the current step) that expands upward; once the turn ends, the plan folds into that turn as a single row that expands in place.
 - Rebuild the composer model picker: search, models grouped by provider, and a 思考等级 row that opens the reasoning levels. The level control is hidden for models that cannot reason, and a level chosen on the new-task page is applied once the task starts.
 - Integrated terminals keep running when the terminal panel is hidden, the right sidebar switches tools, or you switch threads; only closing a tab ends its shell. The terminal now has one home, the bottom panel (Ctrl+J or Ctrl+`).
 - Terminal tabs can use any installed shell (PowerShell, PowerShell 7, Command Prompt, Git Bash, WSL), search their output (Ctrl+F), copy and paste, open localhost links in the built-in browser, send the selection or recent output to the composer, and restart an exited shell with Enter. ANSI colors stay readable on light themes.

@@ -674,7 +674,7 @@
 
 /* ── Conversation cards (plan, changes, diff chip) ─────────────────── */
 
-.codex-shot .conversation-plan-card,
+.codex-shot .live-plan,
 .codex-shot .conversation-change-card {
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -683,26 +683,19 @@
   box-shadow: 0 6px 24px -14px hsl(var(--shadow-color) / 0.35);
 }
 
-.codex-shot .conversation-plan-open,
 .codex-shot .conversation-change-open {
   color: var(--text);
   background: transparent;
 }
 
-.codex-shot .conversation-plan-open:hover,
 .codex-shot .conversation-change-open:hover {
   background: var(--hover);
 }
 
-.codex-shot .conversation-plan-icon,
 .codex-shot .conversation-change-icon {
   border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
-}
-
-.codex-shot .conversation-plan-step {
-  color: var(--text-2);
 }
 
 .codex-shot .conversation-change-card button {

@@ -115,6 +115,20 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
         isStreaming: true,
         timestamp: Date.now(),
         toolCalls: [{
+          id: "fixture-stream-plan",
+          name: "update_plan",
+          args: {
+            explanation: "梳理聊天窗的消息层级",
+            items: [
+              { id: "readme", text: "阅读 README 与消息组件", status: "completed" },
+              { id: "levels", text: "总结当前聊天窗的消息层级", status: "in_progress" },
+              { id: "report", text: "给出调整建议", status: "pending" },
+            ],
+          },
+          running: false,
+          startedAt: Date.now() - 600,
+          finishedAt: Date.now() - 500,
+        }, {
           id: "fixture-stream-read",
           name: "read",
           args: { path: "README.md" },

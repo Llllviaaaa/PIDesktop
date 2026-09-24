@@ -92,6 +92,7 @@ import type { InspectorTab } from "./components/InspectorPanel";
 import { ConnectedInspectorPanel } from "./components/ConnectedInspectorPanel";
 import { ConversationMessages } from "./components/ConversationMessages";
 import { ActiveGoalBar } from "./components/ActiveGoalBar";
+import { LivePlanBar } from "./components/LivePlanBar";
 import { isWorkspaceTool, ToolRail, type WorkspaceTool } from "./components/ToolRail";
 import { FileTreePanel } from "./components/FileTreePanel";
 import { DocumentPane } from "./components/DocumentPane";
@@ -2188,6 +2189,7 @@ export default function App() {
 
           {!newTask && !hubView && (
             <div className="composer-dock">
+              <LivePlanBar />
               <ActiveGoalBar />
               {renderComposer("follow-up")}
             </div>
