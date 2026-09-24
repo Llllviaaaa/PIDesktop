@@ -7,6 +7,8 @@ import type {
   ExtensionUIRequest,
   GitBranchInfo,
   GitCommitInfo,
+  GitCommitResult,
+  GitPushResult,
   GitSnapshot,
   ModelProviderCheckResult,
   ModelProviderConfig,
@@ -133,6 +135,20 @@ export const pi = {
     invoke<GitSnapshot>("git_review_snapshot", { cwd, filter }),
   gitListCommits: (cwd: string, limit = 50) => invoke<GitCommitInfo[]>("git_list_commits", { cwd, limit }),
   gitCommitSnapshot: (cwd: string, commit: string) => invoke<GitSnapshot>("git_commit_snapshot", { cwd, commit }),
+  gitDefaultBranch: (cwd: string) => invoke<string | null>("git_default_branch", { cwd }),
+  /** Commits the staged changes, or exactly `paths` when nothing is staged; `newBranch` switches first. */
+  gitCommit: (cwd: string, message: string, options: { paths?: string[]; newBranch?: string } = {}) =>
+    invoke<GitCommitResult>("git_commit", { cwd, message, paths: options.paths ?? null, newBranch: options.newBranch ?? null }),
+  /** Pushes to the upstream, or publishes the branch to the primary remote. */
+  gitPush: (cwd: string) => invoke<GitPushResult>("git_push", { cwd }),
+  /** Drafts a message for what `gitCommit` would commit with the same `paths`, using a one-shot Pi prompt. */
+  gitGenerateCommitMessage: (cwd: string, options: { paths?: string[]; provider?: string; model?: string } = {}) =>
+    invoke<string>("git_generate_commit_message", {
+      cwd,
+      paths: options.paths ?? null,
+      provider: options.provider ?? null,
+      model: options.model ?? null,
+    }),
   /** `cached` stages/unstages; without it the patch lands in the working tree. */
   gitApplyPatch: (cwd: string, patch: string, options: { cached: boolean; reverse: boolean }) =>
     invoke<void>("git_apply_patch", { cwd, patch, cached: options.cached, reverse: options.reverse }),

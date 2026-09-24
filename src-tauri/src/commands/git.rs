@@ -30,6 +30,19 @@ pub(crate) struct GitSnapshot {
     pub(crate) branch: Option<String>,
     pub(crate) files: Vec<GitFileChange>,
     pub(crate) diff: String,
+    /// Where the branch stands against its remote; only the working-tree snapshot has it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) sync: Option<GitSyncStatus>,
+}
+
+#[derive(Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GitSyncStatus {
+    /// `origin/main`; none before the branch is published or after its remote branch was deleted.
+    pub(crate) upstream: Option<String>,
+    pub(crate) ahead: u32,
+    pub(crate) behind: u32,
+    pub(crate) has_remote: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,6 +60,33 @@ pub(crate) struct GitCommitInfo {
     pub(crate) subject: String,
     pub(crate) author: String,
     pub(crate) timestamp: i64,
+}
+
+/// Reads the first line of `git status --branch`:
+/// `## main...origin/main [ahead 1, behind 2]`, `## main` or `## HEAD (no branch)`.
+pub(crate) fn parse_branch_header(line: &str) -> GitSyncStatus {
+    let mut status = GitSyncStatus::default();
+    let Some(rest) = line.strip_prefix("## ") else {
+        return status;
+    };
+    let (refs, counts) = match rest.split_once(" [") {
+        Some((refs, counts)) => (refs, counts.trim_end_matches(']')),
+        None => (rest, ""),
+    };
+    status.upstream = refs
+        .split_once("...")
+        .map(|(_, upstream)| upstream.to_string());
+    for part in counts.split(", ") {
+        if let Some(count) = part.strip_prefix("ahead ") {
+            status.ahead = count.parse().unwrap_or(0);
+        } else if let Some(count) = part.strip_prefix("behind ") {
+            status.behind = count.parse().unwrap_or(0);
+        } else if part == "gone" {
+            // The remote branch was deleted: pushing publishes it again.
+            status.upstream = None;
+        }
+    }
+    status
 }
 
 pub(crate) fn parse_git_status(output: &str) -> Vec<GitFileChange> {
@@ -200,6 +240,7 @@ pub(crate) fn git_compare(cwd: String, base: String) -> Result<GitSnapshot, AppE
         branch,
         files,
         diff,
+        sync: None,
     })
 }
 
@@ -245,6 +286,7 @@ pub(crate) fn git_review_snapshot(cwd: String, filter: String) -> Result<GitSnap
         branch,
         files,
         diff,
+        sync: None,
     })
 }
 
@@ -357,6 +399,7 @@ pub(crate) fn git_commit_snapshot(cwd: String, commit: String) -> Result<GitSnap
         branch,
         files,
         diff,
+        sync: None,
     })
 }
 
@@ -470,17 +513,24 @@ pub(crate) fn git_snapshot(cwd: String) -> Result<GitSnapshot, AppError> {
             branch: None,
             files: Vec::new(),
             diff: String::new(),
+            sync: None,
         });
     };
 
-    let (status, working, staged) = std::thread::scope(|scope| {
+    let (status, working, staged, remotes) = std::thread::scope(|scope| {
         let status = scope.spawn(|| {
             run_git(
                 &root,
-                &["status", "--porcelain=v1", "--untracked-files=all"],
+                &[
+                    "status",
+                    "--porcelain=v1",
+                    "--branch",
+                    "--untracked-files=all",
+                ],
             )
             .unwrap_or_default()
         });
+        let remotes = scope.spawn(|| run_git(&root, &["remote"]).unwrap_or_default());
         let working = scope.spawn(|| {
             run_git(&root, &["diff", "--no-ext-diff", "--unified=3", "--"]).unwrap_or_default()
         });
@@ -495,9 +545,17 @@ pub(crate) fn git_snapshot(cwd: String) -> Result<GitSnapshot, AppError> {
             status.join().unwrap_or_default(),
             working.join().unwrap_or_default(),
             staged.join().unwrap_or_default(),
+            remotes.join().unwrap_or_default(),
         )
     });
-    let files = parse_git_status(&status);
+    let (header, entries) = match status.split_once('\n') {
+        Some((first, rest)) if first.starts_with("## ") => (first, rest),
+        _ if status.starts_with("## ") => (status.as_str(), ""),
+        _ => ("", status.as_str()),
+    };
+    let mut sync = parse_branch_header(header);
+    sync.has_remote = remotes.lines().any(|line| !line.trim().is_empty());
+    let files = parse_git_status(entries);
     let diff = match (staged.is_empty(), working.is_empty()) {
         (true, _) => working,
         (_, true) => staged,
@@ -509,6 +567,7 @@ pub(crate) fn git_snapshot(cwd: String) -> Result<GitSnapshot, AppError> {
         branch: Some(branch.trim().to_string()),
         files,
         diff,
+        sync: Some(sync),
     })
 }
 
@@ -727,6 +786,7 @@ fn snapshot_between_trees(root: &Path, from: &str, to: &str) -> Result<GitSnapsh
         branch,
         files,
         diff,
+        sync: None,
     })
 }
 
@@ -797,6 +857,28 @@ mod tests {
         assert!(changes[2].staged && changes[2].unstaged);
         assert!(changes[3].untracked && changes[3].unstaged);
         assert_eq!(changes[4].path, "renamed.ts");
+    }
+
+    #[test]
+    fn reads_upstream_and_counts_from_the_branch_header() {
+        let tracked = parse_branch_header("## main...origin/main [ahead 2, behind 1]");
+        assert_eq!(tracked.upstream.as_deref(), Some("origin/main"));
+        assert_eq!((tracked.ahead, tracked.behind), (2, 1));
+        let even = parse_branch_header("## feat/x...origin/feat/x");
+        assert_eq!(even.upstream.as_deref(), Some("origin/feat/x"));
+        assert_eq!((even.ahead, even.behind), (0, 0));
+        assert_eq!(
+            parse_branch_header("## feat/local"),
+            GitSyncStatus::default()
+        );
+        assert_eq!(
+            parse_branch_header("## feat/x...origin/feat/x [gone]").upstream,
+            None
+        );
+        assert_eq!(
+            parse_branch_header("## No commits yet on main").upstream,
+            None
+        );
     }
 
     #[test]

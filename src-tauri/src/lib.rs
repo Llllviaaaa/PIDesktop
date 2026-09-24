@@ -32,6 +32,7 @@ use tauri::{
     AppHandle, Emitter, Manager, State,
 };
 
+use commands::commit::*;
 use commands::desktop::*;
 use commands::git::*;
 use commands::memory::*;
@@ -53,7 +54,7 @@ use extensions::{
     ensure_personal_instructions, ensure_plan_extension, ensure_providers_extension,
     ensure_subagents_extension,
 };
-use pi::process::{run_pi_print, PiPrintLimits};
+use pi::process::{run_pi_print, PiPrintLimits, PiPrintPrompt};
 use pi::rpc::PiRpcClient;
 use pi::sessions::{list_sessions, validate_session_path};
 use pi::side_chats::{clear_stale_side_chats, remove_runtime_session_dir, runtime_session_dir};
@@ -320,6 +321,10 @@ pub fn run() {
             git_review_snapshot,
             git_list_commits,
             git_commit_snapshot,
+            git_default_branch,
+            git_commit,
+            git_push,
+            git_generate_commit_message,
             list_resources,
             open_appearance_directory,
             install_appearance_extension,

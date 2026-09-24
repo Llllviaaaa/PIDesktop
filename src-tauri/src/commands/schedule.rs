@@ -202,7 +202,10 @@ pub(crate) fn execute_scheduled_task(
                 &task.cwd,
                 &launch.extra_args,
                 &launch.environment,
-                &task.prompt,
+                PiPrintPrompt {
+                    text: &task.prompt,
+                    stdin: None,
+                },
                 reservation.cancellation(),
                 PiPrintLimits {
                     timeout: Duration::from_secs(

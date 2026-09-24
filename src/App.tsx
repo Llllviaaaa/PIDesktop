@@ -100,6 +100,8 @@ import { SideChatPanel, type SideChatMeta } from "./components/SideChatPanel";
 import { ReviewPanel, type PendingReviewComment, type ReviewFilter, type ReviewTarget } from "./components/ReviewPanel";
 import { WorkspaceFileOpenContext } from "./components/Markdown";
 import { FileActionsProvider, OpenInMenu } from "./components/WorkspaceOpeners";
+import { GitActionButton } from "./components/GitActionButton";
+import { CommitDialog, type CommitOutcome } from "./components/CommitDialog";
 import { preferredEditorFor, rememberProjectEditor } from "./lib/workspaceEditors";
 import { isLocalWebAddress } from "./lib/webAccess";
 import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, ScheduledRunRecord, SessionInfo, TerminalAppInfo, UiMessage, WorkspaceEditorInfo } from "./types";
@@ -231,6 +233,8 @@ export default function App() {
   const [bottomPanel, setBottomPanel] = useState(false);
   const [workspaceSidebarOpen, setWorkspaceSidebarOpen] = useState(false);
   const [workspaceFocusMode, setWorkspaceFocusMode] = useState(false);
+  const [commitDialog, setCommitDialog] = useState<{ push: boolean } | null>(null);
+  const [gitPushing, setGitPushing] = useState(false);
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool>(readStoredWorkspaceTool);
   // Tools stay mounted once opened, so switching tabs keeps their state (review drafts, the page).
   const [mountedTools, setMountedTools] = useState<ReadonlySet<WorkspaceTool>>(() => new Set());
@@ -1563,11 +1567,46 @@ export default function App() {
     if (sent) setDraftMode(false);
   }, [settings?.reviewDelivery]);
 
-  const requestCommitOrPush = useCallback(async () => {
-    await usePiStore.getState().sendMessage(
-      "请审查当前工作区未提交更改，撰写简洁的提交说明并创建提交；若已配置可用远程且适合推送，再推送到远程并回报结果。",
-    );
-  }, []);
+  const refreshReviewGit = useCallback(async () => {
+    if (newTask) await refreshDraftGit();
+    else await usePiStore.getState().refreshGit();
+  }, [newTask, refreshDraftGit]);
+
+  /** Commits run in the app, not through the agent; the dialog can push right after. */
+  const openCommitDialog = useCallback((push: boolean) => {
+    if (workspaceCwd) setCommitDialog({ push });
+  }, [workspaceCwd]);
+
+  const finishCommit = useCallback((outcome: CommitOutcome) => {
+    setCommitDialog(null);
+    const committed = `已提交 ${outcome.commit.shortSha}：${outcome.commit.subject}`;
+    const push = outcome.push;
+    if (push && "error" in push) {
+      usePiStore.getState().showToast(`${committed}。推送失败：${push.error}`, "error");
+    } else if (push) {
+      usePiStore.getState().showToast(`${committed}，已推送到 ${push.result.remote}/${push.result.branch}`, "info");
+    } else {
+      usePiStore.getState().showToast(committed, "info");
+    }
+    void refreshReviewGit();
+  }, [refreshReviewGit]);
+
+  const pushCurrentBranch = useCallback(async () => {
+    if (!workspaceCwd || gitPushing) return;
+    setGitPushing(true);
+    try {
+      const result = await pi.gitPush(workspaceCwd);
+      usePiStore.getState().showToast(
+        result.setUpstream ? `已发布 ${result.branch} 到 ${result.remote}` : `已推送到 ${result.remote}/${result.branch}`,
+        "info",
+      );
+    } catch (error) {
+      usePiStore.getState().showToast(`推送失败：${describeError(error)}`, "error");
+    } finally {
+      setGitPushing(false);
+      void refreshReviewGit();
+    }
+  }, [gitPushing, refreshReviewGit, workspaceCwd]);
 
   /** Stage, unstage or discard one hunk (or a whole file's turn changes). */
   const applyGitPatch = useCallback(async (patch: string, options: { cached: boolean; reverse: boolean }, done: string) => {
@@ -1988,6 +2027,14 @@ export default function App() {
                     </button>
                   )}
                   {canOpenWorkspace && (
+                    <GitActionButton
+                      git={reviewGit}
+                      pushing={gitPushing}
+                      onCommit={openCommitDialog}
+                      onPush={() => void pushCurrentBranch()}
+                    />
+                  )}
+                  {canOpenWorkspace && (
                     <OpenInMenu
                       workspace={workspaceCwd}
                       editors={workspaceEditors}
@@ -2244,7 +2291,7 @@ export default function App() {
                 sessionTreeLeafId={store.sessionTreeLeafId}
                 isStreaming={isStreaming}
                 onRefreshGit={() => void (newTask ? refreshDraftGit() : store.refreshGit())}
-                onCommitOrPush={() => void requestCommitOrPush()}
+                onCommitOrPush={() => openCommitDialog(false)}
                 onEnvironmentChange={setTaskEnvironment}
                 onSwitchWorkspace={(path) => void switchWorkspacePath(path)}
                 onAbortCommand={() => void store.abortBash()}
@@ -2268,7 +2315,7 @@ export default function App() {
                   onRefreshGit={() => void (newTask ? refreshDraftGit() : store.refreshGit())}
                   onReview={(target) => void requestReview(target)}
                   onSubmitComments={submitReviewComments}
-                  onCommitOrPush={() => void requestCommitOrPush()}
+                  onCommitOrPush={openCommitDialog}
                   onRestoreFiles={(paths) => void restoreGitFiles(paths)}
                   onStageFiles={(paths) => updateGitIndex("stage", paths)}
                   onUnstageFiles={(paths) => updateGitIndex("unstage", paths)}
@@ -2366,6 +2413,17 @@ export default function App() {
         </FileActionsProvider>
       </div>
 
+      {commitDialog && workspaceCwd && reviewGit?.isRepository && (
+        <CommitDialog
+          cwd={workspaceCwd}
+          git={reviewGit}
+          initialPush={commitDialog.push}
+          model={model ? { provider: model.provider, id: model.id } : null}
+          agentRunning={isStreaming}
+          onClose={() => setCommitDialog(null)}
+          onDone={finishCommit}
+        />
+      )}
       {settingsOpen && <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}><SettingsModal initialPage={settingsPage} settings={settings} cwd={cwd} appearanceCatalog={appearanceCatalog} onReloadAppearance={reloadAppearanceCatalog} onSave={store.saveSettings} onClose={() => setSettingsOpen(false)} /></Suspense>}
 
       {!isTauri && (settings?.petEnabled || previewPet) && !settingsOpen && (

@@ -463,6 +463,31 @@ export interface GitSnapshot {
   branch?: string;
   files: GitFileChange[];
   diff: string;
+  /** Only the working-tree snapshot (`git_snapshot`) reports this. */
+  sync?: GitSyncStatus;
+}
+
+/** Where the current branch stands against its remote. */
+export interface GitSyncStatus {
+  /** `origin/main`; absent until the branch is published, or after its remote branch was deleted. */
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  hasRemote: boolean;
+}
+
+export interface GitCommitResult {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  branch: string;
+}
+
+export interface GitPushResult {
+  remote: string;
+  branch: string;
+  /** The push published the branch and made the remote branch its upstream. */
+  setUpstream: boolean;
 }
 
 export interface GitBranchInfo {

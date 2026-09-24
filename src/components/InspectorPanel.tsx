@@ -423,12 +423,12 @@ export function InspectorPanel({
             <button
               type="button"
               className="env-row"
-              disabled={!git?.isRepository || isStreaming}
+              disabled={!git?.files.length}
               onClick={onCommitOrPush}
-              title="让 Pi 撰写提交说明、提交并按需推送"
+              title="选择文件并提交，可以让 Pi 生成提交说明"
             >
               <GitCommitHorizontal size={16} strokeWidth={1.7} />
-              <span className="env-row-label">让 Pi 提交或推送</span>
+              <span className="env-row-label">提交…</span>
             </button>
           </section>
 

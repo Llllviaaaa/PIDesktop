@@ -806,3 +806,387 @@
 .codex-shot .tool-hit.is-openable:hover {
   background: var(--hover);
 }
+
+/* ── Git: topbar button and commit dialog ───────────────────────────── */
+
+.codex-shot .git-action-control {
+  height: 30px;
+  display: inline-flex;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.codex-shot .git-action-control button {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.codex-shot .git-action-control button:hover:not(:disabled),
+.codex-shot .git-action-control.active .git-action-trigger {
+  background: var(--active);
+}
+
+.codex-shot .git-action-main {
+  gap: 6px;
+  padding: 0 8px 0 9px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.codex-shot .git-action-main:disabled {
+  color: var(--text-2);
+  cursor: default;
+}
+
+.codex-shot .git-action-main small {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--active);
+  color: var(--text-2);
+  font: 600 10px/1 var(--code-font);
+}
+
+.codex-shot .git-action-control .git-action-trigger {
+  width: 22px;
+  justify-content: center;
+  border-left: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  color: var(--text-2);
+}
+
+.codex-shot .git-action-popover {
+  width: 260px;
+}
+
+.codex-shot .git-action-branch {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px 4px;
+  color: var(--text-2);
+}
+
+.codex-shot .git-action-branch > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.codex-shot .git-action-branch span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.codex-shot .git-action-branch strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .git-action-branch small {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.codex-shot .git-action-note {
+  padding: 2px 8px 4px 30px;
+  color: var(--yellow);
+  font-size: 11.5px;
+}
+
+.codex-shot .commit-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / .32);
+}
+
+.codex-shot .commit-dialog {
+  width: min(560px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--app);
+  color: var(--text);
+  box-shadow: 0 24px 64px rgb(0 0 0 / .28);
+  font-size: 13px;
+}
+
+.codex-shot .commit-dialog > header,
+.codex-shot .commit-dialog > footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+.codex-shot .commit-dialog > header {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+.codex-shot .commit-dialog > header strong {
+  font-size: 14px;
+}
+
+.codex-shot .commit-dialog > footer {
+  border-top: 1px solid var(--border);
+}
+
+.codex-shot .commit-dialog-spacer {
+  flex: 1 1 auto;
+}
+
+.codex-shot .commit-dialog .primary-button,
+.codex-shot .commit-dialog .secondary-button {
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.codex-shot .commit-dialog .primary-button {
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.codex-shot .commit-dialog .primary-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 86%, var(--text));
+}
+
+.codex-shot .commit-dialog .secondary-button {
+  border: 1px solid var(--border);
+  background: var(--app);
+  color: var(--text);
+}
+
+.codex-shot .commit-dialog-body {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+.codex-shot .commit-dialog-branch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+}
+
+.codex-shot .commit-dialog-branch strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--code-font);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .commit-dialog-default {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--yellow) 40%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--yellow) 8%, var(--app));
+}
+
+.codex-shot .commit-dialog-default p {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.codex-shot .commit-dialog-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.codex-shot .commit-dialog-input,
+.codex-shot .commit-dialog-message textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--app);
+  color: var(--text);
+  font: 13px/1.5 var(--code-font);
+}
+
+.codex-shot .commit-dialog-message textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.codex-shot .commit-dialog-input:focus,
+.codex-shot .commit-dialog-message textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -1px;
+}
+
+.codex-shot .commit-dialog-files {
+  display: grid;
+  gap: 6px;
+}
+
+.codex-shot .commit-dialog-files-head {
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.codex-shot .commit-dialog-files ul {
+  max-height: 220px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.codex-shot .commit-dialog-files li {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  border-radius: 6px;
+}
+
+.codex-shot .commit-dialog-files li:hover {
+  background: var(--hover);
+}
+
+.codex-shot .commit-dialog-files li.excluded .commit-file-path {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.codex-shot .commit-file-status {
+  flex: 0 0 auto;
+  min-width: 40px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-style: normal;
+}
+
+.codex-shot .commit-file-status.status-new,
+.codex-shot .commit-file-status.status-a {
+  color: var(--green);
+}
+
+.codex-shot .commit-file-status.status-d {
+  color: var(--red);
+}
+
+.codex-shot .commit-file-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--code-font);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .commit-dialog-files li small {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 6px;
+  color: var(--text-3);
+  font: 11.5px var(--code-font);
+}
+
+.codex-shot .commit-dialog-files li small .add {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.codex-shot .commit-dialog-files li small .del {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.codex-shot .commit-dialog-message {
+  display: grid;
+  gap: 6px;
+}
+
+.codex-shot .commit-dialog-message-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.codex-shot .commit-dialog-message-head button {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--app);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.codex-shot .commit-dialog-message-head button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.codex-shot .commit-dialog-message-head button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.codex-shot .commit-dialog-hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.codex-shot .commit-dialog-error {
+  max-height: 160px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--red) 35%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--red) 6%, var(--app));
+  color: var(--text);
+  font: 12px/1.5 var(--code-font);
+  white-space: pre-wrap;
+}

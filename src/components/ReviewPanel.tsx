@@ -79,7 +79,8 @@ interface ReviewPanelProps {
   onReview: (target: ReviewTarget) => void;
   /** Sends every pending comment to the agent as one message. */
   onSubmitComments?: (comments: PendingReviewComment[]) => Promise<boolean>;
-  onCommitOrPush: () => void;
+  /** Opens the commit dialog; `push` pushes right after the commit. */
+  onCommitOrPush: (push: boolean) => void;
   onOpenFile?: (path: string, line?: number) => void;
   onRestoreFiles: (paths?: string[]) => void;
   onStageFiles: (paths: string[]) => Promise<void>;
@@ -675,7 +676,8 @@ export function ReviewPanel({
           <button type="button" className="review-commit-button" disabled={!activeSnapshot?.isRepository} aria-label="提交或推送" aria-expanded={commitOpen} onClick={() => { const next = !commitOpen; closeAllMenus(); setCommitOpen(next); }}><GitCommitHorizontal size={14} /><span>提交或推送</span><ChevronDown size={12} /></button>
           {commitOpen && (
             <div className="review-popover review-commit-menu" role="menu">
-              <button type="button" onClick={() => { closeAllMenus(); onCommitOrPush(); }}><GitCommitHorizontal size={15} /><span><strong>让 Pi 提交或推送</strong><small>生成提交说明并处理远程推送</small></span></button>
+              <button type="button" disabled={!git?.files.length} onClick={() => { closeAllMenus(); onCommitOrPush(false); }}><GitCommitHorizontal size={15} /><span><strong>提交…</strong><small>选择文件，写或生成提交说明</small></span></button>
+              <button type="button" disabled={!git?.files.length || !git.sync?.hasRemote} onClick={() => { closeAllMenus(); onCommitOrPush(true); }}><ArrowUp size={15} /><span><strong>提交并推送…</strong><small>提交后推送到远程</small></span></button>
               <button type="button" disabled={!unstagedPaths.length || !indexActionsAvailable} onClick={() => { closeAllMenus(); void updateIndex("stage", unstagedPaths); }}><Plus size={15} /><span><strong>暂存全部</strong><small>{unstagedPaths.length} 个文件</small></span></button>
               <button type="button" disabled={!stagedPaths.length || !indexActionsAvailable} onClick={() => { closeAllMenus(); void updateIndex("unstage", stagedPaths); }}><Minus size={15} /><span><strong>取消暂存全部</strong><small>{stagedPaths.length} 个文件</small></span></button>
             </div>

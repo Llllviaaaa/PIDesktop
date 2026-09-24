@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use std::io::Read;
+use std::io::{Read, Write};
 #[cfg(windows)]
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
@@ -13,6 +13,14 @@ pub(crate) struct PiPrintOutput {
     pub timed_out: bool,
     pub cancelled: bool,
     pub output_truncated: bool,
+}
+
+/// What a one-shot run is asked. `text` goes on the command line; `stdin`,
+/// which Pi's print mode reads ahead of it, carries anything large, since a
+/// `cmd /C` command line stops at 8191 characters.
+pub(crate) struct PiPrintPrompt<'a> {
+    pub text: &'a str,
+    pub stdin: Option<&'a str>,
 }
 
 pub(crate) struct PiPrintLimits {
@@ -39,24 +47,43 @@ pub(crate) fn run_pi_print(
     cwd: &str,
     extra_args: &[String],
     environment: &[(String, String)],
-    prompt: &str,
+    prompt: PiPrintPrompt<'_>,
     cancelled: &AtomicBool,
     limits: PiPrintLimits,
 ) -> Result<PiPrintOutput, AppError> {
     let mut command = if cfg!(windows) {
-        build_windows_command(pi_binary, cwd, std::iter::empty(), extra_args, Some(prompt))
+        build_windows_command(
+            pi_binary,
+            cwd,
+            std::iter::empty(),
+            extra_args,
+            Some(prompt.text),
+        )
     } else {
         let mut command = Command::new(pi_binary);
-        command.args(extra_args).arg("-p").arg(prompt);
+        command.args(extra_args).arg("-p").arg(prompt.text);
         command.current_dir(cwd);
         command
     };
     command.envs(environment.iter().map(|(key, value)| (key, value)));
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    if prompt.stdin.is_some() {
+        command.stdin(Stdio::piped());
+    }
     let mut child = command
         .spawn()
         .map_err(|err| AppError::Process(format!("failed to run Pi process: {err}")))?;
     let pid = child.id();
+    // Pi reads stdin to its end before it starts; dropping the handle closes the pipe.
+    let stdin_writer = prompt
+        .stdin
+        .zip(child.stdin.take())
+        .map(|(input, mut stdin)| {
+            let bytes = input.as_bytes().to_vec();
+            std::thread::spawn(move || {
+                let _ = stdin.write_all(&bytes);
+            })
+        });
     let stdout = child
         .stdout
         .take()
@@ -98,6 +125,9 @@ pub(crate) fn run_pi_print(
         }
     };
 
+    if let Some(writer) = stdin_writer {
+        let _ = writer.join();
+    }
     let (stdout, stdout_truncated) = stdout_reader
         .join()
         .map_err(|_| AppError::Process("scheduled Pi stdout reader panicked".to_string()))?;
