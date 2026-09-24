@@ -106,6 +106,7 @@ export const usePiStore = create<PiState>((set, get) => {
   } | null = null;
   let pendingModelChange: { runtimeId: string; promise: Promise<void> } | null = null;
   let queuedModelSelection: ModelInfo | null = null;
+  let queuedThinkingLevel: string | null = null;
   let pendingConnection: { key: string; promise: Promise<void> } | null = null;
   const intentionalRuntimeStops = new Set<string>();
   const workspaceWarmups = new Map<string, Promise<void>>();
@@ -512,7 +513,10 @@ export const usePiStore = create<PiState>((set, get) => {
     sessionTreeLoading: false,
 
     connect: async (cwd, sessionFile) => {
-      if (sessionFile) queuedModelSelection = null;
+      if (sessionFile) {
+        queuedModelSelection = null;
+        queuedThinkingLevel = null;
+      }
       const requestKey = `${workspaceKey(cwd)}\u0000${sessionFile ?? ""}`;
       if (pendingConnection?.key === requestKey) return pendingConnection.promise;
 
@@ -594,6 +598,19 @@ export const usePiStore = create<PiState>((set, get) => {
               await get().setModel(queued);
             } catch {
               // setModel reports the failure without invalidating an otherwise healthy runtime.
+            }
+            if (connectVersion !== connectionVersion) return;
+          }
+          if (!sessionFile && queuedThinkingLevel) {
+            const queued = queuedThinkingLevel;
+            queuedThinkingLevel = null;
+            // Pi clamps to what the model supports; only apply a level it actually offers.
+            if (get().availableThinkingLevels.includes(queued)) {
+              try {
+                await get().setThinkingLevel(queued);
+              } catch {
+                // The composer keeps showing Pi's reported level; a failed preset is not fatal.
+              }
             }
             if (connectVersion !== connectionVersion) return;
           }
@@ -741,6 +758,7 @@ export const usePiStore = create<PiState>((set, get) => {
       connectionVersion += 1;
       pendingConnection = null;
       queuedModelSelection = null;
+      queuedThinkingLevel = null;
       clearPendingAssistantUpdate();
       pendingOptimisticPrompt = null;
       const runtimeId = get().runtimeId;
@@ -1471,7 +1489,12 @@ export const usePiStore = create<PiState>((set, get) => {
 
     setThinkingLevel: async (level) => {
       const runtimeId = get().runtimeId;
-      if (!runtimeId) throw new Error("当前没有活动的 Pi 任务");
+      if (!runtimeId) {
+        // New-task page: remember the choice and apply it once the runtime starts.
+        queuedThinkingLevel = level;
+        set({ thinkingLevel: level });
+        return;
+      }
       const modelChange = pendingModelChange?.runtimeId === runtimeId
         ? pendingModelChange.promise
         : null;

@@ -2,6 +2,10 @@
 
 Notable user-facing changes are documented in this file.
 
+## Unreleased
+
+- Rebuild the composer model picker: search, models grouped by provider, and a 思考等级 row that opens the reasoning levels. The level control is hidden for models that cannot reason, and a level chosen on the new-task page is applied once the task starts.
+
 ## 0.2.28 - 2026-09-23
 
 - Run every filesystem, git, npm and HTTP command off the UI thread. 54 of 72 Tauri commands were synchronous, so a slow git repository, an unreachable model endpoint or an npm install could stall the window.
