@@ -18,6 +18,9 @@ export const queryKeys = {
   worktrees: (cwd: string) => ["workspace", cwd, "worktrees"] as const,
   appearance: (cwd: string) => ["workspace", cwd, "appearance"] as const,
 
+  /** Editors and terminal apps installed on this machine (detected once per launch). */
+  workspaceEditors: () => ["desktop", "editors"] as const,
+  terminalApps: () => ["desktop", "terminal-apps"] as const,
   archivedSessions: () => ["sessions", "archived"] as const,
   usage: () => ["usage"] as const,
   localMemory: () => ["local-memory"] as const,

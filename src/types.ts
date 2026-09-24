@@ -296,7 +296,8 @@ export interface AppSettings {
   requireCtrlEnter: boolean;
   preventSleep: boolean;
   language: "system" | "en" | "zh-CN";
-  defaultFileOpener: "system" | "cursor" | "vscode" | "windsurf" | "antigravity";
+  /** `system` picks the first detected editor; otherwise a WorkspaceEditorInfo id. */
+  defaultFileOpener: string;
   terminalShell: string;
   terminalOutput: "summary" | "full";
   notificationsEnabled: boolean;
@@ -406,7 +407,16 @@ export interface ToolPermissionRule {
 }
 
 export interface WorkspaceEditorInfo {
-  id: "cursor" | "vscode" | "windsurf" | "antigravity";
+  /** Catalog id from the backend (`vscode`, `cursor`, `webstorm`, ...). */
+  id: string;
+  name: string;
+  /** Whether the editor can open a file at a given line. */
+  supportsLine: boolean;
+}
+
+/** An external terminal app the "open in" menu can hand the workspace to. */
+export interface TerminalAppInfo {
+  id: string;
   name: string;
 }
 

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useContext, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ChevronDown,
@@ -24,6 +24,8 @@ import {
   type ToolPresentation,
   type ToolSearchHit,
 } from "../lib/toolPresentation";
+import { WorkspaceFileOpenContext } from "./Markdown";
+import { useFileActions } from "./WorkspaceOpeners";
 
 function ToolIcon({ kind }: { kind: ToolKind }) {
   if (kind === "web-search" || kind === "browser") return <Globe2 size={13} />;
@@ -102,10 +104,24 @@ function DiffBlock({ lines }: { lines: ToolDiffLine[] }) {
 }
 
 function HitList({ hits }: { hits: ToolSearchHit[] }) {
+  const openInApp = useContext(WorkspaceFileOpenContext);
+  const fileActions = useFileActions();
   return (
     <ol className="tool-hits">
       {hits.map((hit, index) => (
-        <li key={`${hit.path}-${hit.line ?? "p"}-${index}`} className="tool-hit">
+        <li
+          key={`${hit.path}-${hit.line ?? "p"}-${index}`}
+          className={`tool-hit${hit.path ? " is-openable" : ""}`}
+          title={hit.path ? "单击预览 · Ctrl+单击在编辑器中打开 · 右键查看更多" : undefined}
+          onClick={(event) => {
+            if (!hit.path) return;
+            if ((event.ctrlKey || event.metaKey) && fileActions) fileActions.openInEditor(hit.path, hit.line ?? undefined);
+            else openInApp?.(hit.path, hit.line ?? undefined);
+          }}
+          onContextMenu={(event) => {
+            if (hit.path && fileActions) fileActions.showMenu(event, hit.path, hit.line ?? undefined);
+          }}
+        >
           <span className="tool-hit-loc">
             {hit.path ? hit.path.replace(/\\/g, "/") : ""}
             {hit.line != null ? `:${hit.line}` : ""}
@@ -219,7 +235,12 @@ function SpecializedBody({ presented, call }: { presented: ToolPresentation; cal
 
 export function ToolCall({ call }: { call: UiToolCall }) {
   const [expanded, setExpanded] = useState(false);
+  const fileActions = useFileActions();
   const presented = presentToolCall(call);
+  // Reads, writes and edits name one file: right-click it, or Ctrl+click to open it in the editor.
+  const filePath = presented.path && (presented.kind === "read" || presented.kind === "write" || presented.kind === "edit")
+    ? presented.path
+    : null;
   const elapsed = call.startedAt && call.finishedAt
     ? (call.finishedAt - call.startedAt) / 1000
     : null;
@@ -243,10 +264,18 @@ export function ToolCall({ call }: { call: UiToolCall }) {
         className="tool-step-heading"
         aria-label={presented.heading}
         aria-expanded={canExpand ? showBody : undefined}
-        disabled={!canExpand}
-        onClick={() => {
+        disabled={!canExpand && !filePath}
+        title={filePath && fileActions ? "Ctrl+单击在编辑器中打开 · 右键查看更多" : undefined}
+        onClick={(event) => {
+          if (filePath && fileActions && (event.ctrlKey || event.metaKey)) {
+            fileActions.openInEditor(filePath);
+            return;
+          }
           if (!canExpand) return;
           setExpanded((value) => !value);
+        }}
+        onContextMenu={(event) => {
+          if (filePath && fileActions) fileActions.showMenu(event, filePath);
         }}
       >
         <span className="tool-icon"><ToolIcon kind={presented.kind} /></span>

@@ -1,21 +1,71 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { describeError } from "../lib/errors";
-import { ArrowLeft, ArrowRight, ExternalLink, Globe2, MessageSquarePlus, RefreshCw, SendHorizontal, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bug,
+  Check,
+  ExternalLink,
+  Globe2,
+  MessageSquarePlus,
+  MoreHorizontal,
+  RefreshCw,
+  SearchCheck,
+  SendHorizontal,
+} from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import { Webview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { resolveWorkspaceBrowserAddress } from "../lib/webAccess";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
+import { isLocalWebAddress, resolveWorkspaceBrowserAddress } from "../lib/webAccess";
 import type { AgentBrowserState } from "../types";
+
+/** Per-viewer toggles; App reads the auto-verify one when a turn ends. */
+export const BROWSER_AUTO_RELOAD_KEY = "pid-desktop:browser-auto-reload";
+export const BROWSER_AUTO_VERIFY_KEY = "pid-desktop:browser-auto-verify";
+
+export function readBrowserToggle(key: string, fallback: boolean): boolean {
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === null ? fallback : value === "1";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeBrowserToggle(key: string, value: boolean) {
+  try {
+    window.localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // Blocked storage keeps the toggle for this session only.
+  }
+}
 
 interface BrowserWorkspacePanelProps {
   recentAgentPage: AgentBrowserState | null;
+  /** False while another dock tool is showing or the dock is closed. */
+  active: boolean;
+  /** Navigate here (a localhost link clicked in the terminal, the agent's page). */
+  navigateRequest?: { url: string; nonce: number } | null;
+  /** Bumps when an agent turn finishes, so a local page can reload. */
+  turnCompletedAt?: number;
   onComment?: (url: string, comment: string) => void;
-  onClose: () => void;
+  /** Ask Pi to open the page with its own browser tool and check it. */
+  onVerify?: (url: string) => void;
+  onUrlChange?: (url: string) => void;
 }
 
-export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: BrowserWorkspacePanelProps) {
+export function BrowserWorkspacePanel({
+  recentAgentPage,
+  active,
+  navigateRequest = null,
+  turnCompletedAt = 0,
+  onComment,
+  onVerify,
+  onUrlChange,
+}: BrowserWorkspacePanelProps) {
   const [address, setAddress] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -25,8 +75,12 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
   const [addressError, setAddressError] = useState<string | null>(null);
   const [commentOpen, setCommentOpen] = useState(false);
   const [comment, setComment] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [autoReload, setAutoReload] = useState(() => readBrowserToggle(BROWSER_AUTO_RELOAD_KEY, true));
+  const [autoVerify, setAutoVerify] = useState(() => readBrowserToggle(BROWSER_AUTO_VERIFY_KEY, false));
   const inputRef = useRef<HTMLInputElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const nativeWebviewRef = useRef<Webview | null>(null);
   const [nativeLabel] = useState(() => `workspace-browser-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const disposedRef = useRef(false);
@@ -55,12 +109,15 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
     };
   }, []);
 
+  // Each history entry is navigated once; re-showing the tool must not reload the page.
+  const navigatedRef = useRef("");
   useEffect(() => {
-    if (!isTauri || !currentUrl) return;
+    if (!isTauri || !currentUrl || !active) return;
+    const navigation = `${historyIndex}:${currentUrl}`;
+    if (navigatedRef.current === navigation) return;
+    navigatedRef.current = navigation;
     const existing = nativeWebviewRef.current;
     if (existing) {
-      setLoading(true);
-      setNativeError(null);
       void invoke("browser_webview_action", {
         label: nativeLabel,
         action: "navigate",
@@ -75,8 +132,6 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
     const viewport = viewportRef.current;
     if (!viewport) return;
     const rect = viewport.getBoundingClientRect();
-    setLoading(true);
-    setNativeError(null);
     const webview = new Webview(getCurrentWindow(), nativeLabel, {
       url: currentUrl,
       x: rect.left,
@@ -100,7 +155,17 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
       setLoading(false);
       setNativeError(String(event.payload || "无法创建内嵌浏览器"));
     });
-  }, [currentUrl, isTauri, nativeLabel, placeNativeWebview]);
+  }, [active, currentUrl, historyIndex, isTauri, nativeLabel, placeNativeWebview]);
+
+  // The native webview floats above the page, so a hidden tool must hide it explicitly.
+  useEffect(() => {
+    if (!isTauri || !nativeWebviewRef.current) return;
+    void invoke("browser_webview_action", { label: nativeLabel, action: active ? "show" : "hide" }).catch(() => undefined);
+    if (active) {
+      const frame = window.requestAnimationFrame(() => void placeNativeWebview().catch(() => undefined));
+      return () => window.cancelAnimationFrame(frame);
+    }
+  }, [active, isTauri, nativeLabel, placeNativeWebview]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -121,12 +186,34 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
     };
   }, [isTauri, placeNativeWebview]);
 
-  const navigate = (raw: string) => {
+  useEffect(() => {
+    onUrlChange?.(currentUrl);
+  }, [currentUrl, onUrlChange]);
+
+  // After an agent turn, reload a local page so the change is visible without a click.
+  const seenTurnRef = useRef(turnCompletedAt);
+  useEffect(() => {
+    if (seenTurnRef.current === turnCompletedAt) return;
+    seenTurnRef.current = turnCompletedAt;
+    if (!autoReload || !currentUrl || !isLocalWebAddress(currentUrl) || !nativeWebviewRef.current) return;
+    void invoke("browser_webview_action", { label: nativeLabel, action: "reload" }).catch(() => undefined);
+  }, [autoReload, currentUrl, nativeLabel, turnCompletedAt]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [menuOpen]);
+
+  /** Resolves and records an address. Only sets state, so it is safe during render. */
+  const goTo = (raw: string): boolean => {
     const next = resolveWorkspaceBrowserAddress(raw);
     if (!next) {
       setAddressError("请输入完整网址");
-      inputRef.current?.focus();
-      return;
+      return false;
     }
     setAddressError(null);
     setNativeError(null);
@@ -135,7 +222,16 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
     setHistoryIndex(base.length);
     setAddress(next);
     setLoading(true);
+    return true;
   };
+
+  const navigate = (raw: string) => {
+    if (!goTo(raw)) inputRef.current?.focus();
+  };
+
+  useSyncOnChange([navigateRequest?.nonce], () => {
+    if (navigateRequest?.url) goTo(navigateRequest.url);
+  });
 
   const moveHistory = (nextIndex: number) => {
     if (nextIndex < 0 || nextIndex >= history.length) return;
@@ -145,9 +241,9 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
     setLoading(true);
   };
 
-  const nativeHistoryAction = (action: "back" | "forward" | "reload") => {
+  const nativeAction = (action: "back" | "forward" | "reload" | "devtools") => {
     if (!nativeWebviewRef.current) return;
-    setLoading(true);
+    if (action !== "devtools") setLoading(true);
     void invoke("browser_webview_action", {
       label: nativeLabel,
       action,
@@ -157,13 +253,18 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
     });
   };
 
+  const toggle = (key: string, value: boolean, set: (value: boolean) => void) => {
+    writeBrowserToggle(key, value);
+    set(value);
+  };
+
   return (
     <section className="workspace-browser-pane" aria-label="应用内浏览器">
       <header className="workspace-browser-toolbar">
-        <button type="button" className="icon-button" title="返回" disabled={!currentUrl || (!isTauri && historyIndex <= 0)} onClick={() => isTauri ? nativeHistoryAction("back") : moveHistory(historyIndex - 1)}>
+        <button type="button" className="icon-button" title="返回" disabled={!currentUrl || (!isTauri && historyIndex <= 0)} onClick={() => isTauri ? nativeAction("back") : moveHistory(historyIndex - 1)}>
           <ArrowLeft size={15} strokeWidth={1.8} />
         </button>
-        <button type="button" className="icon-button" title="前进" disabled={!currentUrl || (!isTauri && (historyIndex < 0 || historyIndex >= history.length - 1))} onClick={() => isTauri ? nativeHistoryAction("forward") : moveHistory(historyIndex + 1)}>
+        <button type="button" className="icon-button" title="前进" disabled={!currentUrl || (!isTauri && (historyIndex < 0 || historyIndex >= history.length - 1))} onClick={() => isTauri ? nativeAction("forward") : moveHistory(historyIndex + 1)}>
           <ArrowRight size={15} strokeWidth={1.8} />
         </button>
         <button
@@ -172,11 +273,11 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
           title="重新加载"
           disabled={!currentUrl}
           onClick={() => {
-            if (isTauri) nativeHistoryAction("reload");
+            if (isTauri) nativeAction("reload");
             else { setReloadKey((value) => value + 1); setLoading(true); }
           }}
         >
-          <RefreshCw size={14} strokeWidth={1.8} />
+          <RefreshCw size={14} strokeWidth={1.8} className={loading ? "spin" : ""} />
         </button>
         <form
           className="workspace-browser-address"
@@ -188,7 +289,7 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
             value={address}
             aria-label="浏览器地址"
             aria-invalid={Boolean(addressError)}
-            placeholder="输入网址"
+            placeholder="输入网址，如 localhost:5173"
             spellCheck={false}
             onChange={(event) => {
               setAddress(event.target.value);
@@ -201,9 +302,11 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
             }}
           />
         </form>
-        <button type="button" className="icon-button" title="在默认浏览器中打开" disabled={!currentUrl} onClick={() => void openUrl(currentUrl)}>
-          <ExternalLink size={14} strokeWidth={1.75} />
-        </button>
+        {onVerify && (
+          <button type="button" className="icon-button" title="让 Pi 用浏览器检查这个页面（渲染、控制台错误）并修复问题" disabled={!currentUrl} onClick={() => onVerify(currentUrl)}>
+            <SearchCheck size={14} strokeWidth={1.75} />
+          </button>
+        )}
         <button
           type="button"
           className={`icon-button ${commentOpen ? "active" : ""}`}
@@ -214,9 +317,28 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
         >
           <MessageSquarePlus size={14} strokeWidth={1.75} />
         </button>
-        <button type="button" className="icon-button" title="关闭浏览器" onClick={onClose}>
-          <X size={14} strokeWidth={1.75} />
-        </button>
+        <div className="workspace-browser-menu-wrap" ref={menuRef}>
+          <button type="button" className={`icon-button ${menuOpen ? "active" : ""}`} title="更多" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>
+            <MoreHorizontal size={15} strokeWidth={1.75} />
+          </button>
+          {menuOpen && (
+            <div className="workspace-browser-menu" role="menu">
+              <button type="button" role="menuitem" disabled={!currentUrl || !isTauri} onClick={() => { setMenuOpen(false); nativeAction("devtools"); }}>
+                <Bug size={14} /><span>开发者工具（控制台、网络）</span>
+              </button>
+              <button type="button" role="menuitem" disabled={!currentUrl} onClick={() => { setMenuOpen(false); void openUrl(currentUrl); }}>
+                <ExternalLink size={14} /><span>在默认浏览器中打开</span>
+              </button>
+              <div className="workspace-browser-menu-separator" role="separator" />
+              <button type="button" role="menuitemcheckbox" aria-checked={autoReload} onClick={() => toggle(BROWSER_AUTO_RELOAD_KEY, !autoReload, setAutoReload)}>
+                <RefreshCw size={14} /><span>每轮结束后刷新本地页面</span>{autoReload && <Check size={13} />}
+              </button>
+              <button type="button" role="menuitemcheckbox" aria-checked={autoVerify} disabled={!onVerify} onClick={() => toggle(BROWSER_AUTO_VERIFY_KEY, !autoVerify, setAutoVerify)}>
+                <SearchCheck size={14} /><span>改动后让 Pi 自动验证本地页面</span>{autoVerify && <Check size={13} />}
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
       {addressError && <div className="workspace-browser-address-error" role="alert">{addressError}</div>}
@@ -263,10 +385,10 @@ export function BrowserWorkspacePanel({ recentAgentPage, onComment, onClose }: B
           <div className="workspace-browser-empty">
             <Globe2 size={24} strokeWidth={1.4} />
             <strong>开始浏览</strong>
-            <span>输入 URL 以打开页面</span>
+            <span>输入 URL，或在终端里点击 localhost 链接</span>
             {recentAgentPage?.url && (
               <button type="button" onClick={() => navigate(recentAgentPage.url)} title={recentAgentPage.url}>
-                打开最近页面{recentLabel ? ` · ${recentLabel}` : ""}
+                打开 Agent 最近访问的页面{recentLabel ? ` · ${recentLabel}` : ""}
               </button>
             )}
           </div>

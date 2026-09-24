@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { describeError } from "../lib/errors";
 import { ChevronLeft, ChevronRight, Code2, ExternalLink, Eye, FileText, PanelRightClose, X } from "lucide-react";
@@ -6,7 +6,9 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { pi } from "../lib/pi";
 import { queryKeys } from "../lib/queries";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
+import { highlightLine } from "../lib/syntaxHighlight";
 import { Markdown } from "./Markdown";
+import { useFileActions, WorkspaceEditorIcon } from "./WorkspaceOpeners";
 import type { WorkspaceFileContent } from "../types";
 
 interface DocumentPaneProps {
@@ -55,8 +57,60 @@ function parseDelimited(text: string, path: string): string[][] {
   });
 }
 
+/** Files longer than this render without per-line highlighting, to stay responsive. */
+const HIGHLIGHT_LINE_LIMIT = 4000;
+
+/** Source with line numbers; the requested line is highlighted and scrolled into view. */
+function CodeView({ text, path, line, truncated }: { text: string; path: string; line?: number; truncated: boolean }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lines = useMemo(() => text.replace(/\r\n/g, "\n").split("\n"), [text]);
+  const highlighted = useMemo(
+    () => (lines.length <= HIGHLIGHT_LINE_LIMIT ? lines.map((item) => highlightLine(item || " ", path)) : null),
+    [lines, path],
+  );
+  const fileActions = useFileActions();
+
+  useEffect(() => {
+    if (!line) return;
+    const target = containerRef.current?.querySelector(`[data-line="${line}"]`);
+    target?.scrollIntoView({ block: "center" });
+  }, [line, text]);
+
+  return (
+    <div className="document-code" ref={containerRef}>
+      {lines.map((content, index) => {
+        const number = index + 1;
+        return (
+          <div
+            key={number}
+            data-line={number}
+            className={`document-code-line${number === line ? " is-target" : ""}`}
+            onContextMenu={(event) => fileActions?.showMenu(event, path, number)}
+          >
+            <span
+              className="document-code-number"
+              title={fileActions?.preferredEditor ? `Ctrl+单击在 ${fileActions.preferredEditor.name} 中打开第 ${number} 行` : undefined}
+              onClick={(event) => {
+                if ((event.ctrlKey || event.metaKey) && fileActions) fileActions.openInEditor(path, number);
+              }}
+            >
+              {number}
+            </span>
+            {highlighted
+              ? <code dangerouslySetInnerHTML={{ __html: highlighted[index] }} />
+              : <code>{content || " "}</code>}
+          </div>
+        );
+      })}
+      {truncated && <div className="document-code-truncated">…（已截断，文件超过 512 KB）</div>}
+    </div>
+  );
+}
+
 export function DocumentPane({ cwd, path, line, tabs = [], onSelectTab, onCloseTab, onBack, onClose }: DocumentPaneProps) {
   const [source, setSource] = useState(false);
+  const fileActions = useFileActions();
+  const editor = fileActions?.preferredEditor ?? null;
   const fileQuery = useQuery({
     queryKey: queryKeys.file(cwd, path),
     queryFn: () => pi.readWorkspaceFile(cwd, path),
@@ -64,8 +118,8 @@ export function DocumentPane({ cwd, path, line, tabs = [], onSelectTab, onCloseT
   });
   const file: WorkspaceFileContent | null = fileQuery.data ?? null;
   const error = fileQuery.error ? describeError(fileQuery.error) : null;
-  // Each file opens in its rendered view.
-  useSyncOnChange([cwd, path], () => setSource(false));
+  // Each file opens in its rendered view, unless a specific line was asked for.
+  useSyncOnChange([cwd, path, line], () => setSource(Boolean(line)));
   const fileName = path.split(/[\\/]/).filter(Boolean).pop() || path;
   const project = cwd.split(/[\\/]/).filter(Boolean).pop() || "项目";
   const markdown = isMarkdown(path);
@@ -123,20 +177,32 @@ export function DocumentPane({ cwd, path, line, tabs = [], onSelectTab, onCloseT
               {source ? <Eye size={15} strokeWidth={1.75} /> : <Code2 size={15} strokeWidth={1.75} />}
             </button>
           )}
+          {editor && fileActions && (
+            <button
+              type="button"
+              className="icon-button document-action"
+              onClick={() => fileActions.openInEditor(path, line)}
+              onContextMenu={(event) => fileActions.showMenu(event, path, line)}
+              title={`在 ${editor.name} 中打开${line && editor.supportsLine ? `（第 ${line} 行）` : ""} · 右键查看更多`}
+              aria-label={`在 ${editor.name} 中打开`}
+            >
+              <WorkspaceEditorIcon editorId={editor.id} size={14} />
+            </button>
+          )}
           <button
             type="button"
             className="icon-button document-action"
             onClick={openExternally}
-            title="用系统应用打开"
-            aria-label="用系统应用打开"
+            title="用系统默认应用打开"
+            aria-label="用系统默认应用打开"
           >
             <ExternalLink size={15} strokeWidth={1.75} />
           </button>
           <button
             type="button"
             className="icon-button document-action document-pane-close"
-            title="关闭文件面板"
-            aria-label="关闭文件面板"
+            title="关闭所有文件，回到文件列表"
+            aria-label="关闭所有文件"
             onClick={onClose}
           >
             <PanelRightClose size={15} strokeWidth={1.75} />
@@ -181,7 +247,7 @@ export function DocumentPane({ cwd, path, line, tabs = [], onSelectTab, onCloseT
               title={fileName}
             />
           ) : (
-            <pre className="document-source">{file.text}{file.truncated ? "\n\n…（已截断，文件超过 512 KB）" : ""}</pre>
+            <CodeView text={file.text} path={path} line={line} truncated={file.truncated} />
           )
         )}
       </div>

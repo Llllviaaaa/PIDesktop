@@ -31,6 +31,7 @@ import {
   type TranscriptDensity,
 } from "../lib/transcriptDensity";
 import { ModelPicker } from "./ModelPicker";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
 
 const PERMISSION_OPTIONS: Array<{
   value: AppSettings["permissionMode"];
@@ -54,6 +55,8 @@ interface ComposerProps {
   thinkingLevel: string;
   thinkingLevels: string[];
   prefill?: string | null;
+  /** Appends to the draft instead of replacing it (terminal output sent to chat). */
+  insertRequest?: { text: string; nonce: number } | null;
   pendingCount: number;
   queuedMessages?: ManagedQueuedMessage[];
   requireCtrlEnter?: boolean;
@@ -100,6 +103,7 @@ export const Composer = memo(function Composer({
   thinkingLevel,
   thinkingLevels,
   prefill,
+  insertRequest = null,
   pendingCount,
   queuedMessages = [],
   requireCtrlEnter = false,
@@ -165,6 +169,14 @@ export const Composer = memo(function Composer({
     textareaRef.current?.focus();
     onPrefillConsumed?.();
   }, [prefill, onPrefillConsumed]);
+
+  useSyncOnChange([insertRequest?.nonce], () => {
+    if (!insertRequest) return;
+    setText((current) => (current.trim() ? `${current.replace(/\s+$/, "")}\n\n${insertRequest.text}` : insertRequest.text));
+  });
+  useEffect(() => {
+    if (insertRequest) textareaRef.current?.focus();
+  }, [insertRequest]);
 
   useEffect(() => setStreamingBehavior(defaultFollowUpBehavior), [defaultFollowUpBehavior]);
 

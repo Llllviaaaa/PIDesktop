@@ -27,6 +27,7 @@ import type {
   ScheduledTask,
   UsageSummary,
   WorkspaceDirEntry,
+  TerminalAppInfo,
   WorkspaceEditorInfo,
   WorkspaceFileContent,
   WorktreeInfo,
@@ -132,6 +133,12 @@ export const pi = {
     invoke<GitSnapshot>("git_review_snapshot", { cwd, filter }),
   gitListCommits: (cwd: string, limit = 50) => invoke<GitCommitInfo[]>("git_list_commits", { cwd, limit }),
   gitCommitSnapshot: (cwd: string, commit: string) => invoke<GitSnapshot>("git_commit_snapshot", { cwd, commit }),
+  /** `cached` stages/unstages; without it the patch lands in the working tree. */
+  gitApplyPatch: (cwd: string, patch: string, options: { cached: boolean; reverse: boolean }) =>
+    invoke<void>("git_apply_patch", { cwd, patch, cached: options.cached, reverse: options.reverse }),
+  /** What the latest agent turn changed, or null before any turn recorded a checkpoint. */
+  gitLastTurnSnapshot: (cwd: string) =>
+    invoke<(GitSnapshot & { startedAt: number }) | null>("git_last_turn_snapshot", { cwd }),
   listPullRequests: (cwd: string) => invoke<PullRequestCollection>("list_pull_requests", { cwd }),
   checkoutPullRequest: (cwd: string, number: number) => invoke<void>("checkout_pull_request", { cwd, number }),
   listResources: (cwd: string) => invoke<ResourceItem[]>("list_resources", { cwd }),
@@ -154,6 +161,13 @@ export const pi = {
   listWorkspaceEditors: () => invoke<WorkspaceEditorInfo[]>("list_workspace_editors"),
   openWorkspaceInEditor: (path: string, editorId: WorkspaceEditorInfo["id"]) =>
     invoke<void>("open_workspace_in_editor", { path, editorId }),
+  openFileInEditor: (path: string, editorId: WorkspaceEditorInfo["id"], options: { line?: number; column?: number; workspace?: string } = {}) =>
+    invoke<void>("open_file_in_editor", { path, editorId, line: options.line ?? null, column: options.column ?? null, workspace: options.workspace ?? null }),
+  revealPathInFileManager: (path: string) => invoke<void>("reveal_path_in_file_manager", { path }),
+  listTerminalApps: () => invoke<TerminalAppInfo[]>("list_terminal_apps"),
+  openWorkspaceInTerminalApp: (path: string, appId: string) =>
+    invoke<void>("open_workspace_in_terminal_app", { path, appId }),
+  terminalShells: () => invoke<string[]>("terminal_shells"),
   listWorktrees: (cwd: string) => invoke<WorktreeInfo[]>("list_worktrees", { cwd }),
   createWorktree: (cwd: string, base?: string) => invoke<WorktreeInfo>("create_worktree", { cwd, base }),
   packageAction: (action: "install" | "remove" | "update", source?: string, cwd?: string, scope: "user" | "project" = "user") => invoke<string>("pi_package_action", { action, source, cwd, scope }),

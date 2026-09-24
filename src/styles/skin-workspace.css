@@ -1,0 +1,723 @@
+/*
+ * Workspace dock, terminal, review actions and the file-path menu.
+ * Loaded last in the `skin` layer, so it wins over legacy panel sizing.
+ */
+
+/* ── Right-hand dock: one column, a tab strip, and tools that keep their state ── */
+
+.codex-shot .workspace-dock {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 clamp(320px, var(--workspace-panel-width, 420px), calc(100% - 360px));
+  width: clamp(320px, var(--workspace-panel-width, 420px), calc(100% - 360px));
+  min-width: 320px;
+  min-height: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--app);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.codex-shot .workspace-dock[hidden],
+.codex-shot .workspace-dock [hidden] {
+  display: none !important;
+}
+
+.codex-shot .work-split.workspace-focus > .workspace-dock {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+@media (max-width: 720px) {
+  .codex-shot .work-split.workspace-sidebar-open > .workspace-dock {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+.codex-shot .workspace-dock-tabs {
+  flex: 0 0 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+/* The tabs may scroll; the close button never scrolls away. */
+.codex-shot .workspace-dock-tab-list {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.codex-shot .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.codex-shot .workspace-dock-tab {
+  flex: 0 0 auto;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background-color .15s, color .15s;
+}
+
+.codex-shot .workspace-dock-tab:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .workspace-dock-tab.active {
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.codex-shot .workspace-dock-tab.active > svg {
+  color: var(--accent);
+}
+
+.codex-shot .workspace-dock-tab small {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--active);
+  color: var(--text-2);
+  font: 600 10px/1 var(--code-font);
+}
+
+.codex-shot .workspace-dock-tab.busy > svg {
+  animation: dock-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes dock-pulse {
+  50% { opacity: .35; }
+}
+
+.codex-shot .workspace-dock-close {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.codex-shot .workspace-dock-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .workspace-dock-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.codex-shot .workspace-dock-slot {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Panels used to size themselves as columns of .work-split; inside the dock they fill it. */
+.codex-shot .workspace-dock-body .inspector-panel.workspace-dock-panel,
+.codex-shot .workspace-dock-body .review-workspace-panel,
+.codex-shot .workspace-dock-body .files-pane,
+.codex-shot .workspace-dock-body .document-pane,
+.codex-shot .workspace-dock-body .workspace-browser-pane,
+.codex-shot .workspace-dock-body .side-chat-pane {
+  position: relative;
+  inset: auto;
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.codex-shot .workspace-dock-body .summary-dock-panel {
+  background: var(--app);
+}
+
+/* ── File-path menu (portaled to <body>, so it is not scoped to .codex-shot) ── */
+
+.file-context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 220px;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 10px;
+  background: var(--popover, var(--panel));
+  color: var(--text);
+  box-shadow:
+    0 1px 2px hsl(var(--shadow-color, 0 0% 0%) / 0.12),
+    0 12px 32px -8px hsl(var(--shadow-color, 0 0% 0%) / 0.32);
+  font: 13px/1.3 var(--font-ui, system-ui, sans-serif);
+}
+
+.file-context-menu-title {
+  padding: 5px 8px 6px;
+  overflow: hidden;
+  color: var(--text-3);
+  font: 11.5px/1.3 var(--code-font, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-context-menu-section {
+  padding: 7px 8px 3px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.file-context-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.file-context-menu button {
+  width: 100%;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-context-menu button:hover {
+  background: var(--hover);
+}
+
+.file-context-menu button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-context-menu button > svg {
+  color: var(--text-2);
+}
+
+.file-context-menu kbd {
+  color: var(--text-3);
+  font: 10.5px var(--code-font, monospace);
+}
+
+/* ── Open in ─────────────────────────────────────────────────────────── */
+
+.codex-shot .open-in-popover {
+  width: 240px;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+}
+
+.codex-shot .open-in-section {
+  padding: 6px 10px 3px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.codex-shot .open-in-empty {
+  padding: 6px 10px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+/* ── Terminal ───────────────────────────────────────────────────────── */
+
+.codex-shot .terminal-tab-body .terminal-surface {
+  width: 100%;
+  height: 100%;
+}
+
+.codex-shot .terminal-tab.status-exited > span,
+.codex-shot .terminal-tab.status-error > span {
+  color: var(--text-3);
+}
+
+.codex-shot .terminal-tab-state {
+  color: var(--text-3);
+  font: 10.5px var(--font-ui, sans-serif);
+  font-style: normal;
+}
+
+.codex-shot .terminal-shell-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.codex-shot .terminal-shell-trigger {
+  width: 16px;
+  margin-left: -2px;
+}
+
+/* Opens downward over the terminal body: the dock clips anything above its header. */
+.codex-shot .terminal-shell-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 10px;
+  background: var(--popover);
+  box-shadow: 0 12px 32px -8px hsl(var(--shadow-color) / 0.32);
+}
+
+.codex-shot .terminal-shell-menu button {
+  width: 100%;
+  height: 30px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codex-shot .terminal-shell-menu button:hover {
+  background: var(--hover);
+}
+
+.codex-shot .terminal-shell-menu small {
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.codex-shot .terminal-header-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.codex-shot .terminal-panel-close:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+.codex-shot .terminal-search {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 3px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text-3);
+}
+
+.codex-shot .terminal-search.miss {
+  border-color: color-mix(in srgb, var(--red, #d33) 60%, var(--border));
+}
+
+.codex-shot .terminal-search input {
+  width: 150px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: 12px var(--font-ui, sans-serif);
+}
+
+.codex-shot .terminal-search button {
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.codex-shot .terminal-search button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .terminal-search button:disabled {
+  opacity: .4;
+}
+
+/* ── Review: hunk actions, scopes, pending comments ─────────────────── */
+
+.codex-shot .review-hunk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.codex-shot .review-hunk-row > code {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+  white-space: pre;
+}
+
+.codex-shot .review-hunk-actions {
+  position: sticky;
+  right: 8px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 4px;
+  opacity: .72;
+  transition: opacity .15s;
+}
+
+.codex-shot .review-hunk-row:hover .review-hunk-actions,
+.codex-shot .review-hunk-actions:focus-within {
+  opacity: 1;
+}
+
+.codex-shot .review-hunk-actions button {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 6px;
+  background: var(--app);
+  color: var(--text-2);
+  font: 11px var(--font-ui, sans-serif);
+  cursor: pointer;
+}
+
+.codex-shot .review-hunk-actions button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .review-hunk-actions button.danger:hover:not(:disabled) {
+  color: var(--red, #c6545a);
+}
+
+.codex-shot .review-hunk-actions button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.codex-shot .review-source-menu {
+  width: min(260px, calc(100cqw - 16px));
+}
+
+.codex-shot .review-source-menu button span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.codex-shot .review-source-menu small {
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.codex-shot .review-line-number {
+  cursor: default;
+}
+
+.codex-shot .review-code-row:hover .review-line-number {
+  color: var(--text-2);
+}
+
+.codex-shot .review-inline-comment.pending {
+  grid-template-columns: 25px minmax(0, 1fr) auto;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--app));
+}
+
+.codex-shot .review-inline-comment.pending > span {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.codex-shot .review-inline-comment.pending strong {
+  color: var(--accent);
+}
+
+.codex-shot .review-inline-comment.pending p {
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+
+.codex-shot .review-inline-comment.pending > button {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.codex-shot .review-inline-comment.pending > button:hover {
+  background: var(--hover);
+  color: var(--red, #c6545a);
+}
+
+.codex-shot .review-inline-composer > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.codex-shot .review-pending-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--app));
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.codex-shot .review-pending-bar > svg {
+  color: var(--accent);
+}
+
+.codex-shot .review-pending-bar > span {
+  flex: 1 1 auto;
+}
+
+.codex-shot .review-pending-clear {
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.codex-shot .review-pending-clear:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.codex-shot .review-pending-send {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text, #fff);
+  font: 500 12.5px var(--font-ui, sans-serif);
+  cursor: pointer;
+}
+
+.codex-shot .review-pending-send:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+/* ── Browser menu ───────────────────────────────────────────────────── */
+
+.codex-shot .workspace-browser-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.codex-shot .workspace-browser-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 260px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 10px;
+  background: var(--popover);
+  box-shadow: 0 12px 32px -8px hsl(var(--shadow-color) / 0.32);
+}
+
+.codex-shot .workspace-browser-menu button {
+  width: 100%;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codex-shot .workspace-browser-menu button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.codex-shot .workspace-browser-menu button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.codex-shot .workspace-browser-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+/* ── File preview code view ─────────────────────────────────────────── */
+
+.codex-shot .document-code {
+  min-width: max-content;
+  padding: 8px 0 24px;
+  font: 12px/1.6 var(--code-font);
+}
+
+.codex-shot .document-code-line {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+}
+
+.codex-shot .document-code-line.is-target {
+  background: color-mix(in srgb, var(--yellow, #f5c542) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.codex-shot .document-code-number {
+  padding-right: 12px;
+  color: var(--text-3);
+  text-align: right;
+  user-select: none;
+}
+
+.codex-shot .document-code-line:hover .document-code-number {
+  color: var(--text-2);
+}
+
+.codex-shot .document-code-line code {
+  padding-right: 16px;
+  color: var(--text);
+  white-space: pre;
+}
+
+/* Same token palette as the review diff. */
+.codex-shot .document-code-line .hljs-doctag,
+.codex-shot .document-code-line .hljs-keyword,
+.codex-shot .document-code-line .hljs-meta .hljs-keyword,
+.codex-shot .document-code-line .hljs-template-tag,
+.codex-shot .document-code-line .hljs-type { color: #cf3744; }
+.codex-shot .document-code-line .hljs-title,
+.codex-shot .document-code-line .hljs-title.class_,
+.codex-shot .document-code-line .hljs-title.function_ { color: #7a42b8; }
+.codex-shot .document-code-line .hljs-attr,
+.codex-shot .document-code-line .hljs-literal,
+.codex-shot .document-code-line .hljs-number,
+.codex-shot .document-code-line .hljs-variable { color: #0969da; }
+.codex-shot .document-code-line .hljs-regexp,
+.codex-shot .document-code-line .hljs-string { color: #0a6b3b; }
+.codex-shot .document-code-line .hljs-built_in,
+.codex-shot .document-code-line .hljs-symbol { color: #bc5a0b; }
+.codex-shot .document-code-line .hljs-comment,
+.codex-shot .document-code-line .hljs-code { color: #7a8089; }
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-doctag,
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-keyword,
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-type { color: #ff7b72; }
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-title,
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-title.class_,
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-title.function_ { color: #d2a8ff; }
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-attr,
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-literal,
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-number,
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-variable { color: #79c0ff; }
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-regexp,
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-string { color: #a5d6ff; }
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-built_in,
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-symbol { color: #ffa657; }
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-comment,
+:root[data-theme="dark"] .codex-shot .document-code-line .hljs-code { color: #8b949e; }
+
+.codex-shot .document-code-truncated {
+  padding: 10px 16px;
+  color: var(--text-3);
+}
+
+/* ── Chat file references ───────────────────────────────────────────── */
+
+.codex-shot .tool-hit.is-openable {
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.codex-shot .tool-hit.is-openable:hover {
+  background: var(--hover);
+}

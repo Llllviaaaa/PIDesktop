@@ -5,6 +5,17 @@ Notable user-facing changes are documented in this file.
 ## Unreleased
 
 - Rebuild the composer model picker: search, models grouped by provider, and a 思考等级 row that opens the reasoning levels. The level control is hidden for models that cannot reason, and a level chosen on the new-task page is applied once the task starts.
+- Integrated terminals keep running when the terminal panel is hidden, the right sidebar switches tools, or you switch threads; only closing a tab ends its shell. The terminal now has one home, the bottom panel (Ctrl+J or Ctrl+`).
+- Terminal tabs can use any installed shell (PowerShell, PowerShell 7, Command Prompt, Git Bash, WSL), search their output (Ctrl+F), copy and paste, open localhost links in the built-in browser, send the selection or recent output to the composer, and restart an exited shell with Enter. ANSI colors stay readable on light themes.
+- Fix Ctrl+C doing nothing in the terminal when the app inherited "ignore Ctrl+C" from whatever launched it, CJK output garbled where it crossed a read boundary, the WSL shell setting starting PowerShell, and Git Bash resolving to WSL's bash.
+- The right sidebar is a tab strip (摘要, 审查, 浏览器, 文件, 侧边聊天) instead of a launcher list, and every tool keeps its state when you switch.
+- The task summary is a docked sidebar tab instead of a popover that closed on any click. Changes, the last turn and branch comparisons open in Review rather than in a second, read-only diff view.
+- Review can stage, unstage or discard a single hunk, adds a 上一轮 scope that shows only what the latest agent turn changed (from Pi's turn checkpoints), and collects line comments so they are sent to Pi together.
+- Review, the file tree and the file preview show CJK file names instead of Git's octal escapes, and their diffs load.
+- Open in detects Zed, Sublime Text, Notepad++, Visual Studio and JetBrains IDEs alongside VS Code, Cursor, Windsurf and Antigravity, remembers the editor per project, opens files at a line, and opens the workspace in Windows Terminal, PowerShell, Command Prompt or Git Bash.
+- Right-click a file path in chat, tool calls, Review, the file tree or the preview to preview it, open it in any detected editor at that line, reveal it in Explorer or copy its path; Ctrl+click opens it in the project's editor.
+- The file preview shows line numbers and syntax highlighting and scrolls to the requested line.
+- The built-in browser gains developer tools, a button that asks Pi to verify the page, reloading local pages after each agent turn, and an opt-in automatic verification after turns that changed files.
 
 ## 0.2.28 - 2026-09-23
 

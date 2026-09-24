@@ -1,4 +1,5 @@
 import {
+  isLocalWebAddress,
   resolveWorkspaceBrowserAddress,
   webAccessKindForTool,
   webSearchQuery,
@@ -34,6 +35,13 @@ test("web access", async () => {
   assert(fallbackSources[0]?.url === "https://example.com/search?q=codex", "result URL fallback failed");
   assert(resolveWorkspaceBrowserAddress("https://example.com") === "https://example.com", "URL changed");
   assert(resolveWorkspaceBrowserAddress("localhost:1420") === "http://localhost:1420", "localhost protocol missing");
+  assert(isLocalWebAddress("http://localhost:5173/"), "localhost dev server is local");
+  assert(isLocalWebAddress("http://127.0.0.1:8080/app"), "loopback IP is local");
+  assert(isLocalWebAddress("http://[::1]:3000"), "IPv6 loopback is local");
+  assert(isLocalWebAddress("http://app.localhost:4000"), "*.localhost is local");
+  assert(!isLocalWebAddress("https://example.com"), "public site is not local");
+  assert(!isLocalWebAddress("file:///C:/index.html"), "file URL is not a web address");
+  assert(!isLocalWebAddress("not a url"), "garbage is not local");
   assert(
     resolveWorkspaceBrowserAddress("pi desktop architecture") === "",
     "browser address text should not trigger a search-engine navigation",

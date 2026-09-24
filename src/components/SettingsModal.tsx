@@ -527,6 +527,15 @@ function Switch({ checked, onChange, label }: { checked: boolean; onChange: (val
 }
 
 function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
+  const inTauri = "__TAURI_INTERNALS__" in window;
+  const editorsQuery = useQuery({
+    queryKey: queryKeys.workspaceEditors(),
+    queryFn: () => pi.listWorkspaceEditors(),
+    enabled: inTauri,
+    staleTime: Infinity,
+  });
+  const editors = editorsQuery.data ?? [];
+  const savedMissing = form.defaultFileOpener !== "system" && !editors.some((editor) => editor.id === form.defaultFileOpener);
   return <>
     <PageHeading title="常规" description="控制 Pi Desktop 的启动、消息发送和项目文件打开方式。" />
     <Card title="任务">
@@ -539,7 +548,13 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
     <Card title="应用">
       <Row title="恢复上次任务" description="启动时重新打开上一次任务及其 Pi 会话；前端刷新时会直接接回仍在运行的任务。"><Switch label="恢复上次任务" checked={form.autoConnect} onChange={(value) => update("autoConnect", value)} /></Row>
       <Row title="运行时防止休眠" description="执行长时间本地任务时保持电脑唤醒。"><Switch label="运行时防止休眠" checked={form.preventSleep} onChange={(value) => update("preventSleep", value)} /></Row>
-      <Row title="默认文件打开方式"><select value={form.defaultFileOpener} onChange={(event) => update("defaultFileOpener", event.target.value as AppSettings["defaultFileOpener"])}><option value="system">自动选择已安装的编辑器</option><option value="cursor">Cursor</option><option value="vscode">Visual Studio Code</option><option value="antigravity">Antigravity</option><option value="windsurf">Windsurf</option></select></Row>
+      <Row title="默认编辑器" description="打开项目和文件（含跳转到行）时使用。顶栏“打开方式”里为某个项目选过的编辑器优先于这里。">
+        <select value={form.defaultFileOpener} onChange={(event) => update("defaultFileOpener", event.target.value)}>
+          <option value="system">自动选择已安装的编辑器</option>
+          {editors.map((editor) => <option key={editor.id} value={editor.id}>{editor.name}</option>)}
+          {savedMissing && <option value={form.defaultFileOpener}>{form.defaultFileOpener}（未检测到）</option>}
+        </select>
+      </Row>
       <Row title="界面语言"><select value="zh-CN" disabled><option value="zh-CN">简体中文</option></select></Row>
     </Card>
     <Card title="通知">
@@ -1026,7 +1041,7 @@ function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }
       <Row title="默认工作环境" description="在当前检出中工作，或为任务创建隔离 Git Worktree。"><select value={form.defaultTaskEnvironment} onChange={(event) => update("defaultTaskEnvironment", event.target.value as AppSettings["defaultTaskEnvironment"])}><option value="local">Local（当前工作区）</option><option value="worktree">Worktree（隔离检出）</option></select></Row>
     </Card>
     <Card title="集成终端">
-      <Row title="集成终端 Shell" description="选择新终端标签页使用的 Shell。"><select value={form.terminalShell} onChange={(event) => update("terminalShell", event.target.value)}><option>PowerShell</option><option>Command Prompt</option><option>Git Bash</option><option>WSL</option></select></Row>
+      <Row title="集成终端 Shell" description="终端面板里“+”新建标签页时使用的 Shell；“+”旁的菜单可临时选择其他 Shell。"><select value={form.terminalShell} onChange={(event) => update("terminalShell", event.target.value)}><option>PowerShell</option><option>PowerShell 7</option><option>Command Prompt</option><option>Git Bash</option><option>WSL</option></select></Row>
       <Row title="对话中的命令输出"><select value={form.terminalOutput} onChange={(event) => update("terminalOutput", event.target.value as AppSettings["terminalOutput"])}><option value="summary">摘要</option><option value="full">完整输出</option></select></Row>
     </Card>
   </>;

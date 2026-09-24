@@ -9,6 +9,7 @@ import { stripCodeReviewDirectives } from "../lib/codeReview";
 import { parseRichContent, RICH_CONTENT_LANGUAGE } from "../lib/richContent";
 import { DiagramBlock, diagramKindForLanguage } from "./DiagramBlock";
 import { RichContent } from "./RichContent";
+import { useFileActions } from "./WorkspaceOpeners";
 
 /** When provided, file links open in the in-app document pane instead of the OS. */
 export type OpenWorkspaceFile = (path: string, line?: number) => void;
@@ -210,22 +211,40 @@ function richContentFenceCount(markdown: string): number {
   return allRichOpeners === richStarts && richStarts === richCompleted ? richCompleted : -1;
 }
 
+function parseFileHref(href: string): { path: string; line?: number } {
+  const [encoded, hash] = href.slice(FILE_SCHEME.length).split("#");
+  const line = hash?.startsWith("L") ? Number(hash.slice(1)) : undefined;
+  return { path: decodeURIComponent(encoded), line: line !== undefined && Number.isFinite(line) ? line : undefined };
+}
+
 function FileRef({ href, children }: { href: string; children?: ReactNode }) {
   const openInApp = useContext(WorkspaceFileOpenContext);
+  const fileActions = useFileActions();
+  const editor = fileActions?.preferredEditor;
   return (
     <a
       className="file-ref"
       href={href}
+      title={editor ? `单击预览 · Ctrl+单击在 ${editor.name} 中打开 · 右键查看更多` : undefined}
+      onContextMenu={(event) => {
+        if (!fileActions) return;
+        const { path, line } = parseFileHref(href);
+        fileActions.showMenu(event, path, line);
+      }}
       onClick={(event) => {
+        if ((event.ctrlKey || event.metaKey) && fileActions) {
+          event.preventDefault();
+          const { path, line } = parseFileHref(href);
+          fileActions.openInEditor(path, line);
+          return;
+        }
         if (!openInApp) {
           openFileRef(event, href);
           return;
         }
         event.preventDefault();
-        const [encoded, hash] = href.slice(FILE_SCHEME.length).split("#");
-        const path = decodeURIComponent(encoded);
-        const line = hash?.startsWith("L") ? Number(hash.slice(1)) : undefined;
-        openInApp(path, Number.isFinite(line) ? line : undefined);
+        const { path, line } = parseFileHref(href);
+        openInApp(path, line);
       }}
     >
       <FileText size={13} strokeWidth={1.8} />

@@ -2,7 +2,9 @@
 //!
 //! Every command here shells out to `git`, so they all run off the main thread.
 
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
@@ -510,6 +512,239 @@ pub(crate) fn git_snapshot(cwd: String) -> Result<GitSnapshot, AppError> {
     })
 }
 
+/// The repository's top-level folder; patches and tree writes run from here
+/// because Git reports every path relative to it.
+fn repository_toplevel(cwd: &Path) -> Result<PathBuf, AppError> {
+    if !cwd.is_dir() {
+        return Err(AppError::NotFound("workspace no longer exists".to_string()));
+    }
+    let root = run_git(cwd, &["rev-parse", "--show-toplevel"])?;
+    let root = root.trim();
+    if root.is_empty() {
+        return Err(AppError::Git("not a Git repository".to_string()));
+    }
+    Ok(PathBuf::from(root))
+}
+
+/// Applies a patch the review pane built from one hunk (or one file).
+///
+/// `cached` targets the index (stage or unstage a hunk); without it the patch
+/// lands in the working tree (discard a hunk). `reverse` undoes the patch.
+#[tauri::command(async)]
+pub(crate) fn git_apply_patch(
+    cwd: String,
+    patch: String,
+    cached: bool,
+    reverse: bool,
+) -> Result<(), AppError> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    if patch.trim().is_empty() {
+        return Err(AppError::InvalidInput("patch is empty".to_string()));
+    }
+    let root = repository_toplevel(Path::new(&cwd))?;
+    let mut command = hidden_command("git");
+    command.arg("apply").arg("--whitespace=nowarn");
+    if cached {
+        command.arg("--cached");
+    }
+    if reverse {
+        command.arg("--reverse");
+    }
+    let mut child = command
+        .arg("-")
+        .current_dir(&root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| AppError::Process(format!("failed to run git apply: {err}")))?;
+    let mut body = patch;
+    if !body.ends_with('\n') {
+        body.push('\n');
+    }
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(body.as_bytes())
+            .map_err(|err| AppError::Io(format!("failed to send patch to git: {err}")))?;
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|err| AppError::Process(format!("failed to run git apply: {err}")))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Err(AppError::Git(if stderr.is_empty() {
+        "git apply failed".to_string()
+    } else {
+        stderr
+    }))
+}
+
+fn run_git_with_index(root: &Path, index: &Path, args: &[&str]) -> Result<String, AppError> {
+    let output = hidden_command("git")
+        .args(["-c", "core.quotePath=false"])
+        .args(args)
+        .env("GIT_INDEX_FILE", index)
+        .current_dir(root)
+        .output()
+        .map_err(|err| AppError::Process(format!("failed to run git: {err}")))?;
+    if !output.status.success() {
+        return Err(AppError::Git(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Records the whole working tree (tracked and untracked, minus ignored files)
+/// as a tree object, without touching the real index or making a commit.
+///
+/// This mirrors how the Pi guard extension (pidesktop-checkpoints.ts) records
+/// a turn's starting point, so the two trees compare like for like. A scratch
+/// copy of the real index is merged with HEAD via `read-tree -m`, which keeps
+/// Git's stat cache: only files that changed are hashed again.
+fn write_worktree_tree(root: &Path) -> Result<String, AppError> {
+    let index = run_git(root, &["rev-parse", "--git-path", "index"])?;
+    let index = root.join(index.trim());
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or_default();
+    let scratch = std::env::temp_dir().join(format!(
+        "pid-desktop-worktree-{}-{stamp}.index",
+        std::process::id()
+    ));
+    let head_tree = run_git(root, &["rev-parse", "--verify", "--quiet", "HEAD^{tree}"])
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let tree = (|| {
+        match &head_tree {
+            Some(head) => {
+                let merged = index.is_file()
+                    && fs::copy(&index, &scratch).is_ok()
+                    && run_git_with_index(root, &scratch, &["read-tree", "-m", head]).is_ok();
+                if !merged {
+                    // No index yet, or one with conflicts: start from HEAD without a stat cache.
+                    let _ = fs::remove_file(&scratch);
+                    run_git_with_index(root, &scratch, &["read-tree", head])?;
+                }
+            }
+            None => {
+                run_git_with_index(root, &scratch, &["read-tree", "--empty"])?;
+            }
+        }
+        run_git_with_index(root, &scratch, &["add", "-A", "--", "."])?;
+        run_git_with_index(root, &scratch, &["write-tree"])
+    })();
+    let _ = fs::remove_file(&scratch);
+    let tree = tree?.trim().to_string();
+    if tree.is_empty() {
+        return Err(AppError::Git("git write-tree returned nothing".to_string()));
+    }
+    Ok(tree)
+}
+
+/// A snapshot of what the most recent agent turn changed in this repository.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LastTurnSnapshot {
+    #[serde(flatten)]
+    pub(crate) snapshot: GitSnapshot,
+    /// Unix seconds when the turn started (when its checkpoint was recorded).
+    pub(crate) started_at: i64,
+}
+
+/// The newest turn checkpoint the Pi guard extension recorded for this repository.
+fn latest_turn_checkpoint(root: &Path) -> Result<Option<(String, i64)>, AppError> {
+    let output = run_git(
+        root,
+        &[
+            "for-each-ref",
+            "--sort=-creatordate",
+            "--count=1",
+            "--format=%(objectname) %(creatordate:unix)",
+            "refs/pidesktop/checkpoints",
+        ],
+    )?;
+    let Some((commit, stamp)) = output.trim().split_once(' ') else {
+        return Ok(None);
+    };
+    let tree = run_git(
+        root,
+        &["rev-parse", "--verify", &format!("{commit}^{{tree}}")],
+    )?;
+    Ok(Some((
+        tree.trim().to_string(),
+        stamp.trim().parse().unwrap_or_default(),
+    )))
+}
+
+fn snapshot_between_trees(root: &Path, from: &str, to: &str) -> Result<GitSnapshot, AppError> {
+    let branch = run_git(root, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .ok()
+        .map(|value| value.trim().to_string());
+    let name_status = run_git(root, &["diff", "--no-renames", "--name-status", from, to])?;
+    let files = name_status
+        .lines()
+        .filter_map(|line| {
+            let (status, path) = line.split_once('\t')?;
+            let path = path.trim();
+            if path.is_empty() {
+                return None;
+            }
+            Some(GitFileChange {
+                status: status
+                    .chars()
+                    .next()
+                    .map(|ch| ch.to_string())
+                    .unwrap_or_default(),
+                path: path.to_string(),
+                index_status: String::new(),
+                worktree_status: String::new(),
+                staged: false,
+                unstaged: true,
+                untracked: false,
+            })
+        })
+        .collect();
+    let diff = run_git(
+        root,
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-renames",
+            "--unified=3",
+            from,
+            to,
+        ],
+    )?;
+    Ok(GitSnapshot {
+        is_repository: true,
+        branch,
+        files,
+        diff,
+    })
+}
+
+/// Everything the working tree gained since the latest agent turn started.
+/// `None` when no turn has run in this repository with checkpoints enabled.
+#[tauri::command(async)]
+pub(crate) fn git_last_turn_snapshot(cwd: String) -> Result<Option<LastTurnSnapshot>, AppError> {
+    let root = repository_toplevel(Path::new(&cwd))?;
+    let Some((checkpoint, started_at)) = latest_turn_checkpoint(&root)? else {
+        return Ok(None);
+    };
+    let current = write_worktree_tree(&root)?;
+    Ok(Some(LastTurnSnapshot {
+        snapshot: snapshot_between_trees(&root, &checkpoint, &current)?,
+        started_at,
+    }))
+}
+
 #[tauri::command(async)]
 pub(crate) fn git_repository_root(cwd: String) -> Result<Option<String>, AppError> {
     let workspace = PathBuf::from(cwd.trim());
@@ -525,8 +760,12 @@ pub(crate) fn git_repository_root(cwd: String) -> Result<Option<String>, AppErro
     }
 }
 
+/// Every read goes through here. `core.quotePath=false` makes Git print
+/// non-ASCII paths (every CJK file name) as UTF-8 instead of octal escapes,
+/// so status lines and diff headers name files the way the UI shows them.
 pub(crate) fn run_git(cwd: &Path, args: &[&str]) -> Result<String, AppError> {
     let output = hidden_command("git")
+        .args(["-c", "core.quotePath=false"])
         .args(args)
         .current_dir(cwd)
         .output()
@@ -542,7 +781,6 @@ pub(crate) fn run_git(cwd: &Path, args: &[&str]) -> Result<String, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::*;
 
     #[test]
     fn parses_git_index_and_worktree_status_separately() {
@@ -620,6 +858,200 @@ mod tests {
         let unstaged = git_snapshot(cwd).expect("unstaged snapshot should load");
         assert!(!unstaged.files[0].staged);
         assert!(unstaged.files[0].unstaged);
+
+        fs::remove_dir_all(directory).expect("temporary repository should be removed");
+    }
+
+    fn fixture_repository(name: &str, contents: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after Unix epoch")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "pid-desktop-git-{name}-{}-{stamp}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).expect("temporary repository should be created");
+        run_git(&directory, &["init"]).expect("git repository should initialize");
+        run_git(&directory, &["config", "core.autocrlf", "false"]).expect("autocrlf should be set");
+        fs::write(directory.join("notes.txt"), contents).expect("fixture file should be written");
+        run_git(&directory, &["add", "notes.txt"]).expect("file should stage");
+        run_git(
+            &directory,
+            &[
+                "-c",
+                "user.email=pid-desktop@example.invalid",
+                "-c",
+                "user.name=PIDesktop Tests",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                "initial",
+            ],
+        )
+        .expect("fixture commit should be created");
+        directory
+    }
+
+    /// The first hunk of a single-file diff, as the review pane builds it.
+    fn first_hunk_patch(diff: &str) -> String {
+        let mut header = Vec::new();
+        let mut hunk = Vec::new();
+        for line in diff.lines() {
+            if line.starts_with("@@") {
+                if !hunk.is_empty() {
+                    break;
+                }
+                hunk.push(line);
+            } else if hunk.is_empty() {
+                header.push(line);
+            } else {
+                hunk.push(line);
+            }
+        }
+        format!("{}\n{}\n", header.join("\n"), hunk.join("\n"))
+    }
+
+    #[test]
+    fn stages_and_discards_a_single_hunk() {
+        let original: String = (1..=30).map(|n| format!("line {n}\n")).collect();
+        let directory = fixture_repository("hunk", &original);
+        let edited = original
+            .replace("line 2\n", "line two\n")
+            .replace("line 28\n", "line twenty-eight\n");
+        fs::write(directory.join("notes.txt"), &edited).expect("file should be edited");
+        let cwd = directory.to_string_lossy().to_string();
+
+        let diff = run_git(&directory, &["diff", "--no-ext-diff", "--unified=3", "--"])
+            .expect("diff should load");
+        assert_eq!(
+            diff.lines().filter(|line| line.starts_with("@@")).count(),
+            2
+        );
+        let patch = first_hunk_patch(&diff);
+
+        git_apply_patch(cwd.clone(), patch.clone(), true, false).expect("hunk should stage");
+        let staged =
+            run_git(&directory, &["diff", "--cached", "--"]).expect("staged diff should load");
+        assert!(staged.contains("+line two"));
+        assert!(!staged.contains("twenty-eight"));
+
+        git_apply_patch(cwd.clone(), patch.clone(), true, true).expect("hunk should unstage");
+        let staged =
+            run_git(&directory, &["diff", "--cached", "--"]).expect("staged diff should load");
+        assert!(staged.trim().is_empty());
+
+        git_apply_patch(cwd, patch, false, true).expect("hunk should be discarded");
+        let contents = fs::read_to_string(directory.join("notes.txt")).expect("file should read");
+        assert!(contents.contains("line 2\n"));
+        assert!(contents.contains("line twenty-eight\n"));
+
+        fs::remove_dir_all(directory).expect("temporary repository should be removed");
+    }
+
+    #[test]
+    fn reports_non_ascii_paths_as_utf8() {
+        let directory = fixture_repository(
+            "unicode", "alpha
+",
+        );
+        fs::write(
+            directory.join("书签.txt"),
+            "新内容
+",
+        )
+        .expect("CJK file should be written");
+        run_git(&directory, &["add", "书签.txt"]).expect("CJK file should stage");
+        let snapshot =
+            git_snapshot(directory.to_string_lossy().to_string()).expect("snapshot should load");
+        assert!(
+            snapshot.files.iter().any(|file| file.path == "书签.txt"),
+            "{:?}",
+            snapshot.files
+        );
+        assert!(snapshot.diff.contains("b/书签.txt"));
+
+        fs::remove_dir_all(directory).expect("temporary repository should be removed");
+    }
+
+    /// Records a turn checkpoint the way the Pi guard extension does.
+    fn record_turn_checkpoint(directory: &Path, name: &str) {
+        let tree = write_worktree_tree(directory).expect("worktree tree should be written");
+        let commit = run_git(
+            directory,
+            &[
+                "-c",
+                "user.email=checkpoint@example.invalid",
+                "-c",
+                "user.name=PIDesktop",
+                "commit-tree",
+                &tree,
+                "-m",
+                "checkpoint",
+            ],
+        )
+        .expect("checkpoint commit should be created");
+        run_git(
+            directory,
+            &[
+                "update-ref",
+                &format!("refs/pidesktop/checkpoints/{name}"),
+                commit.trim(),
+            ],
+        )
+        .expect("checkpoint ref should be written");
+    }
+
+    #[test]
+    fn shows_only_what_the_last_turn_changed() {
+        let directory = fixture_repository("last-turn", "alpha\n");
+        let cwd = directory.to_string_lossy().to_string();
+        assert!(git_last_turn_snapshot(cwd.clone())
+            .expect("lookup should work")
+            .is_none());
+
+        // Work that predates the turn must not show up as the turn's change.
+        fs::write(directory.join("notes.txt"), "alpha\nbefore turn\n")
+            .expect("file should be edited");
+        run_git(&directory, &["add", "notes.txt"]).expect("pre-turn edit should stage");
+        let index_before =
+            run_git(&directory, &["diff", "--cached", "--name-only"]).expect("index should read");
+        record_turn_checkpoint(&directory, "turn-1");
+
+        fs::write(
+            directory.join("notes.txt"),
+            "alpha\nbefore turn\nduring turn\n",
+        )
+        .expect("file should be edited");
+        fs::write(directory.join("created.txt"), "new file\n").expect("file should be created");
+
+        let last_turn = git_last_turn_snapshot(cwd.clone())
+            .expect("last turn should load")
+            .expect("a checkpoint should exist");
+        assert!(last_turn.started_at > 0);
+        let snapshot = last_turn.snapshot;
+        let mut paths: Vec<_> = snapshot
+            .files
+            .iter()
+            .map(|file| (file.status.as_str(), file.path.as_str()))
+            .collect();
+        paths.sort();
+        assert_eq!(paths, [("A", "created.txt"), ("M", "notes.txt")]);
+        assert!(snapshot.diff.contains("+during turn"));
+        assert!(!snapshot.diff.contains("+before turn"));
+        // Reading the last turn never changes the real index.
+        let index_after =
+            run_git(&directory, &["diff", "--cached", "--name-only"]).expect("index should read");
+        assert_eq!(index_before, index_after);
+
+        // Reverse-applying the turn's diff restores the pre-turn working tree.
+        git_apply_patch(cwd, snapshot.diff, false, true).expect("turn should be undone");
+        assert_eq!(
+            fs::read_to_string(directory.join("notes.txt")).expect("file should read"),
+            "alpha\nbefore turn\n"
+        );
+        assert!(!directory.join("created.txt").exists());
 
         fs::remove_dir_all(directory).expect("temporary repository should be removed");
     }

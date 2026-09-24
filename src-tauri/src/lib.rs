@@ -81,6 +81,9 @@ struct AppState {
 
 impl Drop for AppState {
     fn drop(&mut self) {
+        if let Ok(terminals) = self.terminal_sessions.get_mut() {
+            terminal::close_all(terminals);
+        }
         let session_dir = self
             .settings
             .get_mut()
@@ -134,6 +137,23 @@ fn browser_webview_action(
         "reload" => webview
             .reload()
             .map_err(|err| AppError::Other(err.to_string())),
+        // Native webviews float above the page, so a hidden browser tab must hide them.
+        "hide" => webview
+            .hide()
+            .map_err(|err| AppError::Other(err.to_string())),
+        "show" => webview
+            .show()
+            .map_err(|err| AppError::Other(err.to_string())),
+        "devtools" => {
+            // Only the embedded browser gets an inspector, never the app's own UI.
+            if !label.starts_with("workspace-browser-") {
+                return Err(AppError::InvalidInput(
+                    "developer tools are only available for the embedded browser".to_string(),
+                ));
+            }
+            webview.open_devtools();
+            Ok(())
+        }
         _ => Err(AppError::InvalidInput(
             "unsupported browser action".to_string(),
         )),
@@ -297,6 +317,8 @@ pub fn run() {
             git_restore_files,
             git_stage_files,
             git_unstage_files,
+            git_apply_patch,
+            git_last_turn_snapshot,
             git_list_branches,
             git_checkout_branch,
             git_compare,
@@ -315,7 +337,12 @@ pub fn run() {
             open_workspace_in_file_manager,
             list_workspace_editors,
             open_workspace_in_editor,
+            open_file_in_editor,
+            reveal_path_in_file_manager,
+            list_terminal_apps,
+            open_workspace_in_terminal_app,
             browser_webview_action,
+            terminal::terminal_shells,
             terminal::terminal_create,
             terminal::terminal_write,
             terminal::terminal_resize,
