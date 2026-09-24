@@ -2197,8 +2197,9 @@ export default function App() {
                       </div>
                     </section>
                   )}
-                  {Object.values(extensionWidgets).map((lines, index) => (
-                    <div className="extension-widget" key={index}>{lines.map((line, lineIndex) => <div key={lineIndex}>{line}</div>)}</div>
+                  {/* ConversationPlan already renders update_plan; skip the plan extension's text copy. */}
+                  {Object.entries(extensionWidgets).filter(([key]) => key !== "pidesktop-plan").map(([key, lines]) => (
+                    <div className="extension-widget" key={key}>{lines.map((line, lineIndex) => <div key={lineIndex}>{line}</div>)}</div>
                   ))}
                   {extensionRequest && <ExtensionDialog request={extensionRequest} onAnswer={(response) => void store.answerExtension(response)} />}
                 </>
