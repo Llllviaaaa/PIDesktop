@@ -55,7 +55,8 @@ use extensions::{
 };
 use pi::process::{run_pi_print, PiPrintLimits};
 use pi::rpc::PiRpcClient;
-use pi::sessions::{list_sessions, trash_session, validate_session_path};
+use pi::sessions::{list_sessions, validate_session_path};
+use pi::side_chats::{clear_stale_side_chats, remove_runtime_session_dir, runtime_session_dir};
 use platform::*;
 use scheduler::ScheduledRunRecord;
 
@@ -84,20 +85,13 @@ impl Drop for AppState {
         if let Ok(terminals) = self.terminal_sessions.get_mut() {
             terminal::close_all(terminals);
         }
-        let session_dir = self
-            .settings
-            .get_mut()
-            .map(|settings| settings.session_dir.clone())
-            .unwrap_or_default();
         let Ok(runtimes) = self.runtimes.get_mut() else {
             return;
         };
         for (_, runtime) in runtimes.drain() {
             runtime.client.kill();
-            if runtime.isolated {
-                if let Some(file) = runtime.session_file {
-                    let _ = trash_session(&session_dir, &file);
-                }
+            if let Some(dir) = &runtime.side_chat_dir {
+                remove_runtime_session_dir(dir);
             }
         }
     }
@@ -234,6 +228,7 @@ pub fn run() {
             "Pi Desktop bundled Pi runtime was not found; falling back to configured Pi command"
         );
     }
+    clear_stale_side_chats();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

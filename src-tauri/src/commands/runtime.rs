@@ -8,7 +8,8 @@ pub(crate) struct PiRuntime {
     pub(crate) client: PiRpcClient,
     pub(crate) cwd: String,
     pub(crate) session_file: Option<String>,
-    pub(crate) isolated: bool,
+    /// Set for a side chat: its forked session lives here, outside the Pi session root.
+    pub(crate) side_chat_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -334,8 +335,33 @@ pub(crate) fn pi_start(
         .ok()
         .zip(quick_root.canonicalize().ok())
         .is_some_and(|(active, quick)| active == quick);
-    let mut launch =
-        build_pi_launch_config(&settings, &cwd, &settings.permission_mode, is_quick_chat)?;
+    let runtime_id = format!(
+        "runtime-{}-{}",
+        std::process::id(),
+        NEXT_RUNTIME_ID.fetch_add(1, Ordering::Relaxed)
+    );
+    let side_chat_dir = if is_isolated {
+        Some(runtime_session_dir(&runtime_id).ok_or_else(|| {
+            AppError::Other("could not resolve the side chat session directory".to_string())
+        })?)
+    } else {
+        None
+    };
+    let mut launch = match &side_chat_dir {
+        Some(dir) => {
+            let launch_settings = AppSettings {
+                session_dir: dir.to_string_lossy().to_string(),
+                ..settings.clone()
+            };
+            build_pi_launch_config(
+                &launch_settings,
+                &cwd,
+                &settings.permission_mode,
+                is_quick_chat,
+            )?
+        }
+        None => build_pi_launch_config(&settings, &cwd, &settings.permission_mode, is_quick_chat)?,
+    };
     let mut initial_session_file = None;
     let mut session_loaded = false;
     let mut session_forked = false;
@@ -364,11 +390,6 @@ pub(crate) fn pi_start(
             providers_extension.to_string_lossy().to_string(),
         ]);
     }
-    let runtime_id = format!(
-        "runtime-{}-{}",
-        std::process::id(),
-        NEXT_RUNTIME_ID.fetch_add(1, Ordering::Relaxed)
-    );
     let client = PiRpcClient::spawn(
         app,
         &runtime_id,
@@ -377,7 +398,12 @@ pub(crate) fn pi_start(
         &launch.extra_args,
         &launch.environment,
         &launch.sensitive_values,
-    )?;
+    )
+    .inspect_err(|_| {
+        if let Some(dir) = &side_chat_dir {
+            remove_runtime_session_dir(dir);
+        }
+    })?;
 
     state
         .runtimes
@@ -389,7 +415,7 @@ pub(crate) fn pi_start(
                 client,
                 cwd,
                 session_file: initial_session_file,
-                isolated: is_isolated,
+                side_chat_dir,
             },
         );
     Ok(PiStartResult {
@@ -469,19 +495,9 @@ pub(crate) fn pi_stop(state: State<'_, AppState>, runtime_id: String) -> Result<
         runtime
     };
     if let Some(runtime) = runtime {
-        let ephemeral_session = runtime
-            .isolated
-            .then(|| runtime.session_file.clone())
-            .flatten();
         runtime.client.kill();
-        if let Some(file) = ephemeral_session {
-            let session_dir = state
-                .settings
-                .lock()
-                .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
-                .session_dir
-                .clone();
-            let _ = trash_session(&session_dir, &file);
+        if let Some(dir) = &runtime.side_chat_dir {
+            remove_runtime_session_dir(dir);
         }
     }
     Ok(())

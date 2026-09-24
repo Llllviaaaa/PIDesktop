@@ -14,7 +14,7 @@ use crate::pi::sessions::{
     list_sessions, parse_session_file, session_history, session_message_timings, session_messages,
     trash_session, validate_session_path, SessionHistory, SessionInfo, SessionMessageTiming,
 };
-use crate::{paths_equal, save_settings, AppState};
+use crate::{save_settings, AppState};
 
 #[tauri::command(async)]
 pub(crate) fn list_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<SessionInfo>, AppError> {
@@ -23,32 +23,20 @@ pub(crate) fn list_sessions_cmd(state: State<'_, AppState>) -> Result<Vec<Sessio
         .lock()
         .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .clone();
-    let (ephemeral_sessions, active_primary_sessions) = {
-        let runtimes = state
-            .runtimes
-            .lock()
-            .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?;
-        let ephemeral = runtimes
-            .values()
-            .filter(|runtime| runtime.isolated)
-            .filter_map(|runtime| runtime.session_file.clone())
-            .collect::<Vec<_>>();
-        let primary = runtimes
-            .values()
-            .filter(|runtime| !runtime.isolated)
-            .filter_map(|runtime| runtime.session_file.clone())
-            .collect::<Vec<_>>();
-        (ephemeral, primary)
-    };
+    // Side chats keep their forks outside the session root, so every listed
+    // session belongs to a primary conversation.
+    let active_primary_sessions = state
+        .runtimes
+        .lock()
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
+        .values()
+        .filter(|runtime| runtime.side_chat_dir.is_none())
+        .filter_map(|runtime| runtime.session_file.clone())
+        .collect::<Vec<_>>();
     let archived = &settings.archived_sessions;
     let sessions = list_sessions(&settings.session_dir)
         .into_iter()
         .filter(|session| !archived.iter().any(|file| file == &session.file))
-        .filter(|session| {
-            !ephemeral_sessions
-                .iter()
-                .any(|file| paths_equal(file, &session.file))
-        })
         .collect();
     Ok(collapse_unchanged_session_forks(
         &settings.session_dir,
