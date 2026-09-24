@@ -121,7 +121,7 @@
   50% { opacity: .35; }
 }
 
-.codex-shot .workspace-dock-close {
+.codex-shot .workspace-dock-action {
   flex: 0 0 auto;
   width: 26px;
   height: 26px;
@@ -134,7 +134,8 @@
   cursor: pointer;
 }
 
-.codex-shot .workspace-dock-close:hover {
+.codex-shot .workspace-dock-action:hover,
+.codex-shot .workspace-dock-action[aria-pressed="true"] {
   background: var(--hover);
   color: var(--text);
 }
@@ -272,6 +273,90 @@
   padding: 6px 10px;
   color: var(--text-3);
   font-size: 12px;
+}
+
+/* The main button names the editor it opens; the topbar drops the name when narrow. */
+.codex-shot .topbar-branch-control.workspace-launch-control {
+  width: auto;
+}
+
+.codex-shot .workspace-launch-control .workspace-open-trigger {
+  width: auto;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.codex-shot .workspace-open-label {
+  max-width: 96px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .stage-canvas:has(.work-split.workspace-sidebar-open:not(.workspace-focus)) .workspace-open-label {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .codex-shot .workspace-open-label {
+    display: none;
+  }
+}
+
+/* ── Topbar change count and terminal indicator ─────────────────────── */
+
+.codex-shot .topbar-diff-chip {
+  flex: 0 0 auto;
+  height: 30px;
+  gap: 5px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.codex-shot .topbar-diff-chip:hover,
+.codex-shot .topbar-diff-chip.active {
+  border-color: var(--border-strong);
+  background: var(--active);
+}
+
+.codex-shot .topbar-diff-chip em {
+  color: var(--green);
+}
+
+.codex-shot .topbar-diff-chip b {
+  color: var(--red);
+}
+
+.codex-shot .terminal-toggle {
+  position: relative;
+}
+
+/* Hidden terminals are still running; the accent dot means they printed since you last looked. */
+.codex-shot .panel-toggle-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+  box-shadow: 0 0 0 2px var(--app);
+  pointer-events: none;
+}
+
+.codex-shot .panel-toggle-dot.unseen {
+  background: var(--accent);
+}
+
+.codex-shot .terminal-tab-unseen {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 /* ── Terminal ───────────────────────────────────────────────────────── */

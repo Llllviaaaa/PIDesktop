@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { useSyncOnChange } from "./hooks/useSyncOnChange";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,14 +36,11 @@ import {
   ArrowLeft,
   ArrowRight,
   Bug,
-  ClipboardList,
   FileDiff,
   Folder,
   Globe2,
   Hammer,
   Menu,
-  Maximize2,
-  Minimize2,
   Minus,
   MoreHorizontal,
   PanelBottom,
@@ -62,6 +60,7 @@ import {
   type PetAnimationState,
 } from "./lib/appearanceCatalog";
 import { aggregateDiffStats } from "./lib/gitDiffStats";
+import { backgroundTerminalsFor, subscribeTerminalTabs, terminalTabsSnapshot } from "./lib/terminalTabs";
 import {
   nextTranscriptDensity,
   normalizeTranscriptDensity,
@@ -393,7 +392,7 @@ export default function App() {
   const appWindow = isTauri ? getCurrentWindow() : null;
   const workspaceCwd = newTask ? draftWorkspace : cwd;
   const workspaceSidebarVisible = workspaceSidebarOpen;
-  const summaryActive = workspaceSidebarOpen && workspaceTool === "summary";
+  const reviewActive = workspaceSidebarOpen && workspaceTool === "review";
   const sidebarRendered = sidebarVisible || sidebarHoverPreview;
   const currentSideChats = useMemo(
     () => sessionFile ? sideChats.filter((chat) => sameLocalPath(chat.parentSessionFile, sessionFile)) : [],
@@ -561,11 +560,6 @@ export default function App() {
     setSummaryView((current) => ({ view, nonce: current.nonce + 1 }));
     showWorkspaceTool("summary");
   }, [showWorkspaceTool]);
-
-  const toggleSummary = useCallback(() => {
-    if (workspaceSidebarOpen && workspaceTool === "summary") closeWorkspaceSidebar();
-    else openSummary();
-  }, [closeWorkspaceSidebar, openSummary, workspaceSidebarOpen, workspaceTool]);
 
   /** Opens the review tool, optionally on a scope (last turn, branch comparison). */
   const openReview = useCallback((filter?: ReviewFilter) => {
@@ -1068,10 +1062,21 @@ export default function App() {
     [runtimes],
   );
   const changedFiles = git?.files ?? [];
+  // The checkout the review tab shows: the chosen project on a new task, else the thread's.
+  const reviewGit = newTask ? draftGit : git;
   const gitDiffStats = useMemo(() => {
-    const { add, del } = aggregateDiffStats(git?.diff);
+    const { add, del } = aggregateDiffStats(reviewGit?.diff);
     return { additions: add, deletions: del };
-  }, [git?.diff]);
+  }, [reviewGit?.diff]);
+  const reviewFileCount = reviewGit?.files.length ?? 0;
+  const terminalTabs = useSyncExternalStore(subscribeTerminalTabs, terminalTabsSnapshot);
+  const backgroundTerminals = useMemo(() => backgroundTerminalsFor(terminalTabs, workspaceCwd), [terminalTabs, workspaceCwd]);
+  const showBackgroundTerminals = !bottomPanel && (backgroundTerminals.count > 0 || backgroundTerminals.unseenOutput);
+  const terminalToggleTitle = bottomPanel
+    ? "隐藏终端 (Ctrl+J)：终端继续运行"
+    : showBackgroundTerminals
+      ? `终端 (Ctrl+J)：后台有 ${backgroundTerminals.count} 个终端${backgroundTerminals.unseenOutput ? "，有新输出" : ""}`
+      : "终端 (Ctrl+J)";
   const taskWorkspaceName = quickChat
     ? "快速对话"
     : draftWorkspace.split(/[\\/]/).filter(Boolean).pop() || "一个项目";
@@ -1201,6 +1206,26 @@ export default function App() {
       usePiStore.getState().showToast(`无法打开 ${app.name}：${describeError(error)}`, "error");
     });
   }, [workspaceCwd]);
+
+  /** The "open in" button's main action: the project's editor, or Explorer when none is installed. */
+  const openWorkspaceInPreferredApp = useCallback(() => {
+    if (!workspaceCwd) return;
+    if (preferredWorkspaceEditor) chooseWorkspaceEditor(preferredWorkspaceEditor);
+    else revealWorkspaceInExplorer(workspaceCwd);
+  }, [chooseWorkspaceEditor, preferredWorkspaceEditor, revealWorkspaceInExplorer, workspaceCwd]);
+  const canOpenWorkspace = Boolean(workspaceCwd) && !quickChat && !hubView;
+
+  // Ctrl+O already cycles transcript density, so opening the project takes Ctrl+Shift+O.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey || event.key.toLowerCase() !== "o") return;
+      if ((event.target as Element | null)?.closest?.(".xterm") || !canOpenWorkspace) return;
+      event.preventDefault();
+      openWorkspaceInPreferredApp();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [canOpenWorkspace, openWorkspaceInPreferredApp]);
 
   const notify = useCallback((message: string, tone: "info" | "error") => {
     usePiStore.getState().showToast(message, tone);
@@ -1722,6 +1747,7 @@ export default function App() {
               {appMenu === "file" && <>
                 <button onClick={() => { setAppMenu(null); navigateTo({ kind: "home", workspace: draftWorkspace || cwd }); }}>新对话</button>
                 <button onClick={() => { setAppMenu(null); void pickFolder(); }}>打开项目...</button>
+                <button disabled={!canOpenWorkspace} onClick={() => { setAppMenu(null); openWorkspaceInPreferredApp(); }}>{preferredWorkspaceEditor ? `在 ${preferredWorkspaceEditor.name} 中打开` : "在文件资源管理器中打开"}  Ctrl+Shift+O</button>
                 <button disabled={!connected || !sessionFile} onClick={() => { setAppMenu(null); void exportConversationMarkdown(); }}>导出为 Markdown...</button>
                 <button disabled={!connected} onClick={() => { setAppMenu(null); void store.exportSession(); }}>导出为 HTML</button>
                 <div className="menu-separator" />
@@ -1947,66 +1973,58 @@ export default function App() {
             {!hubView && (
               <div className="panel-toggles codex-layout-chrome">
                 <div className="main-pane-controls">
-                  {!newTask && (
-                    <>
-                <OpenInMenu
-                  workspace={workspaceCwd}
-                  editors={workspaceEditors}
-                  preferredEditor={preferredWorkspaceEditor}
-                  terminalApps={terminalApps}
-                  onChooseEditor={chooseWorkspaceEditor}
-                  onOpenTerminalApp={openWorkspaceTerminalApp}
-                  onReveal={() => revealWorkspaceInExplorer(workspaceCwd)}
-                  onOpenIntegratedTerminal={() => setBottomPanel(true)}
-                />
-                <button
-                  type="button"
-                  className={`panel-toggle ${summaryActive ? "active" : ""}`}
-                  title="任务摘要：环境、计划、产出、终端与来源"
-                  aria-label="任务摘要"
-                  aria-pressed={summaryActive}
-                  onClick={toggleSummary}
-                >
-                  <ClipboardList size={15} strokeWidth={1.75} />
-                </button>
-                    </>
+                  {reviewFileCount > 0 && (
+                    <button
+                      type="button"
+                      className={`title-diff-chip topbar-diff-chip ${reviewActive ? "active" : ""}`}
+                      title={`${reviewFileCount} 个文件有未提交的变更 · 审查 (Ctrl+Shift+G)`}
+                      aria-label={`审查 ${reviewFileCount} 个文件的变更`}
+                      aria-pressed={reviewActive}
+                      onClick={() => (reviewActive ? closeWorkspaceSidebar() : openReview("uncommitted"))}
+                    >
+                      {gitDiffStats.additions > 0 && <em>+{gitDiffStats.additions.toLocaleString()}</em>}
+                      {gitDiffStats.deletions > 0 && <b>−{gitDiffStats.deletions.toLocaleString()}</b>}
+                      {gitDiffStats.additions === 0 && gitDiffStats.deletions === 0 && <span>{reviewFileCount} 个文件</span>}
+                    </button>
+                  )}
+                  {canOpenWorkspace && (
+                    <OpenInMenu
+                      workspace={workspaceCwd}
+                      editors={workspaceEditors}
+                      preferredEditor={preferredWorkspaceEditor}
+                      terminalApps={terminalApps}
+                      onOpenPreferred={openWorkspaceInPreferredApp}
+                      onChooseEditor={chooseWorkspaceEditor}
+                      onOpenTerminalApp={openWorkspaceTerminalApp}
+                      onReveal={() => revealWorkspaceInExplorer(workspaceCwd)}
+                      onOpenIntegratedTerminal={() => setBottomPanel(true)}
+                    />
                   )}
                 </div>
                 <div className="workspace-pane-controls">
-                  {workspaceSidebarVisible && (
                   <button
                     type="button"
-                    className={`panel-toggle ${workspaceFocusMode ? "active" : ""}`}
-                    title={workspaceFocusMode ? "退出侧边栏聚焦" : "聚焦侧边栏"}
-                    aria-label={workspaceFocusMode ? "退出侧边栏聚焦" : "聚焦侧边栏"}
-                    aria-pressed={workspaceFocusMode}
-                    onClick={() => setWorkspaceFocusMode((value) => !value)}
+                    className={`panel-toggle terminal-toggle ${bottomPanel ? "active" : ""}`}
+                    title={terminalToggleTitle}
+                    aria-label={terminalToggleTitle}
+                    aria-pressed={bottomPanel}
+                    onClick={() => setBottomPanel((value) => !value)}
                   >
-                    {workspaceFocusMode
-                      ? <Minimize2 size={14} strokeWidth={1.75} />
-                      : <Maximize2 size={14} strokeWidth={1.75} />}
+                    <PanelBottom size={15} strokeWidth={1.75} />
+                    {showBackgroundTerminals && (
+                      <i className={`panel-toggle-dot ${backgroundTerminals.unseenOutput ? "unseen" : ""}`} aria-hidden />
+                    )}
                   </button>
-                  )}
                   <button
-                  type="button"
-                  className={`panel-toggle ${bottomPanel ? "active" : ""}`}
-                  title="终端 (Ctrl+J)：隐藏时终端继续运行"
-                  aria-label="切换终端面板"
-                  aria-pressed={bottomPanel}
-                  onClick={() => setBottomPanel((value) => !value)}
-                >
-                  <PanelBottom size={15} strokeWidth={1.75} />
-                </button>
-                  <button
-                  type="button"
-                  className={`panel-toggle ${workspaceSidebarVisible ? "active" : ""}`}
-                  title="侧边栏：摘要、审查、浏览器、文件 (Ctrl+Alt+B)"
-                  aria-label="切换侧边栏"
-                  aria-pressed={workspaceSidebarVisible}
-                  onClick={toggleWorkspaceSidebar}
-                >
-                  <PanelRight size={15} strokeWidth={1.75} />
-                </button>
+                    type="button"
+                    className={`panel-toggle ${workspaceSidebarVisible ? "active" : ""}`}
+                    title="侧边栏：摘要、审查、浏览器、文件 (Ctrl+Alt+B)"
+                    aria-label="切换侧边栏"
+                    aria-pressed={workspaceSidebarVisible}
+                    onClick={toggleWorkspaceSidebar}
+                  >
+                    <PanelRight size={15} strokeWidth={1.75} />
+                  </button>
                 </div>
               </div>
             )}
@@ -2116,21 +2134,6 @@ export default function App() {
                 </div>
               ) : (
                 <>
-                  {(gitDiffStats.additions > 0 || gitDiffStats.deletions > 0) && (
-                    <div className="thread-meta-row">
-                      {(gitDiffStats.additions > 0 || gitDiffStats.deletions > 0) && (
-                        <button
-                          type="button"
-                          className="title-diff-chip"
-                          title="查看变更"
-                          onClick={() => openReview("uncommitted")}
-                        >
-                          {gitDiffStats.additions > 0 && <em>+{gitDiffStats.additions}</em>}
-                          {gitDiffStats.deletions > 0 && <b>-{gitDiffStats.deletions}</b>}
-                        </button>
-                      )}
-                    </div>
-                  )}
                   <ConversationMessages
                     showThinking={settings?.showThinking ?? true}
                     expectVisibleThinking={thinkingLevel !== "off" && model?.reasoning === true}
@@ -2217,7 +2220,9 @@ export default function App() {
             active={workspaceTool}
             onSelect={selectWorkspaceTool}
             onClose={closeWorkspaceSidebar}
-            badges={{ review: (newTask ? draftGit : git)?.files.length || undefined, "side-chat": currentSideChats.length || undefined }}
+            focused={workspaceFocusMode}
+            onToggleFocus={() => setWorkspaceFocusMode((value) => !value)}
+            badges={{ review: reviewFileCount || undefined, "side-chat": currentSideChats.length || undefined }}
             busy={{ "side-chat": currentSideChats.some((chat) => chat.isStreaming) }}
           />
           <div className="workspace-dock-body">

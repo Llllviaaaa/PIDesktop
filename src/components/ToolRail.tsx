@@ -1,4 +1,4 @@
-import { ClipboardList, FileDiff, Folders, Globe2, MessageSquarePlus, X } from "lucide-react";
+import { ClipboardList, FileDiff, Folders, Globe2, Maximize2, MessageSquarePlus, Minimize2, X } from "lucide-react";
 
 /**
  * Tools of the right-hand workspace dock. The terminal is not one of them: it
@@ -28,6 +28,9 @@ interface ToolRailProps {
   active: WorkspaceTool;
   onSelect: (tool: WorkspaceTool) => void;
   onClose: () => void;
+  /** The dock fills the window, hiding the conversation. */
+  focused: boolean;
+  onToggleFocus: () => void;
   /** Small counts next to a tab label (changed files, side chats). */
   badges?: Partial<Record<WorkspaceTool, number>>;
   /** Tools that are working in the background (a streaming side chat). */
@@ -38,7 +41,7 @@ interface ToolRailProps {
  * The dock's tab strip: one click switches tools, and every tool keeps its state.
  * Only the active tab shows its label, so all five fit a narrow dock.
  */
-export function ToolRail({ active, onSelect, onClose, badges = {}, busy = {} }: ToolRailProps) {
+export function ToolRail({ active, onSelect, onClose, focused, onToggleFocus, badges = {}, busy = {} }: ToolRailProps) {
   return (
     <nav className="workspace-dock-tabs" aria-label="侧边栏工具">
       <div className="workspace-dock-tab-list" role="tablist">
@@ -62,7 +65,17 @@ export function ToolRail({ active, onSelect, onClose, badges = {}, busy = {} }: 
         );
       })}
       </div>
-      <button type="button" className="workspace-dock-close" title="关闭侧边栏 (Ctrl+Alt+B)" aria-label="关闭侧边栏" onClick={onClose}>
+      <button
+        type="button"
+        className="workspace-dock-action"
+        title={focused ? "退出聚焦 (Esc)" : "聚焦：侧边栏占满窗口"}
+        aria-label={focused ? "退出侧边栏聚焦" : "聚焦侧边栏"}
+        aria-pressed={focused}
+        onClick={onToggleFocus}
+      >
+        {focused ? <Minimize2 size={14} strokeWidth={1.75} /> : <Maximize2 size={14} strokeWidth={1.75} />}
+      </button>
+      <button type="button" className="workspace-dock-action" title="关闭侧边栏 (Ctrl+Alt+B)" aria-label="关闭侧边栏" onClick={onClose}>
         <X size={14} strokeWidth={1.75} />
       </button>
     </nav>

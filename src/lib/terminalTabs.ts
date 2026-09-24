@@ -15,6 +15,8 @@ export interface TerminalTabInfo {
   shell: string;
   title: string;
   status: TerminalStatus;
+  /** The shell printed while no view showed this tab; cleared when one does. */
+  unseenOutput?: boolean;
 }
 
 const subscribers = new Set<() => void>();
@@ -36,4 +38,10 @@ export function terminalTabsSnapshot(): TerminalTabInfo[] {
 
 export function terminalTabsFor(list: TerminalTabInfo[], cwd: string): TerminalTabInfo[] {
   return list.filter((tab) => sameLocalPath(tab.cwd, cwd));
+}
+
+/** What the topbar's terminal toggle reports while the panel is hidden. */
+export function backgroundTerminalsFor(list: TerminalTabInfo[], cwd: string): { count: number; unseenOutput: boolean } {
+  const tabs = cwd ? terminalTabsFor(list, cwd) : [];
+  return { count: tabs.length, unseenOutput: tabs.some((tab) => tab.unseenOutput) };
 }

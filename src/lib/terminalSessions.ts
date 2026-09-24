@@ -45,6 +45,13 @@ function emit() {
   publishTerminalTabs([...entries.values()].map((entry) => ({ ...entry.info })));
 }
 
+/** Output reached a tab no view shows (panel hidden, another tab active). Publishes once per stretch. */
+function markUnseen(entry: TerminalEntry) {
+  if (entry.container.isConnected || entry.info.unseenOutput) return;
+  entry.info.unseenOutput = true;
+  emit();
+}
+
 /** Clicked links go through the app so localhost pages can open in the built-in browser. */
 export function setTerminalLinkHandler(handler: (uri: string) => void) {
   linkHandler = handler;
@@ -118,13 +125,16 @@ function ensureBridge(): Promise<void> {
     listen<{ id: string; data: string }>("terminal-output", (event) => {
       const tabId = tabByPty.get(event.payload.id);
       const entry = tabId ? entries.get(tabId) : undefined;
-      entry?.terminal.write(event.payload.data);
+      if (!entry) return;
+      entry.terminal.write(event.payload.data);
+      markUnseen(entry);
     }),
     listen<{ id: string }>("terminal-exit", (event) => {
       const tabId = tabByPty.get(event.payload.id);
       const entry = tabId ? entries.get(tabId) : undefined;
       if (!entry || entry.ptyId !== event.payload.id) return;
       entry.info.status = "exited";
+      if (!entry.container.isConnected) entry.info.unseenOutput = true;
       entry.terminal.write("\r\n\x1b[2m[进程已退出 · 按 Enter 重新启动]\x1b[0m\r\n");
       emit();
     }),
@@ -279,6 +289,10 @@ export function attachTerminal(tabId: string, host: HTMLElement): () => void {
   if (!entry.opened) {
     entry.terminal.open(entry.container);
     entry.opened = true;
+  }
+  if (entry.info.unseenOutput) {
+    entry.info.unseenOutput = false;
+    emit();
   }
   fitTerminal(tabId);
   if (!entry.ptyId) void startPty(entry);

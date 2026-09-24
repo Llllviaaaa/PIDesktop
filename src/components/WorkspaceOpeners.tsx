@@ -96,6 +96,8 @@ interface OpenInMenuProps {
   editors: WorkspaceEditorInfo[];
   preferredEditor: WorkspaceEditorInfo | null;
   terminalApps: TerminalAppInfo[];
+  /** The main button (and Ctrl+Shift+O): the project's editor, else Explorer. */
+  onOpenPreferred: () => void;
   /** Opens the workspace in `editor` and makes it this project's default. */
   onChooseEditor: (editor: WorkspaceEditorInfo) => void;
   onOpenTerminalApp: (app: TerminalAppInfo) => void;
@@ -109,6 +111,7 @@ export function OpenInMenu({
   editors,
   preferredEditor,
   terminalApps,
+  onOpenPreferred,
   onChooseEditor,
   onOpenTerminalApp,
   onReveal,
@@ -117,6 +120,8 @@ export function OpenInMenu({
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const label = preferredEditor ? `在 ${preferredEditor.name} 中打开` : "在文件资源管理器中打开";
+  // "Visual Studio Code" would crowd the topbar; the menu keeps full names.
+  const shortName = preferredEditor ? (preferredEditor.id === "vscode" ? "VS Code" : preferredEditor.name) : "资源管理器";
 
   useEffect(() => {
     if (!open) return;
@@ -145,14 +150,15 @@ export function OpenInMenu({
         <button
           type="button"
           className="workspace-open-trigger"
-          title={label}
+          title={`${label} (Ctrl+Shift+O)`}
           aria-label={label}
           disabled={!workspace}
-          onClick={() => run(() => (preferredEditor ? onChooseEditor(preferredEditor) : onReveal()))}
+          onClick={() => run(onOpenPreferred)}
         >
           <span className={`workspace-tools-mark workspace-editor-${preferredEditor?.id ?? "explorer"}`} aria-hidden>
             <WorkspaceEditorIcon editorId={preferredEditor?.id} size={18} />
           </span>
+          <span className="workspace-open-label">{shortName}</span>
         </button>
         <button
           type="button"

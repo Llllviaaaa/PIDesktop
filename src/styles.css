@@ -2459,16 +2459,6 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 }
 /* Codex core layout: fixed-max-width centered thread column; extra window width stays whitespace. */
 .codex-shot .conversation { max-width: 720px; color: #18181b; }
-.codex-shot .thread-meta-row {
-  min-height: 30px;
-  margin: -12px 0 28px;
-  padding: 0 2px 10px;
-  border-bottom: 1px solid #eceef1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.codex-shot .thread-meta-row .title-diff-chip { margin-left: auto; }
 .codex-shot .new-task-scroll,
 .codex-shot .new-task-conversation { height: 100%; max-width: none; padding: 0; }
 .codex-shot .new-task-screen.codex-home {
@@ -5912,9 +5902,6 @@ body.bottom-panel-is-resizing .codex-shot .bottom-panel-resizer { background: va
   border-color: var(--border);
   color: var(--text);
 }
-:root[data-theme="dark"] .codex-shot .thread-meta-row {
-  border-bottom-color: var(--border);
-}
 :root[data-theme="dark"] .codex-shot .inspector-panel.env-panel,
 :root[data-theme="dark"] .codex-shot .conversation-change-card,
 :root[data-theme="dark"] .codex-shot .starter-card,
@@ -6301,12 +6288,6 @@ body,
 /* Conversation reading hierarchy — must follow the typography token pass. */
 .codex-shot .conversation:not(.new-task-conversation) {
   padding: 20px 24px 16px;
-}
-.codex-shot .thread-meta-row {
-  min-height: 24px;
-  margin: 0 0 14px;
-  padding: 0 2px;
-  border-bottom: 0;
 }
 .codex-shot .message-row {
   margin: 0 0 18px;

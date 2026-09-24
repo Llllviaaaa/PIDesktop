@@ -4,6 +4,10 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+- The topbar's right side shows what changed instead of a second way into the sidebar. A `+N −M` count (or the number of changed files, for new files only) opens Review. The task-summary button is gone; the summary stays a sidebar tab and in 视图 → 任务摘要. The in-chat change count above the conversation moved up here.
+- The open-in button names the editor it opens (the name is hidden when the sidebar is open or the window is narrow), is available on the new-task page, and opens the project with Ctrl+Shift+O or 文件 → 在 … 中打开. Ctrl+O still switches transcript density.
+- The terminal button shows a dot while terminals keep running behind a hidden panel. The dot turns the accent color when a hidden terminal printed something (or exited) since you last looked, and the terminal tab that printed is marked the same way.
+- The sidebar's focus button moved from the topbar into the sidebar's own tab strip, next to close.
 - A side chat no longer shows up as an extra conversation after the app was closed abruptly (an installer upgrade, Task Manager, a crash). Side chats now keep their forked session outside Pi's session folder and remove it when they end; anything an earlier run left behind is cleared at startup.
 - The plan no longer trails every later turn as a full card at the bottom of the chat. While a turn runs, its plan is one line above the composer (第 X/Y 步 and the current step) that expands upward; once the turn ends, the plan folds into that turn as a single row that expands in place.
 - Rebuild the composer model picker: search, models grouped by provider, and a 思考等级 row that opens the reasoning levels. The level control is hidden for models that cannot reason, and a level chosen on the new-task page is applied once the task starts.

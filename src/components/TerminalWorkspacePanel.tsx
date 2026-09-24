@@ -180,11 +180,12 @@ export function TerminalWorkspacePanel({ cwd, defaultShell, onHide, onSendToChat
               className={`terminal-tab ${activeId === tab.id ? "active" : ""} status-${tab.status}`}
               role="tab"
               aria-selected={activeId === tab.id}
-              title={`${tab.title} · ${tab.cwd}${tab.status === "exited" ? " · 已退出" : ""}`}
+              title={`${tab.title} · ${tab.cwd}${tab.status === "exited" ? " · 已退出" : ""}${tab.unseenOutput ? " · 有新输出" : ""}`}
               onClick={() => selectTab(tab.id)}
             >
               <SquareTerminal size={14} strokeWidth={1.7} />
               <span>{tab.title}</span>
+              {tab.unseenOutput && <i className="terminal-tab-unseen" aria-hidden />}
               {tab.status === "exited" && <em className="terminal-tab-state">已退出</em>}
               <button
                 type="button"
