@@ -81,7 +81,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "clsx": "^2.1.1",
-    "dompurify": "^3.4.14",
+    "dompurify": "^3.4.16",
     "highlight.js": "^11.11.1",
     "lucide-react": "^1.30.0",
     "mermaid": "^11.17.2",
