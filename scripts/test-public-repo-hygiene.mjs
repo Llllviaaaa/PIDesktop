@@ -22,6 +22,28 @@ assert.match(cargoManifest, /^license = "Apache-2\.0"$/m, "Cargo metadata must d
 assert.match(cargoLock, new RegExp(`name = "pid-desktop"\\r?\\nversion = "${packageManifest.version.replaceAll(".", "\\.")}"`), "Cargo.lock package version must match package.json");
 assert.equal(tauriConfig.version, packageManifest.version, "Tauri bundle version must match package.json");
 assert.match(packageManifest.devDependencies?.bun ?? "", /^\d+\.\d+\.\d+$/, "the Pi sidecar compiler must be pinned exactly");
+
+// The Tauri CLI refuses to run dev or build when an npm package and its crate
+// differ in major.minor, and CI never runs the CLI, so compare the lockfiles.
+const majorMinor = (version) => version.split(".").slice(0, 2).join(".");
+const tauriPairs = [
+  ["tauri", "@tauri-apps/api"],
+  ...[...cargoManifest.matchAll(/^tauri-plugin-([a-z-]+)\s*=/gm)].map(([, plugin]) => [
+    `tauri-plugin-${plugin}`,
+    `@tauri-apps/plugin-${plugin}`,
+  ]),
+];
+for (const [crate, npmPackage] of tauriPairs) {
+  const npmVersion = packageLock.packages?.[`node_modules/${npmPackage}`]?.version;
+  if (!npmVersion) continue;
+  const crateVersion = cargoLock.match(new RegExp(`name = "${crate}"\\r?\\nversion = "([^"]+)"`))?.[1];
+  assert.ok(crateVersion, `${crate} must be locked in Cargo.lock`);
+  assert.equal(
+    majorMinor(npmVersion),
+    majorMinor(crateVersion),
+    `${npmPackage} ${npmVersion} and the ${crate} crate ${crateVersion} must share major.minor, or tauri dev and build refuse to run`,
+  );
+}
 assert.equal(
   tauriConfig.bundle?.resources?.["resources/pi-runtime/"],
   "pi-runtime/",
