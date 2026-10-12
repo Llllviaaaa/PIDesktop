@@ -4,6 +4,9 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+## 0.2.29 - 2026-10-12
+
+- Fix a model picked right after opening the app or starting a new task falling back to the default model once the first message was sent. The pick, and the thinking level, now stay with the task until its first message, including when sending moves the task to a worktree, quick chat or another project; a pick made while a saved session is still opening is applied to that session.
 - Keep add-ons installed for the terminal `pi` out of desktop tasks. With 设置 → 高级 → 独立的 Pi 配置 turned on, Pi runs on PIDesktop's own config directory (`%APPDATA%/pid-desktop/pi-agent`) instead of `~/.pi/agent`, so the terminal's extensions, packages and skills are no longer loaded; they can add seconds to a task's first message and tens of kilobytes of tool definitions to every request. Turning it on for the first time copies your model providers, keys, trust decisions, themes and pets; from then on the two are maintained separately, and packages installed from the app stay in the app. Task history is unaffected. Off by default, and it applies to workspaces connected afterwards.
 - Update the bundled Pi runtime from 0.84.0 to 1.1.0, which clears high-severity advisories in its `undici` and `brace-expansion` dependencies. Pi 1.x renamed the built-in Azure provider from `azure-openai-responses` to `azure`: an Azure sign-in saved under the old name needs `/login` again (custom providers using the `azure-openai-responses` API are unaffected). A provider saved without a model is no longer passed to Pi, which now rejects it.
 - Commit and push without asking the agent. A Git button in the topbar reads 提交 while there are changes, then 推送 (with the number of commits ahead) or 发布分支 for a branch without an upstream; its menu shows the branch and how far it is ahead of or behind its remote. Review's 提交或推送 menu and the summary's 提交 row open the same dialog.
