@@ -105,6 +105,8 @@ export const usePiStore = create<PiState>((set, get) => {
     assistantMessageId: string;
   } | null = null;
   let pendingModelChange: { runtimeId: string; promise: Promise<void> } | null = null;
+  // What the user picked for a task that has not started yet. connect() applies them to
+  // every runtime that task lands on; the first prompt hands them over to the runtime.
   let queuedModelSelection: ModelInfo | null = null;
   let queuedThinkingLevel: string | null = null;
   let pendingConnection: { key: string; promise: Promise<void> } | null = null;
@@ -124,6 +126,9 @@ export const usePiStore = create<PiState>((set, get) => {
   };
 
   const workspaceKey = (cwd: string) => cwd.trim().replace(/[\\/]+$/, "").toLowerCase();
+
+  // Before the first turn a pick belongs to the task, not to the runtime it happens to be on.
+  const taskNotStarted = () => get().messages.length === 0;
 
   const rollbackOptimisticPrompt = (runtimeId: string) => {
     const pending = pendingOptimisticPrompt;
@@ -385,7 +390,7 @@ export const usePiStore = create<PiState>((set, get) => {
     }
   };
 
-  const syncSession = async (expectedVersion = connectionVersion) => {
+  const syncSession = async (expectedVersion = connectionVersion, keepQueuedModel = false) => {
     const runtimeId = get().runtimeId;
     if (!runtimeId) return;
     const stateRequest = sendCommand(runtimeId, "get_state");
@@ -418,7 +423,8 @@ export const usePiStore = create<PiState>((set, get) => {
         isStreaming: data.isStreaming ?? false,
         isCompacting: data.isCompacting ?? false,
         thinkingLevel: data.thinkingLevel ?? get().thinkingLevel,
-        model: data.model ?? null,
+        // A fresh runtime reports its default; keep showing the pick connect() is about to apply.
+        model: (keepQueuedModel ? queuedModelSelection : null) ?? data.model ?? null,
       });
       persistCurrentModelCatalog();
     }
@@ -513,15 +519,16 @@ export const usePiStore = create<PiState>((set, get) => {
     sessionTreeLoading: false,
 
     connect: async (cwd, sessionFile) => {
-      if (sessionFile) {
-        queuedModelSelection = null;
-        queuedThinkingLevel = null;
-      }
       const requestKey = `${workspaceKey(cwd)}\u0000${sessionFile ?? ""}`;
       if (pendingConnection?.key === requestKey) return pendingConnection.promise;
 
       const request = (async () => {
         const connectVersion = ++connectionVersion;
+        // A pick made on the new-task page is not meant for a saved session opened afterwards.
+        if (sessionFile) {
+          queuedModelSelection = null;
+          queuedThinkingLevel = null;
+        }
         clearPendingAssistantUpdate();
         pendingOptimisticPrompt = null;
         activeTurnStartedAt = null;
@@ -589,28 +596,36 @@ export const usePiStore = create<PiState>((set, get) => {
             await sendCommand(runtimeId, "switch_session", { sessionPath: sessionFile }, 60_000);
             if (connectVersion !== connectionVersion) return;
           }
-          await syncSession(connectVersion);
+          await syncSession(connectVersion, true);
           if (connectVersion !== connectionVersion) return;
-          if (!sessionFile && queuedModelSelection) {
-            const queued = queuedModelSelection;
+          const queuedModel = queuedModelSelection;
+          const queuedLevel = queuedThinkingLevel;
+          // A saved session takes a pick once. A task that has not started keeps it, because
+          // sending can still move the task to another runtime (worktree, quick chat, project).
+          if (sessionFile) {
             queuedModelSelection = null;
+            queuedThinkingLevel = null;
+          }
+          const modelChange = pendingModelChange?.runtimeId === runtimeId
+            ? pendingModelChange.promise
+            : null;
+          if (modelChange) {
+            // Picked again while Pi was booting: that command is already on its way here.
+            await modelChange.catch(() => undefined);
+          } else if (queuedModel) {
             try {
-              await get().setModel(queued);
+              await get().setModel(queuedModel);
             } catch {
               // setModel reports the failure without invalidating an otherwise healthy runtime.
             }
-            if (connectVersion !== connectionVersion) return;
           }
-          if (!sessionFile && queuedThinkingLevel) {
-            const queued = queuedThinkingLevel;
-            queuedThinkingLevel = null;
-            // Pi clamps to what the model supports; only apply a level it actually offers.
-            if (get().availableThinkingLevels.includes(queued)) {
-              try {
-                await get().setThinkingLevel(queued);
-              } catch {
-                // The composer keeps showing Pi's reported level; a failed preset is not fatal.
-              }
+          if (connectVersion !== connectionVersion) return;
+          // Pi clamps to what the model supports; only apply a level it actually offers.
+          if (queuedLevel && queuedLevel !== get().thinkingLevel && get().availableThinkingLevels.includes(queuedLevel)) {
+            try {
+              await get().setThinkingLevel(queuedLevel);
+            } catch {
+              // The composer keeps showing Pi's reported level; a failed preset is not fatal.
             }
             if (connectVersion !== connectionVersion) return;
           }
@@ -1167,6 +1182,11 @@ export const usePiStore = create<PiState>((set, get) => {
     sendMessage: async (text, attachments = [], behavior) => {
       const payload = buildPromptPayload(text, attachments);
       if (!payload.message && payload.images.length === 0) return false;
+      // connect() marks the runtime as running before it has applied the picked model;
+      // a prompt sent in that gap would be answered by the runtime's default model.
+      if (pendingConnection && (queuedModelSelection || queuedThinkingLevel)) {
+        await pendingConnection.promise.catch(() => undefined);
+      }
       const initialRuntimeId = get().runtimeId;
       const modelChange = pendingModelChange?.runtimeId === initialRuntimeId
         ? pendingModelChange.promise
@@ -1236,6 +1256,9 @@ export const usePiStore = create<PiState>((set, get) => {
           await command(commandName, payload);
         } else {
           await command("prompt", payload);
+          // The task has started: its model and thinking level now live in the runtime.
+          queuedModelSelection = null;
+          queuedThinkingLevel = null;
         }
         return true;
       } catch (error) {
@@ -1421,7 +1444,8 @@ export const usePiStore = create<PiState>((set, get) => {
 
     setModel: async (model) => {
       const runtimeId = get().runtimeId;
-      if (!runtimeId) {
+      // While connect() is still attaching a runtime there is nothing to send the pick to.
+      if (!runtimeId || get().connection === "starting") {
         queuedModelSelection = model;
         set({ model });
         persistCurrentModelCatalog();
@@ -1460,6 +1484,7 @@ export const usePiStore = create<PiState>((set, get) => {
       });
 
       pendingModelChange = { runtimeId, promise: change };
+      if (taskNotStarted()) queuedModelSelection = model;
       // Reflect the click immediately while Pi confirms it in the background.
       // A failed command is rolled back to the runtime's reported model below.
       if (get().runtimeId === runtimeId) set({ model, isSwitchingModel: true });
@@ -1467,6 +1492,8 @@ export const usePiStore = create<PiState>((set, get) => {
         await change;
       } catch (error) {
         if (get().runtimeId === runtimeId) {
+          // Pi turned this model down; do not offer it to the next runtime either.
+          if (queuedModelSelection === model) queuedModelSelection = null;
           try {
             const stateResponse = await sendCommand(runtimeId, "get_state");
             if (get().runtimeId === runtimeId) {
@@ -1489,7 +1516,7 @@ export const usePiStore = create<PiState>((set, get) => {
 
     setThinkingLevel: async (level) => {
       const runtimeId = get().runtimeId;
-      if (!runtimeId) {
+      if (!runtimeId || get().connection === "starting") {
         // New-task page: remember the choice and apply it once the runtime starts.
         queuedThinkingLevel = level;
         set({ thinkingLevel: level });
@@ -1502,6 +1529,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新设置推理等级");
       await sendCommand(runtimeId, "set_thinking_level", { level });
       set({ thinkingLevel: level });
+      if (taskNotStarted()) queuedThinkingLevel = level;
     },
 
     setRuntimeAgentMode: async (mode) => {
