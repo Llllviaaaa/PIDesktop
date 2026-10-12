@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { describeError } from "./lib/errors";
 import { pi, respondToExtension, sendCommand } from "./lib/pi";
 import { redactSensitiveText } from "./lib/redact";
 import {
@@ -19,7 +20,12 @@ import { persistModelCatalog, readStoredModelCatalog } from "./lib/modelCatalogC
 import { sameLocalPath } from "./lib/pathIdentity";
 import { decodeProviderMessage } from "../src-tauri/resources/pidesktop-providers-core";
 import { PROVIDER_SERVICE_COMMAND, PROVIDER_SERVICE_RUNTIME_ID } from "./lib/providerService";
-import { headlineForUiRequest } from "./lib/batchAsk";
+import {
+  completionNotification,
+  isSilentUiRequest,
+  uiRequestNotification,
+  type NotificationPlan,
+} from "./lib/eventNotifications";
 import {
   buildForkCommand,
   buildGetTreeCommand,
@@ -100,6 +106,7 @@ export const usePiStore = create<PiState>((set, get) => {
   } | null = null;
   let pendingModelChange: { runtimeId: string; promise: Promise<void> } | null = null;
   let queuedModelSelection: ModelInfo | null = null;
+  let queuedThinkingLevel: string | null = null;
   let pendingConnection: { key: string; promise: Promise<void> } | null = null;
   const intentionalRuntimeStops = new Set<string>();
   const workspaceWarmups = new Map<string, Promise<void>>();
@@ -308,6 +315,14 @@ export const usePiStore = create<PiState>((set, get) => {
     notification.onclose = () => systemNotifications.delete(id);
   };
 
+  /** Record a planned notification and, if it is new, surface it to the OS. */
+  const raise = (plan: NotificationPlan | null) => {
+    if (!plan) return;
+    if (pushNotification(plan.draft)) {
+      notify(plan.draft.id, plan.osTitle, plan.osBody, plan.requiresApproval);
+    }
+  };
+
   const command = (
     name: string,
     payload: Record<string, unknown> = {},
@@ -352,7 +367,7 @@ export const usePiStore = create<PiState>((set, get) => {
       const current = managedFollowUpsByRuntime.get(runtimeId) ?? [];
       setManagedQueueForRuntime(runtimeId, insertManagedQueueItem(current, next, 0));
       if (get().runtimeId === runtimeId) {
-        toast(`发送待处理消息失败：${error instanceof Error ? error.message : String(error)}`, "error");
+        toast(`发送待处理消息失败：${describeError(error)}`, "error");
       }
     } finally {
       managedDrainInFlight.delete(runtimeId);
@@ -389,7 +404,7 @@ export const usePiStore = create<PiState>((set, get) => {
       persistCurrentModelCatalog();
     }).catch((error) => {
       if (get().runtimeId === runtimeId && expectedVersion === connectionVersion) {
-        get().appendLog(`刷新模型目录失败：${error instanceof Error ? error.message : String(error)}`);
+        get().appendLog(`刷新模型目录失败：${describeError(error)}`);
       }
     });
     const stateResponse = await stateRequest;
@@ -498,7 +513,10 @@ export const usePiStore = create<PiState>((set, get) => {
     sessionTreeLoading: false,
 
     connect: async (cwd, sessionFile) => {
-      if (sessionFile) queuedModelSelection = null;
+      if (sessionFile) {
+        queuedModelSelection = null;
+        queuedThinkingLevel = null;
+      }
       const requestKey = `${workspaceKey(cwd)}\u0000${sessionFile ?? ""}`;
       if (pendingConnection?.key === requestKey) return pendingConnection.promise;
 
@@ -583,10 +601,23 @@ export const usePiStore = create<PiState>((set, get) => {
             }
             if (connectVersion !== connectionVersion) return;
           }
+          if (!sessionFile && queuedThinkingLevel) {
+            const queued = queuedThinkingLevel;
+            queuedThinkingLevel = null;
+            // Pi clamps to what the model supports; only apply a level it actually offers.
+            if (get().availableThinkingLevels.includes(queued)) {
+              try {
+                await get().setThinkingLevel(queued);
+              } catch {
+                // The composer keeps showing Pi's reported level; a failed preset is not fatal.
+              }
+            }
+            if (connectVersion !== connectionVersion) return;
+          }
           await Promise.all([get().refreshSessions(), get().refreshGit()]);
         } catch (error) {
           if (connectVersion !== connectionVersion) return;
-          const message = error instanceof Error ? error.message : String(error);
+          const message = describeError(error);
           set({ connection: "exited", lastError: message });
           get().appendLog(message);
           toast(message, "error");
@@ -663,7 +694,7 @@ export const usePiStore = create<PiState>((set, get) => {
           }
         })
         .catch((error) => {
-          get().appendLog(`Workspace prewarm skipped: ${error instanceof Error ? error.message : String(error)}`);
+          get().appendLog(`Workspace prewarm skipped: ${describeError(error)}`);
         })
         .finally(() => {
           if (workspaceWarmups.get(key) === warmup) workspaceWarmups.delete(key);
@@ -711,7 +742,7 @@ export const usePiStore = create<PiState>((set, get) => {
         await get().refreshGit();
         return true;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = describeError(error);
         get().appendLog(`恢复 Pi runtime 失败：${message}`);
         return false;
       }
@@ -727,6 +758,7 @@ export const usePiStore = create<PiState>((set, get) => {
       connectionVersion += 1;
       pendingConnection = null;
       queuedModelSelection = null;
+      queuedThinkingLevel = null;
       clearPendingAssistantUpdate();
       pendingOptimisticPrompt = null;
       const runtimeId = get().runtimeId;
@@ -803,7 +835,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (event.type === "agent_settled") queueMicrotask(() => void drainManagedFollowUp(runtimeId));
       if (event.type === "extension_ui_request") {
         const request = event as ExtensionUIRequest;
-        if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
+        if (!isSilentUiRequest(request.method)) {
           updateRuntime(runtimeId, { extensionRequest: request });
         }
       }
@@ -811,40 +843,18 @@ export const usePiStore = create<PiState>((set, get) => {
       if (runtimeId !== get().runtimeId) {
         if (event.type === "agent_end" && !event.willRetry) {
           const runtime = get().runtimes[runtimeId];
-          const project = runtime?.cwd.split(/[\\/]/).filter(Boolean).pop() || "后台任务";
-          const notification: NotificationDraft = {
-            id: `${runtimeId}:completion:${Date.now()}`,
-            kind: "completion",
-            title: "任务已完成",
-            body: project,
+          raise(completionNotification(runtimeId, {
             cwd: runtime?.cwd ?? "",
             sessionFile: runtime?.sessionFile ?? null,
-          };
-          if (pushNotification(notification)) notify(notification.id, "Pi 后台任务已完成", project);
+          }, true));
         }
         if (event.type === "agent_settled") void get().refreshSessions();
         if (event.type === "extension_ui_request") {
-          const request = event as ExtensionUIRequest;
-          if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(request.method)) {
-            const runtime = get().runtimes[runtimeId];
-            const kind = request.method === "confirm" ? "approval" : "question";
-            const title = headlineForUiRequest(
-              request.method,
-              "title" in request ? request.title : undefined,
-              request.method === "input" ? request.placeholder : undefined,
-            ) || (kind === "approval" ? "需要确认" : "需要输入");
-            const notification: NotificationDraft = {
-              id: `${runtimeId}:request:${request.id}`,
-              kind,
-              title,
-              body: kind === "approval" ? "打开任务以确认本地操作。" : "打开任务以回答问题。",
-              cwd: runtime?.cwd ?? "",
-              sessionFile: runtime?.sessionFile ?? null,
-            };
-            if (pushNotification(notification)) {
-              notify(notification.id, "Pi 后台任务等待审批", title, true);
-            }
-          }
+          const runtime = get().runtimes[runtimeId];
+          raise(uiRequestNotification(runtimeId, event as ExtensionUIRequest, {
+            cwd: runtime?.cwd ?? "",
+            sessionFile: runtime?.sessionFile ?? null,
+          }, true));
         }
         return;
       }
@@ -859,17 +869,11 @@ export const usePiStore = create<PiState>((set, get) => {
           if (!event.willRetry) {
             set({ isStreaming: false });
             if ((managedFollowUpsByRuntime.get(runtimeId) ?? []).length === 0) {
-              const notification: NotificationDraft = {
-                id: `${runtimeId}:completion:${Date.now()}`,
-                kind: "completion",
-                title: "任务已完成",
-                body: get().sessionName || "本地编码任务已完成，可以开始检查。",
+              raise(completionNotification(runtimeId, {
                 cwd: get().cwd,
                 sessionFile: get().sessionFile,
-              };
-              if (pushNotification(notification)) {
-                notify(notification.id, "Pi 已完成", get().sessionName || "本地编码任务已完成，可以开始检查。");
-              }
+                sessionName: get().sessionName,
+              }, false));
             }
           }
           return;
@@ -1041,23 +1045,10 @@ export const usePiStore = create<PiState>((set, get) => {
             set({ composerPrefill: request.text });
           } else {
             set({ extensionRequest: request });
-            const kind = request.method === "confirm" ? "approval" : "question";
-            const title = headlineForUiRequest(
-              request.method,
-              "title" in request ? request.title : undefined,
-              request.method === "input" ? request.placeholder : undefined,
-            ) || (kind === "approval" ? "需要确认" : "需要输入");
-            const notification: NotificationDraft = {
-              id: `${runtimeId}:request:${request.id}`,
-              kind,
-              title,
-              body: kind === "approval" ? "有一项本地操作正在等待你的决定。" : "Pi 正在等待你的回答。",
+            raise(uiRequestNotification(runtimeId, request, {
               cwd: get().cwd,
               sessionFile: get().sessionFile,
-            };
-            if (pushNotification(notification)) {
-              notify(notification.id, "Pi 需要审批", title, true);
-            }
+            }, false));
           }
           return;
         }
@@ -1124,7 +1115,7 @@ export const usePiStore = create<PiState>((set, get) => {
           .length;
         return matches[matches.length - 1 - sameTextAfter] ?? null;
       } catch (error) {
-        toast(error instanceof Error ? error.message : String(error), "error");
+        toast(describeError(error), "error");
         return null;
       }
     },
@@ -1145,7 +1136,7 @@ export const usePiStore = create<PiState>((set, get) => {
         await get().refreshSessions();
         return true;
       } catch (error) {
-        toast(error instanceof Error ? error.message : String(error), "error");
+        toast(describeError(error), "error");
         return false;
       }
     },
@@ -1168,7 +1159,7 @@ export const usePiStore = create<PiState>((set, get) => {
         await get().refreshSessions();
         return get().sendMessage(text, attachments);
       } catch (error) {
-        toast(error instanceof Error ? error.message : String(error), "error");
+        toast(describeError(error), "error");
         return false;
       }
     },
@@ -1250,7 +1241,7 @@ export const usePiStore = create<PiState>((set, get) => {
       } catch (error) {
         if (optimistic) rollbackOptimisticPrompt(runtimeId);
         if (!wasStreaming) activeTurnStartedAt = null;
-        toast(error instanceof Error ? error.message : String(error), "error");
+        toast(describeError(error), "error");
         return false;
       }
     },
@@ -1350,7 +1341,7 @@ export const usePiStore = create<PiState>((set, get) => {
           sessionTreeLoading: false,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = describeError(error);
         set({
           sessionTree: [],
           sessionTreeLeafId: null,
@@ -1383,7 +1374,7 @@ export const usePiStore = create<PiState>((set, get) => {
         await get().loadSessionTree();
         toast("已从此节点分叉并继续", "info");
       } catch (error) {
-        toast(error instanceof Error ? error.message : String(error), "error");
+        toast(describeError(error), "error");
       }
     },
 
@@ -1424,7 +1415,7 @@ export const usePiStore = create<PiState>((set, get) => {
         set({ availableModels: models.data?.models ?? [] });
         persistCurrentModelCatalog();
       } catch (error) {
-        get().appendLog(`刷新模型目录失败：${error instanceof Error ? error.message : String(error)}`);
+        get().appendLog(`刷新模型目录失败：${describeError(error)}`);
       }
     },
 
@@ -1485,7 +1476,7 @@ export const usePiStore = create<PiState>((set, get) => {
           } catch {
             // Keep the last confirmed UI value when the runtime cannot be queried.
           }
-          toast(`切换模型失败：${error instanceof Error ? error.message : String(error)}`, "error");
+          toast(`切换模型失败：${describeError(error)}`, "error");
         }
         throw error;
       } finally {
@@ -1498,7 +1489,12 @@ export const usePiStore = create<PiState>((set, get) => {
 
     setThinkingLevel: async (level) => {
       const runtimeId = get().runtimeId;
-      if (!runtimeId) throw new Error("当前没有活动的 Pi 任务");
+      if (!runtimeId) {
+        // New-task page: remember the choice and apply it once the runtime starts.
+        queuedThinkingLevel = level;
+        set({ thinkingLevel: level });
+        return;
+      }
       const modelChange = pendingModelChange?.runtimeId === runtimeId
         ? pendingModelChange.promise
         : null;
@@ -1528,7 +1524,7 @@ export const usePiStore = create<PiState>((set, get) => {
       try {
         set({ sessions: await pi.listSessions() });
       } catch (error) {
-        get().appendLog(`列出会话失败：${String(error)}`);
+        get().appendLog(`列出会话失败：${describeError(error)}`);
       }
     },
 
@@ -1538,7 +1534,7 @@ export const usePiStore = create<PiState>((set, get) => {
       try {
         set({ git: await pi.gitSnapshot(cwd) });
       } catch (error) {
-        get().appendLog(`读取 Git 更改失败：${String(error)}`);
+        get().appendLog(`读取 Git 更改失败：${describeError(error)}`);
       }
     },
 
@@ -1551,7 +1547,7 @@ export const usePiStore = create<PiState>((set, get) => {
       try {
         set({ settings: await pi.getSettings() });
       } catch (error) {
-        toast(`加载设置失败：${String(error)}`, "error");
+        toast(`加载设置失败：${describeError(error)}`, "error");
       }
     },
 
@@ -1594,7 +1590,7 @@ export const usePiStore = create<PiState>((set, get) => {
         }));
       } catch (error) {
         set((state) => ({
-          terminal: { ...state.terminal, running: false, output: `${state.terminal.output}\n${String(error)}` },
+          terminal: { ...state.terminal, running: false, output: `${state.terminal.output}\n${describeError(error)}` },
         }));
       }
     },

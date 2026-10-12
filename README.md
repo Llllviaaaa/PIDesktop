@@ -65,9 +65,15 @@ Required checks:
 ```powershell
 npm run scan:secrets
 npm audit --audit-level=high
+npm run typecheck
+npm run lint
 npm run test:unit
 npm run build
 ```
+
+Unit suites run under Vitest (`npm test`, or `npm run test:watch` while
+working, `npm run test:coverage` for a report). `npm run test:unit` adds the
+repository and bundled-runtime checks that CI also runs.
 
 Desktop build:
 

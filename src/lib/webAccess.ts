@@ -128,3 +128,19 @@ export function resolveWorkspaceBrowserAddress(value: string): string {
   if (/^[\w.-]+\.[a-z]{2,}(?::\d+)?(?:\/|$)/i.test(input)) return `https://${input}`;
   return "";
 }
+
+/** Pages served from this machine (dev servers), which open in the built-in browser. */
+export function isLocalWebAddress(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return host === "localhost"
+      || host.endsWith(".localhost")
+      || host === "0.0.0.0"
+      || host === "::1"
+      || /^127(?:\.\d{1,3}){3}$/.test(host);
+  } catch {
+    return false;
+  }
+}

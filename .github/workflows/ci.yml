@@ -25,6 +25,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm audit --audit-level=high
+      # Covers src/ plus the Pi extensions and assertion scripts, which tsx only
+      # transpiles. Runs before the tests so a type error fails fast.
+      - run: npm run typecheck
+      - run: npm run lint
       - run: npm run test:unit
       - run: npm run build
 

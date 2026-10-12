@@ -2459,16 +2459,6 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 }
 /* Codex core layout: fixed-max-width centered thread column; extra window width stays whitespace. */
 .codex-shot .conversation { max-width: 720px; color: #18181b; }
-.codex-shot .thread-meta-row {
-  min-height: 30px;
-  margin: -12px 0 28px;
-  padding: 0 2px 10px;
-  border-bottom: 1px solid #eceef1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.codex-shot .thread-meta-row .title-diff-chip { margin-left: auto; }
 .codex-shot .new-task-scroll,
 .codex-shot .new-task-conversation { height: 100%; max-width: none; padding: 0; }
 .codex-shot .new-task-screen.codex-home {
@@ -2792,13 +2782,26 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   white-space: nowrap;
   max-width: 180px;
 }
+.codex-shot .model-combo-level {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+}
 .codex-shot .model-picker-menu {
   position: absolute;
   z-index: 58;
   right: 4px;
   bottom: calc(100% + 8px);
-  width: min(360px, calc(100vw - 32px));
-  padding: 6px;
+  width: min(272px, calc(100vw - 32px));
+  max-height: min(400px, 62vh);
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
   border: 1px solid #e1e2e5;
   border-radius: 11px;
   background: #fff;
@@ -2806,134 +2809,141 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   box-shadow: 0 16px 42px rgba(31, 35, 41, .14), 0 2px 8px rgba(31, 35, 41, .06);
   text-align: left;
 }
-.codex-shot .model-picker-heading,
-.codex-shot .thinking-picker-heading {
-  min-height: 31px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 7px;
-}
-.codex-shot .model-picker-heading strong,
-.codex-shot .thinking-picker-heading strong {
-  color: #3f3f46;
-  font-size: 12px;
-  font-weight: 600;
-}
-.codex-shot .model-picker-heading span,
-.codex-shot .thinking-picker-heading span {
-  color: #a1a1aa;
-  font-size: 10.5px;
-}
 .codex-shot .model-picker-search {
-  height: 34px;
-  margin: 1px 3px 5px;
-  padding: 0 9px;
-  border: 1px solid #e4e4e7;
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 6px 0 8px;
   border-radius: 7px;
-  background: #fafafa;
   color: #a1a1aa;
   display: flex;
   align-items: center;
-  gap: 7px;
-}
-.codex-shot .model-picker-search:focus-within {
-  border-color: #d4d4d8;
-  background: #fff;
+  gap: 6px;
 }
 .codex-shot .model-picker-search input {
-  width: 100%;
+  flex: 1;
   min-width: 0;
   border: 0;
   outline: 0;
   background: transparent;
   color: #27272a;
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
 }
 .codex-shot .model-picker-search input::placeholder { color: #a1a1aa; }
+.codex-shot .model-picker-search-clear {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.codex-shot .model-picker-search-clear:hover { background: rgba(0,0,0,.05); color: #3f3f46; }
+.codex-shot .model-picker-separator {
+  flex: 0 0 1px;
+  margin: 3px 4px;
+  background: #ececef;
+}
 .codex-shot .model-picker-list {
-  max-height: clamp(120px, calc(100vh - 310px), 310px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 2px;
   scrollbar-width: thin;
 }
-.codex-shot .model-picker-group + .model-picker-group { margin-top: 3px; }
+.codex-shot .model-picker-group + .model-picker-group { margin-top: 2px; }
 .codex-shot .model-picker-provider {
-  padding: 6px 9px 3px;
+  padding: 6px 8px 2px;
   color: #a1a1aa;
-  font-size: 10px;
-  font-weight: 550;
-  text-transform: none;
-}
-.codex-shot .model-picker-group > button {
-  width: 100%;
-  min-height: 35px;
-  padding: 5px 9px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: #3f3f46;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  text-align: left;
-}
-.codex-shot .model-picker-group > button:hover,
-.codex-shot .model-picker-group > button.active { background: #f1f2f4; }
-.codex-shot .model-picker-copy {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.codex-shot .model-picker-copy strong,
-.codex-shot .model-picker-copy small {
+  font-size: 11px;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.codex-shot .model-picker-copy strong { font-size: 12px; font-weight: 500; }
-.codex-shot .model-picker-copy small { color: #9b9da4; font-size: 10px; }
-.codex-shot .model-picker-group > button > svg { flex: 0 0 auto; color: #555962; }
-.codex-shot .model-picker-empty {
-  padding: 22px 10px;
-  color: #9b9da4;
-  font-size: 11px;
-  text-align: center;
-}
-.codex-shot .thinking-picker {
-  margin-top: 5px;
-  padding-top: 4px;
-  border-top: 1px solid #ececef;
-}
-.codex-shot .thinking-picker-options {
-  display: flex;
-  gap: 3px;
-  padding: 2px 3px 3px;
-}
-.codex-shot .thinking-picker-options button {
-  flex: 1 1 0;
-  min-width: 0;
-  height: 30px;
-  padding: 0 5px;
+/* One row shape for models, the thinking row and the level flyout. */
+.codex-shot .model-picker-group > button,
+.codex-shot .model-picker-thinking-row,
+.codex-shot .model-picker-levels > button {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #71717a;
+  color: #3f3f46;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-size: 12.5px;
+}
+.codex-shot .model-picker-group > button:hover,
+.codex-shot .model-picker-group > button:focus-visible,
+.codex-shot .model-picker-thinking-row:hover,
+.codex-shot .model-picker-thinking-row:focus-visible,
+.codex-shot .model-picker-thinking-row.open,
+.codex-shot .model-picker-levels > button:hover,
+.codex-shot .model-picker-levels > button:focus-visible {
+  outline: 0;
+  background: #f1f2f4;
+}
+.codex-shot .model-picker-group > button.active,
+.codex-shot .model-picker-levels > button.active { background: #eceef1; font-weight: 500; }
+.codex-shot .model-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.codex-shot .model-picker-badge { flex: 0 0 auto; color: #a1a1aa; }
+.codex-shot .model-picker-check,
+.codex-shot .model-picker-levels > button > svg { flex: 0 0 auto; color: var(--accent); }
+.codex-shot .model-picker-thinking { position: relative; flex: 0 0 auto; }
+.codex-shot .model-picker-thinking-label { flex: 1; min-width: 0; }
+.codex-shot .model-picker-thinking-value { color: #8b8d94; font-size: 12px; }
+.codex-shot .model-picker-thinking-row > svg { flex: 0 0 auto; color: #a1a1aa; }
+/* Flyout to the left: the picker hugs the composer's right edge, so the left side has room. */
+.codex-shot .model-picker-levels {
+  position: absolute;
+  z-index: 1;
+  top: -5px;
+  right: calc(100% + 9px);
+  width: 136px;
+  padding: 4px;
+  border: 1px solid #e1e2e5;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(31, 35, 41, .14), 0 2px 6px rgba(31, 35, 41, .06);
+}
+.codex-shot .model-picker-levels > button > span { flex: 1; min-width: 0; }
+.codex-shot .model-picker-levels-heading {
+  padding: 4px 8px 2px;
+  color: #a1a1aa;
   font-size: 11px;
+  font-weight: 500;
 }
-.codex-shot .thinking-picker-options button:hover { background: #f4f4f5; color: #3f3f46; }
-.codex-shot .thinking-picker-options button.active {
-  background: #e9eaec;
-  color: #27272a;
-  font-weight: 600;
+.codex-shot .model-picker-empty {
+  padding: 20px 10px;
+  color: #9b9da4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  text-align: center;
 }
+.codex-shot .model-picker-empty > svg { margin-bottom: 3px; }
+.codex-shot .model-picker-empty strong { color: #3f3f46; font-size: 12.5px; font-weight: 500; }
+.codex-shot .model-picker-empty span { font-size: 11.5px; }
 
 .codex-shot .send-button {
   width: 32px;
@@ -4391,59 +4401,120 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   line-height: 1.5;
   white-space: pre-wrap;
 }
-.conversation-plan-card {
-  margin: 4px 0 18px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--panel, #fff);
-  overflow: hidden;
-}
-.conversation-plan-open {
-  width: 100%;
-  min-height: 48px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  cursor: pointer;
-  text-align: left;
-}
-.conversation-plan-open:disabled { cursor: default; }
-.conversation-plan-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--panel-soft, #f4f4f5);
-  color: var(--text-2);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.conversation-plan-open > div { min-width: 0; display: grid; gap: 2px; }
-.conversation-plan-open strong { font-size: 14px; font-weight: 600; }
-.conversation-plan-open span { color: var(--text-2); font-size: 12.5px; }
-.conversation-plan-steps {
+/* Plan steps, shared by a turn's plan row and the live plan above the composer. */
+.plan-steps {
   margin: 0;
-  padding: 0 12px 10px;
+  padding: 0;
   list-style: none;
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
-.conversation-plan-step {
-  min-height: 28px;
+.plan-step {
+  min-height: 26px;
   display: grid;
   grid-template-columns: 16px 1fr auto;
   align-items: center;
   gap: 8px;
   color: var(--text-2);
   font-size: 13px;
+  line-height: 1.45;
 }
-.conversation-plan-step em { color: var(--text-3); font-style: normal; font-size: 11px; }
-.conversation-plan-step.is-completed { color: var(--text-3); }
-.conversation-plan-step.is-in_progress { color: var(--text); }
+.plan-step svg { color: var(--text-3); }
+.plan-step em { color: var(--text-3); font-style: normal; font-size: 11px; }
+.plan-step.is-completed { color: var(--text-3); }
+.plan-step.is-completed svg { color: var(--green); }
+.plan-step.is-in_progress { color: var(--text); }
+.plan-step.is-in_progress svg { color: var(--accent); }
+.plan-progress-ring { flex: 0 0 auto; }
+.plan-progress-track { stroke: var(--border); }
+.plan-progress-value { stroke: var(--accent); transition: stroke-dasharray .3s ease; }
+/* A finished turn's plan: a quiet fold row, like the work log above it. */
+.turn-plan { margin: 0 0 12px; }
+.turn-plan-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.turn-plan-toggle {
+  min-width: 0;
+  max-width: 100%;
+  height: 26px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text-2) 75%, transparent);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 6px;
+  margin-left: -6px;
+  cursor: pointer;
+  font-size: 12.5px;
+  text-align: left;
+  transition: background-color .15s, color .15s;
+}
+.turn-plan-toggle:hover { background: var(--hover); color: var(--text-2); }
+.turn-plan-toggle strong { flex: 0 0 auto; font-weight: 500; }
+.turn-plan-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); }
+.turn-plan-icon { flex: 0 0 auto; color: var(--text-3); }
+.turn-plan-icon.is-finished { color: var(--green); }
+.turn-plan-toggle > svg:last-child { flex: 0 0 auto; color: var(--text-3); transition: transform .2s; }
+.turn-plan-toggle > svg.open { transform: rotate(90deg); }
+.turn-plan-panel {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s, background-color .15s;
+}
+.turn-plan-row:hover .turn-plan-panel,
+.turn-plan-panel:focus-visible { opacity: 1; }
+.turn-plan-panel:hover { background: var(--hover); color: var(--text); }
+.turn-plan > .plan-steps {
+  margin: 4px 0 0 7px;
+  padding: 2px 0 2px 13px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+}
+/* The running turn's plan, one line above the composer until the turn ends. */
+.live-plan {
+  width: 100%;
+  max-width: var(--chat-reading-width, 720px);
+  margin: 0 auto 6px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px -14px rgba(0, 0, 0, .28);
+  overflow: hidden;
+}
+.live-plan > .plan-steps {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.live-plan-toggle {
+  width: 100%;
+  height: 34px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12.5px;
+}
+.live-plan-toggle:hover { background: var(--hover); }
+.live-plan-toggle strong { flex: 0 0 auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+.live-plan-toggle span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.live-plan-toggle > svg:last-child { flex: 0 0 auto; margin-left: auto; color: var(--text-3); transition: transform .2s; }
+.live-plan-toggle > svg.open { transform: rotate(180deg); }
 .tool-plan-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
 .tool-plan-step { color: var(--text-2); font-size: 12px; padding-left: 14px; position: relative; }
 .tool-plan-step::before { content: ""; position: absolute; left: 3px; top: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
@@ -5640,8 +5711,18 @@ body.bottom-panel-is-resizing .codex-shot .bottom-panel-resizer { background: va
 .codex-shot .side-chat-composer-dock .composer-toolbar { padding-inline: 7px; }
 .codex-shot .side-chat-composer-dock .model-picker-menu {
   right: -2px;
-  width: min(340px, calc(var(--workspace-panel-width, 420px) - 30px));
+  width: min(272px, calc(var(--workspace-panel-width, 420px) - 30px));
 }
+/* The side panel clips anything left of it, so the level list opens inline under its row. */
+.codex-shot .side-chat-composer-dock .model-picker-levels {
+  position: static;
+  width: auto;
+  padding: 0 0 2px 12px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.codex-shot .side-chat-composer-dock .model-picker-levels-heading { display: none; }
 .codex-shot .terminal-history-entry { display: block; white-space: pre-wrap; }
 .codex-shot .diff-comment-row { position: relative; }
 .codex-shot .diff-comment-trigger {
@@ -5815,29 +5896,11 @@ body.bottom-panel-is-resizing .codex-shot .bottom-panel-resizer { background: va
 :root[data-theme="dark"] .codex-shot .permission-menu-copy strong { color: var(--text); }
 :root[data-theme="dark"] .codex-shot .permission-menu-copy small { color: var(--text-2); }
 :root[data-theme="dark"] .codex-shot .permission-menu > button > svg { color: var(--text-2); }
-:root[data-theme="dark"] .codex-shot .model-picker-menu {
+:root[data-theme="dark"] .codex-shot .model-picker-menu,
+:root[data-theme="dark"] .codex-shot .model-picker-levels {
   background: var(--panel-soft);
   border-color: var(--border);
   color: var(--text);
-}
-:root[data-theme="dark"] .codex-shot .model-picker-heading strong,
-:root[data-theme="dark"] .codex-shot .thinking-picker-heading strong { color: var(--text); }
-:root[data-theme="dark"] .codex-shot .model-picker-search {
-  border-color: var(--border);
-  background: var(--panel);
-}
-:root[data-theme="dark"] .codex-shot .model-picker-search input { color: var(--text); }
-:root[data-theme="dark"] .codex-shot .model-picker-group > button { color: var(--text); }
-:root[data-theme="dark"] .codex-shot .model-picker-group > button:hover,
-:root[data-theme="dark"] .codex-shot .model-picker-group > button.active,
-:root[data-theme="dark"] .codex-shot .thinking-picker-options button:hover { background: var(--active); }
-:root[data-theme="dark"] .codex-shot .thinking-picker { border-top-color: var(--border); }
-:root[data-theme="dark"] .codex-shot .thinking-picker-options button.active {
-  background: #34343a;
-  color: var(--text);
-}
-:root[data-theme="dark"] .codex-shot .thread-meta-row {
-  border-bottom-color: var(--border);
 }
 :root[data-theme="dark"] .codex-shot .inspector-panel.env-panel,
 :root[data-theme="dark"] .codex-shot .conversation-change-card,
@@ -6082,15 +6145,15 @@ body,
 .codex-shot .model-combo,
 .codex-shot .permission-menu-copy strong,
 .codex-shot .permission-menu-copy small,
-.codex-shot .model-picker-heading,
-.codex-shot .thinking-picker-heading,
+.codex-shot .model-picker-search input,
+.codex-shot .model-picker-group > button,
+.codex-shot .model-picker-thinking-row,
+.codex-shot .model-picker-levels > button,
+.codex-shot .model-picker-empty strong { font-size: var(--text-sm); }
 .codex-shot .model-picker-provider,
-.codex-shot .model-picker-copy strong,
-.codex-shot .model-picker-copy small,
-.codex-shot .thinking-picker-options button,
-.codex-shot .model-picker-empty { font-size: var(--text-sm); }
-.codex-shot .model-picker-heading span,
-.codex-shot .thinking-picker-heading span { font-size: var(--text-xs); }
+.codex-shot .model-picker-levels-heading,
+.codex-shot .model-picker-thinking-value,
+.codex-shot .model-picker-empty span { font-size: var(--text-xs); }
 .codex-shot .new-task-heading { font-size: 28px; font-weight: 500; }
 .codex-shot .starter-card { font-size: var(--text-base); font-weight: 500; }
 
@@ -6226,12 +6289,6 @@ body,
 .codex-shot .conversation:not(.new-task-conversation) {
   padding: 20px 24px 16px;
 }
-.codex-shot .thread-meta-row {
-  min-height: 24px;
-  margin: 0 0 14px;
-  padding: 0 2px;
-  border-bottom: 0;
-}
 .codex-shot .message-row {
   margin: 0 0 18px;
   font-size: 16px;
@@ -6364,12 +6421,6 @@ body,
 .codex-shot .conversation-change-card {
   margin: 4px 0 14px;
   border-radius: 12px;
-}
-.codex-shot .conversation-plan-card {
-  margin: 4px 0 16px;
-  border-color: #e5e7ea;
-  border-radius: 14px;
-  background: #fff;
 }
 .codex-shot .compaction-divider { color: #8b8f97; }
 .codex-shot .compaction-divider::before,

@@ -296,7 +296,8 @@ export interface AppSettings {
   requireCtrlEnter: boolean;
   preventSleep: boolean;
   language: "system" | "en" | "zh-CN";
-  defaultFileOpener: "system" | "cursor" | "vscode" | "windsurf" | "antigravity";
+  /** `system` picks the first detected editor; otherwise a WorkspaceEditorInfo id. */
+  defaultFileOpener: string;
   terminalShell: string;
   terminalOutput: "summary" | "full";
   notificationsEnabled: boolean;
@@ -406,7 +407,16 @@ export interface ToolPermissionRule {
 }
 
 export interface WorkspaceEditorInfo {
-  id: "cursor" | "vscode" | "windsurf" | "antigravity";
+  /** Catalog id from the backend (`vscode`, `cursor`, `webstorm`, ...). */
+  id: string;
+  name: string;
+  /** Whether the editor can open a file at a given line. */
+  supportsLine: boolean;
+}
+
+/** An external terminal app the "open in" menu can hand the workspace to. */
+export interface TerminalAppInfo {
+  id: string;
   name: string;
 }
 
@@ -453,6 +463,31 @@ export interface GitSnapshot {
   branch?: string;
   files: GitFileChange[];
   diff: string;
+  /** Only the working-tree snapshot (`git_snapshot`) reports this. */
+  sync?: GitSyncStatus;
+}
+
+/** Where the current branch stands against its remote. */
+export interface GitSyncStatus {
+  /** `origin/main`; absent until the branch is published, or after its remote branch was deleted. */
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  hasRemote: boolean;
+}
+
+export interface GitCommitResult {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  branch: string;
+}
+
+export interface GitPushResult {
+  remote: string;
+  branch: string;
+  /** The push published the branch and made the remote branch its upstream. */
+  setUpstream: boolean;
 }
 
 export interface GitBranchInfo {

@@ -30,16 +30,8 @@ import {
   normalizeTranscriptDensity,
   type TranscriptDensity,
 } from "../lib/transcriptDensity";
-
-const THINKING_LABELS: Record<string, string> = {
-  off: "关闭",
-  minimal: "最少",
-  low: "低",
-  medium: "中",
-  high: "高",
-  xhigh: "极高",
-  max: "最高",
-};
+import { ModelPicker } from "./ModelPicker";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
 
 const PERMISSION_OPTIONS: Array<{
   value: AppSettings["permissionMode"];
@@ -63,6 +55,8 @@ interface ComposerProps {
   thinkingLevel: string;
   thinkingLevels: string[];
   prefill?: string | null;
+  /** Appends to the draft instead of replacing it (terminal output sent to chat). */
+  insertRequest?: { text: string; nonce: number } | null;
   pendingCount: number;
   queuedMessages?: ManagedQueuedMessage[];
   requireCtrlEnter?: boolean;
@@ -109,6 +103,7 @@ export const Composer = memo(function Composer({
   thinkingLevel,
   thinkingLevels,
   prefill,
+  insertRequest = null,
   pendingCount,
   queuedMessages = [],
   requireCtrlEnter = false,
@@ -150,7 +145,6 @@ export const Composer = memo(function Composer({
   const [actionsOpen, setActionsOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [modelQuery, setModelQuery] = useState("");
   const [queueOpen, setQueueOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
@@ -176,6 +170,14 @@ export const Composer = memo(function Composer({
     onPrefillConsumed?.();
   }, [prefill, onPrefillConsumed]);
 
+  useSyncOnChange([insertRequest?.nonce], () => {
+    if (!insertRequest) return;
+    setText((current) => (current.trim() ? `${current.replace(/\s+$/, "")}\n\n${insertRequest.text}` : insertRequest.text));
+  });
+  useEffect(() => {
+    if (insertRequest) textareaRef.current?.focus();
+  }, [insertRequest]);
+
   useEffect(() => setStreamingBehavior(defaultFollowUpBehavior), [defaultFollowUpBehavior]);
 
   useEffect(() => {
@@ -190,10 +192,7 @@ export const Composer = memo(function Composer({
       if (environmentOpen && !target.closest(".environment-context-wrap")) setEnvironmentOpen(false);
       if (actionsOpen && !target.closest(".composer-actions-menu, .composer-add-trigger")) setActionsOpen(false);
       if (permissionOpen && !target.closest(".permission-context-wrap")) setPermissionOpen(false);
-      if (modelMenuOpen && !target.closest(".model-picker-wrap")) {
-        setModelMenuOpen(false);
-        setModelQuery("");
-      }
+      if (modelMenuOpen && !target.closest(".model-picker-wrap")) setModelMenuOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
@@ -202,7 +201,6 @@ export const Composer = memo(function Composer({
   useEffect(() => {
     if (!isSwitchingModel) return;
     setModelMenuOpen(false);
-    setModelQuery("");
   }, [isSwitchingModel]);
 
   useEffect(() => {
@@ -234,24 +232,6 @@ export const Composer = memo(function Composer({
       .filter((item) => !normalized || item.toLowerCase().includes(normalized))
       .slice(0, 8);
   }, [workspaceOptions, workspaceQuery]);
-  const visibleModelGroups = useMemo(() => {
-    const normalized = modelQuery.trim().toLowerCase();
-    const groups = new Map<string, ModelInfo[]>();
-    models
-      .filter((candidate) => {
-        if (!normalized) return true;
-        return candidate.provider.toLowerCase().includes(normalized)
-          || candidate.id.toLowerCase().includes(normalized)
-          || candidate.name.toLowerCase().includes(normalized);
-      })
-      .forEach((candidate) => {
-        const group = groups.get(candidate.provider) || [];
-        group.push(candidate);
-        groups.set(candidate.provider, group);
-      });
-    return [...groups.entries()];
-  }, [modelQuery, models]);
-  const visibleThinkingLevels = thinkingLevels.length ? thinkingLevels : ["off"];
   const workspaceName = workspace.split(/[\\/]/).filter(Boolean).pop() || "选择项目";
 
   const submit = async () => {
@@ -266,13 +246,6 @@ export const Composer = memo(function Composer({
     }
   };
 
-  // Codex shows one quiet label: "5.6 Sol 极高". Avoid "选择模型 中" when disconnected.
-  const modelName = model ? (model.name || model.id) : null;
-  const thinkingLabel = THINKING_LABELS[thinkingLevel] || thinkingLevel || "";
-  const modelComboLabel = modelName
-    ? (thinkingLabel && thinkingLevel !== "off" ? `${modelName} ${thinkingLabel}` : modelName)
-    : (models.length ? "选择模型" : "模型");
-
   // Codex home: project/local chips on the soft shell.
   // Codex conversation: NO chips — only + / permission / model / send.
   const showWorkspaceChips = variant === "task-start" && !quickChat;
@@ -282,10 +255,8 @@ export const Composer = memo(function Composer({
       className={`composer-area codex-composer ${variant === "task-start" ? "task-start-composer" : "follow-up-composer"}`}
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
-        if (modelMenuOpen) {
-          setModelMenuOpen(false);
-          setModelQuery("");
-        } else if (actionsOpen) setActionsOpen(false);
+        if (modelMenuOpen) setModelMenuOpen(false);
+        else if (actionsOpen) setActionsOpen(false);
         else if (permissionOpen) setPermissionOpen(false);
         else if (environmentOpen) setEnvironmentOpen(false);
         else if (workspaceOpen) {
@@ -545,101 +516,25 @@ export const Composer = memo(function Composer({
                 </span>
               </span>
             )}
-            <div className="model-picker-wrap">
-              <button
-                type="button"
-                className={`model-combo ${modelMenuOpen ? "active" : ""} ${isSwitchingModel ? "switching" : ""}`}
-                title={isSwitchingModel ? "正在确认模型切换" : "选择模型和思考等级"}
-                disabled={disabled || models.length === 0}
-                aria-haspopup="dialog"
-                aria-expanded={modelMenuOpen}
-                onClick={() => {
-                  setWorkspaceOpen(false);
-                  setEnvironmentOpen(false);
-                  setActionsOpen(false);
-                  setPermissionOpen(false);
-                  setModelMenuOpen((value) => {
-                    if (value) setModelQuery("");
-                    return !value;
-                  });
-                }}
-              >
-                <span className="model-combo-text">{modelComboLabel}</span>
-                <ChevronDown size={12} strokeWidth={1.75} />
-              </button>
-              {modelMenuOpen && (
-                <div className="model-picker-menu" role="dialog" aria-label="选择模型和思考等级">
-                  <div className="model-picker-heading">
-                    <strong>选择模型</strong>
-                    <span>{models.length} 个可用</span>
-                  </div>
-                  <label className="model-picker-search">
-                    <Search size={14} strokeWidth={1.75} />
-                    <input
-                      autoFocus
-                      value={modelQuery}
-                      onChange={(event) => setModelQuery(event.target.value)}
-                      placeholder="搜索模型或提供商"
-                    />
-                  </label>
-                  <div className="model-picker-list" role="menu">
-                    {visibleModelGroups.map(([provider, providerModels]) => (
-                      <section className="model-picker-group" key={provider}>
-                        <div className="model-picker-provider">{provider}</div>
-                        {providerModels.map((candidate) => {
-                          const selected = model?.provider === candidate.provider && model.id === candidate.id;
-                          return (
-                            <button
-                              type="button"
-                              role="menuitemradio"
-                              aria-checked={selected}
-                              className={selected ? "active" : ""}
-                              key={`${candidate.provider}/${candidate.id}`}
-                              onClick={() => {
-                                setModelMenuOpen(false);
-                                setModelQuery("");
-                                if (!selected) onModelChange(candidate);
-                              }}
-                            >
-                              <span className="model-picker-copy">
-                                <strong>{candidate.name || candidate.id}</strong>
-                                {candidate.name && candidate.name !== candidate.id && <small>{candidate.id}</small>}
-                              </span>
-                              {selected && <Check size={14} strokeWidth={2} />}
-                            </button>
-                          );
-                        })}
-                      </section>
-                    ))}
-                    {visibleModelGroups.length === 0 && <div className="model-picker-empty">没有匹配的模型</div>}
-                  </div>
-                  <div className="thinking-picker">
-                    <div className="thinking-picker-heading">
-                      <strong>思考等级</strong>
-                      <span>{THINKING_LABELS[thinkingLevel] || thinkingLevel}</span>
-                    </div>
-                    <div className="thinking-picker-options" role="radiogroup" aria-label="思考等级">
-                      {visibleThinkingLevels.map((level) => (
-                        <button
-                          type="button"
-                          role="radio"
-                          aria-checked={thinkingLevel === level}
-                          className={thinkingLevel === level ? "active" : ""}
-                          key={level}
-                          onClick={() => {
-                            setModelMenuOpen(false);
-                            setModelQuery("");
-                            if (thinkingLevel !== level) onThinkingChange(level);
-                          }}
-                        >
-                          {THINKING_LABELS[level] || level}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <ModelPicker
+              model={model}
+              models={models}
+              thinkingLevel={thinkingLevel}
+              thinkingLevels={thinkingLevels}
+              disabled={disabled}
+              isSwitchingModel={isSwitchingModel}
+              open={modelMenuOpen}
+              onToggle={() => {
+                setWorkspaceOpen(false);
+                setEnvironmentOpen(false);
+                setActionsOpen(false);
+                setPermissionOpen(false);
+                setModelMenuOpen((value) => !value);
+              }}
+              onClose={() => setModelMenuOpen(false)}
+              onModelChange={onModelChange}
+              onThinkingChange={onThinkingChange}
+            />
             {isStreaming ? (
               <button type="button" className="stop-button" onClick={onStop} title="停止">
                 <Square size={11} fill="currentColor" />

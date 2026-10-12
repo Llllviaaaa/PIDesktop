@@ -2,10 +2,12 @@ import { memo, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowUp, Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, Copy, Info, Link2, LoaderCircle, Pencil, RotateCcw, Share2, Terminal } from "lucide-react";
 import type { UiMessage, UiToolCall } from "../types";
+import type { TaskPlanSummary } from "../lib/envSources";
 import { foldThinking } from "../lib/thinkingDisplay";
 import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
 import { usePiStore } from "../store";
 import { isGoalToolCall } from "../lib/activeGoal";
+import { ConversationPlan } from "./ConversationPlan";
 import { Markdown } from "./Markdown";
 import { ToolCall } from "./ToolCall";
 
@@ -73,6 +75,8 @@ export const Message = memo(function Message({
   summaryMode = false,
   density = "normal",
   editing = false,
+  plan,
+  onOpenPlan,
   onEdit,
   onRewind,
   onCancelEdit,
@@ -95,6 +99,9 @@ export const Message = memo(function Message({
   /** Conversation density; summaryMode still wins when both are set. */
   density?: TranscriptDensity;
   editing?: boolean;
+  /** The plan this turn finished with; hidden while the turn works, when the composer shows it. */
+  plan?: TaskPlanSummary;
+  onOpenPlan?: () => void;
   onEdit?: (message: UiMessage) => void;
   onRewind?: (message: UiMessage) => Promise<boolean>;
   onCancelEdit?: () => void;
@@ -528,6 +535,7 @@ export const Message = memo(function Message({
           )}
         </details>
       )}
+      {plan && !working && <ConversationPlan plan={plan} onOpenPlan={onOpenPlan} />}
       {message.content && (
         <div className="assistant-content">
           {message.isError && <CircleAlert size={15} className="message-error-icon" />}

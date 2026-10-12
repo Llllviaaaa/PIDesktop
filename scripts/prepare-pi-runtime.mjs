@@ -255,11 +255,13 @@ requireFile(bunExecutable, "Bun compiler");
 
 const piManifest = readJson(join(piPackageDir, "package.json"));
 const bunManifest = readJson(join(bunPackageDir, "package.json"));
+// Pi 1.x no longer ships npm-shrinkwrap.json, so the dependencies compiled
+// into pi.exe are the ones this repository's lockfile resolves.
 const buildKey = hashFiles([
   scriptPath,
   noticesPath,
   join(piPackageDir, "package.json"),
-  join(piPackageDir, "npm-shrinkwrap.json"),
+  join(repoRoot, "package-lock.json"),
   join(bunPackageDir, "package.json"),
 ]);
 const existingManifestPath = join(outputDir, "runtime-manifest.json");

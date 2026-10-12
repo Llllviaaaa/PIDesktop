@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -30,16 +31,17 @@ pub(crate) struct ScheduledRunRecord {
     pub session_file: Option<String>,
 }
 
-fn open_store(path: &Path) -> Result<Connection, String> {
+fn open_store(path: &Path) -> Result<Connection, AppError> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create scheduler data directory: {err}"))?;
+        std::fs::create_dir_all(parent).map_err(|err| {
+            AppError::Io(format!("failed to create scheduler data directory: {err}"))
+        })?;
     }
     let connection = Connection::open(path)
-        .map_err(|err| format!("failed to open scheduled run history: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to open scheduled run history: {err}")))?;
     connection
         .busy_timeout(std::time::Duration::from_secs(3))
-        .map_err(|err| format!("failed to configure scheduled run history: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to configure scheduled run history: {err}")))?;
     connection
         .execute_batch(
             "PRAGMA journal_mode=WAL;
@@ -65,14 +67,16 @@ fn open_store(path: &Path) -> Result<Connection, String> {
              CREATE INDEX IF NOT EXISTS idx_scheduled_runs_started
                ON scheduled_runs(started_at DESC);",
         )
-        .map_err(|err| format!("failed to initialize scheduled run history: {err}"))?;
+        .map_err(|err| {
+            AppError::Io(format!("failed to initialize scheduled run history: {err}"))
+        })?;
     let has_permission_mode = connection
         .prepare("PRAGMA table_info(scheduled_runs)")
         .and_then(|mut statement| {
             let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
             columns.collect::<Result<Vec<_>, _>>()
         })
-        .map_err(|err| format!("failed to inspect scheduled run history: {err}"))?
+        .map_err(|err| AppError::Io(format!("failed to inspect scheduled run history: {err}")))?
         .iter()
         .any(|column| column == "permission_mode");
     if !has_permission_mode {
@@ -81,7 +85,9 @@ fn open_store(path: &Path) -> Result<Connection, String> {
                 "ALTER TABLE scheduled_runs ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'ask'",
                 [],
             )
-            .map_err(|err| format!("failed to migrate scheduled run history: {err}"))?;
+            .map_err(|err| {
+                AppError::Io(format!("failed to migrate scheduled run history: {err}"))
+            })?;
     }
     Ok(connection)
 }
@@ -91,7 +97,7 @@ pub(crate) fn begin_run(
     task: &ScheduledTask,
     trigger: &str,
     started_at: u64,
-) -> Result<ScheduledRunRecord, String> {
+) -> Result<ScheduledRunRecord, AppError> {
     let record = ScheduledRunRecord {
         id: format!(
             "run-{started_at}-{}-{}",
@@ -130,11 +136,11 @@ pub(crate) fn begin_run(
                 record.started_at,
             ],
         )
-        .map_err(|err| format!("failed to start scheduled run record: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to start scheduled run record: {err}")))?;
     Ok(record)
 }
 
-pub(crate) fn finish_run(path: &Path, record: &ScheduledRunRecord) -> Result<(), String> {
+pub(crate) fn finish_run(path: &Path, record: &ScheduledRunRecord) -> Result<(), AppError> {
     open_store(path)?
         .execute(
             "UPDATE scheduled_runs SET
@@ -155,7 +161,7 @@ pub(crate) fn finish_run(path: &Path, record: &ScheduledRunRecord) -> Result<(),
                 record.session_file,
             ],
         )
-        .map_err(|err| format!("failed to finish scheduled run record: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to finish scheduled run record: {err}")))?;
     Ok(())
 }
 
@@ -163,7 +169,7 @@ pub(crate) fn list_runs(
     path: &Path,
     task_id: Option<&str>,
     limit: u32,
-) -> Result<Vec<ScheduledRunRecord>, String> {
+) -> Result<Vec<ScheduledRunRecord>, AppError> {
     let connection = open_store(path)?;
     let limit = limit.clamp(1, 250) as i64;
     let columns =
@@ -176,7 +182,7 @@ pub(crate) fn list_runs(
     };
     let mut statement = connection
         .prepare(&sql)
-        .map_err(|err| format!("failed to query scheduled run history: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to query scheduled run history: {err}")))?;
     let map_row = |row: &rusqlite::Row<'_>| {
         Ok(ScheduledRunRecord {
             id: row.get(0)?,
@@ -200,12 +206,12 @@ pub(crate) fn list_runs(
     } else {
         statement.query_map(params![limit], map_row)
     }
-    .map_err(|err| format!("failed to read scheduled run history: {err}"))?;
+    .map_err(|err| AppError::Io(format!("failed to read scheduled run history: {err}")))?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|err| format!("failed to decode scheduled run history: {err}"))
+        .map_err(|err| AppError::Io(format!("failed to decode scheduled run history: {err}")))
 }
 
-pub(crate) fn recover_interrupted_runs(path: &Path, now: u64) -> Result<usize, String> {
+pub(crate) fn recover_interrupted_runs(path: &Path, now: u64) -> Result<usize, AppError> {
     let changed = open_store(path)?
         .execute(
             "UPDATE scheduled_runs SET
@@ -219,7 +225,7 @@ pub(crate) fn recover_interrupted_runs(path: &Path, now: u64) -> Result<usize, S
              WHERE status = 'running'",
             params![now],
         )
-        .map_err(|err| format!("failed to recover scheduled run history: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to recover scheduled run history: {err}")))?;
     Ok(changed)
 }
 

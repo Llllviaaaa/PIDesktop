@@ -1,4 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { describeError } from "../lib/errors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queries";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
@@ -191,6 +195,10 @@ function groupForPage(page: SettingsPage) {
 /** How a panel's own PageHeading renders once it sits inside a grouped page. */
 const PanelHeadingMode = createContext<"page" | "section" | "description">("page");
 
+const NO_SESSIONS: SessionInfo[] = [];
+const NO_RESOURCES: ResourceItem[] = [];
+const NO_WORKTREES: WorktreeInfo[] = [];
+
 export function SettingsModal({
   settings,
   cwd,
@@ -212,13 +220,8 @@ export function SettingsModal({
   const [active, setActive] = useState<SettingsPage>(initialPage);
   const [query, setQuery] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
-  const [resources, setResources] = useState<ResourceItem[]>([]);
-  const [archived, setArchived] = useState<SessionInfo[]>([]);
-  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
-  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [memoryText, setMemoryText] = useState("");
   const [memoryState, setMemoryState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [loadingData, setLoadingData] = useState(true);
   const editedRef = useRef(false);
   const pendingSaveRef = useRef<AppSettings | null>(null);
   const saveTimerRef = useRef<number | null>(null);
@@ -229,35 +232,62 @@ export function SettingsModal({
   useEffect(() => {
     if (!editedRef.current) setForm({ ...DEFAULTS, ...settings, language: "zh-CN" });
   }, [settings]);
-  useEffect(() => setActive(initialPage), [initialPage]);
+  const [requestedPage, setRequestedPage] = useState(initialPage);
+  if (requestedPage !== initialPage) {
+    setRequestedPage(initialPage);
+    setActive(initialPage);
+  }
   useEffect(() => () => {
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);
   }, []);
-  useEffect(() => {
-    if (!isTauri) {
-      setLoadingData(false);
-      return;
-    }
-    let cancelled = false;
-    setLoadingData(true);
-    void Promise.all([
-      pi.listArchivedSessions(),
-      pi.listResources(cwd),
-      cwd ? pi.listWorktrees(cwd).catch(() => []) : Promise.resolve([]),
-      pi.getLocalMemory().catch(() => ""),
-    ]).then(([nextArchived, nextResources, nextWorktrees, nextMemory]) => {
-      if (cancelled) return;
-      setArchived(nextArchived);
-      setForm((current) => ({ ...current, archivedSessions: nextArchived.map((session) => session.file) }));
-      setResources(nextResources);
-      setWorktrees(nextWorktrees);
-      setMemoryText(nextMemory);
-      setLoadingData(false);
-    });
-    void pi.usageSummary().then((summary) => { if (!cancelled) setUsage(summary); });
-    return () => { cancelled = true; };
-  }, [cwd, isTauri]);
+  const queryClient = useQueryClient();
+  const archivedQuery = useQuery({
+    queryKey: queryKeys.archivedSessions(),
+    queryFn: () => pi.listArchivedSessions(),
+    enabled: isTauri,
+  });
+  const resourcesQuery = useQuery({
+    queryKey: queryKeys.resources(cwd),
+    queryFn: () => pi.listResources(cwd),
+    enabled: isTauri,
+  });
+  const worktreesQuery = useQuery({
+    queryKey: queryKeys.worktrees(cwd),
+    queryFn: () => (cwd ? pi.listWorktrees(cwd).catch((): WorktreeInfo[] => []) : Promise.resolve([])),
+    enabled: isTauri,
+  });
+  const memoryQuery = useQuery({
+    queryKey: queryKeys.localMemory(),
+    queryFn: () => pi.getLocalMemory().catch(() => ""),
+    enabled: isTauri,
+  });
+  const usageQuery = useQuery({
+    queryKey: queryKeys.usage(),
+    queryFn: () => pi.usageSummary(),
+    enabled: isTauri,
+  });
+  const archived = archivedQuery.data ?? NO_SESSIONS;
+  const resources = resourcesQuery.data ?? NO_RESOURCES;
+  const worktrees = worktreesQuery.data ?? NO_WORKTREES;
+  const usage = usageQuery.data ?? null;
+  // A failed load used to leave this spinning forever; now it ends and shows what loaded.
+  const loadingData = isTauri && (archivedQuery.isPending || resourcesQuery.isPending
+    || worktreesQuery.isPending || memoryQuery.isPending);
+
+  // The form carries the archive list, and the memory editor starts from the saved text.
+  const archivedData = archivedQuery.data;
+  useSyncOnChange([archivedData], () => {
+    if (archivedData) setForm((current) => ({ ...current, archivedSessions: archivedData.map((session) => session.file) }));
+  });
+  const savedMemory = memoryQuery.data;
+  useSyncOnChange([savedMemory], () => {
+    if (savedMemory !== undefined) setMemoryText(savedMemory);
+  });
+  const dropArchived = (file: string) => queryClient.setQueryData<SessionInfo[]>(
+    queryKeys.archivedSessions(),
+    (items) => items?.filter((item) => item.file !== file),
+  );
 
   const normalizeSettings = (value: AppSettings): AppSettings => {
     return {
@@ -336,6 +366,7 @@ export function SettingsModal({
           setMemoryState("saving");
           try {
             await pi.setLocalMemory(memoryText);
+            queryClient.setQueryData(queryKeys.localMemory(), memoryText);
             setMemoryState("saved");
           } catch {
             setMemoryState("error");
@@ -361,6 +392,7 @@ export function SettingsModal({
           if (!window.confirm("删除 PIDesktop 本地记忆文件吗？此操作不能撤销。")) return;
           try {
             await pi.deleteLocalMemory();
+            queryClient.setQueryData(queryKeys.localMemory(), "");
             setMemoryText("");
             setMemoryState("idle");
           } catch {
@@ -371,12 +403,12 @@ export function SettingsModal({
       {page === "shortcuts" && <ShortcutsPage form={form} update={update} />}
       {page === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
         await pi.restoreSession(session.file);
-        setArchived((items) => items.filter((item) => item.file !== session.file));
+        dropArchived(session.file);
         setForm((current) => ({ ...current, archivedSessions: current.archivedSessions.filter((file) => file !== session.file) }));
       }} onDelete={async (session) => {
         if (!window.confirm(`将“${session.name || session.firstMessage || "未命名任务"}”移到 Pi Desktop 回收站吗？`)) return;
         await pi.deleteSession(session.file);
-        setArchived((items) => items.filter((item) => item.file !== session.file));
+        dropArchived(session.file);
       }} />}
       {page === "usage" && <UsagePage usage={usage} />}
       {page === "providers" && <ModelsPage form={form} update={update} />}
@@ -388,7 +420,7 @@ export function SettingsModal({
       {page === "environment" && <EnvironmentPage form={form} update={update} />}
       {page === "hooks" && <HooksPage form={form} update={update} />}
       {page === "git" && <GitPage form={form} update={update} />}
-      {page === "worktrees" && <WorktreesPage cwd={cwd} worktrees={worktrees} loading={loadingData} onCreated={(item) => setWorktrees((items) => [...items, item])} />}
+      {page === "worktrees" && <WorktreesPage cwd={cwd} worktrees={worktrees} loading={loadingData} onCreated={(item) => queryClient.setQueryData<WorktreeInfo[]>(queryKeys.worktrees(cwd), (items) => [...(items ?? []), item])} />}
       {page === "debug" && <DebugPage form={form} update={update} />}
     </>
   );
@@ -495,6 +527,15 @@ function Switch({ checked, onChange, label }: { checked: boolean; onChange: (val
 }
 
 function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
+  const inTauri = "__TAURI_INTERNALS__" in window;
+  const editorsQuery = useQuery({
+    queryKey: queryKeys.workspaceEditors(),
+    queryFn: () => pi.listWorkspaceEditors(),
+    enabled: inTauri,
+    staleTime: Infinity,
+  });
+  const editors = editorsQuery.data ?? [];
+  const savedMissing = form.defaultFileOpener !== "system" && !editors.some((editor) => editor.id === form.defaultFileOpener);
   return <>
     <PageHeading title="常规" description="控制 Pi Desktop 的启动、消息发送和项目文件打开方式。" />
     <Card title="任务">
@@ -507,7 +548,13 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
     <Card title="应用">
       <Row title="恢复上次任务" description="启动时重新打开上一次任务及其 Pi 会话；前端刷新时会直接接回仍在运行的任务。"><Switch label="恢复上次任务" checked={form.autoConnect} onChange={(value) => update("autoConnect", value)} /></Row>
       <Row title="运行时防止休眠" description="执行长时间本地任务时保持电脑唤醒。"><Switch label="运行时防止休眠" checked={form.preventSleep} onChange={(value) => update("preventSleep", value)} /></Row>
-      <Row title="默认文件打开方式"><select value={form.defaultFileOpener} onChange={(event) => update("defaultFileOpener", event.target.value as AppSettings["defaultFileOpener"])}><option value="system">自动选择已安装的编辑器</option><option value="cursor">Cursor</option><option value="vscode">Visual Studio Code</option><option value="antigravity">Antigravity</option><option value="windsurf">Windsurf</option></select></Row>
+      <Row title="默认编辑器" description="打开项目和文件（含跳转到行）时使用。顶栏“打开方式”里为某个项目选过的编辑器优先于这里。">
+        <select value={form.defaultFileOpener} onChange={(event) => update("defaultFileOpener", event.target.value)}>
+          <option value="system">自动选择已安装的编辑器</option>
+          {editors.map((editor) => <option key={editor.id} value={editor.id}>{editor.name}</option>)}
+          {savedMissing && <option value={form.defaultFileOpener}>{form.defaultFileOpener}（未检测到）</option>}
+        </select>
+      </Row>
       <Row title="界面语言"><select value="zh-CN" disabled><option value="zh-CN">简体中文</option></select></Row>
     </Card>
     <Card title="通知">
@@ -579,7 +626,7 @@ function AppearancePage({
       setExtensionNotice(success);
     } catch (error) {
       setExtensionState("error");
-      setExtensionNotice(error instanceof Error ? error.message : String(error));
+      setExtensionNotice(describeError(error));
     }
   };
 
@@ -994,7 +1041,7 @@ function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }
       <Row title="默认工作环境" description="在当前检出中工作，或为任务创建隔离 Git Worktree。"><select value={form.defaultTaskEnvironment} onChange={(event) => update("defaultTaskEnvironment", event.target.value as AppSettings["defaultTaskEnvironment"])}><option value="local">Local（当前工作区）</option><option value="worktree">Worktree（隔离检出）</option></select></Row>
     </Card>
     <Card title="集成终端">
-      <Row title="集成终端 Shell" description="选择新终端标签页使用的 Shell。"><select value={form.terminalShell} onChange={(event) => update("terminalShell", event.target.value)}><option>PowerShell</option><option>Command Prompt</option><option>Git Bash</option><option>WSL</option></select></Row>
+      <Row title="集成终端 Shell" description="终端面板里“+”新建标签页时使用的 Shell；“+”旁的菜单可临时选择其他 Shell。"><select value={form.terminalShell} onChange={(event) => update("terminalShell", event.target.value)}><option>PowerShell</option><option>PowerShell 7</option><option>Command Prompt</option><option>Git Bash</option><option>WSL</option></select></Row>
       <Row title="对话中的命令输出"><select value={form.terminalOutput} onChange={(event) => update("terminalOutput", event.target.value as AppSettings["terminalOutput"])}><option value="summary">摘要</option><option value="full">完整输出</option></select></Row>
     </Card>
   </>;

@@ -1,7 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { DesktopPetWindow } from "./components/DesktopPetWindow";
+import { queryClient } from "./lib/queryClient";
 import { moveManagedQueueItem, removeManagedQueueItem } from "./lib/managedQueue";
 import { usePiStore } from "./store";
 import type { AssistantMessage, UiMessage } from "./types";
@@ -113,6 +115,20 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
         isStreaming: true,
         timestamp: Date.now(),
         toolCalls: [{
+          id: "fixture-stream-plan",
+          name: "update_plan",
+          args: {
+            explanation: "梳理聊天窗的消息层级",
+            items: [
+              { id: "readme", text: "阅读 README 与消息组件", status: "completed" },
+              { id: "levels", text: "总结当前聊天窗的消息层级", status: "in_progress" },
+              { id: "report", text: "给出调整建议", status: "pending" },
+            ],
+          },
+          running: false,
+          startedAt: Date.now() - 600,
+          finishedAt: Date.now() - 500,
+        }, {
           id: "fixture-stream-read",
           name: "read",
           args: { path: "README.md" },
@@ -264,10 +280,12 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
       text: messageId === "fixture-stream-user" ? "按照paseo" : "",
     }),
     editAndResend: async (entryId, text) => {
+      // eslint-disable-next-line no-console -- the performance fixture reports through the console
       console.info(`[performance-fixture] edited resend ${entryId}: ${text}`);
       return true;
     },
     rewindMessage: async (entryId) => {
+      // eslint-disable-next-line no-console -- the performance fixture reports through the console
       console.info(`[performance-fixture] rewound ${entryId}`);
       return true;
     },
@@ -382,6 +400,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
           });
           usePiStore.getState().handleEvent("fixture-runtime", { type: "agent_end", messages: [] });
           unsubscribe();
+          // eslint-disable-next-line no-console -- the performance fixture reports through the console
           console.info(`[performance-fixture] ${updateCount} updates -> ${messageCommits} message commits`);
         }, 2);
       }, 40);
@@ -391,6 +410,8 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    {desktopPetWindow ? <DesktopPetWindow /> : <App />}
+    <QueryClientProvider client={queryClient}>
+      {desktopPetWindow ? <DesktopPetWindow /> : <App />}
+    </QueryClientProvider>
   </React.StrictMode>,
 );

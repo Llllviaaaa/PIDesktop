@@ -46,12 +46,13 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params) {
       const current = await readMemory(memoryPath);
       if (params.action === "read") {
-        return { content: [{ type: "text" as const, text: current || "Local memory is empty." }] };
+        return { content: [{ type: "text" as const, text: current || "Local memory is empty." }], details: undefined };
       }
       const next = nextMemoryContent(current, params.action, params.content);
       await saveMemory(memoryPath, next);
       return {
         content: [{ type: "text" as const, text: params.action === "append" ? "Preference added to local memory." : params.action === "clear" ? "Local memory cleared." : "Local memory replaced." }],
+        details: undefined,
       };
     },
   });

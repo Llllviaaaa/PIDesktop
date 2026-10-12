@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::BufRead;
@@ -110,7 +111,7 @@ fn list_sessions_without_index(root: &Path) -> Vec<SessionInfo> {
     sessions
 }
 
-fn list_sessions_with_index(root: &Path, index_path: &Path) -> Result<Vec<SessionInfo>, String> {
+fn list_sessions_with_index(root: &Path, index_path: &Path) -> Result<Vec<SessionInfo>, AppError> {
     if !root.is_dir() {
         return Ok(Vec::new());
     }
@@ -126,7 +127,7 @@ fn list_sessions_with_index(root: &Path, index_path: &Path) -> Result<Vec<Sessio
     let indexed = load_indexed_sessions(&connection, &root_key)?;
     let transaction = connection
         .transaction()
-        .map_err(|err| format!("failed to start session index update: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to start session index update: {err}")))?;
     let mut seen = HashSet::with_capacity(files.len());
     let mut sessions = Vec::with_capacity(files.len());
 
@@ -149,8 +150,9 @@ fn list_sessions_with_index(root: &Path, index_path: &Path) -> Result<Vec<Sessio
         let Some(session) = parse_session_file(&path) else {
             continue;
         };
-        let serialized = serde_json::to_string(&session)
-            .map_err(|err| format!("failed to serialize session metadata: {err}"))?;
+        let serialized = serde_json::to_string(&session).map_err(|err| {
+            AppError::Other(format!("failed to serialize session metadata: {err}"))
+        })?;
         transaction
             .execute(
                 r#"INSERT INTO session_index (root, file, len, modified_ns, session_json)
@@ -167,7 +169,7 @@ fn list_sessions_with_index(root: &Path, index_path: &Path) -> Result<Vec<Sessio
                     serialized
                 ],
             )
-            .map_err(|err| format!("failed to update session index: {err}"))?;
+            .map_err(|err| AppError::Io(format!("failed to update session index: {err}")))?;
         sessions.push(session);
     }
 
@@ -177,11 +179,11 @@ fn list_sessions_with_index(root: &Path, index_path: &Path) -> Result<Vec<Sessio
                 "DELETE FROM session_index WHERE root = ?1 AND file = ?2",
                 params![root_key, file],
             )
-            .map_err(|err| format!("failed to prune session index: {err}"))?;
+            .map_err(|err| AppError::Io(format!("failed to prune session index: {err}")))?;
     }
     transaction
         .commit()
-        .map_err(|err| format!("failed to commit session index: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to commit session index: {err}")))?;
     sort_sessions(&mut sessions);
     Ok(sessions)
 }
@@ -192,16 +194,17 @@ fn session_index_path() -> Option<PathBuf> {
         .map(|root| root.join("pid-desktop").join("session-index.sqlite3"))
 }
 
-fn open_session_index(path: &Path) -> Result<Connection, String> {
+fn open_session_index(path: &Path) -> Result<Connection, AppError> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create session index directory: {err}"))?;
+        fs::create_dir_all(parent).map_err(|err| {
+            AppError::Io(format!("failed to create session index directory: {err}"))
+        })?;
     }
-    let connection =
-        Connection::open(path).map_err(|err| format!("failed to open session index: {err}"))?;
+    let connection = Connection::open(path)
+        .map_err(|err| AppError::Io(format!("failed to open session index: {err}")))?;
     connection
         .busy_timeout(Duration::from_millis(500))
-        .map_err(|err| format!("failed to configure session index: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to configure session index: {err}")))?;
     connection
         .execute_batch(
             r#"PRAGMA journal_mode = WAL;
@@ -217,20 +220,20 @@ fn open_session_index(path: &Path) -> Result<Connection, String> {
                CREATE INDEX IF NOT EXISTS idx_session_index_root
                  ON session_index(root);"#,
         )
-        .map_err(|err| format!("failed to initialize session index: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to initialize session index: {err}")))?;
     Ok(connection)
 }
 
 fn load_indexed_sessions(
     connection: &Connection,
     root: &str,
-) -> Result<HashMap<String, PersistentSessionEntry>, String> {
+) -> Result<HashMap<String, PersistentSessionEntry>, AppError> {
     let mut statement = connection
         .prepare(
             r#"SELECT file, len, modified_ns, session_json
                FROM session_index WHERE root = ?1"#,
         )
-        .map_err(|err| format!("failed to read session index: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to read session index: {err}")))?;
     let rows = statement
         .query_map([root], |row| {
             Ok((
@@ -240,7 +243,7 @@ fn load_indexed_sessions(
                 row.get::<_, String>(3)?,
             ))
         })
-        .map_err(|err| format!("failed to query session index: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to query session index: {err}")))?;
     let mut indexed = HashMap::new();
     for row in rows {
         let Ok((file, len, modified_ns, session_json)) = row else {
@@ -295,15 +298,16 @@ fn collect_jsonl_files(root: &Path, files: &mut Vec<PathBuf>, depth: usize) {
 
 /// Move a session into a local trash directory after validating that it belongs
 /// to the configured Pi session root. This keeps deletion recoverable.
-pub fn trash_session(configured_root: &str, file: &str) -> Result<(), String> {
+pub fn trash_session(configured_root: &str, file: &str) -> Result<(), AppError> {
     let root = resolve_sessions_root(configured_root)
-        .ok_or_else(|| "could not resolve the Pi session directory".to_string())?;
+        .ok_or_else(|| AppError::Other("could not resolve the Pi session directory".to_string()))?;
     let root = fs::canonicalize(&root)
-        .map_err(|err| format!("failed to resolve session directory: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to resolve session directory: {err}")))?;
     let source = validate_session_path(configured_root, file)?;
 
     let trash = root.join(".trash");
-    fs::create_dir_all(&trash).map_err(|err| format!("failed to create session trash: {err}"))?;
+    fs::create_dir_all(&trash)
+        .map_err(|err| AppError::Io(format!("failed to create session trash: {err}")))?;
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -313,20 +317,23 @@ pub fn trash_session(configured_root: &str, file: &str) -> Result<(), String> {
         .and_then(|value| value.to_str())
         .unwrap_or("session.jsonl");
     let target = trash.join(format!("{stamp}-{name}"));
-    fs::rename(&source, &target).map_err(|err| format!("failed to move session to trash: {err}"))
+    fs::rename(&source, &target)
+        .map_err(|err| AppError::Io(format!("failed to move session to trash: {err}")))
 }
 
-pub fn validate_session_path(configured_root: &str, file: &str) -> Result<PathBuf, String> {
+pub fn validate_session_path(configured_root: &str, file: &str) -> Result<PathBuf, AppError> {
     let root = resolve_sessions_root(configured_root)
-        .ok_or_else(|| "could not resolve the Pi session directory".to_string())?;
+        .ok_or_else(|| AppError::Other("could not resolve the Pi session directory".to_string()))?;
     let root = fs::canonicalize(&root)
-        .map_err(|err| format!("failed to resolve session directory: {err}"))?;
-    let source =
-        fs::canonicalize(file).map_err(|err| format!("failed to resolve session file: {err}"))?;
+        .map_err(|err| AppError::Io(format!("failed to resolve session directory: {err}")))?;
+    let source = fs::canonicalize(file)
+        .map_err(|err| AppError::Io(format!("failed to resolve session file: {err}")))?;
     if !source.starts_with(&root)
         || source.extension().and_then(|ext| ext.to_str()) != Some("jsonl")
     {
-        return Err("refusing to access a file outside the Pi session directory".to_string());
+        return Err(AppError::InvalidInput(
+            "refusing to access a file outside the Pi session directory".to_string(),
+        ));
     }
     Ok(source)
 }
@@ -334,14 +341,14 @@ pub fn validate_session_path(configured_root: &str, file: &str) -> Result<PathBu
 pub fn session_message_timings(
     configured_root: &str,
     file: &str,
-) -> Result<Vec<SessionMessageTiming>, String> {
+) -> Result<Vec<SessionMessageTiming>, AppError> {
     Ok(session_history(configured_root, file)?.timings)
 }
 
-pub fn session_history(configured_root: &str, file: &str) -> Result<SessionHistory, String> {
+pub fn session_history(configured_root: &str, file: &str) -> Result<SessionHistory, AppError> {
     let source = validate_session_path(configured_root, file)?;
-    let file =
-        fs::File::open(source).map_err(|err| format!("failed to open session file: {err}"))?;
+    let file = fs::File::open(source)
+        .map_err(|err| AppError::Io(format!("failed to open session file: {err}")))?;
     let reader = std::io::BufReader::new(file);
     let mut messages = Vec::new();
     let mut timings = Vec::new();
@@ -377,7 +384,7 @@ pub fn session_history(configured_root: &str, file: &str) -> Result<SessionHisto
     Ok(SessionHistory { messages, timings })
 }
 
-pub fn session_messages(configured_root: &str, file: &str) -> Result<Vec<Value>, String> {
+pub fn session_messages(configured_root: &str, file: &str) -> Result<Vec<Value>, AppError> {
     Ok(session_history(configured_root, file)?.messages)
 }
 

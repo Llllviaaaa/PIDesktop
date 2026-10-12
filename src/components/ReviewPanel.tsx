@@ -1,25 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import hljs from "highlight.js/lib/common";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queries";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
+import { describeError } from "../lib/errors";
 import {
   ArrowDown,
   ArrowRight,
   ArrowUp,
+  Bot,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  ExternalLink,
+  Eye,
   FileCode2,
   FileDiff,
-  Folders,
   GitBranch,
   GitCommitHorizontal,
-  Globe2,
   History,
   ListCollapse,
   ListTree,
   LoaderCircle,
-  MessageSquarePlus,
   MessageSquareText,
   Minus,
   MoreHorizontal,
@@ -28,7 +29,8 @@ import {
   RotateCcw,
   Search,
   SearchCheck,
-  SquareTerminal,
+  SendHorizontal,
+  Trash2,
   X,
 } from "lucide-react";
 import {
@@ -36,40 +38,75 @@ import {
   type CodeReviewComment,
   type CodeReviewScope,
 } from "../lib/codeReview";
-import { parseDiffRows, type DiffRow } from "../lib/diffView";
+import type { DiffRow } from "../lib/diffView";
+import {
+  buildFilePatch,
+  buildHunkPatch,
+  hunkActions,
+  hunksForPath,
+  resolveHunkOrigin,
+  splitUnifiedDiff,
+  type HunkOrigin,
+} from "../lib/diffHunks";
 import { aggregateDiffStats, perFileDiffStats } from "../lib/gitDiffStats";
 import { pi } from "../lib/pi";
+import { highlightLine } from "../lib/syntaxHighlight";
 import { usePiStore } from "../store";
 import type { GitBranchInfo, GitCommitInfo, GitFileChange, GitSnapshot } from "../types";
+import { useFileActions, WorkspaceEditorIcon } from "./WorkspaceOpeners";
 
 export type ReviewTarget =
   | { mode: "uncommitted" }
   | { mode: "base-branch"; baseBranch: string };
 
-type ReviewFilter = "uncommitted" | "unstaged" | "staged" | "branch" | "commit";
-type ReviewAuxiliaryTool = "terminal" | "browser" | "files" | "side-chat";
+export type ReviewFilter = "uncommitted" | "unstaged" | "staged" | "turn" | "branch" | "commit";
+
+/** A review comment written in the pane and not yet sent to the agent. */
+export interface PendingReviewComment {
+  id: string;
+  path: string;
+  line: number | null;
+  body: string;
+}
 
 interface ReviewPanelProps {
   cwd: string;
   git: GitSnapshot | null;
   isStreaming: boolean;
-  onClose: () => void;
+  /** Switches the pane to a scope from outside (task summary, change chip). */
+  request?: { filter: ReviewFilter; nonce: number } | null;
   onRefreshGit: () => void;
   onReview: (target: ReviewTarget) => void;
-  onReviewComment?: (path: string, line: number | null, comment: string) => void;
-  onCommitOrPush: () => void;
-  onOpenTool?: (tool: ReviewAuxiliaryTool) => void;
+  /** Sends every pending comment to the agent as one message. */
+  onSubmitComments?: (comments: PendingReviewComment[]) => Promise<boolean>;
+  /** Opens the commit dialog; `push` pushes right after the commit. */
+  onCommitOrPush: (push: boolean) => void;
   onOpenFile?: (path: string, line?: number) => void;
   onRestoreFiles: (paths?: string[]) => void;
   onStageFiles: (paths: string[]) => Promise<void>;
   onUnstageFiles: (paths: string[]) => Promise<void>;
+  /** Applies a hunk (or file) patch; resolves false when Git refused it. */
+  onApplyPatch: (patch: string, options: { cached: boolean; reverse: boolean }, done: string) => Promise<boolean>;
   onError?: (message: string) => void;
+}
+
+interface ReviewRow extends DiffRow {
+  /** Index into the section's hunks; -1 for rows outside any hunk. */
+  hunk: number;
+}
+
+interface ReviewHunk {
+  patch: string;
+  origin: HunkOrigin | null;
 }
 
 interface ReviewFileSection {
   change: GitFileChange;
   path: string;
-  rows: DiffRow[];
+  rows: ReviewRow[];
+  hunks: ReviewHunk[];
+  /** Every hunk of the file as one patch (discarding a whole file's turn changes). */
+  filePatch: string | null;
   highlightedRows: string[];
   stats?: { add: number; del: number };
   comments: CodeReviewComment[];
@@ -81,42 +118,60 @@ interface ReviewSearchMatch {
   row: number;
 }
 
-const FILTERS: Array<{ id: ReviewFilter; label: string; Icon: typeof FileDiff }> = [
-  { id: "uncommitted", label: "未提交", Icon: FileDiff },
-  { id: "unstaged", label: "未暂存", Icon: Minus },
-  { id: "staged", label: "已暂存", Icon: Plus },
-  { id: "branch", label: "分支", Icon: GitBranch },
-  { id: "commit", label: "提交", Icon: History },
+interface LoadRequest {
+  filter: Exclude<ReviewFilter, "uncommitted">;
+  target?: string;
+  nonce: number;
+}
+
+const FILTERS: Array<{ id: ReviewFilter; label: string; hint: string; Icon: typeof FileDiff }> = [
+  { id: "uncommitted", label: "未提交", hint: "已暂存、未暂存和未跟踪", Icon: FileDiff },
+  { id: "unstaged", label: "未暂存", hint: "工作区相对暂存区", Icon: Minus },
+  { id: "staged", label: "已暂存", hint: "暂存区相对 HEAD", Icon: Plus },
+  { id: "turn", label: "上一轮", hint: "最近一轮 Agent 回合的改动", Icon: Bot },
+  { id: "branch", label: "分支", hint: "当前分支相对基线分支", Icon: GitBranch },
+  { id: "commit", label: "提交", hint: "某次提交的改动", Icon: History },
 ];
 
-const AUXILIARY_TOOLS: Array<{ id: ReviewAuxiliaryTool; label: string; Icon: typeof FileDiff }> = [
-  { id: "terminal", label: "终端", Icon: SquareTerminal },
-  { id: "browser", label: "浏览器", Icon: Globe2 },
-  { id: "files", label: "文件", Icon: Folders },
-  { id: "side-chat", label: "侧边聊天", Icon: MessageSquarePlus },
-];
+const NO_BRANCHES: GitBranchInfo[] = [];
+let pendingCommentSeq = 0;
+function nextPendingCommentId(): string {
+  pendingCommentSeq += 1;
+  return `pending-comment-${pendingCommentSeq}`;
+}
+const NO_COMMITS: GitCommitInfo[] = [];
+const NO_FILES: GitFileChange[] = [];
+
+function defaultOriginFor(filter: ReviewFilter): HunkOrigin | null {
+  if (filter === "unstaged") return "unstaged";
+  if (filter === "staged") return "staged";
+  if (filter === "turn") return "worktree";
+  return null;
+}
 
 export function ReviewPanel({
   cwd,
   git,
   isStreaming,
-  onClose,
+  request = null,
   onRefreshGit,
   onReview,
-  onReviewComment,
+  onSubmitComments,
   onCommitOrPush,
-  onOpenTool,
   onOpenFile,
   onRestoreFiles,
   onStageFiles,
   onUnstageFiles,
+  onApplyPatch,
   onError,
 }: ReviewPanelProps) {
   const messages = usePiStore((state) => state.messages);
+  const fileActions = useFileActions();
   const [filter, setFilter] = useState<ReviewFilter>("uncommitted");
   const [snapshot, setSnapshot] = useState<GitSnapshot | null>(git);
-  const [branches, setBranches] = useState<GitBranchInfo[]>([]);
-  const [commits, setCommits] = useState<GitCommitInfo[]>([]);
+  const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
+  const [noTurnYet, setNoTurnYet] = useState(false);
+  const [loadRequest, setLoadRequest] = useState<LoadRequest | null>(null);
   const [baseBranch, setBaseBranch] = useState("");
   const [commitSha, setCommitSha] = useState("");
   const [loading, setLoading] = useState(false);
@@ -126,86 +181,142 @@ export function ReviewPanel({
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [commitOpen, setCommitOpen] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQueryState] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
-  const [busyFile, setBusyFile] = useState<string | null>(null);
+  // A new query starts at its first match.
+  const setSearchQuery = (next: string) => {
+    setSearchQueryState(next);
+    setSearchIndex(0);
+  };
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [commentTarget, setCommentTarget] = useState<{ path: string; row: number; line: number | null } | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
+  const [pendingComments, setPendingComments] = useState<PendingReviewComment[]>([]);
+  const [sendingComments, setSendingComments] = useState(false);
   const panelRef = useRef<HTMLElement | null>(null);
-  const loadRequestRef = useRef(0);
   const onErrorRef = useRef(onError);
+
   const activeSnapshot = filter === "uncommitted" ? git : snapshot;
-  const files = activeSnapshot?.files ?? [];
+  const files = activeSnapshot?.files ?? NO_FILES;
 
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
 
-  useEffect(() => {
+  // The uncommitted view mirrors the live git snapshot.
+  useSyncOnChange([filter, git], () => {
     if (filter === "uncommitted") setSnapshot(git);
-  }, [filter, git]);
+  });
+
+  const inTauri = "__TAURI_INTERNALS__" in window;
+  const isRepository = Boolean(git?.isRepository);
+  // Branches and commits load per workspace, not on every git refresh.
+  const sourcesEnabled = Boolean(cwd) && inTauri && isRepository;
+  const sourcesQuery = useQuery({
+    queryKey: queryKeys.reviewSources(cwd),
+    queryFn: async () => {
+      try {
+        const [branches, commits] = await Promise.all([pi.gitListBranches(cwd), pi.gitListCommits(cwd)]);
+        return { branches, commits };
+      } catch (error) {
+        onErrorRef.current?.(`无法加载审查来源：${describeError(error)}`);
+        throw error;
+      }
+    },
+    enabled: sourcesEnabled,
+  });
+  const sources = sourcesEnabled && !sourcesQuery.isError ? sourcesQuery.data : undefined;
+  const branches = sources?.branches ?? NO_BRANCHES;
+  const commits = sources?.commits ?? NO_COMMITS;
+
+  // Pick a comparison base and a commit once they are known, unless one is already chosen.
+  useSyncOnChange([sources], () => {
+    if (!sources) return;
+    const fallbackBase = sources.branches.find((branch) => !branch.current)?.name ?? "";
+    setBaseBranch((current) => current || fallbackBase);
+    setCommitSha((current) => current || sources.commits[0]?.sha || "");
+  });
+
+  // Leaving a repository falls back to the uncommitted view.
+  useSyncOnChange([cwd, isRepository], () => {
+    if (!cwd || !inTauri || isRepository) return;
+    setFilter("uncommitted");
+    setSnapshot(git);
+    setBaseBranch("");
+    setCommitSha("");
+    setLoading(false);
+    setLoadRequest(null);
+  });
 
   useEffect(() => {
-    if (!cwd || !("__TAURI_INTERNALS__" in window)) return;
-    if (!git?.isRepository) {
-      loadRequestRef.current += 1;
-      setFilter("uncommitted");
-      setSnapshot(git);
-      setBranches([]);
-      setCommits([]);
-      setBaseBranch("");
-      setCommitSha("");
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    void Promise.all([pi.gitListBranches(cwd), pi.gitListCommits(cwd)])
-      .then(([nextBranches, nextCommits]) => {
-        if (cancelled) return;
-        setBranches(nextBranches);
-        setCommits(nextCommits);
-        const fallbackBase = nextBranches.find((branch) => !branch.current)?.name ?? "";
-        setBaseBranch((current) => current || fallbackBase);
-        setCommitSha((current) => current || nextCommits[0]?.sha || "");
-      })
-      .catch((error) => {
-        if (!cancelled) onErrorRef.current?.(`无法加载审查来源：${error instanceof Error ? error.message : String(error)}`);
-      });
-    return () => { cancelled = true; };
-  }, [cwd, git?.isRepository]);
-
-  useEffect(() => {
-    if (!filterOpen && !optionsOpen && !reviewOpen && !commitOpen && !toolsOpen) return;
+    if (!filterOpen && !optionsOpen && !reviewOpen && !commitOpen) return;
     const closeMenus = (event: PointerEvent) => {
       if (panelRef.current?.contains(event.target as Node)) return;
       setFilterOpen(false);
       setOptionsOpen(false);
       setReviewOpen(false);
       setCommitOpen(false);
-      setToolsOpen(false);
     };
     document.addEventListener("pointerdown", closeMenus);
     return () => document.removeEventListener("pointerdown", closeMenus);
-  }, [commitOpen, filterOpen, optionsOpen, reviewOpen, toolsOpen]);
+  }, [commitOpen, filterOpen, optionsOpen, reviewOpen]);
 
-  useEffect(() => setSearchIndex(0), [searchQuery]);
+  // Every non-live scope loads here; requests only describe what to load.
+  useEffect(() => {
+    if (!loadRequest || !cwd) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        if (loadRequest.filter === "turn") {
+          const lastTurn = await pi.gitLastTurnSnapshot(cwd);
+          if (cancelled) return;
+          setNoTurnYet(!lastTurn);
+          setTurnStartedAt(lastTurn?.startedAt ?? null);
+          setSnapshot(lastTurn ?? { isRepository: true, files: [], diff: "" });
+          return;
+        }
+        let next: GitSnapshot;
+        if (loadRequest.filter === "branch") next = await pi.gitCompare(cwd, loadRequest.target ?? "");
+        else if (loadRequest.filter === "commit") next = await pi.gitCommitSnapshot(cwd, loadRequest.target ?? "");
+        else next = await pi.gitReviewSnapshot(cwd, loadRequest.filter);
+        if (!cancelled) setSnapshot(next);
+      } catch (error) {
+        if (!cancelled) onErrorRef.current?.(`加载审查内容失败：${describeError(error)}`);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, loadRequest]);
 
   const stats = useMemo(() => aggregateDiffStats(activeSnapshot?.diff), [activeSnapshot?.diff]);
   const fileStats = useMemo(() => normalizeStatMap(perFileDiffStats(activeSnapshot?.diff)), [activeSnapshot?.diff]);
   const reviewScope = useMemo<CodeReviewScope | null>(() => {
     if (filter === "branch" && baseBranch) return { mode: "base-branch", baseBranch };
-    if (filter === "commit") return null;
+    if (filter === "commit" || filter === "turn") return null;
     return { mode: "uncommitted" };
   }, [baseBranch, filter]);
   const comments = useMemo(
     () => deriveLatestCodeReviewComments(messages, reviewScope),
     [messages, reviewScope],
   );
+  const diffFiles = useMemo(
+    () => splitUnifiedDiff(activeSnapshot?.diff ?? "", defaultOriginFor(filter)),
+    [activeSnapshot?.diff, filter],
+  );
   const sections = useMemo<ReviewFileSection[]>(() => files.map((change) => {
     const path = change.path;
-    const rows = parseDiffRows(extractFileDiff(activeSnapshot?.diff ?? "", path));
+    const fileHunks = hunksForPath(diffFiles, path);
+    const rows: ReviewRow[] = fileHunks.flatMap((item, index) => item.rows.map((row) => ({ ...row, hunk: index })));
+    const hunks: ReviewHunk[] = fileHunks.map((item) => ({
+      patch: buildHunkPatch(item.file, item.hunk),
+      origin: filter === "uncommitted" ? resolveHunkOrigin(item.hunk.origin, change) : item.hunk.origin,
+    }));
+    const onlyFile = fileHunks.length > 0 && fileHunks.every((item) => item.file === fileHunks[0].file) ? fileHunks[0].file : null;
     const highlightedRows = rows.map((row) => row.kind === "hunk" ? "" : highlightLine(row.text || " ", path));
     const fileComments = comments.filter((comment) => pathMatches(comment.file, path));
     const commentsByRow = new Map<number, CodeReviewComment[]>();
@@ -215,8 +326,18 @@ export function ReviewPanel({
       if (rowIndex < 0) rowIndex = rows.findIndex((row) => row.kind === "del" && row.oldLine === comment.start);
       if (rowIndex >= 0) commentsByRow.set(rowIndex, [...(commentsByRow.get(rowIndex) ?? []), comment]);
     }
-    return { change, path, rows, highlightedRows, stats: fileStats.get(normalizePath(path)), comments: fileComments, commentsByRow };
-  }), [activeSnapshot?.diff, comments, fileStats, files]);
+    return {
+      change,
+      path,
+      rows,
+      hunks,
+      filePatch: onlyFile ? buildFilePatch(onlyFile) : null,
+      highlightedRows,
+      stats: fileStats.get(normalizePath(path)),
+      comments: fileComments,
+      commentsByRow,
+    };
+  }), [comments, diffFiles, fileStats, files, filter]);
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const searchMatches = useMemo<ReviewSearchMatch[]>(() => {
     if (!normalizedSearch) return [];
@@ -242,78 +363,137 @@ export function ReviewPanel({
   const allCollapsed = sections.length > 0 && sections.every((section) => collapsedFiles.has(normalizePath(section.path)));
   const unstagedPaths = files.filter((file) => file.unstaged).map((file) => file.path);
   const stagedPaths = files.filter((file) => file.staged).map((file) => file.path);
+  const indexActionsAvailable = filter === "uncommitted" || filter === "unstaged" || filter === "staged";
+  const preferredEditor = fileActions?.preferredEditor ?? null;
 
   const closeAllMenus = () => {
     setFilterOpen(false);
     setOptionsOpen(false);
     setReviewOpen(false);
     setCommitOpen(false);
-    setToolsOpen(false);
   };
 
-  const loadFilter = async (nextFilter: ReviewFilter, target?: string) => {
-    closeAllMenus();
-    if (nextFilter !== "uncommitted" && !git?.isRepository) return;
-    const requestId = ++loadRequestRef.current;
+  /** Switch scope. Safe during render: it only sets this component's state. */
+  const selectFilter = (nextFilter: ReviewFilter, target?: string) => {
+    if (nextFilter !== "uncommitted" && !git?.isRepository) return false;
     setFilter(nextFilter);
     setCollapsedFiles(new Set());
     setCommentTarget(null);
     if (nextFilter === "uncommitted") {
       setSnapshot(git);
       setLoading(false);
-      onRefreshGit();
-      return;
+      setLoadRequest(null);
+      return true;
     }
-    if (!("__TAURI_INTERNALS__" in window)) {
+    let resolved = target;
+    if (nextFilter === "branch") {
+      resolved = target || baseBranch || branches.find((item) => !item.current)?.name;
+      if (!resolved) {
+        setLoadRequest(null);
+        setSnapshot(null);
+        return false;
+      }
+      setBaseBranch(resolved);
+    } else if (nextFilter === "commit") {
+      resolved = target || commitSha || commits[0]?.sha;
+      if (!resolved) {
+        setLoadRequest(null);
+        setSnapshot(null);
+        return false;
+      }
+      setCommitSha(resolved);
+    }
+    if (!inTauri) {
       setSnapshot(filterFixtureSnapshot(git, nextFilter));
-      return;
+      return true;
     }
     setLoading(true);
-    try {
-      let next: GitSnapshot;
-      if (nextFilter === "branch") {
-        const branch = target || baseBranch || branches.find((item) => !item.current)?.name;
-        if (!branch) throw new Error("没有可比较的基线分支");
-        setBaseBranch(branch);
-        next = await pi.gitCompare(cwd, branch);
-      } else if (nextFilter === "commit") {
-        const commit = target || commitSha || commits[0]?.sha;
-        if (!commit) throw new Error("没有可查看的提交");
-        setCommitSha(commit);
-        next = await pi.gitCommitSnapshot(cwd, commit);
-      } else {
-        next = await pi.gitReviewSnapshot(cwd, nextFilter);
-      }
-      if (requestId !== loadRequestRef.current) return;
-      setSnapshot(next);
-    } catch (error) {
-      if (requestId === loadRequestRef.current) {
-        onErrorRef.current?.(`加载审查内容失败：${error instanceof Error ? error.message : String(error)}`);
-      }
-    } finally {
-      if (requestId === loadRequestRef.current) setLoading(false);
+    setLoadRequest((current) => ({ filter: nextFilter, target: resolved, nonce: (current?.nonce ?? 0) + 1 }));
+    return true;
+  };
+
+  const loadFilter = (nextFilter: ReviewFilter, target?: string) => {
+    closeAllMenus();
+    const ok = selectFilter(nextFilter, target);
+    if (nextFilter === "uncommitted") onRefreshGit();
+    if (!ok && (nextFilter === "branch" || nextFilter === "commit")) {
+      onErrorRef.current?.(nextFilter === "branch" ? "没有可比较的基线分支" : "没有可查看的提交");
     }
   };
 
+  // Scope requests from outside (the task summary's "比较分支", the change chip).
+  useSyncOnChange([request?.nonce], () => {
+    if (request) selectFilter(request.filter);
+  });
+
+  const currentTarget = filter === "branch" ? baseBranch : filter === "commit" ? commitSha : undefined;
+
   const refresh = () => {
-    if (filter === "uncommitted") {
-      onRefreshGit();
-      return;
-    }
-    void loadFilter(filter, filter === "branch" ? baseBranch : filter === "commit" ? commitSha : undefined);
+    onRefreshGit();
+    if (filter !== "uncommitted") loadFilter(filter, currentTarget);
   };
 
   const updateIndex = async (action: "stage" | "unstage", paths: string[]) => {
     if (!paths.length) return;
-    setBusyFile(paths.length === 1 ? paths[0] : "*");
+    setBusyKey(paths.length === 1 ? `file:${paths[0]}` : "*");
     try {
       if (action === "stage") await onStageFiles(paths);
       else await onUnstageFiles(paths);
-      onRefreshGit();
-      if (filter !== "uncommitted") await loadFilter(filter, filter === "branch" ? baseBranch : filter === "commit" ? commitSha : undefined);
+      refresh();
     } finally {
-      setBusyFile(null);
+      setBusyKey(null);
     }
+  };
+
+  const applyPatch = async (
+    key: string,
+    patch: string,
+    options: { cached: boolean; reverse: boolean },
+    done: string,
+    confirmMessage?: string,
+  ) => {
+    if (confirmMessage && !window.confirm(confirmMessage)) return;
+    setBusyKey(key);
+    try {
+      if (await onApplyPatch(patch, options, done)) refresh();
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const hunkAction = (section: ReviewFileSection, index: number, action: "stage" | "unstage" | "discard") => {
+    const hunk = section.hunks[index];
+    if (!hunk) return;
+    const key = `hunk:${section.path}:${index}`;
+    if (action === "stage") void applyPatch(key, hunk.patch, { cached: true, reverse: false }, "已暂存此块");
+    else if (action === "unstage") void applyPatch(key, hunk.patch, { cached: true, reverse: true }, "已取消暂存此块");
+    else {
+      void applyPatch(
+        key,
+        hunk.patch,
+        { cached: false, reverse: true },
+        "已撤销此块",
+        `撤销 ${fileName(section.path)} 中的这一块改动？此操作会修改工作区文件。`,
+      );
+    }
+  };
+
+  const discardFile = (section: ReviewFileSection) => {
+    if (filter === "turn") {
+      if (!section.filePatch) {
+        onErrorRef.current?.("这个文件没有可撤销的文本差异（可能是二进制文件）");
+        return;
+      }
+      void applyPatch(
+        `file:${section.path}`,
+        section.filePatch,
+        { cached: false, reverse: true },
+        `已撤销上一轮对 ${fileName(section.path)} 的改动`,
+        `撤销上一轮 Agent 对 ${section.path} 的改动？该文件会恢复到这一轮开始前的内容。`,
+      );
+      return;
+    }
+    onRestoreFiles([section.path]);
   };
 
   const toggleFile = (path: string) => {
@@ -363,37 +543,63 @@ export function ReviewPanel({
     });
   };
 
-  const submitComment = () => {
-    const comment = commentDraft.trim();
-    if (!commentTarget || !comment || !onReviewComment) return;
-    onReviewComment(commentTarget.path, commentTarget.line, comment);
+  /** Adds the open draft to the batch; returns the batch including it. */
+  const addDraftComment = (): PendingReviewComment[] => {
+    const body = commentDraft.trim();
+    if (!commentTarget || !body) return pendingComments;
+    const next = [
+      ...pendingComments,
+      {
+        id: nextPendingCommentId(),
+        path: commentTarget.path,
+        line: commentTarget.line,
+        body,
+      },
+    ];
+    setPendingComments(next);
     setCommentTarget(null);
     setCommentDraft("");
+    return next;
   };
+
+  const submitComments = async (batch = pendingComments) => {
+    if (!batch.length || !onSubmitComments || sendingComments) return;
+    setSendingComments(true);
+    try {
+      if (await onSubmitComments(batch)) setPendingComments([]);
+    } finally {
+      setSendingComments(false);
+    }
+  };
+
+  const openLineInEditor = (event: ReactMouseEvent, path: string, line: number | null) => {
+    if (!(event.ctrlKey || event.metaKey) || !fileActions) return false;
+    event.preventDefault();
+    fileActions.openInEditor(path, line ?? undefined);
+    return true;
+  };
+
+  const pendingByRow = (path: string, rows: ReviewRow[]) => {
+    const map = new Map<number, PendingReviewComment[]>();
+    for (const comment of pendingComments) {
+      if (!pathMatches(comment.path, path)) continue;
+      const index = comment.line === null ? -1 : rows.findIndex((row) => (row.newLine ?? row.oldLine) === comment.line);
+      map.set(index, [...(map.get(index) ?? []), comment]);
+    }
+    return map;
+  };
+
+  const emptyTitle = filter === "turn" && noTurnYet
+    ? "还没有记录的 Agent 回合"
+    : activeSnapshot?.isRepository ? "没有文件更改" : "没有 Git 仓库";
+  const emptyBody = filter === "turn" && noTurnYet
+    ? "Agent 开始一轮可写入的任务时会记录检查点，之后这里只显示那一轮改了什么。"
+    : filter === "turn"
+      ? "最近一轮 Agent 回合之后，工作区没有新的改动。"
+      : activeSnapshot?.isRepository ? "此审查来源当前没有差异。" : "在 Git 工作区中打开审查后，更改会显示在这里。";
 
   return (
     <aside ref={panelRef} className="review-workspace-panel workspace-dock-panel" aria-label="审查">
-      <header className="review-workspace-tabs">
-        <div className="review-active-tab">
-          <FileDiff size={15} strokeWidth={1.8} />
-          <span>审查</span>
-          <button type="button" title="关闭审查" aria-label="关闭审查" onClick={onClose}><X size={13} /></button>
-        </div>
-        {onOpenTool && (
-          <div className="review-menu-wrap">
-            <button type="button" className="review-new-tab" title="打开工具" aria-label="打开工具" aria-expanded={toolsOpen} onClick={() => { const next = !toolsOpen; closeAllMenus(); setToolsOpen(next); }}><Plus size={16} /></button>
-            {toolsOpen && (
-              <div className="review-popover review-tools-menu" role="menu">
-                {AUXILIARY_TOOLS.map((item) => {
-                  const Icon = item.Icon;
-                  return <button type="button" role="menuitem" key={item.id} onClick={() => { closeAllMenus(); onOpenTool(item.id); }}><Icon size={15} /><span><strong>{item.label}</strong></span></button>;
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </header>
-
       <div className="review-command-bar">
         <div className="review-menu-wrap">
           <button type="button" className="review-source-trigger" aria-expanded={filterOpen} onClick={() => { const next = !filterOpen; closeAllMenus(); setFilterOpen(next); }}>
@@ -406,8 +612,8 @@ export function ReviewPanel({
               {FILTERS.map((item) => {
                 const Icon = item.Icon;
                 return (
-                  <button type="button" role="menuitemradio" aria-checked={item.id === filter} className={item.id === filter ? "active" : ""} disabled={loading || (item.id !== "uncommitted" && !git?.isRepository)} key={item.id} onClick={() => void loadFilter(item.id)}>
-                    <Icon size={14} strokeWidth={1.75} /><span><strong>{item.label}</strong></span>{item.id === filter && <Check size={13} />}
+                  <button type="button" role="menuitemradio" aria-checked={item.id === filter} className={item.id === filter ? "active" : ""} disabled={loading || (item.id !== "uncommitted" && !git?.isRepository)} key={item.id} onClick={() => loadFilter(item.id)}>
+                    <Icon size={14} strokeWidth={1.75} /><span><strong>{item.label}</strong><small>{item.hint}</small></span>{item.id === filter && <Check size={13} />}
                   </button>
                 );
               })}
@@ -470,9 +676,10 @@ export function ReviewPanel({
           <button type="button" className="review-commit-button" disabled={!activeSnapshot?.isRepository} aria-label="提交或推送" aria-expanded={commitOpen} onClick={() => { const next = !commitOpen; closeAllMenus(); setCommitOpen(next); }}><GitCommitHorizontal size={14} /><span>提交或推送</span><ChevronDown size={12} /></button>
           {commitOpen && (
             <div className="review-popover review-commit-menu" role="menu">
-              <button type="button" onClick={() => { closeAllMenus(); onCommitOrPush(); }}><GitCommitHorizontal size={15} /><span><strong>让 Pi 提交或推送</strong><small>生成提交说明并处理远程推送</small></span></button>
-              <button type="button" disabled={!unstagedPaths.length} onClick={() => { closeAllMenus(); void updateIndex("stage", unstagedPaths); }}><Plus size={15} /><span><strong>暂存全部</strong><small>{unstagedPaths.length} 个文件</small></span></button>
-              <button type="button" disabled={!stagedPaths.length} onClick={() => { closeAllMenus(); void updateIndex("unstage", stagedPaths); }}><Minus size={15} /><span><strong>取消暂存全部</strong><small>{stagedPaths.length} 个文件</small></span></button>
+              <button type="button" disabled={!git?.files.length} onClick={() => { closeAllMenus(); onCommitOrPush(false); }}><GitCommitHorizontal size={15} /><span><strong>提交…</strong><small>选择文件，写或生成提交说明</small></span></button>
+              <button type="button" disabled={!git?.files.length || !git.sync?.hasRemote} onClick={() => { closeAllMenus(); onCommitOrPush(true); }}><ArrowUp size={15} /><span><strong>提交并推送…</strong><small>提交后推送到远程</small></span></button>
+              <button type="button" disabled={!unstagedPaths.length || !indexActionsAvailable} onClick={() => { closeAllMenus(); void updateIndex("stage", unstagedPaths); }}><Plus size={15} /><span><strong>暂存全部</strong><small>{unstagedPaths.length} 个文件</small></span></button>
+              <button type="button" disabled={!stagedPaths.length || !indexActionsAvailable} onClick={() => { closeAllMenus(); void updateIndex("unstage", stagedPaths); }}><Minus size={15} /><span><strong>取消暂存全部</strong><small>{stagedPaths.length} 个文件</small></span></button>
             </div>
           )}
         </div>
@@ -482,16 +689,22 @@ export function ReviewPanel({
         <GitBranch size={13} />
         {filter === "branch" ? (
           <>
-            <select value={baseBranch} onChange={(event) => void loadFilter("branch", event.target.value)} aria-label="选择基线分支">
+            <select value={baseBranch} onChange={(event) => loadFilter("branch", event.target.value)} aria-label="选择基线分支">
               {branches.filter((branch) => !branch.current).map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
             </select>
             <ArrowRight size={13} />
             <strong title={activeSnapshot?.branch || ""}>{activeSnapshot?.branch || "HEAD"}</strong>
           </>
         ) : filter === "commit" ? (
-          <select value={commitSha} onChange={(event) => void loadFilter("commit", event.target.value)} aria-label="选择提交">
+          <select value={commitSha} onChange={(event) => loadFilter("commit", event.target.value)} aria-label="选择提交">
             {commits.map((commit) => <option key={commit.sha} value={commit.sha}>{commit.shortSha} · {commit.subject}</option>)}
           </select>
+        ) : filter === "turn" ? (
+          <>
+            <span>{turnStartedAt ? `自 ${formatClock(turnStartedAt)} 这一轮开始以来` : "最近一轮 Agent 回合"}</span>
+            <ArrowRight size={13} />
+            <span>工作区</span>
+          </>
         ) : (
           <>
             <strong title={activeSnapshot?.branch || ""}>{activeSnapshot?.branch || "HEAD"}</strong>
@@ -512,9 +725,11 @@ export function ReviewPanel({
               const collapsed = collapsedFiles.has(normalizedPath);
               const pathSearchHit = searchMatchKeys.has(searchKey(section.path, -1));
               const pathSearchActive = activeSearchMatch?.path === section.path && activeSearchMatch.row === -1;
+              const pending = pendingByRow(section.path, section.rows);
+              const fileBusy = busyKey === `file:${section.path}` || busyKey === "*";
               return (
                 <article className={`review-file-section-continuous${pathSearchHit ? " search-hit" : ""}${pathSearchActive ? " search-active" : ""}`} id={sectionId(section.path)} key={`${section.change.status}-${section.path}`}>
-                  <header className="review-file-header">
+                  <header className="review-file-header" onContextMenu={(event) => fileActions?.showMenu(event, section.path)}>
                     <button type="button" className="review-file-collapse" aria-expanded={!collapsed} onClick={() => toggleFile(section.path)} title={section.path}>
                       {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                       <span className={`review-file-kind kind-${fileKindClass(section.path)}`}>{fileKind(section.path)}</span>
@@ -523,10 +738,17 @@ export function ReviewPanel({
                     <span className="review-file-line-stats">{section.stats?.add ? <em>+{section.stats.add}</em> : null}{section.stats?.del ? <b>-{section.stats.del}</b> : null}</span>
                     {section.comments.length > 0 && <button type="button" className="review-file-comment-count" title={`${section.comments.length} 条意见`} onClick={() => selectComment(section.comments[0])}><MessageSquareText size={12} />{section.comments.length}</button>}
                     <span className="review-file-actions">
-                      {section.change.unstaged && <button type="button" disabled={Boolean(busyFile)} title="暂存文件" aria-label={`暂存 ${fileName(section.path)}`} onClick={() => void updateIndex("stage", [section.path])}><Plus size={14} /></button>}
-                      {section.change.staged && <button type="button" disabled={Boolean(busyFile)} title="取消暂存" aria-label={`取消暂存 ${fileName(section.path)}`} onClick={() => void updateIndex("unstage", [section.path])}><Minus size={14} /></button>}
-                      {filter !== "branch" && filter !== "commit" && <button type="button" title="撤销文件更改" aria-label={`撤销 ${fileName(section.path)}`} onClick={() => onRestoreFiles([section.path])}><RotateCcw size={14} /></button>}
-                      {onOpenFile && <button type="button" title="打开文件" aria-label={`打开 ${fileName(section.path)}`} onClick={() => onOpenFile(section.path)}><ExternalLink size={14} /></button>}
+                      {indexActionsAvailable && section.change.unstaged && <button type="button" disabled={Boolean(busyKey)} title="暂存文件" aria-label={`暂存 ${fileName(section.path)}`} onClick={() => void updateIndex("stage", [section.path])}><Plus size={14} /></button>}
+                      {indexActionsAvailable && section.change.staged && <button type="button" disabled={Boolean(busyKey)} title="取消暂存" aria-label={`取消暂存 ${fileName(section.path)}`} onClick={() => void updateIndex("unstage", [section.path])}><Minus size={14} /></button>}
+                      {filter !== "branch" && filter !== "commit" && (
+                        <button type="button" disabled={fileBusy} title={filter === "turn" ? "撤销上一轮对此文件的改动" : "撤销文件更改"} aria-label={`撤销 ${fileName(section.path)}`} onClick={() => discardFile(section)}><RotateCcw size={14} /></button>
+                      )}
+                      {onOpenFile && <button type="button" title="在应用内预览" aria-label={`预览 ${fileName(section.path)}`} onClick={() => onOpenFile(section.path)}><Eye size={14} /></button>}
+                      {preferredEditor && fileActions && (
+                        <button type="button" title={`在 ${preferredEditor.name} 中打开（右键查看更多）`} aria-label={`在 ${preferredEditor.name} 中打开 ${fileName(section.path)}`} onClick={() => fileActions.openInEditor(section.path)}>
+                          <WorkspaceEditorIcon editorId={preferredEditor.id} size={13} />
+                        </button>
+                      )}
                     </span>
                   </header>
                   {!collapsed && (
@@ -534,30 +756,75 @@ export function ReviewPanel({
                       {section.rows.length > 0 ? section.rows.map((row, index) => {
                         const line = row.newLine ?? row.oldLine ?? null;
                         const rowComments = section.commentsByRow.get(index) ?? [];
+                        const rowPending = pending.get(index) ?? [];
                         const commentOpen = commentTarget?.path === section.path && commentTarget.row === index;
                         const matchKey = searchKey(section.path, index);
                         const searchHit = searchMatchKeys.has(matchKey);
                         const searchActive = activeSearchMatch?.path === section.path && activeSearchMatch.row === index;
+                        const hunk = row.kind === "hunk" ? section.hunks[row.hunk] : undefined;
+                        const actions = hunkActions(hunk?.origin ?? null);
+                        const hunkBusy = busyKey === `hunk:${section.path}:${row.hunk}`;
                         return (
                           <div className="review-diff-unit" key={`${index}-${row.kind}-${line ?? "h"}`} id={rowId(section.path, index)}>
                             {row.kind === "hunk" ? (
-                              <div className="review-hunk-row"><span />{row.text}</div>
+                              <div className="review-hunk-row">
+                                <span />
+                                <code>{row.text}</code>
+                                {(actions.stage || actions.unstage || actions.discard) && (
+                                  <span className="review-hunk-actions">
+                                    {actions.stage && <button type="button" disabled={Boolean(busyKey)} title="暂存此块" onClick={() => hunkAction(section, row.hunk, "stage")}><Plus size={12} /><span>暂存</span></button>}
+                                    {actions.unstage && <button type="button" disabled={Boolean(busyKey)} title="取消暂存此块" onClick={() => hunkAction(section, row.hunk, "unstage")}><Minus size={12} /><span>取消暂存</span></button>}
+                                    {actions.discard && <button type="button" className="danger" disabled={Boolean(busyKey)} title="撤销此块" onClick={() => hunkAction(section, row.hunk, "discard")}>{hunkBusy ? <LoaderCircle className="spin" size={12} /> : <RotateCcw size={12} />}<span>撤销</span></button>}
+                                  </span>
+                                )}
+                              </div>
                             ) : (
-                              <div className={`review-code-row ${row.kind}${searchHit ? " search-hit" : ""}${searchActive ? " search-active" : ""}`}>
+                              <div
+                                className={`review-code-row ${row.kind}${searchHit ? " search-hit" : ""}${searchActive ? " search-active" : ""}`}
+                                onContextMenu={(event) => fileActions?.showMenu(event, section.path, line ?? undefined)}
+                              >
                                 <span className="review-comment-slot">
-                                  {onReviewComment && <button type="button" title="对此行添加审阅意见" aria-label={`评论 ${section.path} 第 ${line ?? "此"} 行`} onClick={() => { setCommentTarget(commentOpen ? null : { path: section.path, row: index, line }); setCommentDraft(""); }}><Plus size={13} /></button>}
+                                  {onSubmitComments && <button type="button" title="对此行添加审阅意见" aria-label={`评论 ${section.path} 第 ${line ?? "此"} 行`} onClick={() => { setCommentTarget(commentOpen ? null : { path: section.path, row: index, line }); setCommentDraft(""); }}><Plus size={13} /></button>}
                                 </span>
-                                <span className="review-line-number">{row.oldLine ?? ""}</span>
-                                <span className="review-line-number">{row.newLine ?? ""}</span>
-                                <code dangerouslySetInnerHTML={{ __html: section.highlightedRows[index] }} />
+                                <span className="review-line-number" title="Ctrl+单击在编辑器中打开此行" onClick={(event) => openLineInEditor(event, section.path, row.oldLine ?? null)}>{row.oldLine ?? ""}</span>
+                                <span className="review-line-number" title="Ctrl+单击在编辑器中打开此行" onClick={(event) => openLineInEditor(event, section.path, row.newLine ?? null)}>{row.newLine ?? ""}</span>
+                                <code dangerouslySetInnerHTML={{ __html: section.highlightedRows[index] }} onClick={(event) => { openLineInEditor(event, section.path, line); }} />
                               </div>
                             )}
                             {commentOpen && (
-                              <form className="review-inline-composer" onSubmit={(event) => { event.preventDefault(); submitComment(); }}>
-                                <textarea autoFocus rows={3} value={commentDraft} placeholder={line ? `评论第 ${line} 行` : "添加审阅意见"} onChange={(event) => setCommentDraft(event.target.value)} />
-                                <div><button type="button" onClick={() => { setCommentTarget(null); setCommentDraft(""); }}>取消</button><button type="submit" className="primary" disabled={!commentDraft.trim()}>发送到对话</button></div>
+                              <form className="review-inline-composer" onSubmit={(event) => { event.preventDefault(); addDraftComment(); }}>
+                                <textarea
+                                  autoFocus
+                                  rows={3}
+                                  value={commentDraft}
+                                  placeholder={line ? `评论第 ${line} 行 · Ctrl+Enter 添加并全部发送` : "添加审阅意见"}
+                                  onChange={(event) => setCommentDraft(event.target.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                                      event.preventDefault();
+                                      void submitComments(addDraftComment());
+                                    }
+                                    if (event.key === "Escape") {
+                                      event.preventDefault();
+                                      setCommentTarget(null);
+                                      setCommentDraft("");
+                                    }
+                                  }}
+                                />
+                                <div>
+                                  <button type="button" onClick={() => { setCommentTarget(null); setCommentDraft(""); }}>取消</button>
+                                  <button type="submit" disabled={!commentDraft.trim()}>添加意见</button>
+                                  <button type="button" className="primary" disabled={!commentDraft.trim() || sendingComments} onClick={() => void submitComments(addDraftComment())}>添加并发送</button>
+                                </div>
                               </form>
                             )}
+                            {rowPending.map((comment) => (
+                              <div className="review-inline-comment pending" key={comment.id}>
+                                <span><MessageSquareText size={12} /></span>
+                                <div><strong>待发送</strong><p>{comment.body}</p></div>
+                                <button type="button" title="删除这条意见" aria-label="删除这条意见" onClick={() => setPendingComments((current) => current.filter((item) => item.id !== comment.id))}><Trash2 size={12} /></button>
+                              </div>
+                            ))}
                             {rowComments.map((comment) => (
                               <div className="review-inline-comment" key={comment.id}>
                                 <span>{comment.priority !== null ? `P${comment.priority}` : <MessageSquareText size={12} />}</span>
@@ -578,17 +845,36 @@ export function ReviewPanel({
         ) : (
           <div className="review-surface-empty">
             <CheckCircle2 size={26} />
-            <strong>{activeSnapshot?.isRepository ? "没有文件更改" : "没有 Git 仓库"}</strong>
-            <span>{activeSnapshot?.isRepository ? "此审查来源当前没有差异。" : "在 Git 工作区中打开审查后，更改会显示在这里。"}</span>
+            <strong>{emptyTitle}</strong>
+            <span>{emptyBody}</span>
           </div>
         )}
       </section>
+
+      {pendingComments.length > 0 && (
+        <div className="review-pending-bar" role="status">
+          <MessageSquareText size={14} />
+          <span>{pendingComments.length} 条意见待发送</span>
+          <button type="button" className="review-pending-clear" title="清空待发送意见" onClick={() => setPendingComments([])}><X size={13} /></button>
+          <button type="button" className="review-pending-send" disabled={sendingComments || !onSubmitComments} onClick={() => void submitComments()}>
+            {sendingComments ? <LoaderCircle className="spin" size={13} /> : <SendHorizontal size={13} />}
+            <span>全部发送给 Pi</span>
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
 
+function formatClock(unixSeconds: number): string {
+  const date = new Date(unixSeconds * 1000);
+  const sameDay = date.toDateString() === new Date().toDateString();
+  const time = date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  return sameDay ? time : `${date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })} ${time}`;
+}
+
 function filterFixtureSnapshot(git: GitSnapshot | null, filter: ReviewFilter): GitSnapshot | null {
-  if (!git || filter === "branch" || filter === "commit") return git;
+  if (!git || filter === "branch" || filter === "commit" || filter === "turn") return git;
   const files = git.files.filter((file) => filter === "staged" ? file.staged : file.unstaged);
   return { ...git, files };
 }
@@ -636,47 +922,4 @@ function rowId(path: string, row: number): string {
 
 function searchKey(path: string, row: number): string {
   return `${normalizePath(path).toLowerCase()}:${row}`;
-}
-
-function languageForPath(path: string): string | null {
-  const extension = fileName(path).split(".").pop()?.toLowerCase();
-  const languages: Record<string, string> = {
-    ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
-    rs: "rust", css: "css", scss: "scss", less: "less", html: "xml", htm: "xml", xml: "xml",
-    json: "json", jsonc: "json", py: "python", sh: "bash", bash: "bash", ps1: "powershell",
-    md: "markdown", markdown: "markdown", yaml: "yaml", yml: "yaml", sql: "sql", toml: "ini",
-  };
-  return extension ? languages[extension] ?? null : null;
-}
-
-function highlightLine(text: string, path: string): string {
-  const language = languageForPath(path);
-  if (!language || !hljs.getLanguage(language)) return escapeHtml(text);
-  try {
-    return hljs.highlight(text, { language, ignoreIllegals: true }).value;
-  } catch {
-    return escapeHtml(text);
-  }
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function extractFileDiff(diff: string, filePath: string): string {
-  const target = normalizePath(filePath);
-  const lines = diff.split("\n");
-  const chunks: string[] = [];
-  let current: string[] | null = null;
-  for (const line of lines) {
-    if (line.startsWith("diff --git ")) {
-      if (current?.length) chunks.push(current.join("\n"));
-      const marker = normalizePath(line);
-      current = marker.includes(`b/${target}`) || marker.endsWith(target) ? [line] : null;
-      continue;
-    }
-    if (current) current.push(line);
-  }
-  if (current?.length) chunks.push(current.join("\n"));
-  return chunks.join("\n\n");
 }

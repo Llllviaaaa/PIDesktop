@@ -171,7 +171,7 @@ class StdioMcpClient implements McpClient {
     const result = await this.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: "Pi Desktop", version: "0.2.27" },
+      clientInfo: { name: "Pi Desktop", version: "0.2.28" },
     }) as { protocolVersion?: string; capabilities?: McpCapabilities };
     const negotiated = result.protocolVersion || PROTOCOL_VERSION;
     if (!SUPPORTED_PROTOCOL_VERSIONS.has(negotiated)) {
@@ -361,7 +361,7 @@ class HttpMcpClient implements McpClient {
     const result = await this.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: "Pi Desktop", version: "0.2.27" },
+      clientInfo: { name: "Pi Desktop", version: "0.2.28" },
     }) as { protocolVersion?: string; capabilities?: McpCapabilities };
     this.negotiatedVersion = result.protocolVersion || PROTOCOL_VERSION;
     if (!SUPPORTED_PROTOCOL_VERSIONS.has(this.negotiatedVersion)) {
@@ -489,7 +489,7 @@ class HttpMcpClient implements McpClient {
       const parsed = JSON.parse(body) as JsonRpcMessage | JsonRpcMessage[];
       return Array.isArray(parsed) ? parsed : [parsed];
     } catch (error) {
-      if (timeoutController.signal.aborted) throw new Error("MCP HTTP request timed out or was cancelled");
+      if (timeoutController.signal.aborted) throw new Error("MCP HTTP request timed out or was cancelled", { cause: error });
       throw error;
     } finally {
       clearTimeout(timeout);
@@ -836,7 +836,7 @@ export default async function (pi: ExtensionAPI) {
           const allowed = await ctx.ui.confirm("允许读取 MCP 资源列表？", server.config.name || server.config.id);
           if (!allowed) throw new Error("用户拒绝了 MCP 资源读取");
         }
-        onUpdate?.({ content: [{ type: "text", text: `正在读取 ${server.config.name || server.config.id} 的资源列表…` }] });
+        onUpdate?.({ content: [{ type: "text", text: `正在读取 ${server.config.name || server.config.id} 的资源列表…` }], details: undefined });
         const resources = await server.client.listResources();
         return { content: [{ type: "text", text: resourceListMarkdown(server, resources) }], details: { serverId: server.config.id, resources } };
       },
@@ -860,7 +860,7 @@ export default async function (pi: ExtensionAPI) {
           const allowed = await ctx.ui.confirm("允许读取 MCP 资源？", `${server.config.name || server.config.id}\n${params.uri}`);
           if (!allowed) throw new Error("用户拒绝了 MCP 资源读取");
         }
-        onUpdate?.({ content: [{ type: "text", text: `正在读取 MCP 资源 ${params.uri}…` }] });
+        onUpdate?.({ content: [{ type: "text", text: `正在读取 MCP 资源 ${params.uri}…` }], details: undefined });
         const result = await server.client.readResource(params.uri);
         return { content: resourceContent(result), details: { serverId: server.config.id, uri: params.uri } };
       },
@@ -941,7 +941,7 @@ export default async function (pi: ExtensionAPI) {
           const allowed = await ctx.ui.confirm("允许读取 MCP 提示词列表？", server.config.name || server.config.id);
           if (!allowed) throw new Error("用户拒绝了 MCP 提示词读取");
         }
-        onUpdate?.({ content: [{ type: "text", text: `正在读取 ${server.config.name || server.config.id} 的提示词…` }] });
+        onUpdate?.({ content: [{ type: "text", text: `正在读取 ${server.config.name || server.config.id} 的提示词…` }], details: undefined });
         const prompts = await server.client.listPrompts();
         return { content: [{ type: "text", text: promptListMarkdown(server, prompts) }], details: { serverId: server.config.id, prompts } };
       },
@@ -966,7 +966,7 @@ export default async function (pi: ExtensionAPI) {
           const allowed = await ctx.ui.confirm("允许读取 MCP 提示词？", `${server.config.name || server.config.id}\n${params.name}`);
           if (!allowed) throw new Error("用户拒绝了 MCP 提示词读取");
         }
-        onUpdate?.({ content: [{ type: "text", text: `正在读取 MCP 提示词 ${params.name}…` }] });
+        onUpdate?.({ content: [{ type: "text", text: `正在读取 MCP 提示词 ${params.name}…` }], details: undefined });
         const result = await server.client.getPrompt(params.name, params.arguments || {});
         return { content: [{ type: "text", text: promptResultMarkdown(server, params.name, result) }], details: { serverId: server.config.id, name: params.name } };
       },

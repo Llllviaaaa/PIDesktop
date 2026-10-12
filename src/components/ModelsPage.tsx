@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queries";
+import { describeError } from "../lib/errors";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Brain,
@@ -77,20 +81,52 @@ interface CheckState {
 type Notice = { kind: "success" | "error"; text: string } | null;
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return describeError(error);
 }
 
 function isCancelled(error: unknown): boolean {
   return /cancel|abort/i.test(errorText(error));
 }
 
+const NO_PROVIDERS: ProviderSummary[] = [];
+const NO_CONFIGS: ModelProviderConfig[] = [];
+
 export function ModelsPage({ form, update }: { form: AppSettings; update: Update }) {
   const isTauri = "__TAURI_INTERNALS__" in window;
   const reloadProviderCatalog = usePiStore((state) => state.reloadProviderCatalog);
-  const [providers, setProviders] = useState<ProviderSummary[]>([]);
-  const [configs, setConfigs] = useState<ModelProviderConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const queryClient = useQueryClient();
+  const providersQuery = useQuery({
+    queryKey: queryKeys.modelProviders(),
+    queryFn: () => providerService.list(),
+    enabled: isTauri,
+  });
+  // models.json only marks which providers are custom; it never holds up the list.
+  const configsQuery = useQuery({
+    queryKey: queryKeys.modelConfigs(),
+    queryFn: () => pi.listModelProviders(),
+    enabled: isTauri,
+  });
+  const providers = providersQuery.data ?? NO_PROVIDERS;
+  const configs = configsQuery.data ?? NO_CONFIGS;
+  // "Refresh" asks the provider service to re-read credentials and models.json first.
+  const refreshMutation = useMutation({
+    mutationFn: async () => {
+      await providerService.refresh();
+      await Promise.all([
+        queryClient.fetchQuery({ queryKey: queryKeys.modelProviders(), queryFn: () => providerService.list(), staleTime: 0 }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.modelConfigs() }),
+      ]);
+    },
+  });
+  const refresh = () => refreshMutation.mutateAsync().catch(() => undefined);
+  const retry = () => {
+    refreshMutation.reset();
+    void providersQuery.refetch();
+    void configsQuery.refetch();
+  };
+  const loading = providersQuery.isFetching || refreshMutation.isPending;
+  const failure = refreshMutation.error ?? providersQuery.error;
+  const loadError = failure ? errorText(failure) : "";
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [login, setLogin] = useState<LoginState | null>(null);
@@ -109,29 +145,6 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
     const current = activeLogin();
     if (current?.id === id) setLoginState(patch(current));
   };
-
-  const load = useCallback(async (refresh = false) => {
-    setLoading(true);
-    try {
-      // models.json only marks which providers are custom; never let it delay the provider list.
-      void pi.listModelProviders().then(setConfigs, () => undefined);
-      if (refresh) await providerService.refresh();
-      setProviders(await providerService.list());
-      setLoadError("");
-    } catch (error) {
-      setLoadError(errorText(error));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isTauri) {
-      setLoading(false);
-      return;
-    }
-    void load();
-  }, [isTauri, load]);
 
   useEffect(() => providerService.onDialog((request) => {
     const current = loginRef.current;
@@ -155,7 +168,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
   const hidden = useMemo(() => new Set(form.hiddenModels ?? []), [form.hiddenModels]);
 
   const applyProviders = (next: ProviderSummary[], text: string) => {
-    setProviders(next);
+    queryClient.setQueryData(queryKeys.modelProviders(), next);
     setNotice({ kind: "success", text });
     void reloadProviderCatalog();
   };
@@ -239,7 +252,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
   };
 
   const afterConfigChange = async (text: string, nextSelected?: string) => {
-    await load(true);
+    await refresh();
     if (nextSelected) setSelectedId(nextSelected);
     setNotice({ kind: "success", text });
     void reloadProviderCatalog();
@@ -265,7 +278,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
           <h1>模型</h1>
           <p>连接模型提供商，选择新任务默认使用的模型，并决定哪些模型出现在输入框的模型选择器中。</p>
         </div>
-        <button className="secondary-button compact" disabled={loading || !isTauri} onClick={() => void load(true)} title="重新读取凭据和 models.json">
+        <button className="secondary-button compact" disabled={loading || !isTauri} onClick={() => void refresh()} title="重新读取凭据和 models.json">
           <RefreshCw size={13} className={loading ? "spinner-icon" : ""} />刷新
         </button>
       </div>
@@ -321,7 +334,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
               <CircleAlert size={20} />
               <strong>无法读取模型提供商</strong>
               <p>{loadError}</p>
-              <button className="secondary-button compact" onClick={() => void load()}>重试</button>
+              <button className="secondary-button compact" onClick={retry}>重试</button>
             </div>
           ) : !selected ? (
             <div className="models-empty-state">
@@ -547,9 +560,10 @@ function ProviderDetail({
     const visible = provider.models.find((model) => !hidden.has(modelKey(provider.id, model.id)));
     return (defaultModel && provider.models.some((model) => model.id === defaultModel) ? defaultModel : visible?.id) ?? provider.models[0]?.id ?? "";
   });
-  useEffect(() => {
+  // Finishing a sign-in, or the provider's configured state changing, ends key replacement.
+  useSyncOnChange([login, provider.configured], () => {
     if (!login) setReplacingKey(false);
-  }, [login, provider.configured]);
+  });
 
   return (
     <div className="models-detail-scroll">
@@ -724,7 +738,15 @@ function ConnectForm({ provider, custom, busy, replacing, onLogin, onCancelRepla
 function LoginPanel({ login, onCancel, onAnswer }: { login: LoginState; onCancel: () => void; onAnswer: (value: string | undefined) => void }) {
   const [value, setValue] = useState("");
   const [copied, setCopied] = useState("");
-  useEffect(() => setValue(""), [login.dialog?.id]);
+  const dialogId = login.dialog?.id;
+  const [answeringDialog, setAnsweringDialog] = useState(dialogId);
+  if (answeringDialog !== dialogId) {
+    setAnsweringDialog(dialogId);
+    setValue("");
+  }
+  const deviceCode = login.device?.userCode;
+  const verificationUri = login.device?.verificationUri;
+  const authUrl = login.authUrl;
   const copy = (text: string, key: string) => {
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(key);
@@ -747,20 +769,20 @@ function LoginPanel({ login, onCancel, onAnswer }: { login: LoginState; onCancel
         <button className="secondary-button compact" onClick={onCancel}>取消</button>
       </header>
       {login.progress && <p className="models-hint">{login.progress}</p>}
-      {login.device?.userCode && (
+      {deviceCode && (
         <div className="models-device">
-          <span>在 {login.device.verificationUri ?? "授权页面"} 输入以下代码：</span>
-          <code>{login.device.userCode}</code>
+          <span>在 {verificationUri ?? "授权页面"} 输入以下代码：</span>
+          <code>{deviceCode}</code>
           <div className="models-actions">
-            <button className="secondary-button compact" onClick={() => copy(login.device!.userCode!, "code")}>{copied === "code" ? <Check size={13} /> : <Copy size={13} />}复制代码</button>
-            {login.device.verificationUri && <button className="secondary-button compact" onClick={() => void openUrl(login.device!.verificationUri!)}><ExternalLink size={13} />打开页面</button>}
+            <button className="secondary-button compact" onClick={() => copy(deviceCode, "code")}>{copied === "code" ? <Check size={13} /> : <Copy size={13} />}复制代码</button>
+            {verificationUri && <button className="secondary-button compact" onClick={() => void openUrl(verificationUri)}><ExternalLink size={13} />打开页面</button>}
           </div>
         </div>
       )}
-      {login.authUrl && !login.device && (
+      {authUrl && !login.device && (
         <div className="models-actions">
-          <button className="secondary-button compact" onClick={() => void openUrl(login.authUrl!)}><ExternalLink size={13} />重新打开授权页面</button>
-          <button className="secondary-button compact" onClick={() => copy(login.authUrl!, "url")}>{copied === "url" ? <Check size={13} /> : <Copy size={13} />}复制链接</button>
+          <button className="secondary-button compact" onClick={() => void openUrl(authUrl)}><ExternalLink size={13} />重新打开授权页面</button>
+          <button className="secondary-button compact" onClick={() => copy(authUrl, "url")}>{copied === "url" ? <Check size={13} /> : <Copy size={13} />}复制链接</button>
         </div>
       )}
       {dialog?.method === "select" && (

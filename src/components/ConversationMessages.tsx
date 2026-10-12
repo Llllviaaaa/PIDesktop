@@ -2,10 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronUp } from "lucide-react";
 import { usePiStore } from "../store";
 import type { UiMessage } from "../types";
-import { deriveTaskPlan } from "../lib/envSources";
+import { deriveTurnPlans } from "../lib/envSources";
 import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
 import { groupTranscriptMessages } from "../lib/transcriptTurns";
-import { ConversationPlan } from "./ConversationPlan";
 import { Message } from "./Message";
 
 export function ConversationMessages({
@@ -43,8 +42,15 @@ export function ConversationMessages({
 }) {
   const messages = usePiStore((state) => state.messages);
   const transcriptDensity = normalizeTranscriptDensity(density);
-  const plan = useMemo(() => deriveTaskPlan(messages), [messages]);
   const displayMessages = useMemo(() => groupTranscriptMessages(messages), [messages]);
+  const { turnPlans, latestPlanMessageId } = useMemo(() => {
+    const allPlans = deriveTurnPlans(displayMessages);
+    return {
+      turnPlans: isStreaming ? deriveTurnPlans(displayMessages, true) : allPlans,
+      // The side panel shows the newest plan, so only the turn that holds it links there.
+      latestPlanMessageId: [...allPlans.keys()].pop(),
+    };
+  }, [displayMessages, isStreaming]);
   const [visibleCount, setVisibleCount] = useState(120);
   const firstVisibleIndex = Math.max(0, displayMessages.length - visibleCount);
   const visibleMessages = displayMessages.slice(firstVisibleIndex);
@@ -57,7 +63,12 @@ export function ConversationMessages({
     return null;
   }, [displayMessages]);
 
-  useEffect(() => setVisibleCount(120), [conversationKey]);
+  // Start each conversation from the most recent page.
+  const [pagedConversation, setPagedConversation] = useState(conversationKey);
+  if (pagedConversation !== conversationKey) {
+    setPagedConversation(conversationKey);
+    setVisibleCount(120);
+  }
 
   useEffect(() => {
     if (!autoFollowRef.current) return;
@@ -100,19 +111,14 @@ export function ConversationMessages({
           allowRichContent
           density={transcriptDensity}
           editing={editingMessageId === message.id}
+          plan={turnPlans.get(message.id)}
+          onOpenPlan={message.id === latestPlanMessageId ? onOpenPlan : undefined}
           onEdit={message.role === "user" ? onEdit : undefined}
           onRewind={message.role === "user" ? onRewind : undefined}
           onCancelEdit={onCancelEdit}
           onSubmitEdit={onSubmitEdit}
         />
       ))}
-      {plan && (
-        <ConversationPlan
-          plan={plan}
-          compact={transcriptDensity === "summary"}
-          onOpen={onOpenPlan}
-        />
-      )}
     </>
   );
 }

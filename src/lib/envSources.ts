@@ -263,14 +263,60 @@ export function planFromToolCall(call: UiToolCall): TaskPlanSummary | null {
   return { explanation, steps, completed: steps.filter((step) => step.status === "completed").length };
 }
 
-/** Return the latest valid update_plan payload for the active conversation branch. */
-export function deriveTaskPlan(messages: UiMessage[]): TaskPlanSummary | null {
+function latestPlanIn(messages: UiMessage[]): TaskPlanSummary | null {
   const calls = messages.flatMap((message) => message.toolCalls ?? []);
   for (let index = calls.length - 1; index >= 0; index -= 1) {
     const plan = planFromToolCall(calls[index]);
     if (plan) return plan;
   }
   return null;
+}
+
+/** Return the latest valid update_plan payload for the active conversation branch. */
+export function deriveTaskPlan(messages: UiMessage[]): TaskPlanSummary | null {
+  return latestPlanIn(messages);
+}
+
+function openTurnStart(messages: UiMessage[]): number {
+  let start = messages.length;
+  while (start > 0 && messages[start - 1].role !== "user") start -= 1;
+  return start;
+}
+
+/** The plan of the turn still being answered: update_plan calls after the latest user message. */
+export function deriveLiveTaskPlan(messages: UiMessage[]): TaskPlanSummary | null {
+  return latestPlanIn(messages.slice(openTurnStart(messages)));
+}
+
+/**
+ * Map each turn's final plan to the message that last updated it, so the plan
+ * renders inside the turn that made it instead of trailing every later turn.
+ * The open turn is skipped while it streams; its plan shows above the composer.
+ */
+export function deriveTurnPlans(messages: UiMessage[], skipOpenTurn = false): Map<string, TaskPlanSummary> {
+  const plans = new Map<string, TaskPlanSummary>();
+  const end = skipOpenTurn ? openTurnStart(messages) : messages.length;
+  let turnPlan: { messageId: string; plan: TaskPlanSummary } | null = null;
+  for (let index = 0; index < end; index += 1) {
+    const message = messages[index];
+    if (message.role === "user") {
+      if (turnPlan) plans.set(turnPlan.messageId, turnPlan.plan);
+      turnPlan = null;
+      continue;
+    }
+    const plan = latestPlanIn([message]);
+    if (plan) turnPlan = { messageId: message.id, plan };
+  }
+  if (turnPlan) plans.set(turnPlan.messageId, turnPlan.plan);
+  return plans;
+}
+
+/** The step a plan is on: the first in progress, else the first pending, else the last. */
+export function currentPlanStepIndex(plan: TaskPlanSummary): number {
+  const active = plan.steps.findIndex((step) => step.status === "in_progress");
+  if (active >= 0) return active;
+  const pending = plan.steps.findIndex((step) => step.status === "pending");
+  return pending >= 0 ? pending : plan.steps.length - 1;
 }
 
 function subagentRole(value: unknown): SubagentActivity["role"] {

@@ -2581,7 +2581,7 @@ dependencies = [
 
 [[package]]
 name = "pid-desktop"
-version = "0.2.27"
+version = "0.2.28"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2598,6 +2598,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "thiserror 2.0.20",
  "uiautomation",
  "ureq",
  "urlencoding",

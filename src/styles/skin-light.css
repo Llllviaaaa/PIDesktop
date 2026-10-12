@@ -61,7 +61,7 @@
 }
 
 /* Cards in the transcript pick up the same faint lift. */
-:root[data-theme="light"] .codex-shot .conversation-plan-card,
+:root[data-theme="light"] .codex-shot .live-plan,
 :root[data-theme="light"] .codex-shot .conversation-change-card,
 :root[data-theme="light"] .codex-shot .markdown-code {
   box-shadow: 0 6px 20px -16px rgb(79 70 229 / 0.35);

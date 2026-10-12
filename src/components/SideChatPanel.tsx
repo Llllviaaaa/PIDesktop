@@ -114,7 +114,6 @@ export function SideChatPanel({
   const [title, setTitle] = useState("侧边聊天");
   const [restartToken, setRestartToken] = useState(0);
   const runtimeRef = useRef<string | null>(null);
-  const sideSessionFileRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeTurnStartedAtRef = useRef<number | null>(null);
   const displayMessages = useMemo(() => groupTranscriptMessages(messages), [messages]);
@@ -288,21 +287,8 @@ export function SideChatPanel({
       }
     };
 
-    const stopAndDeleteSideRuntime = async (runtimeId: string, knownSideFile?: string | null) => {
-      let sideFile = knownSideFile ?? null;
-      if (!sideFile) {
-        try {
-          const state = await sendCommand(runtimeId, "get_state");
-          sideFile = typeof state.data?.sessionFile === "string" ? state.data.sessionFile : null;
-        } catch {
-          // The runtime may already have exited before its session path can be queried.
-        }
-      }
-      await pi.stop(runtimeId).catch(() => undefined);
-      if (sideFile && !sameLocalPath(sideFile, parentSessionFile)) {
-        await pi.deleteSession(sideFile).catch(() => undefined);
-      }
-    };
+    // Stopping a side runtime also removes its forked session, which lives outside the session list.
+    const stopAndDeleteSideRuntime = (runtimeId: string) => pi.stop(runtimeId).catch(() => undefined);
 
     setPhase("starting");
     setError(null);
@@ -335,7 +321,6 @@ export function SideChatPanel({
         if (!sideFile || sameLocalPath(sideFile, parentSessionFile)) {
           throw new Error("无法创建独立的侧边聊天会话");
         }
-        sideSessionFileRef.current = sideFile;
         await pi.bindSession(started.runtimeId, sideFile);
         if (!disposed) {
           setModel(state.data?.model ?? null);
@@ -348,10 +333,8 @@ export function SideChatPanel({
         }
       } catch (reason) {
         const runtimeId = runtimeRef.current;
-        const sideFile = sideSessionFileRef.current;
         runtimeRef.current = null;
-        sideSessionFileRef.current = null;
-        if (runtimeId) await stopAndDeleteSideRuntime(runtimeId, sideFile);
+        if (runtimeId) await stopAndDeleteSideRuntime(runtimeId);
         if (!disposed) {
           setPhase("error");
           setError(reportError(reason));
@@ -363,10 +346,8 @@ export function SideChatPanel({
       disposed = true;
       unsubscribe?.();
       const runtimeId = runtimeRef.current;
-      const sideFile = sideSessionFileRef.current;
       runtimeRef.current = null;
-      sideSessionFileRef.current = null;
-      if (runtimeId) void stopAndDeleteSideRuntime(runtimeId, sideFile);
+      if (runtimeId) void stopAndDeleteSideRuntime(runtimeId);
     };
   }, [cwd, parentSessionFile, reportError, restartToken]);
 

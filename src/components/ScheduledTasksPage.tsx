@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queries";
+import { describeError } from "../lib/errors";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   AlertCircle,
@@ -105,6 +108,9 @@ function RunStatusIcon({ status }: { status: ScheduledRunRecord["status"] }) {
   return <CircleDashed size={15} />;
 }
 
+const NO_TASKS: ScheduledTask[] = [];
+const NO_RUNS: ScheduledRunRecord[] = [];
+
 export function ScheduledTasksPage({
   workspaces,
   onTasksChanged,
@@ -112,9 +118,7 @@ export function ScheduledTasksPage({
   onError,
 }: ScheduledTasksPageProps) {
   const workspaceOptions = useMemo(() => uniqueWorkspaces(workspaces), [workspaces]);
-  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
-  const [runs, setRuns] = useState<ScheduledRunRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [draft, setDraft] = useState<ScheduledTask>(EMPTY_TASK);
   const [saving, setSaving] = useState(false);
@@ -123,25 +127,35 @@ export function ScheduledTasksPage({
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
-  const load = useCallback(async (showLoading = true) => {
-    if (showLoading) setLoading(true);
-    try {
-      const [nextTasks, nextRuns] = await Promise.all([
-        pi.listScheduledTasks(),
-        pi.listScheduledRuns(undefined, 80),
-      ]);
-      setTasks(nextTasks);
-      setRuns(nextRuns);
-    } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  }, [onError]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const queryClient = useQueryClient();
+  const scheduled = useQuery({
+    queryKey: queryKeys.scheduled(),
+    queryFn: async () => {
+      try {
+        const [tasks, runs] = await Promise.all([
+          pi.listScheduledTasks(),
+          pi.listScheduledRuns(undefined, 80),
+        ]);
+        return { tasks, runs };
+      } catch (error) {
+        onError(describeError(error));
+        throw error;
+      }
+    },
+  });
+  const tasks = scheduled.data?.tasks ?? NO_TASKS;
+  const runs = scheduled.data?.runs ?? NO_RUNS;
+  // The spinner is for the first load and the refresh button; event-driven
+  // refreshes after a run update stay silent, as before.
+  const loading = scheduled.isPending || manualRefreshing;
+  const reload = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.scheduled() }),
+    [queryClient],
+  );
+  const refreshNow = () => {
+    setManualRefreshing(true);
+    void scheduled.refetch().finally(() => setManualRefreshing(false));
+  };
 
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -150,7 +164,7 @@ export function ScheduledTasksPage({
     let unlisten: UnlistenFn[] = [];
     const queueRefresh = () => {
       window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => void load(false), 100);
+      refreshTimer = window.setTimeout(() => void reload(), 100);
     };
     void Promise.all([
       listen("scheduled-task-updated", queueRefresh),
@@ -164,7 +178,7 @@ export function ScheduledTasksPage({
       window.clearTimeout(refreshTimer);
       unlisten.forEach((stop) => stop());
     };
-  }, [load]);
+  }, [reload]);
 
   const openCreate = () => {
     setDraft({ ...EMPTY_TASK, cwd: workspaceOptions[0] || "" });
@@ -181,9 +195,9 @@ export function ScheduledTasksPage({
     try {
       await pi.saveScheduledTask({ ...draft });
       setEditorOpen(false);
-      await load(false);
+      await reload();
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      onError(describeError(error));
     } finally {
       setSaving(false);
     }
@@ -192,9 +206,9 @@ export function ScheduledTasksPage({
   const toggle = async (task: ScheduledTask) => {
     try {
       await pi.saveScheduledTask({ ...task, enabled: !task.enabled });
-      await load(false);
+      await reload();
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      onError(describeError(error));
     }
   };
 
@@ -203,11 +217,11 @@ export function ScheduledTasksPage({
     try {
       const result = await pi.runScheduledTask(task.id);
       if (!result.success && result.run.status !== "cancelled") onError(result.output || "计划任务执行失败");
-      await load(false);
+      await reload();
       onTasksChanged();
       setExpandedRunId(result.run.id);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      onError(describeError(error));
     } finally {
       setRunningId(null);
     }
@@ -217,9 +231,9 @@ export function ScheduledTasksPage({
     setCancellingId(task.id);
     try {
       await pi.cancelScheduledTask(task.id);
-      await load(false);
+      await reload();
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      onError(describeError(error));
     } finally {
       setCancellingId(null);
     }
@@ -229,9 +243,9 @@ export function ScheduledTasksPage({
     try {
       await pi.deleteScheduledTask(id);
       setDeleteConfirmId(null);
-      await load(false);
+      await reload();
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      onError(describeError(error));
     }
   };
 
@@ -243,7 +257,7 @@ export function ScheduledTasksPage({
           <span><h1>已安排</h1><p>在本机按计划运行 Pi，并保留每一次执行记录。</p></span>
         </div>
         <div className="work-center-header-actions">
-          <button type="button" className="icon-button" title="刷新" onClick={() => void load()} disabled={loading}><RefreshCw size={16} className={loading ? "spinner-icon" : ""} /></button>
+          <button type="button" className="icon-button" title="刷新" onClick={refreshNow} disabled={loading}><RefreshCw size={16} className={loading ? "spinner-icon" : ""} /></button>
           <button type="button" className="primary-button" onClick={openCreate}><Plus size={15} />新建任务</button>
         </div>
       </header>
@@ -291,6 +305,7 @@ export function ScheduledTasksPage({
           <div className="scheduled-run-list">
             {runs.map((run) => {
               const expanded = expandedRunId === run.id;
+              const sessionFile = run.sessionFile;
               return (
                 <article className={`scheduled-run-row ${run.status}`} key={run.id}>
                   <button type="button" className="scheduled-run-summary" onClick={() => setExpandedRunId(expanded ? null : run.id)} aria-expanded={expanded}>
@@ -303,7 +318,7 @@ export function ScheduledTasksPage({
                     <div className="scheduled-run-detail">
                       <div className="scheduled-run-path"><span>{workspaceName(run.cwd)}</span><code>{run.cwd}</code>{run.exitCode != null && <em>退出码 {run.exitCode}</em>}</div>
                       <pre>{run.output || (run.status === "running" ? "Pi 正在执行任务..." : "运行完成，没有文本输出。")}</pre>
-                      {run.sessionFile && <button type="button" className="secondary-button" onClick={() => onOpenSession(run.cwd, run.sessionFile!)}><MessageSquare size={14} />打开会话</button>}
+                      {sessionFile && <button type="button" className="secondary-button" onClick={() => onOpenSession(run.cwd, sessionFile)}><MessageSquare size={14} />打开会话</button>}
                     </div>
                   )}
                 </article>

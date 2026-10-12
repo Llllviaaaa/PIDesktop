@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { describeError } from "../lib/errors";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queries";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   CircleAlert,
@@ -62,6 +65,8 @@ function packageKinds(detail: PackageCatalogDetail | null, item?: PackageCatalog
   return inferred.length > 0 ? inferred : ["软件包"];
 }
 
+const NO_RESOURCES: ResourceItem[] = [];
+
 export function PluginMarketplacePage({ cwd }: { cwd: string }) {
   const [tab, setTab] = useState<MarketplaceTab>("discover");
   const [query, setQuery] = useState("");
@@ -72,37 +77,35 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
   const [selectedDetail, setSelectedDetail] = useState<PackageCatalogDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
-  const [resources, setResources] = useState<ResourceItem[]>([]);
-  const [resourcesLoading, setResourcesLoading] = useState(true);
+
   const [scope, setScope] = useState<PackageScope>("user");
   const [pendingInstall, setPendingInstall] = useState<{ source: string; label: string } | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualSource, setManualSource] = useState("");
   const [busyKey, setBusyKey] = useState("");
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [dismissedLoadError, setDismissedLoadError] = useState<unknown>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const detailRequestRef = useRef(0);
+
+  const queryClient = useQueryClient();
+  const isTauri = "__TAURI_INTERNALS__" in window;
+  // Shares its cache with the Settings skills page: both list the same resources.
+  const resourcesQuery = useQuery({
+    queryKey: queryKeys.resources(cwd),
+    queryFn: () => pi.listResources(cwd),
+    enabled: isTauri,
+  });
+  const resources = resourcesQuery.data ?? NO_RESOURCES;
+  const resourcesLoading = isTauri && resourcesQuery.isFetching && !resourcesQuery.data;
+  const reloadResources = () => queryClient.invalidateQueries({ queryKey: queryKeys.resources(cwd) });
+  const loadError = resourcesQuery.error;
+  const loadNotice = loadError && loadError !== dismissedLoadError
+    ? { tone: "error" as const, text: `无法读取已安装插件：${describeError(loadError)}` }
+    : null;
+  const shownNotice = notice ?? loadNotice;
   const packages = resources.filter((item) => item.kind === "package");
   const looseResources = resources.filter((item) => item.kind !== "package");
-
-  const reloadResources = useCallback(async () => {
-    if (!("__TAURI_INTERNALS__" in window)) {
-      setResourcesLoading(false);
-      return;
-    }
-    setResourcesLoading(true);
-    try {
-      setResources(await pi.listResources(cwd));
-    } catch (error) {
-      setNotice({ tone: "error", text: `无法读取已安装插件：${String(error)}` });
-    } finally {
-      setResourcesLoading(false);
-    }
-  }, [cwd]);
-
-  useEffect(() => {
-    void reloadResources();
-  }, [reloadResources]);
 
   const installedScopes = (name: string) => packages
     .filter((item) => packageNameFromSource(item.path) === name)
@@ -118,7 +121,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
       const detail = await pi.packageDetail(name);
       if (detailRequestRef.current === requestId) setSelectedDetail(detail);
     } catch (error) {
-      if (detailRequestRef.current === requestId) setDetailError(String(error));
+      if (detailRequestRef.current === requestId) setDetailError(describeError(error));
     } finally {
       if (detailRequestRef.current === requestId) setDetailLoading(false);
     }
@@ -139,7 +142,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
           return next;
         });
       }).catch((error) => {
-        if (!cancelled) setCatalogError(String(error));
+        if (!cancelled) setCatalogError(describeError(error));
       }).finally(() => {
         if (!cancelled) setCatalogLoading(false);
       });
@@ -161,7 +164,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
       setPendingInstall(null);
       if (action === "install") setManualSource("");
     } catch (error) {
-      setNotice({ tone: "error", text: String(error) });
+      setNotice({ tone: "error", text: describeError(error) });
     } finally {
       setBusyKey("");
     }
@@ -185,6 +188,11 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
     ["提示词", selectedDetail.prompts],
     ["主题", selectedDetail.themes],
   ].filter(([, paths]) => paths.length > 0) as Array<[string, string[]]> : [];
+
+  const previewUrl = selectedDetail?.imageUrl;
+  const repositoryUrl = selectedDetail?.repositoryUrl;
+  const homepageUrl = selectedDetail?.homepageUrl;
+  const videoUrl = selectedDetail?.videoUrl;
 
   return <section className="plugins-page">
     <header className="work-center-header plugins-page-header">
@@ -214,7 +222,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
         <button className="primary-button" disabled={!manualSource.trim() || Boolean(busyKey)} onClick={() => setPendingInstall({ source: manualSource.trim(), label: manualSource.trim() })}>检查并安装</button>
       </div>}
 
-      {notice && <div className={`marketplace-notice ${notice.tone}`}><span>{notice.text}</span><button title="关闭" onClick={() => setNotice(null)}><X size={13} /></button></div>}
+      {shownNotice && <div className={`marketplace-notice ${shownNotice.tone}`}><span>{shownNotice.text}</span><button title="关闭" onClick={() => { setNotice(null); setDismissedLoadError(loadError); }}><X size={13} /></button></div>}
 
       {tab === "discover" ? <div className="marketplace-browser">
         <section className="marketplace-results" aria-label="软件包搜索结果">
@@ -242,7 +250,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
             </header>
 
             <p className="marketplace-description">{packageDescription(selectedDetail.description, "此软件包未提供说明。")}</p>
-            {selectedDetail.imageUrl && <button className="marketplace-preview" title="打开预览图片" onClick={() => void openUrl(selectedDetail.imageUrl!)}><img src={selectedDetail.imageUrl} alt={`${selectedDetail.name} 预览`} /></button>}
+            {previewUrl && <button className="marketplace-preview" title="打开预览图片" onClick={() => void openUrl(previewUrl)}><img src={previewUrl} alt={`${selectedDetail.name} 预览`} /></button>}
             <div className="marketplace-kinds">{packageKinds(selectedDetail, selectedItem).map((kind) => <span key={kind}>{kind}</span>)}</div>
             {capabilityRows.length > 0 && <section className="marketplace-capabilities"><h3>包含的能力</h3>{capabilityRows.map(([kind, paths]) => <div key={kind}><strong>{kind}</strong><span>{paths.map((path) => <code key={path}>{path}</code>)}</span></div>)}</section>}
             <dl className="marketplace-metadata">
@@ -251,7 +259,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
               <div><dt>依赖</dt><dd>{selectedDetail.dependencyCount} 个运行时 · {selectedDetail.peerDependencyCount} 个对等</dd></div>
               <div><dt>完整性</dt><dd title={selectedDetail.integrity}>{selectedDetail.integrity ? `${selectedDetail.integrity.slice(0, 18)}…` : "未声明"}</dd></div>
             </dl>
-            <div className="marketplace-links"><button onClick={() => void openUrl(selectedDetail.npmUrl)}><ExternalLink size={13} />npm</button>{selectedDetail.repositoryUrl && <button onClick={() => void openUrl(selectedDetail.repositoryUrl!)}><ExternalLink size={13} />源代码</button>}{selectedDetail.homepageUrl && <button onClick={() => void openUrl(selectedDetail.homepageUrl!)}><ExternalLink size={13} />主页</button>}{selectedDetail.videoUrl && <button onClick={() => void openUrl(selectedDetail.videoUrl!)}><ExternalLink size={13} />演示</button>}</div>
+            <div className="marketplace-links"><button onClick={() => void openUrl(selectedDetail.npmUrl)}><ExternalLink size={13} />npm</button>{repositoryUrl && <button onClick={() => void openUrl(repositoryUrl)}><ExternalLink size={13} />源代码</button>}{homepageUrl && <button onClick={() => void openUrl(homepageUrl)}><ExternalLink size={13} />主页</button>}{videoUrl && <button onClick={() => void openUrl(videoUrl)}><ExternalLink size={13} />演示</button>}</div>
             <div className="marketplace-security"><ShieldAlert size={16} /><span><strong>完整系统访问</strong>Pi 扩展可以执行代码，技能可以引导 Agent 执行命令。安装前请检查作者与源代码。</span></div>
           </>}
         </section>

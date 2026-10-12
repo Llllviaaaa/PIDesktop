@@ -450,7 +450,8 @@ export function resolveAppearanceTheme(
   if (selected.mode !== "system") return selected;
   const resolvedId = systemDark ? "dark" : "light";
   return catalog.themes.find((theme) => theme.id === resolvedId)
-    ?? BUILTIN_APPEARANCE_CATALOG.themes.find((theme) => theme.id === resolvedId)!;
+    ?? BUILTIN_APPEARANCE_CATALOG.themes.find((theme) => theme.id === resolvedId)
+    ?? BUILTIN_APPEARANCE_CATALOG.themes[0];
 }
 
 export function resolveAppearancePet(catalog: AppearanceCatalog, id: string): AppearancePetDefinition {
