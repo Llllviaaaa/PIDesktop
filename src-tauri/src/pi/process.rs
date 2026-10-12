@@ -28,16 +28,24 @@ pub(crate) struct PiPrintLimits {
     pub output_bytes: usize,
 }
 
+/// Point a Pi child process at the config directory chosen in Settings.
+/// Every place that launches Pi goes through this, so they all read the same config.
+pub(crate) fn apply_pi_config(command: &mut Command) {
+    command.envs(crate::config::pi_config_environment());
+}
+
 /// Build the OS-level command that launches Pi in RPC mode.
 pub(crate) fn build_pi_rpc_command(pi_binary: &str, cwd: &str, extra_args: &[String]) -> Command {
-    if cfg!(windows) {
+    let mut command = if cfg!(windows) {
         build_windows_command(pi_binary, cwd, ["--mode", "rpc"], extra_args, None)
     } else {
         let mut command = Command::new(pi_binary);
         command.arg("--mode").arg("rpc").args(extra_args);
         command.current_dir(cwd);
         command
-    }
+    };
+    apply_pi_config(&mut command);
+    command
 }
 
 /// Run a bounded, cancellable one-shot Pi prompt with the same executable and
@@ -65,6 +73,7 @@ pub(crate) fn run_pi_print(
         command.current_dir(cwd);
         command
     };
+    apply_pi_config(&mut command);
     command.envs(environment.iter().map(|(key, value)| (key, value)));
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     if prompt.stdin.is_some() {

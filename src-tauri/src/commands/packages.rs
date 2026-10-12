@@ -132,15 +132,13 @@ pub(crate) fn collect_package_settings(
 #[tauri::command(async)]
 pub(crate) fn list_resources(cwd: String) -> Result<Vec<ResourceItem>, AppError> {
     let mut items = Vec::new();
-    if let Some(home) = dirs::home_dir() {
-        let agent = home.join(".pi").join("agent");
-        collect_resources(&agent.join("extensions"), "extension", "user", &mut items);
-        collect_resources(&agent.join("skills"), "skill", "user", &mut items);
-        collect_resources(&agent.join("prompts"), "prompt", "user", &mut items);
-        collect_resources(&agent.join("themes"), "theme", "user", &mut items);
-        collect_resources(&agent.join("pets"), "pet", "user", &mut items);
-        collect_package_settings(&agent.join("settings.json"), &agent, "user", &mut items);
-    }
+    let agent = pi_agent_dir();
+    collect_resources(&agent.join("extensions"), "extension", "user", &mut items);
+    collect_resources(&agent.join("skills"), "skill", "user", &mut items);
+    collect_resources(&agent.join("prompts"), "prompt", "user", &mut items);
+    collect_resources(&agent.join("themes"), "theme", "user", &mut items);
+    collect_resources(&agent.join("pets"), "pet", "user", &mut items);
+    collect_package_settings(&agent.join("settings.json"), &agent, "user", &mut items);
     let project = PathBuf::from(cwd).join(".pi");
     collect_resources(
         &project.join("extensions"),
@@ -177,9 +175,7 @@ pub(crate) fn appearance_directory(
         }
     };
     match scope {
-        "user" => dirs::home_dir()
-            .map(|home| home.join(".pi").join("agent").join(folder))
-            .ok_or_else(|| AppError::Other("cannot resolve the user home directory".to_string())),
+        "user" => Ok(pi_agent_dir().join(folder)),
         "project" => Ok(validate_workspace_directory(cwd)?.join(".pi").join(folder)),
         _ => Err(AppError::InvalidInput(format!(
             "unsupported appearance extension scope: {scope}"
@@ -688,6 +684,7 @@ pub(crate) fn pi_package_action(
         command.args(&arguments);
         command
     };
+    apply_pi_config(&mut command);
     let output = command
         .current_dir(working_directory)
         .output()

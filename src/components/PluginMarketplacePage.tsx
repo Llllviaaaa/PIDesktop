@@ -16,6 +16,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { usePiConfigDir } from "../hooks/usePiConfigDir";
 import { pi } from "../lib/pi";
 import type { PackageCatalogDetail, PackageCatalogItem, ResourceItem } from "../types";
 
@@ -68,6 +69,7 @@ function packageKinds(detail: PackageCatalogDetail | null, item?: PackageCatalog
 const NO_RESOURCES: ResourceItem[] = [];
 
 export function PluginMarketplacePage({ cwd }: { cwd: string }) {
+  const piConfig = usePiConfigDir();
   const [tab, setTab] = useState<MarketplaceTab>("discover");
   const [query, setQuery] = useState("");
   const [catalog, setCatalog] = useState<{ items: PackageCatalogItem[]; total: number }>({ items: [], total: 0 });
@@ -271,7 +273,7 @@ export function PluginMarketplacePage({ cwd }: { cwd: string }) {
 
       {pendingInstall && <div className="marketplace-confirm" role="alertdialog" aria-label="确认安装软件包">
         <ShieldAlert size={18} />
-        <span><strong>确认安装 {pendingInstall.label}</strong><small>它将获得与 Pi 相同的本机访问能力。{scope === "project" ? "配置会写入当前项目的 .pi/settings.json。" : "配置会写入 ~/.pi/agent/settings.json，并用于所有工作区。"}</small></span>
+        <span><strong>确认安装 {pendingInstall.label}</strong><small>它将获得与 Pi 相同的本机访问能力。{scope === "project" ? "配置会写入当前项目的 .pi/settings.json。" : `配置会写入 ${piConfig.dir}/settings.json，并用于所有工作区。`}</small></span>
         <div className="scope-segment" aria-label="确认安装作用域"><button className={scope === "user" ? "active" : ""} onClick={() => setScope("user")}>所有工作区</button><button className={scope === "project" ? "active" : ""} onClick={() => setScope("project")}>当前项目</button></div>
         <button className="secondary-button" disabled={Boolean(busyKey)} onClick={() => setPendingInstall(null)}>取消</button>
         <button className="primary-button" disabled={Boolean(busyKey)} onClick={() => void runAction("install", pendingInstall.source, scope)}>{busyKey ? "正在安装…" : "确认安装"}</button>

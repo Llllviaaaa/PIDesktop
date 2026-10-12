@@ -7,6 +7,8 @@ PIDesktop loads Pi theme files and desktop pet manifests from both user and proj
 - User pets: `~/.pi/agent/pets/<pet>/pet.json`
 - Project pets: `<workspace>/.pi/pets/<pet>/pet.json`
 
+With **Settings > Advanced > Separate Pi config** (独立的 Pi 配置) turned on, the user scope is `%APPDATA%/pid-desktop/pi-agent` instead of `~/.pi/agent`. Themes and pets present when the setting is first turned on are copied over.
+
 The same locations are available from **Settings > Appearance > Appearance extensions**. Choose the user or project scope, then import an extension, open its directory, or rescan after editing files. Imported definitions become available in the theme and pet pickers immediately.
 
 The built-in **Custom** theme stores background, foreground, and accent colors in the desktop settings. File-based themes can define the full palette and replace a user definition with a project definition of the same generated ID.

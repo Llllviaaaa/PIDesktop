@@ -164,11 +164,24 @@ pub(crate) fn set_settings(
     if !settings.custom_instructions.trim().is_empty() {
         ensure_personal_instructions(&settings.custom_instructions)?;
     }
-    save_settings(&settings)?;
+    let pi_config_changed = settings.separate_pi_config != current.separate_pi_config;
+    if pi_config_changed {
+        select_pi_config(settings.separate_pi_config)?;
+    }
+    if let Err(error) = save_settings(&settings) {
+        if pi_config_changed {
+            let _ = select_pi_config(current.separate_pi_config);
+        }
+        return Err(error);
+    }
     *state
         .settings
         .lock()
         .map_err(|_| AppError::Locked("state lock poisoned".to_string()))? = settings;
+    if pi_config_changed {
+        // The provider service still has the previous directory's providers and keys loaded.
+        provider_service_stop(state)?;
+    }
     Ok(())
 }
 

@@ -54,7 +54,7 @@ use extensions::{
     ensure_personal_instructions, ensure_plan_extension, ensure_providers_extension,
     ensure_subagents_extension,
 };
-use pi::process::{run_pi_print, PiPrintLimits, PiPrintPrompt};
+use pi::process::{apply_pi_config, run_pi_print, PiPrintLimits, PiPrintPrompt};
 use pi::rpc::PiRpcClient;
 use pi::sessions::{list_sessions, validate_session_path};
 use pi::side_chats::{clear_stale_side_chats, remove_runtime_session_dir, runtime_session_dir};
@@ -230,13 +230,17 @@ pub fn run() {
         );
     }
     clear_stale_side_chats();
+    let settings = load_settings();
+    if let Err(error) = select_pi_config(settings.separate_pi_config) {
+        eprintln!("Pi Desktop could not prepare its own Pi config directory: {error}");
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             runtimes: Mutex::new(HashMap::new()),
-            settings: Mutex::new(load_settings()),
+            settings: Mutex::new(settings),
             bundled_pi_binary,
             projects: Mutex::new(load_json_list(&projects_path())),
             scheduled_tasks: Mutex::new(load_json_list(&scheduled_tasks_path())),
