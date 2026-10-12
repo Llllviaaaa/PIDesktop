@@ -4,6 +4,7 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+- Update the bundled Pi runtime from 0.84.0 to 1.1.0, which clears high-severity advisories in its `undici` and `brace-expansion` dependencies. Pi 1.x renamed the built-in Azure provider from `azure-openai-responses` to `azure`: an Azure sign-in saved under the old name needs `/login` again (custom providers using the `azure-openai-responses` API are unaffected). A provider saved without a model is no longer passed to Pi, which now rejects it.
 - Commit and push without asking the agent. A Git button in the topbar reads 提交 while there are changes, then 推送 (with the number of commits ahead) or 发布分支 for a branch without an upstream; its menu shows the branch and how far it is ahead of or behind its remote. Review's 提交或推送 menu and the summary's 提交 row open the same dialog.
 - The commit dialog commits what is staged when anything is; otherwise it lists every changed file to check or uncheck. Leave the message empty, or press 生成, and Pi drafts one from the diff in the repository's recent commit style (a one-shot prompt with no tools or session). On the default branch it offers to commit to a new branch instead, and 提交后推送 pushes right after. A failing hook shows its output in the dialog and leaves the index as it was.
 - Pushing publishes a branch that has no upstream and never waits on a hidden terminal prompt; a push rejected because the remote moved says to pull first.

@@ -328,7 +328,8 @@ impl AppSettings {
                 memory_extension.to_string_lossy().to_string(),
             ]);
         }
-        if !self.provider.is_empty() {
+        // Pi 1.x rejects --provider without --model; older versions ignored it.
+        if !self.provider.is_empty() && !self.model.is_empty() {
             args.extend(["--provider".to_string(), self.provider.clone()]);
         }
         if !self.model.is_empty() {
@@ -737,5 +738,35 @@ mod tests {
         resolve_mcp_secret_placeholders(&mut incoming, &current)
             .expect("placeholder should resolve from current settings");
         assert_eq!(incoming.mcp_servers[0].env["TOKEN"], "existing-secret");
+    }
+
+    #[test]
+    fn provider_is_only_passed_together_with_a_model() {
+        let args = |provider: &str, model: &str| {
+            let settings = AppSettings {
+                provider: provider.to_string(),
+                model: model.to_string(),
+                ..AppSettings::default()
+            };
+            settings.rpc_extra_args(
+                Path::new("guard.ts"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+        assert!(!args("openai", "").contains(&"--provider".to_string()));
+        let both = args("openai", "gpt-5");
+        let provider = both.iter().position(|arg| arg == "--provider");
+        assert_eq!(
+            provider.map(|index| both[index + 1].as_str()),
+            Some("openai")
+        );
+        assert!(both.contains(&"--model".to_string()));
+        assert!(args("", "gpt-5").contains(&"--model".to_string()));
     }
 }
