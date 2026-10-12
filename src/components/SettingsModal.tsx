@@ -41,6 +41,7 @@ import {
   X,
 } from "lucide-react";
 import { pi } from "../lib/pi";
+import { providerService } from "../lib/providerService";
 import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
 import { PetAvatar } from "./PetCompanion";
 import { ModelsPage } from "./ModelsPage";
@@ -78,6 +79,7 @@ const DEFAULTS: AppSettings = {
   model: "",
   thinkingLevel: "medium",
   sessionDir: "",
+  separatePiConfig: false,
   agentMode: "agent",
   permissionMode: "ask",
   alwaysConfirmShell: true,
@@ -307,8 +309,16 @@ export function SettingsModal({
     if (!next) return;
     pendingSaveRef.current = null;
     setSaveState("saving");
+    const piConfigChanged = next.separatePiConfig !== Boolean(settings?.separatePiConfig);
     const task = Promise.resolve(onSave(normalizeSettings(next)))
       .then(() => {
+        if (piConfigChanged) {
+          // Providers, add-ons, themes and pets are all read from the Pi config directory.
+          void providerService.stop().catch(() => undefined);
+          void queryClient.invalidateQueries({ queryKey: ["models"] });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.resources(cwd) });
+          void onReloadAppearance();
+        }
         if (!pendingSaveRef.current) {
           editedRef.current = false;
           setForm((current) => maskMcpCredentials(current));
@@ -1081,6 +1091,7 @@ function DebugPage({ form, update }: { form: AppSettings; update: Update }) {
     <Card title="Pi 进程">
       <Row title="可执行程序" description="默认使用安装包内置 Pi；填写 PATH 命令或绝对路径可覆盖。"><input value={form.piBinary} onChange={(event) => update("piBinary", event.target.value)} placeholder="pi（内置）" /></Row>
       <Row title="会话目录" description="留空则使用 ~/.pi/agent/sessions。"><input value={form.sessionDir} onChange={(event) => update("sessionDir", event.target.value)} placeholder="~/.pi/agent/sessions" /></Row>
+      <Row title="独立的 Pi 配置" description="开启后应用使用自己的配置目录（%APPDATA%/pid-desktop/pi-agent），不再加载为终端 pi 安装的扩展、包和技能。首次开启会复制模型提供商、密钥和基础设置，之后两边各自维护；任务历史不受影响。"><Switch label="独立的 Pi 配置" checked={form.separatePiConfig} onChange={(value) => update("separatePiConfig", value)} /></Row>
       <Row title="日志等级"><select value={form.logLevel} onChange={(event) => update("logLevel", event.target.value as AppSettings["logLevel"])}><option value="error">错误</option><option value="warn">警告</option><option value="info">信息</option><option value="debug">调试</option></select></Row>
     </Card>
     <div className="settings-info"><MonitorCog size={17} /><span>进程、模型、系统提示词和权限更改会在重新连接工作区后生效。</span></div>

@@ -277,6 +277,8 @@ export interface AppSettings {
   /** `provider/model` keys hidden from the composer model picker. */
   hiddenModels?: string[];
   sessionDir: string;
+  /** Pi uses PIDesktop's own config directory, without the terminal pi's add-ons. */
+  separatePiConfig: boolean;
   agentMode: "agent" | "plan" | "ask";
   permissionMode: "read-only" | "ask" | "workspace-write" | "full-access";
   /** Shell/bash/exec always requires confirmation (unless full-access). */

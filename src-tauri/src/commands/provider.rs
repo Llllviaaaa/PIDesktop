@@ -792,6 +792,7 @@ pub(crate) fn check_model_provider(
         command.args(["--offline", "--list-models", &id]);
         command
     };
+    apply_pi_config(&mut command);
     let output = command
         .output()
         .map_err(|err| AppError::Process(format!("无法运行 Pi 配置检查: {err}")))?;
