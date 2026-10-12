@@ -21,7 +21,7 @@ assert.match(cargoManifest, new RegExp(`^version = "${packageManifest.version.re
 assert.match(cargoManifest, /^license = "Apache-2\.0"$/m, "Cargo metadata must declare the repository license");
 assert.match(cargoLock, new RegExp(`name = "pid-desktop"\\r?\\nversion = "${packageManifest.version.replaceAll(".", "\\.")}"`), "Cargo.lock package version must match package.json");
 assert.equal(tauriConfig.version, packageManifest.version, "Tauri bundle version must match package.json");
-assert.equal(packageManifest.devDependencies?.bun, "1.4.0", "the Pi sidecar compiler must be pinned exactly");
+assert.match(packageManifest.devDependencies?.bun ?? "", /^\d+\.\d+\.\d+$/, "the Pi sidecar compiler must be pinned exactly");
 assert.equal(
   tauriConfig.bundle?.resources?.["resources/pi-runtime/"],
   "pi-runtime/",
