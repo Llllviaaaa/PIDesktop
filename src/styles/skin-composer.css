@@ -1,139 +1,422 @@
 /*
- * Claude Code Desktop skin (`dsh-claude-style` port): new-session page and composer.
- *
- * Recreates `dsh-claude-style`:
- * - Home screen: warm ivory/dark canvas (no artificial grid), editorial serif greeting (`--font-serif`), hairline starter pills.
- * - Composer seat: opaque base fill with 40px top fade band (`--dsh-claude-composer-fade-h`), never shadow-halo over transcript.
- * - Composer card: 18px radius, 1px `--dsh-claude-border-l1` hairline, `#ffffff` (light) / `#0f0e0d` (dark) fill, espresso/ivory focus ring (never accent-colored focus stroke).
- * - Controls: 7px radius buttons & triggers, clay pill send button when armed, quiet bordered send button when draft is empty.
+ * Claude Code Desktop skin (`dsh-claude-style` port): new-session home (Studio & Classic),
+ * usage dashboard, pixel crab mascot, permission segments, and dual-variant composer.
  */
 
-/* ── New-session page (`dsh-claude-style` Classic / Studio blend) ──── */
+/* ── Home page layouts (`dsh-claude-home` Studio & Classic, L995-1069) ── */
 
-.codex-shot .new-task-screen.vetta-home {
+.codex-shot .new-task-screen.dsh-claude-home {
   position: relative;
   isolation: isolate;
-  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.codex-shot .new-task-screen.dsh-claude-home.is-classic {
+  min-height: 100%;
   justify-content: center;
-  gap: 0;
-  padding: 36px 40px 48px;
+  align-items: stretch;
+  padding: 36px 16px 48px;
 }
 
-/* dsh-claude-style uses a pure warm canvas without decorative grid lines */
-.codex-shot .vetta-home-grid {
-  display: none;
+.codex-shot .new-task-screen.dsh-claude-home.is-studio {
+  min-height: 100%;
+  justify-content: flex-start;
+  align-items: stretch;
 }
 
-.codex-shot .vetta-home-intro {
-  width: min(720px, 100%);
-  margin: 0 auto 22px;
-  padding: 0 4px;
-  text-align: center;
+/* Headline & Claude clay mark */
+.codex-shot .dsh-claude-hero-headline {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
-.codex-shot .vetta-home .new-task-heading {
-  max-width: none;
+.codex-shot .dsh-claude-home.is-classic .dsh-claude-hero-headline {
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.codex-shot .dsh-claude-home.is-studio .dsh-claude-hero-headline {
+  justify-content: flex-start;
+  gap: 8px;
+  padding-top: 8px;
+  margin-bottom: 8px;
+}
+
+.codex-shot .dsh-claude-hero-mark {
+  flex: none;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+
+.codex-shot .dsh-claude-home.is-classic .dsh-claude-hero-mark {
+  width: 42.5px;
+  height: 42.5px;
+}
+
+.codex-shot .dsh-claude-home.is-studio .dsh-claude-hero-mark {
+  width: 21px;
+  height: 21px;
+}
+
+.codex-shot .dsh-claude-home.is-classic .new-task-heading {
   margin: 0;
   color: var(--text);
   font-family: var(--font-serif);
-  font-size: 38px;
-  line-height: 1.24;
+  font-size: 40px;
   font-weight: 400;
+  line-height: 50px;
   letter-spacing: -0.015em;
   text-align: center;
 }
 
-.codex-shot .vetta-home .project-underline {
-  color: var(--accent, #d97757);
-  text-decoration: none;
-  border-bottom: 0;
+.codex-shot .dsh-claude-home.is-studio .new-task-heading {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 26px;
+  letter-spacing: 0;
+  text-align: left;
 }
 
-.codex-shot .new-task-subtitle {
-  margin: 10px 0 0;
+.codex-shot .dsh-claude-home-composer-wrap {
+  width: 100%;
+}
+
+.codex-shot .dsh-claude-home.is-studio .dsh-claude-home-composer-wrap {
+  margin-top: auto;
+}
+
+/* ── Studio Usage Dashboard (`.dsh-claude-home-panel` L1009-1069) ───── */
+
+.codex-shot .dsh-claude-home-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: min(480px, 100%);
+  margin-right: auto;
+  padding: 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text) 4%, var(--panel));
+}
+
+.codex-shot .dsh-claude-home-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.codex-shot .dsh-claude-home-tabs,
+.codex-shot .dsh-claude-home-ranges {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.codex-shot .dsh-claude-home-tab,
+.codex-shot .dsh-claude-home-range {
+  appearance: none;
+  margin: 0;
+  padding: 1px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
   color: var(--text-3);
   font-family: var(--font-ui);
-  font-size: 14px;
-  line-height: 1.5;
-  text-align: center;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
 }
 
-.codex-shot .vetta-home .new-task-error {
-  margin: 10px 0 0;
-  color: var(--red);
-  font-size: 13px;
-}
-
-.codex-shot .vetta-home .starter-cards {
-  width: min(720px, 100%);
-  margin: 16px auto 0;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  padding: 0 2px;
-}
-
-.codex-shot .vetta-home .starter-card {
-  min-height: 0;
-  height: 30px;
-  display: inline-flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 7px;
-  padding: 0 12px;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-2);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 450;
-  line-height: 1;
-  box-shadow: none;
-  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-
-.codex-shot .vetta-home .starter-card:hover {
-  border-color: var(--dsh-claude-border-l2, var(--border-strong));
-  background: var(--dsh-claude-hover-bg, var(--hover));
+.codex-shot .dsh-claude-home-tab:hover:not([data-active]),
+.codex-shot .dsh-claude-home-range:hover:not([data-active]) {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
   color: var(--text);
 }
 
-.codex-shot .vetta-home .starter-icon {
-  display: inline-flex;
-  width: auto;
-  height: auto;
-  color: var(--text-3);
-}
-
-.codex-shot .vetta-home .starter-card:hover .starter-icon {
-  color: var(--accent, #d97757);
-}
-
-.codex-shot .home-recent {
-  width: min(720px, 100%);
-  margin: 28px auto 0;
-}
-
-.codex-shot .home-recent-label {
-  color: var(--text-3);
-  font-size: 12px;
+.codex-shot .dsh-claude-home-tab[data-active],
+.codex-shot .dsh-claude-home-range[data-active] {
+  background: color-mix(in srgb, var(--text) 10%, var(--panel));
+  color: var(--text);
   font-weight: 500;
 }
 
-.codex-shot .home-recent-item {
-  border-radius: 6px;
-  color: var(--text-2);
-  font-size: 13px;
+.codex-shot .dsh-claude-home-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
 }
 
-.codex-shot .home-recent-item:hover {
-  background: var(--dsh-claude-hover-bg, var(--hover));
+.codex-shot .dsh-claude-home-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 11%, var(--panel));
+}
+
+.codex-shot .dsh-claude-home-stat-label {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.codex-shot .dsh-claude-home-stat-value {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.codex-shot .dsh-claude-home-stat[data-stat="model"] .dsh-claude-home-stat-value {
+  font-weight: 400;
+}
+
+.codex-shot .dsh-claude-home-heat {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 1fr);
+  grid-auto-columns: 1fr;
+  gap: 3px;
+  align-content: start;
+}
+
+.codex-shot .dsh-claude-home-heat-cell {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text) 11%, transparent);
+}
+
+.codex-shot .dsh-claude-home-heat-cell[data-level="1"] {
+  background: color-mix(in srgb, #3b6ecf 22%, transparent);
+}
+
+.codex-shot .dsh-claude-home-heat-cell[data-level="2"] {
+  background: color-mix(in srgb, #3b6ecf 42%, transparent);
+}
+
+.codex-shot .dsh-claude-home-heat-cell[data-level="3"] {
+  background: color-mix(in srgb, #3b6ecf 68%, transparent);
+}
+
+.codex-shot .dsh-claude-home-heat-cell[data-level="4"] {
+  background: #3b6ecf;
+}
+
+.codex-shot .dsh-claude-home-heat-cell[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--text);
+  color: var(--app);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.codex-shot .dsh-claude-home-heat-cell[data-tip][data-edge="start"]:hover::after {
+  left: 0;
+  transform: none;
+}
+
+.codex-shot .dsh-claude-home-heat-cell[data-tip][data-edge="end"]:hover::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.codex-shot .dsh-claude-home-fun {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.codex-shot .dsh-claude-home-models {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.codex-shot .dsh-claude-home-model {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.codex-shot .dsh-claude-home-model-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #2f5fc4;
+}
+
+.codex-shot .dsh-claude-home-model-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.codex-shot .dsh-claude-home-model-split {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.codex-shot .dsh-claude-home-model-share {
+  flex: none;
+  width: 44px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Pixel Crab Mascot (`.dsh-claude-crab` L1070-1078) ─────────────── */
+
+.codex-shot .dsh-claude-crab {
+  position: absolute;
+  right: 8px;
+  bottom: 100%;
+  z-index: 3;
+  width: 104px;
+  height: 72px;
+  pointer-events: none;
+}
+
+.codex-shot .dsh-claude-crab:not([data-ready]) {
+  visibility: hidden;
+}
+
+.codex-shot .dsh-claude-crab-sprite {
+  position: absolute;
+  left: calc(var(--dsh-claude-crab-x, 0) * 2px);
+  top: calc(var(--dsh-claude-crab-y, 0) * 2px);
+  width: calc(var(--dsh-claude-crab-w, 0) * 2px);
+  height: calc(var(--dsh-claude-crab-h, 0) * 2px);
+  overflow: hidden;
+}
+
+.codex-shot .dsh-claude-crab-strip {
+  position: relative;
+  display: block;
+  width: calc(var(--dsh-claude-crab-cell-w, 0) * 16px);
+  height: calc(var(--dsh-claude-crab-strip-h, 0) * 2px);
+  background-image: var(--dsh-claude-crab-sheet, none);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+}
+
+.codex-shot .dsh-claude-crab-strip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--text-3);
+  -webkit-mask: var(--dsh-claude-crab-ink, none) no-repeat 0 0 / 100% 100%;
+  mask: var(--dsh-claude-crab-ink, none) no-repeat 0 0 / 100% 100%;
+  image-rendering: pixelated;
+}
+
+.codex-shot .dsh-claude-crab-hit {
+  position: absolute;
+  left: 48px;
+  top: 40px;
+  width: 48px;
+  height: 32px;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* ── Permission Segmented Control (`.dsh-claude-segments` L653-661) ── */
+
+.codex-shot .dsh-claude-segments {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--dsh-claude-chip);
+  position: relative;
+}
+
+.codex-shot .dsh-claude-segment {
+  appearance: none;
+  margin: 0;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 18px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  transition: background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.codex-shot .dsh-claude-segment:hover:not([data-active]) {
   color: var(--text);
 }
 
-/* ── Composer dock & card (`dsh-claude-style` 18px card + 40px fade) ── */
+.codex-shot .dsh-claude-segment[data-active] {
+  color: var(--text);
+  background: var(--panel-strong);
+}
+
+:root[data-theme="light"] .codex-shot .dsh-claude-segment[data-active] {
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(20, 20, 19, 0.08);
+}
+
+/* ── Composer Dock & Dual-Variant Card (Hero vs Inline, L161-243) ──── */
 
 .codex-shot .composer-dock,
 :root[data-theme="dark"] .codex-shot .composer-dock {
@@ -158,28 +441,25 @@
   pointer-events: none;
 }
 
-.codex-shot .composer-card,
-.codex-shot .composer-card.unified,
-.codex-shot .composer-card.follow-up,
-.codex-shot .task-start-composer .composer-card.with-chips {
+/* 1. Hero Composer Card (home page) */
+.codex-shot .composer-card[data-composer-variant="hero"] {
+  position: relative;
+  z-index: 2;
   border: 1px solid var(--dsh-claude-border-l1, var(--border));
   border-radius: 18px;
   background: var(--dsh-claude-input-major, var(--panel));
+  padding: 10px 0 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.15);
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  overflow: visible;
 }
 
-:root[data-theme="light"] .codex-shot .composer-card,
-:root[data-theme="light"] .codex-shot .composer-card.unified,
-:root[data-theme="light"] .codex-shot .composer-card.follow-up,
-:root[data-theme="light"] .codex-shot .task-start-composer .composer-card.with-chips {
-  background: var(--dsh-claude-input-major, #ffffff);
+:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="hero"] {
+  background: #ffffff;
   box-shadow: 0 4px 12px rgba(20, 20, 19, 0.04), 0 1px 3px rgba(20, 20, 19, 0.02);
 }
 
-/* dsh-claude-style focus: espresso hairline in light, ivory hairline in dark (never accent) */
-:root[data-theme="light"] .codex-shot .composer-card:focus-within,
-:root[data-theme="light"] .codex-shot .task-start-composer .composer-card.with-chips:focus-within {
+:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="hero"]:focus-within {
   border-color: rgba(20, 20, 19, 0.18);
   box-shadow:
     0 0 0 1px rgba(20, 20, 19, 0.067),
@@ -187,8 +467,7 @@
     0 2px 6px rgba(20, 20, 19, 0.016);
 }
 
-:root[data-theme="dark"] .codex-shot .composer-card:focus-within,
-:root[data-theme="dark"] .codex-shot .task-start-composer .composer-card.with-chips:focus-within {
+:root[data-theme="dark"] .codex-shot .composer-card[data-composer-variant="hero"]:focus-within {
   border-color: rgba(250, 249, 245, 0.22);
   box-shadow:
     0 0 0 1px rgba(250, 249, 245, 0.09),
@@ -196,48 +475,119 @@
     0 2px 8px rgba(0, 0, 0, 0.11);
 }
 
-.codex-shot .task-start-composer .composer-card.with-chips {
-  margin-top: 0;
-  padding: 10px 0 6px;
+.codex-shot .composer-card[data-composer-variant="hero"] .dsh-claude-input-box {
+  padding: 4px 16px 4px;
 }
 
-.codex-shot .composer-input {
-  color: var(--text);
-  background: transparent;
-  font-family: var(--font-ui);
-  font-size: 14.5px;
+.codex-shot .composer-card[data-composer-variant="hero"] .composer-input {
+  min-height: 76px;
+  padding: 0;
+  font-size: 15px;
   line-height: 24px;
+}
+
+/* Integrated bottom workspace tray under Hero card (`heroWorkspaceRow` L183) */
+.codex-shot .composer-context-tray.dsh-claude-hero-tray {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 44px;
+  margin: -18px auto 0;
+  padding: 18px 12px 2px;
+  border: 1px solid var(--dsh-claude-border-l1, var(--border));
+  border-top: 0;
+  border-radius: 0 0 18px 18px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+}
+
+/* 2. Inline Composer Card (conversation page: two-tier structure, L187-242) */
+.codex-shot .composer-card[data-composer-variant="inline"],
+.codex-shot .composer-card[data-composer-variant="inline"]:focus-within {
+  position: relative;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  gap: 0;
+  overflow: visible;
+}
+
+.codex-shot .composer-card[data-composer-variant="inline"] .dsh-claude-input-box {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 40px;
+  padding: 7px 40px 7px 14px;
+  box-sizing: border-box;
+  border: 1px solid var(--dsh-claude-border-l1, var(--border));
+  border-radius: 14px;
+  background: var(--dsh-claude-input-major, var(--panel));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  cursor: text;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="inline"] .dsh-claude-input-box {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.03);
+}
+
+:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="inline"]:focus-within .dsh-claude-input-box {
+  border-color: rgba(20, 20, 19, 0.18) !important;
+  box-shadow: 0 0 0 1px rgba(20, 20, 19, 0.067), 0 4px 12px rgba(20, 20, 19, 0.025);
+}
+
+:root[data-theme="dark"] .codex-shot .composer-card[data-composer-variant="inline"]:focus-within .dsh-claude-input-box {
+  border-color: rgba(250, 249, 245, 0.22) !important;
+  box-shadow: 0 0 0 1px rgba(250, 249, 245, 0.09), 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.codex-shot .composer-card[data-composer-variant="inline"] .composer-input {
+  width: 100%;
+  min-height: 24px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.codex-shot .composer-card[data-composer-variant="inline"] .inline-send-control {
+  position: absolute;
+  right: 7px;
+  bottom: 6px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0;
+  border-radius: 6px;
+  z-index: 5;
+}
+
+.codex-shot .composer-card[data-composer-variant="inline"] .composer-toolbar {
+  min-height: 28px;
+  height: 28px;
+  margin: 6px 0 0;
+  padding: 0 4px;
+  background: transparent;
+  border: 0;
 }
 
 .codex-shot .composer-input::placeholder {
   color: var(--dsh-claude-caption, var(--text-3));
 }
 
-.codex-shot .task-start-composer .composer-input {
-  min-height: 68px;
-  padding: 8px 18px 4px;
-  font-size: 15px;
-}
-
 .codex-shot .composer-toolbar,
 .codex-shot .task-start-composer .composer-toolbar {
   padding-inline: 12px;
-}
-
-/* Workspace/environment context tray */
-.codex-shot .composer-context-tray {
-  width: calc(100% - 32px);
-  min-height: 34px;
-  margin: 0 auto -1px;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-bottom: 0;
-  border-radius: 14px 14px 0 0;
-  background: color-mix(in srgb, var(--panel-soft) 80%, var(--sidebar-bg));
-  transition: border-color 0.12s ease;
-}
-
-.codex-shot .composer-context-tray .composer-chips {
-  padding: 4px 10px;
 }
 
 .codex-shot .chip,
@@ -257,11 +607,6 @@
   border-color: transparent;
   background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
-}
-
-.codex-shot .chip-permission {
-  color: var(--text);
-  font-weight: 500;
 }
 
 .codex-shot .composer-icon-button,
@@ -291,12 +636,12 @@
   color: var(--text-3);
 }
 
-/* dsh-claude-style send / stop buttons (7px radius in hero, quiet bordered when disabled) */
+/* Send & Stop buttons */
 .codex-shot .send-button,
 .codex-shot .stop-button {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -426,7 +771,6 @@
   color: var(--accent, #d97757);
 }
 
-/* dsh-claude-style inverted chip for model provider group labels */
 .codex-shot .model-picker-provider {
   display: inline-flex;
   align-items: center;

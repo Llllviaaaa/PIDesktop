@@ -35,18 +35,15 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowLeft,
   ArrowRight,
-  Bug,
   FileDiff,
   Folder,
   Globe2,
-  Hammer,
   Menu,
   Minus,
   MoreHorizontal,
   PanelBottom,
   PanelLeft,
   PanelRight,
-  RefreshCw,
   Square,
   X,
 } from "lucide-react";
@@ -67,7 +64,7 @@ import {
   TRANSCRIPT_DENSITY_LABELS,
   TRANSCRIPT_DENSITY_ORDER,
 } from "./lib/transcriptDensity";
-import { activeSessionTitle, sessionRecency, sessionTitle } from "./lib/sessionTitle";
+import { activeSessionTitle } from "./lib/sessionTitle";
 import { navigationKey, withoutArchivedSessions, type NavigationTarget as BaseNavigationTarget } from "./lib/navigationHistory";
 import { sameLocalPath } from "./lib/pathIdentity";
 import { filterHiddenModels } from "./lib/modelProviders";
@@ -90,6 +87,8 @@ import { ExtensionDialog, extensionRequestHeadline } from "./components/Extensio
 import type { InspectorTab } from "./components/InspectorPanel";
 import { ConnectedInspectorPanel } from "./components/ConnectedInspectorPanel";
 import { ConversationMessages } from "./components/ConversationMessages";
+import { ClaudeHomeDashboard } from "./components/ClaudeHomeDashboard";
+import { CLAUDE_MARKS } from "./lib/claudeCrabSheets";
 import { ActiveGoalBar } from "./components/ActiveGoalBar";
 import { LivePlanBar } from "./components/LivePlanBar";
 import { isWorkspaceTool, ToolRail, type WorkspaceTool } from "./components/ToolRail";
@@ -111,25 +110,6 @@ const PullRequestsPage = lazy(() => import("./components/PullRequestsPage").then
 const ScheduledTasksPage = lazy(() => import("./components/ScheduledTasksPage").then((module) => ({ default: module.ScheduledTasksPage })));
 const PluginMarketplacePage = lazy(() => import("./components/PluginMarketplacePage").then((module) => ({ default: module.PluginMarketplacePage })));
 const TerminalWorkspacePanel = lazy(() => import("./components/TerminalWorkspacePanel").then((module) => ({ default: module.TerminalWorkspacePanel })));
-
-function TelescopeIcon({ size = 18 }: { size?: number; strokeWidth?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M4.2 19.2 9 14.4" />
-      <path d="M6.2 21h4.2" />
-      <path d="M3.8 15.2 6 16.4" />
-      <path d="M10.4 13.2 20.2 6.4a2.2 2.2 0 0 0-2.3-3.7L8.2 9.6a2 2 0 0 0-.3 3.1l2.5.5Z" />
-      <circle cx="18.6" cy="5.2" r="2.1" />
-    </svg>
-  );
-}
-
-const STARTERS: Array<{ title: string; prompt: string; tone: "blue" | "purple" | "green" | "orange"; Icon: typeof Hammer | typeof TelescopeIcon }> = [
-  { title: "探索并理解代码", prompt: "解释这个代码库及其架构，标出关键模块与入口。", tone: "blue", Icon: TelescopeIcon },
-  { title: "构建新功能、应用或工具", prompt: "根据当前仓库，提出并实现一项高价值的小功能，说明改动范围。", tone: "purple", Icon: Hammer },
-  { title: "审查代码并提出修改建议", prompt: "检查当前改动中的正确性、回归风险与可维护性问题，按严重程度列出建议。", tone: "green", Icon: RefreshCw },
-  { title: "修复问题和失败", prompt: "运行测试或复现当前失败项，定位根因并修复。", tone: "orange", Icon: Bug },
-];
 
 type HubView = "pull-requests" | "sites" | "scheduled" | "plugins";
 type AppMenu = "file" | "edit" | "view" | "help";
@@ -264,6 +244,25 @@ export default function App() {
   const draftBranch = draftGit?.isRepository ? draftGit.branch || "" : "";
   const [registeredProjects, setRegisteredProjects] = useState<ProjectConfig[]>([]);
   const [quickChat, setQuickChat] = useState(false);
+  const [homeLayout, setHomeLayout] = useState<"studio" | "classic">(() => {
+    const saved = window.localStorage.getItem("pid-desktop:claude-home-layout");
+    return saved === "classic" ? "classic" : "studio";
+  });
+  const toggleHomeLayout = useCallback((next: "studio" | "classic") => {
+    setHomeLayout(next);
+    try {
+      window.localStorage.setItem("pid-desktop:claude-home-layout", next);
+    } catch {
+      // ignore storage failure
+    }
+  }, []);
+  const heroGreeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return "早上好，今天想构建什么？";
+    if (hour >= 12 && hour < 18) return "下午好，接下来做什么？";
+    if (hour >= 18 && hour < 23) return "晚上好，要开始新任务吗？";
+    return "夜深了，还在攻克难题吗？";
+  }, []);
   const [goalEditPrefill, setGoalEditPrefill] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ messageId: string } | null>(null);
 
@@ -1102,14 +1101,6 @@ export default function App() {
   const taskWorkspaceName = quickChat
     ? "快速对话"
     : draftWorkspace.split(/[\\/]/).filter(Boolean).pop() || "一个项目";
-  const recentWorkspaceSessions = useMemo(() => {
-    const workspace = draftWorkspace || cwd;
-    if (!workspace) return [];
-    return sessions
-      .filter((session) => session.cwd.replace(/[\\/]+$/, "").toLowerCase() === workspace.replace(/[\\/]+$/, "").toLowerCase())
-      .sort((a, b) => sessionRecency(b) - sessionRecency(a))
-      .slice(0, 5);
-  }, [cwd, draftWorkspace, sessions]);
   const statusText = isCompacting
     ? "正在压缩上下文…"
     : retryStatus || (isStreaming ? "Pi 正在工作…" : connected ? "就绪" : connection === "starting" ? "正在启动 Pi…" : "未连接");
@@ -2026,6 +2017,48 @@ export default function App() {
               </>
             )}
           </div>
+          {!newTask && !hubView && (
+            <div className="dsh-claude-topbar-center" data-tauri-drag-region>
+              <div className="dsh-claude-view-tabs" data-dsh-view-tabs="" role="tablist" aria-label="对话详细程度">
+                {TRANSCRIPT_DENSITY_ORDER.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="tab"
+                    aria-selected={transcriptDensity === value}
+                    className={`dsh-claude-view-tab ${transcriptDensity === value ? "active" : ""}`}
+                    onClick={() => setTranscriptDensity(value)}
+                  >
+                    {TRANSCRIPT_DENSITY_LABELS[value]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {newTask && !hubView && (
+            <div className="dsh-claude-topbar-center" data-tauri-drag-region>
+              <div className="dsh-claude-view-tabs is-always-visible" data-dsh-view-tabs="" role="tablist" aria-label="首页版面">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={homeLayout === "studio"}
+                  className={`dsh-claude-view-tab ${homeLayout === "studio" ? "active" : ""}`}
+                  onClick={() => toggleHomeLayout("studio")}
+                >
+                  工作室
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={homeLayout === "classic"}
+                  className={`dsh-claude-view-tab ${homeLayout === "classic" ? "active" : ""}`}
+                  onClick={() => toggleHomeLayout("classic")}
+                >
+                  经典
+                </button>
+              </div>
+            </div>
+          )}
           <div className="topbar-right" data-tauri-drag-region>
             {!hubView && (
               <div className="panel-toggles codex-layout-chrome">
@@ -2146,56 +2179,34 @@ export default function App() {
           >
             <div className={`conversation ${newTask ? "new-task-conversation" : ""} ${!newTask ? `density-${transcriptDensity}` : ""}`}>
               {newTask ? (
-                <div className="new-task-screen codex-home vetta-home">
-                  <div className="vetta-home-grid" aria-hidden />
-                  <div className="vetta-home-intro">
+                <div
+                  className={`new-task-screen codex-home vetta-home dsh-claude-home is-${homeLayout}`}
+                  data-dsh-claude-home-layout={homeLayout}
+                >
+                  <div className="vetta-home-intro dsh-claude-hero-headline">
+                    <span
+                      className="dsh-claude-hero-mark"
+                      style={{ backgroundImage: `url("${CLAUDE_MARKS["--dsh-claude-image-claude-mark-clay"]}")` }}
+                      aria-hidden="true"
+                    />
                     <h1 className="new-task-heading">
-                      {quickChat ? (
-                        "要聊些什么？"
-                      ) : (
-                        <>
-                          要在 <span className="project-underline">{taskWorkspaceName}</span> 内开发什么？
-                        </>
-                      )}
+                      {homeLayout === "studio"
+                        ? (quickChat ? "接下来聊些什么？" : `接下来在 ${taskWorkspaceName} 做什么？`)
+                        : heroGreeting}
                     </h1>
-                    <p className="new-task-subtitle">描述任务，按 Enter 发送；用 / 调出命令，@ 引用文件。</p>
-                    {store.lastError && <p className="new-task-error">{store.lastError}</p>}
                   </div>
-                  {renderComposer("task-start")}
-                  <div className="starter-cards">
-                    {STARTERS.map((starter) => {
-                      const Icon = starter.Icon;
-                      return (
-                        <button
-                          key={starter.title}
-                          type="button"
-                          className={`starter-card tone-${starter.tone}`}
-                          onClick={() => void sendFromComposer(starter.prompt)}
-                        >
-                          <span className="starter-icon" aria-hidden><Icon size={15} strokeWidth={1.7} /></span>
-                          <span>{starter.title}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {recentWorkspaceSessions.length > 0 && (
-                    <section className="home-recent" aria-label="最近对话">
-                      <div className="home-recent-label">最近对话</div>
-                      <div className="home-recent-list">
-                        {recentWorkspaceSessions.map((session) => (
-                          <button
-                            key={session.file}
-                            type="button"
-                            className="home-recent-item"
-                            onClick={() => navigateTo({ kind: "session", cwd: session.cwd, file: session.file })}
-                          >
-                            <span>{sessionTitle(session)}</span>
-                            {session.messageCount > 0 && <small>{session.messageCount}</small>}
-                          </button>
-                        ))}
-                      </div>
-                    </section>
+                  {store.lastError && <p className="new-task-error">{store.lastError}</p>}
+
+                  {homeLayout === "studio" && (
+                    <ClaudeHomeDashboard
+                      sessions={sessions}
+                      currentModelId={model?.id}
+                    />
                   )}
+
+                  <div className="dsh-claude-home-composer-wrap">
+                    {renderComposer("task-start")}
+                  </div>
                 </div>
               ) : (
                 <>

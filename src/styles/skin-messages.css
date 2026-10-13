@@ -49,35 +49,56 @@
 
 /* ── User bubble (`MessageItem.module.css` + `dsh-claude-style`) ───── */
 
-.codex-shot .user-message {
+.codex-shot .user-message,
+.codex-shot .conversation:not(.new-task-conversation) > .user-message {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 6px;
 }
 
-.codex-shot .user-message .user-content {
+.codex-shot .user-message .user-content,
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-content {
   position: relative;
+  box-sizing: border-box;
+  width: fit-content !important;
   min-width: 0;
-  max-width: min(calc(748px * 0.702), 82%);
-  padding: 10px 16px;
+  max-width: min(calc(748px * 0.702), 82%) !important;
+  padding: 10px 16px !important;
   border: 0;
-  border-radius: 16px;
-  background: var(--dsh-claude-bubble, var(--hover));
-  color: var(--text);
+  border-radius: 16px !important;
+  background: var(--dsh-claude-bubble, var(--hover)) !important;
+  color: var(--text) !important;
   font-family: var(--font-ui);
-  font-size: 14px;
-  line-height: 22px;
-  box-shadow: none;
-  word-break: break-word;
+  font-size: 14px !important;
+  line-height: 22px !important;
+  box-shadow: none !important;
+  white-space: pre-wrap;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+}
+
+.codex-shot .user-message .user-message-text,
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-message-text {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .codex-shot .user-message .user-content .markdown-body,
-.codex-shot .user-message .user-content .markdown-body p {
+.codex-shot .user-message .user-content .markdown-body p,
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-content .markdown-body,
+.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-content .markdown-body p {
   font-family: var(--font-ui);
-  font-size: 14px;
-  line-height: 22px;
+  font-size: 14px !important;
+  line-height: 22px !important;
   margin: 0;
+  white-space: pre-wrap;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
 }
 
 .codex-shot .user-message .user-content .markdown-body p + p {
