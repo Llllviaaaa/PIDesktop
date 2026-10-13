@@ -8,12 +8,14 @@ import {
 } from "react";
 import {
   Archive,
+  ArchiveRestore,
   MessageSquare,
   AtSign,
   Bell,
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronUp,
   Clock3,
   Folder,
   FolderOpen,
@@ -21,14 +23,17 @@ import {
   GitPullRequest,
   MoreHorizontal,
   Pin,
+  Plus,
   Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
   SquarePen,
+  Trash2,
   MessageCircleQuestion,
   X,
 } from "lucide-react";
+import { PI_BRAND_MARK_SVG } from "../lib/claudeCrabSheets";
 import { pi } from "../lib/pi";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queries";
@@ -188,6 +193,7 @@ export function Sidebar({
   const [searchOpen, setSearchOpen] = useState(false);
   const [brandMenuOpen, setBrandMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<"active" | "archived">("active");
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [collapsedProjectPaths, setCollapsedProjectPaths] = useState(() => readStringList(COLLAPSED_PROJECTS_KEY));
   useEffect(() => {
@@ -205,6 +211,12 @@ export function Sidebar({
     queryKey: queryKeys.projects(),
     queryFn: () => pi.listProjects().catch((): ProjectConfig[] => []),
   });
+  const archivedSessionsQuery = useQuery({
+    queryKey: ["claude-sidebar-archived-sessions"],
+    queryFn: () => pi.listArchivedSessions().catch((): SessionInfo[] => []),
+    enabled: workspaceView === "archived",
+  });
+  const archivedSessions = archivedSessionsQuery.data ?? [];
   const projectConfigs = projectsQuery.data ?? NO_PROJECTS;
   const setProjectConfigs = useCallback(
     (update: (current: ProjectConfig[]) => ProjectConfig[]) =>
@@ -413,43 +425,49 @@ export function Sidebar({
   return (
     <aside
       className={`sidebar codex-sidebar${hoverPreview ? " sidebar-hover-preview" : ""}`}
+      data-slot="sidebar"
       data-sidebar-mode={hoverPreview ? "preview" : "pinned"}
       onMouseEnter={onHoverEnter}
       onMouseLeave={onHoverLeave}
       ref={sidebarRef}
     >
-      <div className="sidebar-brand-row">
+      <div className="sidebar-brand-row" data-dsh-claude-search-row="">
         <button
           type="button"
           className={`codex-brand ${brandMenuOpen ? "active" : ""}`}
           onClick={() => {
-            setBrandMenuOpen((value) => !value);
+            onNewSession();
+          }}
+          title="Pi Desktop"
+        >
+          <span
+            className="dsh-claude-brand-mark"
+            style={{ backgroundImage: `url("${PI_BRAND_MARK_SVG}")` }}
+            aria-hidden="true"
+          />
+          <span className="codex-brand-name">Pi Desktop</span>
+        </button>
+
+        <button
+          type="button"
+          className="dsh-claude-search-trigger"
+          onClick={() => {
+            setSearchOpen(true);
+            setBrandMenuOpen(false);
             setNotificationsOpen(false);
-            setSearchOpen(false);
             setProjectMenu(null);
           }}
-          title="打开 Pi 菜单"
-          aria-expanded={brandMenuOpen}
+          title="搜索会话与项目 (Ctrl+K)"
         >
-          <span className="codex-brand-name">Pi</span>
-          <ChevronDown size={14} strokeWidth={1.75} />
+          <span className="dsh-claude-search-trigger-icon"><Search size={14} strokeWidth={1.8} /></span>
+          <span className="dsh-claude-search-trigger-label">{query ? `搜索：${query}` : "搜索"}</span>
+          <span className="dsh-claude-search-keys" aria-hidden="true">
+            <kbd className="dsh-claude-search-key">Ctrl</kbd>
+            <kbd className="dsh-claude-search-key">K</kbd>
+          </span>
         </button>
+
         <div className="sidebar-brand-actions">
-          <button
-            type="button"
-            className={`icon-button ${searchOpen ? "active" : ""}`}
-            title="搜索"
-            aria-label="搜索"
-            aria-expanded={searchOpen}
-            onClick={() => {
-              setSearchOpen((value) => !value);
-              setBrandMenuOpen(false);
-              setNotificationsOpen(false);
-              setProjectMenu(null);
-            }}
-          >
-            <Search size={17} strokeWidth={1.75} />
-          </button>
           <button
             type="button"
             className={`icon-button notification-button ${notificationsOpen ? "active" : ""}`}
@@ -463,7 +481,7 @@ export function Sidebar({
               setProjectMenu(null);
             }}
           >
-            <Bell size={17} strokeWidth={1.7} />
+            <Bell size={15} strokeWidth={1.7} />
             {unreadNotificationCount > 0 && <span className="notification-dot" />}
           </button>
         </div>
@@ -549,28 +567,110 @@ export function Sidebar({
       )}
 
       <nav className="sidebar-main-nav">
-        <button type="button" className={`nav-item ${newTaskActive ? "active" : ""}`} onClick={() => { closePopovers(); onNewSession(); }}>
-          <SquarePen size={16} strokeWidth={1.75} />
-          <span>新对话</span>
-        </button>
-        <button type="button" className={`nav-item ${activeHub === "pull-requests" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenPullRequests(); }}>
-          <GitPullRequest size={16} strokeWidth={1.75} />
-          <span>拉取请求</span>
-        </button>
-        <button type="button" className={`nav-item ${activeHub === "scheduled" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenScheduled(); }}>
-          <Clock3 size={16} strokeWidth={1.75} />
-          <span>已安排</span>
+        <button
+          type="button"
+          className={`nav-item dsh-claude-new-session ${newTaskActive ? "active" : ""}`}
+          onClick={() => { closePopovers(); onNewSession(); }}
+        >
+          <span className="dsh-claude-new-session-circle" aria-hidden="true">
+            <Plus size={12} strokeWidth={2.2} />
+          </span>
+          <span className="dsh-claude-new-session-label">新会话</span>
+          <span className="dsh-claude-new-session-shortcut" aria-hidden="true">
+            <kbd>Ctrl</kbd>
+            <kbd>N</kbd>
+          </span>
         </button>
         <button type="button" className={`nav-item ${activeHub === "plugins" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenPlugins(); }}>
-          <AtSign size={16} strokeWidth={1.75} />
+          <AtSign size={14} strokeWidth={1.75} />
           <span>插件</span>
+        </button>
+        <button type="button" className={`nav-item ${activeHub === "scheduled" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenScheduled(); }}>
+          <Clock3 size={14} strokeWidth={1.75} />
+          <span>定时任务</span>
+        </button>
+        <button type="button" className={`nav-item ${activeHub === "pull-requests" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenPullRequests(); }}>
+          <GitPullRequest size={14} strokeWidth={1.75} />
+          <span>拉取请求</span>
         </button>
       </nav>
 
-      <div className="sidebar-projects-label">项目</div>
+      <div className="sidebar-projects-header" data-dsh-claude-ws-view={workspaceView}>
+        <span className="sidebar-projects-label" data-dsh-claude-ws-label="">工作区</span>
+        <div className="dsh-claude-ws-segments" role="radiogroup" aria-label="会话视图切换">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={workspaceView === "active"}
+            className="dsh-claude-ws-segment"
+            onClick={() => setWorkspaceView("active")}
+          >
+            进行中
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={workspaceView === "archived"}
+            className="dsh-claude-ws-segment"
+            onClick={() => setWorkspaceView("archived")}
+          >
+            已归档
+          </button>
+        </div>
+      </div>
 
-      <div className="sidebar-scroll">
-        {groups.length === 0 ? (
+      <div className="sidebar-scroll" data-dsh-claude-ws-view={workspaceView}>
+        {workspaceView === "archived" ? (
+          <div className="dsh-claude-archive-list">
+            {archivedSessionsQuery.isLoading ? (
+              <div className="dsh-claude-archive-status">正在加载…</div>
+            ) : archivedSessions.length === 0 ? (
+              <div className="dsh-claude-archive-status">没有已归档的会话</div>
+            ) : (
+              archivedSessions.map((session) => (
+                <div key={session.file} className="dsh-claude-archive-row" role="button" tabIndex={0}>
+                  <span className="dsh-claude-archive-title" title={sessionTitle(session)}>
+                    {sessionTitle(session)}
+                  </span>
+                  <span className="dsh-claude-archive-time">{compactRelativeTime(session)}</span>
+                  <span className="dsh-claude-archive-action">
+                    <button
+                      type="button"
+                      className="dsh-claude-archive-restore"
+                      title="取消归档"
+                      aria-label="取消归档"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void pi.restoreSession(session.file).then(() => {
+                          void archivedSessionsQuery.refetch();
+                          window.dispatchEvent(new Event("pid-desktop:projects-changed"));
+                        });
+                      }}
+                    >
+                      <ArchiveRestore size={14} />
+                    </button>
+                  </span>
+                  <span className="dsh-claude-archive-action">
+                    <button
+                      type="button"
+                      className="dsh-claude-archive-delete"
+                      title="删除会话"
+                      aria-label="删除会话"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void pi.deleteSession(session.file).then(() => {
+                          void archivedSessionsQuery.refetch();
+                        });
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        ) : groups.length === 0 ? (
           <div className="sidebar-empty">
             <span>{query ? "没有匹配项" : "打开项目以开始"}</span>
             <button type="button" className="text-link" onClick={onPickFolder}>选择文件夹</button>
@@ -602,20 +702,6 @@ export function Sidebar({
                   <>
                     <button
                       type="button"
-                      className={`project-collapse-toggle ${collapsed ? "is-collapsed" : ""}`}
-                      title={collapsed ? "展开会话" : "折叠会话"}
-                      aria-label={`${collapsed ? "展开" : "折叠"} ${displayProjectName(workspace)} 的会话`}
-                      aria-expanded={!collapsed}
-                      disabled={chats.length === 0}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setProjectCollapsed(workspace, !collapsed);
-                      }}
-                    >
-                      <ChevronDown size={14} strokeWidth={1.8} />
-                    </button>
-                    <button
-                      type="button"
                       className="project-header"
                       title={workspace}
                       onClick={() => {
@@ -627,13 +713,27 @@ export function Sidebar({
                       <Folder size={15} strokeWidth={1.7} />
                       <span className="project-name">{displayProjectName(workspace)}</span>
                     </button>
+                    <button
+                      type="button"
+                      className={`project-collapse-toggle ${collapsed ? "is-collapsed" : ""}`}
+                      title={collapsed ? "展开会话" : "折叠会话"}
+                      aria-label={`${collapsed ? "展开" : "折叠"} ${displayProjectName(workspace)} 的会话`}
+                      aria-expanded={!collapsed}
+                      disabled={chats.length === 0}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setProjectCollapsed(workspace, !collapsed);
+                      }}
+                    >
+                      <ChevronDown size={13} strokeWidth={1.8} />
+                    </button>
                     <div className="project-actions">
                       {projectPinned && <Pin className="project-pinned-mark" size={13} />}
                       <button type="button" title="项目操作" aria-label={`${displayProjectName(workspace)} 项目操作`} onClick={(event) => openProjectMenu(event, workspace)}>
-                        <MoreHorizontal size={16} />
+                        <MoreHorizontal size={15} />
                       </button>
                       <button type="button" title="在此项目中新建对话" aria-label={`在 ${displayProjectName(workspace)} 中新建对话`} onClick={(event) => { event.stopPropagation(); closePopovers(); onNewProjectSession(workspace); }}>
-                        <SquarePen size={15} />
+                        <SquarePen size={14} />
                       </button>
                     </div>
                   </>
@@ -759,9 +859,48 @@ export function Sidebar({
       )}
 
       <div className="sidebar-footer codex-footer">
-        <button type="button" className="footer-account" onClick={onOpenSettings} title="账户与设置">
-          <Settings size={15} strokeWidth={1.75} />
-          <span>PiDesktop</span>
+        {brandMenuOpen && (
+          <div className="sidebar-popover dsh-claude-account-popover" data-sidebar-popover>
+            <div className="dsh-claude-account-popover-header">
+              <span className="dsh-claude-account-popover-name">Pi Desktop</span>
+              <span className="dsh-claude-account-popover-sub">本地工作区模式</span>
+            </div>
+            <div className="sidebar-popover-separator" />
+            <button type="button" onClick={() => { closePopovers(); onPickFolder(); }}>
+              <FolderOpen size={15} />打开项目文件夹…
+            </button>
+            <button type="button" onClick={() => { closePopovers(); onOpenPlugins(); }}>
+              <AtSign size={15} />插件与资源中心
+            </button>
+            <div className="sidebar-popover-separator" />
+            <button type="button" onClick={() => { closePopovers(); onOpenSettings(); }}>
+              <Settings size={15} />设置
+            </button>
+          </div>
+        )}
+        <button
+          type="button"
+          className="footer-account dsh-claude-account-btn"
+          data-open={brandMenuOpen ? "true" : undefined}
+          onClick={() => {
+            setBrandMenuOpen((value) => !value);
+            setNotificationsOpen(false);
+            setSearchOpen(false);
+            setProjectMenu(null);
+          }}
+          title="账户与设置"
+        >
+          <span
+            className="dsh-claude-account-avatar"
+            style={{ backgroundImage: `url("${PI_BRAND_MARK_SVG}")` }}
+            aria-hidden="true"
+          />
+          <span className="dsh-claude-account-label">
+            <span className="dsh-claude-account-user">Pi Desktop</span>
+          </span>
+          <span className="dsh-claude-account-chevron" aria-hidden="true">
+            {brandMenuOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+          </span>
         </button>
       </div>
     </aside>

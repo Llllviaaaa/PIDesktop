@@ -1,10 +1,12 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { ArrowUp, Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, Copy, Info, Link2, LoaderCircle, Pencil, RotateCcw, Share2, Terminal } from "lucide-react";
+import { ArrowUp, BrainCircuit, Check, ChevronDown, ChevronRight, ChevronUp, CircleAlert, Copy, Info, Link2, LoaderCircle, Pencil, RotateCcw, Share2, Sparkles, Terminal } from "lucide-react";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import type { UiMessage, UiToolCall } from "../types";
 import type { TaskPlanSummary } from "../lib/envSources";
 import { foldThinking } from "../lib/thinkingDisplay";
 import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
+import { presentToolCall, type ToolDiffLine } from "../lib/toolPresentation";
 import { usePiStore } from "../store";
 import { isGoalToolCall } from "../lib/activeGoal";
 import { ConversationPlan } from "./ConversationPlan";
@@ -62,6 +64,184 @@ export function foldWorkingLabel(workingLabel: string | undefined): string {
   const label = workingLabel?.trim();
   if (!label || /正在工作/.test(label)) return "正在工作…";
   return label;
+}
+
+/** Extract single-line preview for collapsed/streaming reasoning row, matching dsh-claude-style ReasoningRow. */
+function reasoningPreviewLine(text: string, streaming: boolean): string {
+  const cleaned = text.replace(/\*\*/g, "").trim();
+  if (!cleaned) return "";
+  const lines = cleaned.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return "";
+  return streaming ? lines[lines.length - 1] : lines[0];
+}
+
+/** Build dsh-claude-style process summary ("执行 N 次思考，调用 M 次工具"). */
+function buildClaudeProcessSummary(thinkingCount: number, toolCount: number): string | null {
+  const parts: string[] = [];
+  if (thinkingCount > 0) parts.push(`执行 ${thinkingCount} 次思考`);
+  if (toolCount > 0) parts.push(`调用 ${toolCount} 次工具`);
+  return parts.length > 0 ? parts.join("，") : null;
+}
+
+/** Resolve live turn activity label for dsh-claude-style waiting row. */
+function resolveLiveActivityLabel(
+  workingLabel: string | undefined,
+  hasRunningTool: boolean,
+  hasThinking: boolean,
+  hasContent: boolean,
+): string {
+  const explicit = workingLabel?.trim();
+  if (explicit && !/正在工作/.test(explicit)) return explicit;
+  if (hasRunningTool) return "正在调用工具";
+  if (hasContent) return "正在写回答";
+  if (hasThinking) return "正在思考";
+  return "正在工作…";
+}
+
+interface MergedFileToolMeta {
+  headId: string;
+  count: number;
+  added: number;
+  removed: number;
+  diff: ToolDiffLine[];
+}
+
+/** Merge multiple edit/write tool calls targeting the same file within a single turn (dsh-claude-style D62). */
+function computeMergedFileTools(calls: UiToolCall[]): Map<string, MergedFileToolMeta> {
+  const byPath = new Map<string, Array<{ call: UiToolCall; presented: ReturnType<typeof presentToolCall> }>>();
+  for (const call of calls) {
+    if (call.isError) continue;
+    const presented = presentToolCall(call);
+    if ((presented.kind !== "edit" && presented.kind !== "write") || !presented.path || !presented.diff?.length) {
+      continue;
+    }
+    const key = presented.path.replace(/\\/g, "/").toLowerCase();
+    const list = byPath.get(key) ?? [];
+    list.push({ call, presented });
+    byPath.set(key, list);
+  }
+  const result = new Map<string, MergedFileToolMeta>();
+  for (const group of byPath.values()) {
+    if (group.length <= 1) continue;
+    const headId = group[0].call.id;
+    let added = 0;
+    let removed = 0;
+    const diff: ToolDiffLine[] = [];
+    for (const item of group) {
+      added += item.presented.added ?? 0;
+      removed += item.presented.removed ?? 0;
+      if (item.presented.diff) diff.push(...item.presented.diff);
+    }
+    for (const item of group) {
+      result.set(item.call.id, {
+        headId,
+        count: group.length,
+        added,
+        removed,
+        diff,
+      });
+    }
+  }
+  return result;
+}
+
+function ReasoningBlock({
+  text,
+  streaming,
+  innerRef,
+}: {
+  text: string;
+  streaming: boolean;
+  innerRef?: React.Ref<HTMLDivElement>;
+}) {
+  const [userToggled, setUserToggled] = useState<{ streaming: boolean; expanded: boolean } | null>(null);
+  const expanded = userToggled && userToggled.streaming === streaming ? userToggled.expanded : true;
+  const preview = reasoningPreviewLine(text, streaming);
+
+  return (
+    <div
+      className={`claude-reasoning-row${expanded ? " is-expanded" : " is-collapsed"}${streaming ? " is-streaming" : ""}`}
+      data-variant="think"
+      data-state={streaming ? "running" : "ok"}
+      data-expanded={expanded || undefined}
+    >
+      <button
+        type="button"
+        className="claude-reasoning-header"
+        aria-expanded={expanded}
+        onClick={() => setUserToggled({ streaming, expanded: !expanded })}
+      >
+        <span className="claude-reasoning-leading" aria-hidden="true">
+          <BrainCircuit size={13} className="claude-reasoning-icon" />
+          {expanded ? (
+            <ChevronDown size={13} className="claude-reasoning-chevron" />
+          ) : (
+            <ChevronRight size={13} className="claude-reasoning-chevron" />
+          )}
+        </span>
+        <span className={`claude-reasoning-title${streaming ? " shimmer-text" : ""}`}>
+          {streaming ? "正在思考" : "思考过程"}
+        </span>
+        {!expanded && preview && (
+          <>
+            <span className="claude-reasoning-sep" aria-hidden="true" />
+            <span className="claude-reasoning-preview">{preview}</span>
+          </>
+        )}
+      </button>
+      <div
+        ref={innerRef}
+        className={`work-log-thinking${streaming ? " streaming" : ""}`}
+        data-dsh-claude-reason-window={streaming ? "" : undefined}
+        hidden={!expanded}
+        role="log"
+        aria-label="思考过程"
+      >
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function WaitingStatusRow({
+  label,
+  timestamp,
+  showOvertimeCandidate,
+}: {
+  label: string;
+  timestamp: number;
+  showOvertimeCandidate: boolean;
+}) {
+  const [liveElapsedSec, setLiveElapsedSec] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const baseTime = timestamp > 0 ? timestamp : Date.now();
+    const timer = window.setInterval(() => {
+      setLiveElapsedSec(Math.max(1, Math.floor((Date.now() - baseTime) / 1000)));
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [timestamp]);
+
+  return (
+    <div className="response-waiting dsh-claude-chat-wait" role="status" aria-label="等待回复">
+      <Sparkles size={13} className="dsh-claude-wait-spark" aria-hidden="true" />
+      <span className="dsh-claude-chat-wait-label shimmer-text" data-text={label}>
+        {label}
+      </span>
+      {liveElapsedSec > 0 && (
+        <span className="dsh-claude-chat-wait-clock">{liveElapsedSec}秒</span>
+      )}
+      {liveElapsedSec >= 10 && showOvertimeCandidate && (
+        <span className="dsh-claude-chat-wait-badge">暂未响应</span>
+      )}
+      <span className="response-waiting-dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
+    </div>
+  );
 }
 
 export const Message = memo(function Message({
@@ -137,20 +317,20 @@ export const Message = memo(function Message({
     return () => window.cancelAnimationFrame(frame);
   }, [liveThinking, message.thinking]);
 
-  useEffect(() => {
-    if (transcriptDensity === "verbose") {
-      setWorkExpanded(true);
-      return;
-    }
-    setWorkExpanded(false);
-  }, [liveWork, transcriptDensity]);
+  useSyncOnChange([liveWork, transcriptDensity], () => {
+    setWorkExpanded(transcriptDensity === "verbose");
+  });
 
-  useEffect(() => {
+  useSyncOnChange([editing, message.content], () => {
     if (!editing) {
       setSubmittingEdit(false);
       return;
     }
     setEditDraft(message.content);
+  });
+
+  useEffect(() => {
+    if (!editing) return;
     const frame = window.requestAnimationFrame(() => {
       const textarea = editTextareaRef.current;
       if (!textarea) return;
@@ -162,16 +342,22 @@ export const Message = memo(function Message({
     return () => window.cancelAnimationFrame(frame);
   }, [editing, message.content]);
 
-  useEffect(() => setUserMessageExpanded(false), [message.id]);
+  useSyncOnChange([message.id], () => {
+    setUserMessageExpanded(false);
+  });
+
+  useSyncOnChange([editing, message.content, message.role], () => {
+    if (message.role !== "user" || editing || !message.content) {
+      setUserMessageCollapsible(false);
+    }
+  });
 
   useEffect(() => {
     if (message.role !== "user" || editing || !message.content) {
-      setUserMessageCollapsible(false);
       return;
     }
     const node = userMessageTextRef.current;
     if (!node || node.closest(".side-chat-messages")) {
-      setUserMessageCollapsible(false);
       return;
     }
 
@@ -397,9 +583,21 @@ export const Message = memo(function Message({
   const workSteps = (message.workSteps ?? []).filter((step) => showThinking || step.kind !== "thinking");
   const lastThinkingIndex = workSteps.reduce((last, step, index) => step.kind === "thinking" ? index : last, -1);
   const hasSteps = workSteps.length > 0;
+  const thinkingStepCount = hasSteps
+    ? workSteps.filter((step) => step.kind === "thinking").length
+    : (hasThinking ? 1 : 0);
+  const toolStepCount = hasSteps
+    ? workSteps.filter((step) => step.kind === "tool").length
+    : toolCalls.length;
+  const mergedFileTools = computeMergedFileTools(
+    hasSteps
+      ? workSteps.flatMap((step) => step.kind === "tool" ? [step.call] : [])
+      : toolCalls,
+  );
   // B1: during reasoning/tool phases message.isStreaming is false while the agent is still working,
   // so the newest assistant reply also honors the app-level streaming flag.
   const working = assistantWorking;
+  const hasRunningTool = toolCalls.some((call) => call.running);
   const reasoningUnavailable = showThinking
     && expectVisibleThinking
     && isLastAssistant
@@ -412,6 +610,7 @@ export const Message = memo(function Message({
   const hasWork = working || hasThinking || hasTools || hasSteps || reasoningUnavailable;
   const workDetailsVisible = transcriptDensity !== "summary" && (autoExpanded || workExpanded) && (hasThinking || hasTools || hasSteps);
   const canToggleWork = !autoExpanded && transcriptDensity !== "summary" && (hasThinking || hasTools);
+  const claudeProcessSummary = buildClaudeProcessSummary(thinkingStepCount, toolStepCount);
   const workLabel = reasoningUnavailable && !hasTools && !hasThinking
     ? "模型未返回可见推理"
     : working
@@ -419,6 +618,7 @@ export const Message = memo(function Message({
       : duration
         ? `耗时 ${duration}`
         : "工作过程";
+  const liveActivityLabel = resolveLiveActivityLabel(workingLabel, hasRunningTool, hasThinking, Boolean(message.content));
   const workToggleLabel = workDetailsVisible ? "收起工作过程" : "展开工作过程";
 
   const timeLabel = typeof message.timestamp === "number" && message.timestamp > 0
@@ -485,7 +685,13 @@ export const Message = memo(function Message({
               if (!canToggleWork) event.preventDefault();
             }}
           >
-            <span>{workLabel}</span>
+            <span className="work-log-label">{workLabel}</span>
+            {claudeProcessSummary && (
+              <span className="dsh-claude-process-summary" aria-hidden="true">
+                <span className="work-log-summary-dot">·</span>
+                <span>{claudeProcessSummary}</span>
+              </span>
+            )}
             {(hasThinking || hasTools) && transcriptDensity !== "summary" && (
               <ChevronRight size={13} strokeWidth={1.8} className={workDetailsVisible ? "open" : undefined} />
             )}
@@ -496,37 +702,55 @@ export const Message = memo(function Message({
                 workSteps.map((step, index) => {
                   if (step.kind === "thinking") {
                     return (
-                      <div
+                      <ReasoningBlock
                         key={`thinking-${index}`}
-                        ref={index === lastThinkingIndex ? thinkingRef : undefined}
-                        className={`work-log-thinking${liveWork && index === lastThinkingIndex ? " streaming" : ""}`}
-                        role="log"
-                        aria-label="思考过程"
-                      >
-                        {step.text}
-                      </div>
+                        innerRef={index === lastThinkingIndex ? thinkingRef : undefined}
+                        text={step.text}
+                        streaming={liveWork && index === lastThinkingIndex}
+                      />
                     );
                   }
                   if (step.kind === "note") {
                     return <div key={`note-${index}`} className="work-log-note">{step.text}</div>;
                   }
-                  return <ToolCall call={step.call} key={step.call.id} />;
+                  const mergeMeta = mergedFileTools.get(step.call.id);
+                  return (
+                    <ToolCall
+                      call={step.call}
+                      key={step.call.id}
+                      mergedCount={mergeMeta?.headId === step.call.id ? mergeMeta.count : undefined}
+                      mergedAdded={mergeMeta?.headId === step.call.id ? mergeMeta.added : undefined}
+                      mergedRemoved={mergeMeta?.headId === step.call.id ? mergeMeta.removed : undefined}
+                      mergedDiff={mergeMeta?.headId === step.call.id ? mergeMeta.diff : undefined}
+                      mergedHidden={mergeMeta !== undefined && mergeMeta.headId !== step.call.id}
+                    />
+                  );
                 })
               ) : (
                 <>
                   {hasThinking && (
-                    <div
-                      ref={thinkingRef}
-                      className={`work-log-thinking${liveWork ? " streaming" : ""}`}
-                      role="log"
-                      aria-label="思考过程"
-                    >
-                      {thinkingText}
-                    </div>
+                    <ReasoningBlock
+                      innerRef={thinkingRef}
+                      text={thinkingText}
+                      streaming={liveWork}
+                    />
                   )}
                   {hasTools && (
                     <div className="tool-list">
-                      {toolCalls.map((call) => <ToolCall call={call} key={call.id} />)}
+                      {toolCalls.map((call) => {
+                        const mergeMeta = mergedFileTools.get(call.id);
+                        return (
+                          <ToolCall
+                            call={call}
+                            key={call.id}
+                            mergedCount={mergeMeta?.headId === call.id ? mergeMeta.count : undefined}
+                            mergedAdded={mergeMeta?.headId === call.id ? mergeMeta.added : undefined}
+                            mergedRemoved={mergeMeta?.headId === call.id ? mergeMeta.removed : undefined}
+                            mergedDiff={mergeMeta?.headId === call.id ? mergeMeta.diff : undefined}
+                            mergedHidden={mergeMeta !== undefined && mergeMeta.headId !== call.id}
+                          />
+                        );
+                      })}
                     </div>
                   )}
                 </>
@@ -557,11 +781,11 @@ export const Message = memo(function Message({
         </div>
       )}
       {working && !message.content && (
-        <span className="response-waiting" role="status" aria-label="等待回复">
-          <i />
-          <i />
-          <i />
-        </span>
+        <WaitingStatusRow
+          label={liveActivityLabel}
+          timestamp={message.timestamp}
+          showOvertimeCandidate={!hasThinking && !hasTools}
+        />
       )}
     </article>
   );

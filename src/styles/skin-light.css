@@ -1,79 +1,64 @@
 /*
- * Vetta skin: light-mode emphasis.
+ * Claude Code Desktop skin (`dsh-claude-style` port): light-mode refinements.
  *
- * The light palette is already cool and indigo-tinted; these rules add the
- * contrast Vetta's light theme gets from a lifted canvas and indigo selection.
- * Loaded in the `skin` layer after the other skin files.
+ * Keeps light surfaces on warm ivory (`#fcfcfb` / `#fbfbf9` / `#e8e6dc`) with
+ * zero cool-purple halos or shadows, matching `dsh-claude-style`'s strict rule:
+ * "Never pure white, never pure black, never cool grays."
  */
 
 :root[data-theme="light"] .codex-shot .stage-canvas {
-  box-shadow:
-    inset 1px 1px 0 0 var(--border),
-    0 0 0 0 transparent;
+  box-shadow: none;
 }
 
 :root[data-theme="light"] .codex-shot .stage-canvas::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  box-shadow: -6px 0 24px -18px rgb(79 70 229 / 0.35);
+  display: none;
 }
 
-/* Selection reads as indigo, not just a tint. */
 :root[data-theme="light"] .codex-shot .nav-item.active,
 :root[data-theme="light"] .codex-shot .thread-row.active,
 :root[data-theme="light"] .codex-shot .thread-row-shell.active .thread-row,
 :root[data-theme="light"] .settings-nav-scroll button.active {
-  background: color-mix(in srgb, var(--accent) 11%, var(--sidebar-bg));
-  color: color-mix(in srgb, var(--accent) 78%, var(--text));
+  background: var(--dsh-claude-hover-bg, rgba(0, 0, 0, 0.06));
+  color: var(--text);
 }
 
 :root[data-theme="light"] .codex-shot .thread-row.active .thread-row-time {
-  color: color-mix(in srgb, var(--accent) 55%, var(--text-3));
+  color: var(--text-3);
 }
 
-/* Home: a clearer grid and a soft indigo glow behind the greeting. */
-:root[data-theme="light"] .codex-shot .vetta-home-grid {
-  background-image:
-    linear-gradient(to right, color-mix(in srgb, var(--accent) 9%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in srgb, var(--accent) 9%, transparent) 1px, transparent 1px);
-}
-
-:root[data-theme="light"] .codex-shot .vetta-home-grid::after {
-  background: radial-gradient(ellipse 45% 38% at 50% 48%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 70%);
-}
-
-/* Composer: white card with an indigo-tinted lift. */
+/* Composer: crisp ivory-white card with warm espresso drop shadow */
 :root[data-theme="light"] .codex-shot .composer-card,
 :root[data-theme="light"] .codex-shot .task-start-composer .composer-card.with-chips {
   box-shadow:
-    0 1px 2px rgb(20 21 31 / 0.04),
-    0 12px 32px -14px rgb(79 70 229 / 0.28);
+    0 4px 12px rgba(20, 20, 19, 0.04),
+    0 1px 3px rgba(20, 20, 19, 0.02);
 }
 
 :root[data-theme="light"] .codex-shot .composer-card:focus-within {
+  border-color: rgba(20, 20, 19, 0.18);
   box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent),
-    0 12px 32px -14px rgb(79 70 229 / 0.32);
+    0 0 0 1px rgba(20, 20, 19, 0.067),
+    0 6px 18px rgba(20, 20, 19, 0.03),
+    0 2px 6px rgba(20, 20, 19, 0.016);
 }
 
-/* Cards in the transcript pick up the same faint lift. */
 :root[data-theme="light"] .codex-shot .live-plan,
-:root[data-theme="light"] .codex-shot .conversation-change-card,
-:root[data-theme="light"] .codex-shot .markdown-code {
-  box-shadow: 0 6px 20px -16px rgb(79 70 229 / 0.35);
+:root[data-theme="light"] .codex-shot .conversation-change-card {
+  box-shadow:
+    0 4px 18px rgba(20, 20, 19, 0.06),
+    0 1px 3px rgba(20, 20, 19, 0.03);
 }
 
-/* The legacy scrollbar thumb is dark; keep it quiet on light surfaces. */
+:root[data-theme="light"] .codex-shot .markdown-code {
+  box-shadow: none;
+}
+
 :root[data-theme="light"] ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--text-3) 45%, transparent);
+  background: var(--dsh-claude-scrollbar);
   background-clip: padding-box;
 }
 
 :root[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--text-3) 70%, transparent);
+  background: var(--dsh-claude-scrollbar-hover);
   background-clip: padding-box;
 }
