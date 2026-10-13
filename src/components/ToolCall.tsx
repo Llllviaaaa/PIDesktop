@@ -233,13 +233,37 @@ function SpecializedBody({ presented, call }: { presented: ToolPresentation; cal
   );
 }
 
-export function ToolCall({ call }: { call: UiToolCall }) {
+export function ToolCall({
+  call,
+  mergedCount,
+  mergedAdded,
+  mergedRemoved,
+  mergedDiff,
+  mergedHidden,
+}: {
+  call: UiToolCall;
+  mergedCount?: number;
+  mergedAdded?: number;
+  mergedRemoved?: number;
+  mergedDiff?: ToolDiffLine[];
+  mergedHidden?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const fileActions = useFileActions();
+  const openInApp = useContext(WorkspaceFileOpenContext);
   const presented = presentToolCall(call);
+  const effectivePresented: ToolPresentation = mergedDiff && mergedDiff.length > 0
+    ? {
+        ...presented,
+        diff: mergedDiff,
+        added: mergedAdded ?? presented.added,
+        removed: mergedRemoved ?? presented.removed,
+        expandable: true,
+      }
+    : presented;
   // Reads, writes and edits name one file: right-click it, or Ctrl+click to open it in the editor.
-  const filePath = presented.path && (presented.kind === "read" || presented.kind === "write" || presented.kind === "edit")
-    ? presented.path
+  const filePath = effectivePresented.path && (effectivePresented.kind === "read" || effectivePresented.kind === "write" || effectivePresented.kind === "edit")
+    ? effectivePresented.path
     : null;
   const elapsed = call.startedAt && call.finishedAt
     ? (call.finishedAt - call.startedAt) / 1000
@@ -247,28 +271,41 @@ export function ToolCall({ call }: { call: UiToolCall }) {
   const duration = elapsed != null && elapsed >= 0.5
     ? `${elapsed.toFixed(1)}s`
     : null;
-  const inlineEdit = presented.kind === "edit" && Boolean(presented.diff?.length);
-  const canExpand = presented.expandable && !inlineEdit;
-  const showBody = presented.expandable && (expanded || call.running || inlineEdit);
-  const parts = headingParts(presented);
-  const hitLabel = presented.hits && presented.hits.length > 0
-    ? `${presented.hits.length}${presented.hits.length >= 40 ? "+" : ""} 处`
-    : presented.sources.length > 0
-      ? `${presented.sources.length} 个来源`
+  const inlineEdit = effectivePresented.kind === "edit" && Boolean(effectivePresented.diff?.length);
+  const canExpand = effectivePresented.expandable && !inlineEdit;
+  const showBody = effectivePresented.expandable && (expanded || call.running || inlineEdit);
+  const parts = headingParts(effectivePresented);
+  const hitLabel = effectivePresented.hits && effectivePresented.hits.length > 0
+    ? `${effectivePresented.hits.length}${effectivePresented.hits.length >= 40 ? "+" : ""} 处`
+    : effectivePresented.sources.length > 0
+      ? `${effectivePresented.sources.length} 个来源`
       : null;
+  const addedCount = mergedAdded ?? effectivePresented.added;
+  const removedCount = mergedRemoved ?? effectivePresented.removed;
+
+  if (mergedHidden) return null;
 
   return (
-    <div className={`tool-step is-${presented.kind}${call.running ? " is-running" : ""}${call.isError ? " error" : ""}`}>
+    <div
+      className={`tool-step is-${effectivePresented.kind}${call.running ? " is-running" : ""}${call.isError ? " error" : ""}`}
+      data-tool={call.name}
+      data-variant={effectivePresented.kind}
+      data-state={call.running ? "running" : call.isError ? "error" : "ok"}
+    >
       <button
         type="button"
         className="tool-step-heading"
-        aria-label={presented.heading}
+        aria-label={effectivePresented.heading}
         aria-expanded={canExpand ? showBody : undefined}
         disabled={!canExpand && !filePath}
-        title={filePath && fileActions ? "Ctrl+单击在编辑器中打开 · 右键查看更多" : undefined}
+        title={filePath && fileActions ? "单击预览 · Ctrl+单击在编辑器中打开 · 右键查看更多" : undefined}
         onClick={(event) => {
-          if (filePath && fileActions && (event.ctrlKey || event.metaKey)) {
+          if (filePath && (event.ctrlKey || event.metaKey) && fileActions) {
             fileActions.openInEditor(filePath);
+            return;
+          }
+          if (!canExpand && filePath && openInApp) {
+            openInApp(filePath);
             return;
           }
           if (!canExpand) return;
@@ -278,16 +315,52 @@ export function ToolCall({ call }: { call: UiToolCall }) {
           if (filePath && fileActions) fileActions.showMenu(event, filePath);
         }}
       >
-        <span className="tool-icon"><ToolIcon kind={presented.kind} /></span>
+        <span className="tool-icon" aria-hidden="true">
+          <span className="tool-icon-idle">
+            {call.running ? (
+              <LoaderCircle className="spin" size={13} />
+            ) : call.isError ? (
+              <CircleAlert size={13} />
+            ) : (
+              <ToolIcon kind={effectivePresented.kind} />
+            )}
+          </span>
+          {canExpand && !call.running && (
+            <span className="tool-icon-chevron">
+              {showBody ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </span>
+          )}
+        </span>
         <span className="tool-summary">
           <span className="tool-verb">{parts.verb}</span>
           {parts.target ? (
-            <span className={`tool-target${parts.asCommand ? " is-command" : ""}`}>{parts.target}</span>
+            <>
+              <span className="tool-sep" aria-hidden="true" />
+              <span
+                className={`tool-target${parts.asCommand ? " is-command" : ""}${filePath && !call.isError ? " is-file" : ""}`}
+                onClick={filePath && !call.isError && openInApp && canExpand ? (event) => {
+                  event.stopPropagation();
+                  if ((event.ctrlKey || event.metaKey) && fileActions) fileActions.openInEditor(filePath);
+                  else openInApp(filePath);
+                } : undefined}
+              >
+                {parts.target}
+              </span>
+            </>
           ) : null}
         </span>
-        {presented.added ? <small className="tool-stat-add">+{presented.added}</small> : null}
-        {presented.removed ? <small className="tool-stat-del">−{presented.removed}</small> : null}
-        {hitLabel && <small>{hitLabel}</small>}
+        {mergedCount && mergedCount > 1 ? (
+          <small className="tool-merged-badge" title={`同一文件的 ${mergedCount} 次改动合并为这一行`}>
+            ×{mergedCount}
+          </small>
+        ) : null}
+        {(addedCount || removedCount) ? (
+          <span className="tool-diff-totals">
+            {addedCount ? <small className="tool-stat-add">+{addedCount}</small> : null}
+            {removedCount ? <small className="tool-stat-del">−{removedCount}</small> : null}
+          </span>
+        ) : null}
+        {hitLabel && <small className="tool-hit-count">{hitLabel}</small>}
         {duration && <small className="tool-duration">{duration}</small>}
         <span className="tool-status" aria-hidden="true">
           {call.running ? (
@@ -299,7 +372,7 @@ export function ToolCall({ call }: { call: UiToolCall }) {
           ) : null}
         </span>
       </button>
-      {showBody && <SpecializedBody presented={presented} call={call} />}
+      {showBody && <SpecializedBody presented={effectivePresented} call={call} />}
     </div>
   );
 }

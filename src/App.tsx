@@ -735,6 +735,21 @@ export default function App() {
 
   useEffect(() => {
     const root = document.documentElement;
+    const syncWindowBlur = () => {
+      root.toggleAttribute("data-window-blur", !document.hasFocus());
+    };
+    document.body.setAttribute("data-dsh-claude-style", "");
+    syncWindowBlur();
+    window.addEventListener("focus", syncWindowBlur);
+    window.addEventListener("blur", syncWindowBlur);
+    return () => {
+      window.removeEventListener("focus", syncWindowBlur);
+      window.removeEventListener("blur", syncWindowBlur);
+    };
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
     const systemTheme = window.matchMedia?.("(prefers-color-scheme: dark)");
     const applyTheme = () => {
       const fixtureTheme = import.meta.env.DEV && !isTauri
@@ -745,9 +760,9 @@ export default function App() {
         : settings?.theme ?? "system";
       const theme = requestedTheme === "custom"
         ? createCustomAppearanceTheme(
-            settings?.backgroundColor ?? "#ffffff",
-            settings?.foregroundColor ?? "#1a1a1a",
-            settings?.accentColor ?? "#18181b",
+            settings?.backgroundColor ?? "#fcfcfb",
+            settings?.foregroundColor ?? "#141413",
+            settings?.accentColor ?? "#d97757",
           )
         : resolveAppearanceTheme(appearanceCatalog, requestedTheme, systemTheme?.matches ?? false);
       const palette = theme.palette;
@@ -773,8 +788,11 @@ export default function App() {
         "--thread-muted": palette.text3,
       };
       for (const [name, value] of Object.entries(variables)) root.style.setProperty(name, value);
-      root.style.setProperty("--code-font", settings?.codeFont || 'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace');
-      root.style.fontFamily = settings?.uiFont || '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      root.style.setProperty(
+        "--code-font",
+        settings?.codeFont || '"JetBrains Mono", "Cascadia Code", "SF Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace',
+      );
+      root.style.fontFamily = settings?.uiFont || 'var(--font-ui)';
       root.style.color = palette.text;
       root.style.background = palette.app;
       const appRoot = document.getElementById("root");

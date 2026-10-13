@@ -1,24 +1,55 @@
 /*
- * Vetta skin: window frame, top bar and primary sidebar.
+ * Claude Code Desktop skin (`dsh-claude-style` port): window frame, top bar and primary sidebar.
  *
- * Loaded in the `skin` layer, which sits above `legacy`. Rules here override
- * the older Codex-parity selectors regardless of their specificity, so each
- * rule only needs to name the element, not repeat `.codex-shot` chains.
- * Every color comes from the appearance palette so user themes still apply.
+ * Recreates `dsh-claude-style`:
+ * - Windows titlebar: straight seam between sidebar (`--dsh-claude-sidebar-canvas`) and conversation (`--dsh-claude-canvas`), 1px `--dsh-claude-border-l1` hairline top to bottom, no rounded top-left corner on stage canvas.
+ * - Top bar: 28px bottom fade band (`--dsh-transcript-fade-h`), clean session title.
+ * - Primary sidebar: 28px compact rows, 6px radius, 13px/18px typography, 5px hollow circle dot on idle session rows, Win11 spinner on running rows, hairline-topped account footer.
+ * - Shared popovers: 12px radius, 6px padding, 32px min-height rows with 6px radius, `var(--accent)` check marks.
  */
 
-/* ── Frame ─────────────────────────────────────────────────────────── */
+/* ── Frame & Scrollbars ────────────────────────────────────────────── */
 
 .app-shell.codex-shot,
 .codex-shot .workspace-shell {
-  background: var(--sidebar-bg);
+  background: var(--dsh-claude-canvas, var(--app));
   color: var(--text);
+  font-family: var(--font-ui);
 }
 
+.codex-shot * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsh-claude-scrollbar) transparent;
+}
+
+.codex-shot ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.codex-shot ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.codex-shot ::-webkit-scrollbar-thumb {
+  background: var(--dsh-claude-scrollbar);
+  border-radius: 9999px;
+}
+
+.codex-shot ::-webkit-scrollbar-thumb:hover {
+  background: var(--dsh-claude-scrollbar-hover);
+}
+
+/* dsh-claude-style Windows titlebar: straight meeting edge, 1px hairline */
 .codex-shot .stage-canvas {
-  background: var(--app);
-  border-radius: 12px 0 0 0;
-  box-shadow: inset 1px 1px 0 0 var(--border);
+  background: var(--dsh-claude-canvas, var(--app));
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.codex-shot .primary-sidebar-panel {
+  border-right: 1px solid var(--dsh-claude-border-l1, var(--border));
+  background: var(--dsh-claude-sidebar-canvas, var(--sidebar-bg));
 }
 
 .codex-shot .work-body,
@@ -34,7 +65,8 @@
 /* ── Window menu bar ───────────────────────────────────────────────── */
 
 .codex-shot .window-menubar {
-  background: var(--sidebar-bg);
+  background: var(--dsh-claude-sidebar-canvas, var(--sidebar-bg));
+  border-bottom: 1px solid var(--dsh-claude-border-l1, var(--border));
   color: var(--text-2);
 }
 
@@ -42,12 +74,12 @@
 .codex-shot .app-menu-trigger,
 .codex-shot .window-menubar .window-control {
   color: var(--text-2);
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .codex-shot .app-menu-trigger {
-  height: 28px;
-  padding: 0 10px;
+  height: 26px;
+  padding: 0 8px;
   font-size: 13px;
 }
 
@@ -55,7 +87,7 @@
 .codex-shot .app-menu-trigger:hover,
 .codex-shot .app-menu-trigger.active,
 .codex-shot .window-menubar .window-control:hover {
-  background: var(--hover);
+  background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
 }
 
@@ -70,36 +102,52 @@
 
 .codex-shot .window-nav-button:disabled {
   color: var(--text-3);
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
-/* Shared popover surface: app menus, topbar menus and sidebar popovers. */
+/* ── Shared popover surface (`dsh-claude-popover-card` baseline) ──── */
+
 .codex-shot .app-menu-dropdown,
 .codex-shot .topbar-menu,
 .codex-shot .sidebar-popover,
 .codex-shot .thread-hover-card {
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding: 6px;
+  border: 1px solid var(--dsh-claude-border-l1, var(--border));
   border-radius: 12px;
-  background: var(--popover);
+  background: var(--dsh-claude-raised, var(--popover));
   color: var(--text);
   box-shadow:
-    0 1px 2px hsl(var(--shadow-color) / 0.12),
-    0 12px 32px -8px hsl(var(--shadow-color) / 0.32);
+    0 8px 30px rgba(20, 20, 19, 0.12),
+    0 2px 8px rgba(20, 20, 19, 0.06);
+}
+
+:root[data-theme="dark"] .codex-shot .app-menu-dropdown,
+:root[data-theme="dark"] .codex-shot .topbar-menu,
+:root[data-theme="dark"] .codex-shot .sidebar-popover,
+:root[data-theme="dark"] .codex-shot .thread-hover-card {
+  border-color: var(--dsh-claude-border-l2, var(--border-strong));
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.5),
+    0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .codex-shot .app-menu-dropdown button,
 .codex-shot .topbar-menu button,
 .codex-shot .sidebar-popover button {
   min-height: 32px;
-  border-radius: 8px;
+  padding: 2px 7px;
+  border-radius: 6px;
   color: var(--text);
+  font-family: var(--font-ui);
   font-size: 13px;
+  line-height: 20px;
+  transition: background-color 0.12s ease;
 }
 
 .codex-shot .app-menu-dropdown button:hover:not(:disabled),
 .codex-shot .topbar-menu button:hover:not(:disabled),
 .codex-shot .sidebar-popover button:hover:not(:disabled) {
-  background: var(--hover);
+  background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
 }
 
@@ -107,35 +155,60 @@
 .codex-shot .topbar-menu button:disabled,
 .codex-shot .sidebar-popover button:disabled {
   color: var(--text-3);
+  opacity: 0.4;
 }
 
 .codex-shot .menu-separator,
 .codex-shot .sidebar-popover-separator,
 .codex-shot .workspace-tools-separator {
-  background: var(--border);
+  height: 1px;
+  margin: 2px 4px;
+  background: var(--dsh-claude-border-l1, var(--border));
 }
 
-/* ── Conversation top bar ──────────────────────────────────────────── */
+/* ── Conversation top bar (`dsh-claude-style` header fade) ─────────── */
 
 .codex-shot .topbar {
-  background: transparent;
+  position: relative;
+  z-index: 5;
+  background: var(--dsh-claude-canvas, var(--app));
   border-bottom: 0;
 }
 
+.codex-shot .topbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 24px;
+  background: linear-gradient(
+    to bottom,
+    var(--dsh-claude-canvas, var(--app)) 0%,
+    color-mix(in srgb, var(--dsh-claude-canvas, var(--app)) 82%, transparent) 32%,
+    color-mix(in srgb, var(--dsh-claude-canvas, var(--app)) 40%, transparent) 68%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
 .codex-shot .chat-title {
+  border-radius: 6px;
   color: var(--text);
-  font-weight: 600;
+  font-family: var(--font-ui);
+  font-weight: 500;
 }
 
 .codex-shot .chat-title span {
-  font-size: 14px;
+  font-size: 13.5px;
 }
 
 .codex-shot .chat-title:hover,
 .codex-shot .topbar .icon-button:hover,
 .codex-shot .panel-toggle:hover,
 .codex-shot .topbar-branch-control:hover {
-  background: var(--hover);
+  background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
 }
 
@@ -143,11 +216,11 @@
 .codex-shot .panel-toggle,
 .codex-shot .topbar-branch-control {
   color: var(--text-2);
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .codex-shot .panel-toggle.active {
-  background: var(--active);
+  background: var(--dsh-claude-hover-bg, var(--active));
   color: var(--text);
 }
 
@@ -156,65 +229,79 @@
 }
 
 .codex-shot .title-input {
-  border: 1px solid var(--border-strong);
-  background: var(--panel);
+  border: 1px solid var(--dsh-claude-border-l2, var(--border-strong));
+  border-radius: 6px;
+  background: var(--dsh-claude-input-major, var(--panel));
   color: var(--text);
 }
 
-/* ── Primary sidebar ───────────────────────────────────────────────── */
+/* ── Primary sidebar (`dsh-claude-style` 28px rows & hollow dots) ──── */
 
 .codex-shot .sidebar.codex-sidebar {
-  background: var(--sidebar-bg);
+  background: var(--dsh-claude-sidebar-canvas, var(--sidebar-bg));
   border-right: 0;
   color: var(--text);
 }
 
 .codex-shot .codex-brand {
   color: var(--text);
-  border-radius: 8px;
+  border-radius: 6px;
+  font-family: var(--font-serif);
+  font-weight: 500;
 }
 
 .codex-shot .codex-brand:hover,
 .codex-shot .codex-brand.active,
 .codex-shot .sidebar .icon-button:hover,
 .codex-shot .sidebar .icon-button.active {
-  background: var(--hover);
+  background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
 }
 
 .codex-shot .sidebar .icon-button {
   color: var(--text-2);
+  border-radius: 6px;
 }
 
 .codex-shot .sidebar-main-nav {
   gap: 2px;
-  padding: 4px 10px 8px;
+  padding: 4px 10px 6px;
 }
 
 .codex-shot .nav-item {
-  height: 36px;
-  gap: 10px;
-  padding: 0 10px;
-  border-radius: 10px;
+  height: 28px;
+  min-height: 28px;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 6px;
   color: var(--text);
-  font-size: 14px;
-  font-weight: 450;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 28px;
+  transition: background-color 0.12s ease;
 }
 
 .codex-shot .nav-item svg {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   color: var(--text-2);
-  stroke-width: 1.6;
+  stroke-width: 1.75;
+  transition: transform 0.25s ease;
+}
+
+.codex-shot .nav-item:first-child:hover svg {
+  transform: rotate(90deg);
 }
 
 .codex-shot .nav-item:hover {
-  background: var(--hover);
+  background: var(--dsh-claude-hover-bg, var(--hover));
 }
 
 .codex-shot .nav-item.active {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
+  font-weight: 500;
 }
 
 .codex-shot .nav-item.active svg {
@@ -222,91 +309,135 @@
 }
 
 .codex-shot .sidebar-projects-label {
-  padding: 14px 20px 6px;
+  padding: 10px 16px 4px;
   color: var(--text-3);
+  font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 500;
+  line-height: 16px;
 }
 
 .codex-shot .sidebar-scroll {
   padding: 0 10px 10px;
 }
 
+.codex-shot .project-block + .project-block {
+  margin-top: 6px;
+}
+
+.codex-shot .project-header-row {
+  min-height: 28px;
+}
+
 .codex-shot .project-header,
 .codex-shot .project-block.is-current .project-header {
-  height: 34px;
+  height: 28px;
+  min-height: 28px;
   margin: 0;
   width: 100%;
-  gap: 10px;
-  padding: 0 10px;
-  border-radius: 10px;
+  gap: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 450;
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+/* dsh-claude-style hides the redundant folder icon on project rows */
+.codex-shot .project-header > svg {
+  display: none;
 }
 
 .codex-shot .project-name {
-  font-weight: 450;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  transition: color 0.12s ease;
 }
 
-.codex-shot .project-header svg,
+.codex-shot .project-header:hover .project-name,
+.codex-shot .project-block.is-current .project-name {
+  color: var(--text);
+}
+
 .codex-shot .project-collapse-toggle {
-  color: var(--text-2);
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  color: var(--text-3);
 }
 
 .codex-shot .project-header:hover,
 .codex-shot .project-collapse-toggle:hover {
-  background: var(--hover);
+  background: transparent;
+  color: var(--text);
 }
 
 .codex-shot .thread-list {
   gap: 1px;
-  padding: 2px 0 8px 12px;
+  padding: 1px 0 6px 6px;
 }
 
 .codex-shot .thread-row-shell {
-  border-radius: 10px;
+  border-radius: 6px;
 }
 
 .codex-shot .thread-row {
-  min-height: 34px;
-  gap: 10px;
-  padding: 0 10px;
-  border-radius: 10px;
-  color: color-mix(in srgb, var(--text) 82%, transparent);
-  font-size: 13.5px;
+  height: 28px;
+  min-height: 28px;
+  gap: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  color: var(--dsh-claude-session-ink, var(--text-2));
+  font-family: var(--font-ui);
+  font-size: 13px;
   font-weight: 400;
+  line-height: 18px;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .codex-shot .thread-row:hover,
 .codex-shot .thread-row-shell:hover .thread-row {
-  background: var(--hover);
-  color: var(--text);
+  background: var(--dsh-claude-hover-bg, var(--hover));
+  color: var(--dsh-claude-ink-strong, var(--text));
 }
 
 .codex-shot .thread-row.active,
 .codex-shot .thread-row-shell.active .thread-row {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--text);
+  background: var(--dsh-claude-hover-bg, var(--hover));
+  color: var(--dsh-claude-ink-strong, var(--text));
   font-weight: 500;
 }
 
+/* dsh-claude-style: replace speech bubble icon with 5px hollow circle dot */
 .codex-shot .thread-row-icon {
-  flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-  color: var(--text-3);
+  display: none;
 }
 
-.codex-shot .thread-row.active .thread-row-icon {
-  color: var(--accent);
+.codex-shot .thread-row::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  margin: 0 3px;
+  border-radius: 50%;
+  border: 1.2px solid var(--dsh-claude-caption, var(--text-3));
+  box-sizing: border-box;
+}
+
+.codex-shot .thread-row.active::before {
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 .codex-shot .thread-row-time {
   flex: 0 0 auto;
-  color: var(--text-3);
-  font-size: 12px;
+  color: var(--dsh-claude-caption, var(--text-3));
+  font-size: 11px;
+  line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -317,60 +448,92 @@
 
 .codex-shot .thread-row-actions button {
   color: var(--text-3);
-  border-radius: 6px;
+  border-radius: 5px;
 }
 
 .codex-shot .thread-row-actions button:hover,
 .codex-shot .thread-row-actions button.is-pinned {
-  background: var(--active);
+  background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
 }
 
+/* dsh-claude-style Win11 spinner for ongoing session */
+@keyframes dsh-claude-win11-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .codex-shot .thread-dot.running {
-  background: var(--accent);
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: transparent;
+  border: 1.5px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-top-color: var(--text-2);
+  animation: dsh-claude-win11-spin 0.85s linear infinite;
 }
 
 .codex-shot .expand-threads,
 .codex-shot .sidebar-empty,
 .codex-shot .text-link {
   color: var(--text-3);
+  font-size: 12px;
 }
 
 .codex-shot .expand-threads:hover,
 .codex-shot .text-link:hover {
-  color: var(--text-2);
+  color: var(--text);
 }
 
+/* dsh-claude-style sidebar search box (`28px` height, `8px` radius, `1px` border-l1) */
 .codex-shot .session-search {
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--text-2);
-  border-radius: 10px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--dsh-claude-border-l1, var(--border));
+  border-radius: 8px;
+  background: var(--dsh-claude-canvas, var(--app));
+  color: var(--text-3);
+}
+
+:root[data-theme="dark"] .codex-shot .session-search {
+  border-color: var(--dsh-claude-border-l2, var(--border-strong));
+  background: var(--dsh-claude-raised);
 }
 
 .codex-shot .session-search input {
   color: var(--text);
+  font-size: 13px;
 }
 
+/* dsh-claude-style sidebar footer (`footArea` hairline + 32px account row) */
 .codex-shot .sidebar-footer.codex-footer {
-  border-top: 0;
-  background: var(--sidebar-bg);
-  padding: 8px 10px 10px;
+  border-top: 1px solid var(--dsh-claude-border-l1, var(--border));
+  background: transparent;
+  padding: 8px 10px 6px;
+}
+
+:root[data-theme="dark"] .codex-shot .sidebar-footer.codex-footer {
+  border-top-color: var(--dsh-claude-border-l2, var(--border-strong));
 }
 
 .codex-shot .footer-account {
-  height: 36px;
-  border-radius: 10px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
   color: var(--text);
-  font-size: 13.5px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color 0.12s ease;
 }
 
 .codex-shot .footer-account:hover {
-  background: var(--hover);
+  background: var(--dsh-claude-hover-bg, var(--hover));
 }
 
 .codex-shot .footer-account svg {
-  color: var(--text-2);
+  color: var(--accent, #d97757);
 }
 
 .codex-shot .thread-hover-card {
@@ -379,8 +542,4 @@
 
 .codex-shot .thread-hover-heading {
   color: var(--text);
-}
-
-.codex-shot .project-name {
-  font-size: 14px;
 }

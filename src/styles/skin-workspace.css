@@ -3,7 +3,7 @@
  * Loaded last in the `skin` layer, so it wins over legacy panel sizing.
  */
 
-/* ── Right-hand dock: one column, a tab strip, and tools that keep their state ── */
+/* ── Right-hand dock: dsh-claude-style floating card (`margin: 8px; border-radius: 16px`) ── */
 
 .codex-shot .workspace-dock {
   position: relative;
@@ -15,10 +15,22 @@
   align-self: stretch;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border);
-  background: var(--app);
+  margin: 8px 8px 8px 0;
+  border: 1px solid var(--dsh-claude-border-l1, var(--border));
+  border-radius: 16px;
+  background: var(--dsh-claude-card, var(--app));
   color: var(--text);
+  box-shadow:
+    0 4px 18px rgba(20, 20, 19, 0.08),
+    0 1px 3px rgba(20, 20, 19, 0.04);
   overflow: hidden;
+}
+
+:root[data-theme="dark"] .codex-shot .workspace-dock {
+  border-color: var(--dsh-claude-border-l2, var(--border-strong));
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    0 1px 3px rgba(0, 0, 0, 0.14);
 }
 
 .codex-shot .workspace-dock[hidden],

@@ -276,4 +276,33 @@ test("message actions", async () => {
   assert.match(streamingLiveTool, /Keep the live tool visible/);
   assert.match(streamingLiveTool, /编辑 src\/App\.tsx/);
   assert.match(streamingLiveTool, /Still editing the file/);
+  assert.match(streamingLiveTool, /执行 1 次思考，调用 1 次工具/);
+  assert.match(streamingLiveTool, /claude-reasoning-row/);
+
+  const mergedSameFileEdits = renderToStaticMarkup(createElement(Message, {
+    message: {
+      id: "assistant-merged-edits",
+      timestamp: 0,
+      role: "assistant",
+      content: "Updated twice.",
+      toolCalls: [
+        {
+          id: "edit-1",
+          name: "edit",
+          args: { path: "src/App.tsx", old_string: "a", new_string: "b\nc" },
+          running: false,
+        },
+        {
+          id: "edit-2",
+          name: "edit",
+          args: { path: "src/App.tsx", old_string: "c", new_string: "d" },
+          running: false,
+        },
+      ],
+    },
+    density: "verbose",
+  }));
+  assert.match(mergedSameFileEdits, /调用 2 次工具/);
+  assert.match(mergedSameFileEdits, /tool-merged-badge/);
+  assert.match(mergedSameFileEdits, /×2/);
 });

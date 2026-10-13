@@ -25,6 +25,14 @@ Pi Desktop installers include a fixed, standalone Pi runtime so users do not nee
 
 This product includes software developed at Vetta (https://www.openvetta.com).
 
+## dsh-claude-style
+
+- Package: `dsh-claude-style`
+- Upstream: https://github.com/Nwflower/dsh-claude-style
+- License: MIT
+- Copyright: Nwflower
+- Used for: Claude Code Desktop warm ivory/dark palettes, clay accent tokens, composer card/popover geometry, turn navigator rail, file-change row merging, and transcript disclosure styling in `src/styles/` and `src/components/`.
+
 The generated runtime also includes the license identifiers and available license files for bundled transitive npm dependencies in `runtime-licenses.json` and `licenses/`.
 
 ## MIT License
