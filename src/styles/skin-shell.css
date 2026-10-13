@@ -170,7 +170,7 @@
   background: var(--dsh-claude-border-l1, var(--border));
 }
 
-/* ── Conversation top bar (`dsh-claude-style` header fade & view tabs) ── */
+/* ── Conversation top bar (clean border, no gradient mask) ─────────── */
 
 .codex-shot .topbar {
   position: relative;
@@ -179,7 +179,7 @@
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   background: var(--dsh-claude-canvas, var(--app));
-  border-bottom: 0;
+  border-bottom: 0.5px solid var(--dsh-claude-border-l1, var(--border));
 }
 
 .codex-shot .topbar-left {
@@ -198,21 +198,8 @@
 }
 
 .codex-shot .topbar::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  height: 24px;
-  background: linear-gradient(
-    to bottom,
-    var(--dsh-claude-canvas, var(--app)) 0%,
-    color-mix(in srgb, var(--dsh-claude-canvas, var(--app)) 82%, transparent) 32%,
-    color-mix(in srgb, var(--dsh-claude-canvas, var(--app)) 40%, transparent) 68%,
-    transparent 100%
-  );
-  pointer-events: none;
-  z-index: 1;
+  content: none;
+  display: none;
 }
 
 /* `[data-dsh-view-tabs]` segmented control from `claude-style-clean.css` L135-145 */
@@ -354,24 +341,19 @@
 
 .codex-shot .dsh-claude-brand-mark {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
 }
 
-.codex-shot .dsh-claude-brand-word {
-  flex: none;
-  width: calc(18px * 512.22 / 121.54);
-  height: 18px;
-  background-color: var(--text);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: left center;
-  mask-position: left center;
-  -webkit-mask-size: contain;
-  mask-size: contain;
+.codex-shot .codex-brand-name {
+  font-family: var(--font-ui);
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 
 .codex-shot .dsh-claude-search-trigger {

@@ -33,7 +33,7 @@ import {
   MessageCircleQuestion,
   X,
 } from "lucide-react";
-import { CLAUDE_MARKS } from "../lib/claudeCrabSheets";
+import { PI_BRAND_MARK_SVG } from "../lib/claudeCrabSheets";
 import { pi } from "../lib/pi";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queries";
@@ -438,21 +438,14 @@ export function Sidebar({
           onClick={() => {
             onNewSession();
           }}
-          title="Claude Code Desktop"
+          title="Pi Desktop"
         >
           <span
             className="dsh-claude-brand-mark"
-            style={{ backgroundImage: `url("${CLAUDE_MARKS["--dsh-claude-image-claude-mark-clay"]}")` }}
+            style={{ backgroundImage: `url("${PI_BRAND_MARK_SVG}")` }}
             aria-hidden="true"
           />
-          <span
-            className="dsh-claude-brand-word"
-            style={{
-              WebkitMaskImage: `url("${CLAUDE_MARKS["--dsh-claude-image-claude-word"]}")`,
-              maskImage: `url("${CLAUDE_MARKS["--dsh-claude-image-claude-word"]}")`,
-            }}
-            aria-label="Claude"
-          />
+          <span className="codex-brand-name">Pi Desktop</span>
         </button>
 
         <button
@@ -869,7 +862,7 @@ export function Sidebar({
         {brandMenuOpen && (
           <div className="sidebar-popover dsh-claude-account-popover" data-sidebar-popover>
             <div className="dsh-claude-account-popover-header">
-              <span className="dsh-claude-account-popover-name">Claude Code</span>
+              <span className="dsh-claude-account-popover-name">Pi Desktop</span>
               <span className="dsh-claude-account-popover-sub">本地工作区模式</span>
             </div>
             <div className="sidebar-popover-separator" />
@@ -899,11 +892,11 @@ export function Sidebar({
         >
           <span
             className="dsh-claude-account-avatar"
-            style={{ backgroundImage: `url("${CLAUDE_MARKS["--dsh-claude-image-anthropic-mark"]}")` }}
+            style={{ backgroundImage: `url("${PI_BRAND_MARK_SVG}")` }}
             aria-hidden="true"
           />
           <span className="dsh-claude-account-label">
-            <span className="dsh-claude-account-user">Claude Code</span>
+            <span className="dsh-claude-account-user">Pi Desktop</span>
           </span>
           <span className="dsh-claude-account-chevron" aria-hidden="true">
             {brandMenuOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}

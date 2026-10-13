@@ -1,16 +1,17 @@
 /*
- * Claude Code Desktop skin (`dsh-claude-style` port): new-session home (Studio & Classic),
- * usage dashboard, pixel crab mascot, permission segments, and dual-variant composer.
+ * DSH + Claude Style port: new-session home (Studio & Classic), usage dashboard,
+ * 16-bit pixel pet companion, permission segments, and DSH-native InputBar card
+ * (with zero gradient masks over the composer or transcript).
  */
 
-/* ── Home page layouts (`dsh-claude-home` Studio & Classic, L995-1069) ── */
+/* ── Home page layouts (`dsh-claude-home` Studio & Classic) ─────────── */
 
 .codex-shot .new-task-screen.dsh-claude-home {
   position: relative;
   isolation: isolate;
   box-sizing: border-box;
   width: 100%;
-  max-width: 720px;
+  max-width: 748px;
   margin: 0 auto;
   padding: 20px 16px 18px;
   display: flex;
@@ -31,7 +32,7 @@
   align-items: stretch;
 }
 
-/* Headline & Claude clay mark */
+/* Headline & Pixel Pet badge */
 .codex-shot .dsh-claude-hero-headline {
   display: flex;
   align-items: center;
@@ -48,35 +49,35 @@
 
 .codex-shot .dsh-claude-home.is-studio .dsh-claude-hero-headline {
   justify-content: flex-start;
-  gap: 8px;
+  gap: 10px;
   padding-top: 8px;
   margin-bottom: 8px;
 }
 
-.codex-shot .dsh-claude-hero-mark {
+.codex-shot .dsh-claude-hero-pet {
   flex: none;
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: contain;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.codex-shot .dsh-claude-home.is-classic .dsh-claude-hero-mark {
-  width: 42.5px;
-  height: 42.5px;
+.codex-shot .dsh-claude-home.is-classic .dsh-claude-hero-pet {
+  width: 48px;
+  height: 44px;
 }
 
-.codex-shot .dsh-claude-home.is-studio .dsh-claude-hero-mark {
-  width: 21px;
-  height: 21px;
+.codex-shot .dsh-claude-home.is-studio .dsh-claude-hero-pet {
+  width: 32px;
+  height: 30px;
 }
 
 .codex-shot .dsh-claude-home.is-classic .new-task-heading {
   margin: 0;
   color: var(--text);
   font-family: var(--font-serif);
-  font-size: 40px;
-  font-weight: 400;
-  line-height: 50px;
+  font-size: 36px;
+  font-weight: 500;
+  line-height: 46px;
   letter-spacing: -0.015em;
   text-align: center;
 }
@@ -100,7 +101,7 @@
   margin-top: auto;
 }
 
-/* ── Studio Usage Dashboard (`.dsh-claude-home-panel` L1009-1069) ───── */
+/* ── Studio Usage Dashboard (`.dsh-claude-home-panel`) ─────────────── */
 
 .codex-shot .dsh-claude-home-panel {
   display: flex;
@@ -317,63 +318,70 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Pixel Crab Mascot (`.dsh-claude-crab` L1070-1078) ─────────────── */
+/* ── 16-bit Pixel Pet Companion on Composer & Settings ─────────────── */
 
-.codex-shot .dsh-claude-crab {
+.pixel-pet-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  shape-rendering: crispEdges;
+}
+
+.codex-shot .composer-pixel-pet {
   position: absolute;
-  right: 8px;
-  bottom: 100%;
-  z-index: 3;
-  width: 104px;
-  height: 72px;
+  right: 16px;
+  bottom: calc(100% - 3px);
+  z-index: 4;
+  display: inline-flex;
+  align-items: flex-end;
   pointer-events: none;
 }
 
-.codex-shot .dsh-claude-crab:not([data-ready]) {
-  visibility: hidden;
-}
-
-.codex-shot .dsh-claude-crab-sprite {
-  position: absolute;
-  left: calc(var(--dsh-claude-crab-x, 0) * 2px);
-  top: calc(var(--dsh-claude-crab-y, 0) * 2px);
-  width: calc(var(--dsh-claude-crab-w, 0) * 2px);
-  height: calc(var(--dsh-claude-crab-h, 0) * 2px);
-  overflow: hidden;
-}
-
-.codex-shot .dsh-claude-crab-strip {
-  position: relative;
-  display: block;
-  width: calc(var(--dsh-claude-crab-cell-w, 0) * 16px);
-  height: calc(var(--dsh-claude-crab-strip-h, 0) * 2px);
-  background-image: var(--dsh-claude-crab-sheet, none);
-  background-repeat: no-repeat;
-  background-size: 100% 100%;
-  image-rendering: pixelated;
-}
-
-.codex-shot .dsh-claude-crab-strip::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--text-3);
-  -webkit-mask: var(--dsh-claude-crab-ink, none) no-repeat 0 0 / 100% 100%;
-  mask: var(--dsh-claude-crab-ink, none) no-repeat 0 0 / 100% 100%;
-  image-rendering: pixelated;
-}
-
-.codex-shot .dsh-claude-crab-hit {
-  position: absolute;
-  left: 48px;
-  top: 40px;
-  width: 48px;
-  height: 32px;
-  pointer-events: auto;
+.codex-shot .composer-pixel-pet-btn {
+  width: 46px;
+  height: 42px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
   cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.14s ease;
 }
 
-/* ── Permission Segmented Control (`.dsh-claude-segments` L653-661) ── */
+.codex-shot .composer-pixel-pet-btn:hover {
+  transform: translateY(-2px) scale(1.05);
+}
+
+.codex-shot .composer-pixel-pet-btn:active {
+  transform: scale(0.95);
+}
+
+.codex-shot .composer-pixel-pet-bubble {
+  position: absolute;
+  right: calc(100% + 6px);
+  bottom: 10px;
+  padding: 3px 9px;
+  border: 1px solid var(--dsh-claude-border-l2, var(--border));
+  border-radius: 8px;
+  background: var(--dsh-claude-raised, var(--popover));
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  line-height: 16px;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(20, 20, 19, 0.08);
+  pointer-events: none;
+  animation: pixel-pet-bubble-in 0.15s ease-out both;
+}
+
+@keyframes pixel-pet-bubble-in {
+  from { opacity: 0; transform: translateY(3px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Permission Segmented Control (`.dsh-claude-segments`) ─────────── */
 
 .codex-shot .dsh-claude-segments {
   flex: none;
@@ -381,7 +389,7 @@
   align-items: center;
   gap: 2px;
   padding: 2px;
-  border-radius: 7px;
+  border-radius: 8px;
   background: var(--dsh-claude-chip);
   position: relative;
 }
@@ -397,7 +405,7 @@
   font-size: 12.5px;
   font-weight: 500;
   line-height: 18px;
-  padding: 2px 10px;
+  padding: 3px 10px;
   border-radius: 6px;
   transition: background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
 }
@@ -416,184 +424,234 @@
   box-shadow: 0 1px 2px rgba(20, 20, 19, 0.08);
 }
 
-/* ── Composer Dock & Dual-Variant Card (Hero vs Inline, L161-243) ──── */
+/* ── DSH Native InputBar Card (`InputBar.module.css` `.uWtHQG_card`) ─ */
 
+/* Zero mask / zero gradient over the composer dock */
 .codex-shot .composer-dock,
+:root[data-theme="light"] .codex-shot .composer-dock,
 :root[data-theme="dark"] .codex-shot .composer-dock {
   position: relative;
-  background: var(--dsh-claude-canvas, var(--app));
-}
-
-.codex-shot .composer-dock::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 100%;
-  height: var(--dsh-claude-composer-fade-h, 40px);
-  background: linear-gradient(
-    to top,
-    var(--dsh-claude-canvas, var(--app)) 0%,
-    color-mix(in srgb, var(--dsh-claude-canvas, var(--app)) 82%, transparent) 32%,
-    color-mix(in srgb, var(--dsh-claude-canvas, var(--app)) 40%, transparent) 68%,
-    transparent 100%
-  );
-  pointer-events: none;
-}
-
-/* 1. Hero Composer Card (home page) */
-.codex-shot .composer-card[data-composer-variant="hero"] {
-  position: relative;
-  z-index: 2;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 18px;
-  background: var(--dsh-claude-input-major, var(--panel));
-  padding: 10px 0 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.15);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
-  overflow: visible;
-}
-
-:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="hero"] {
-  background: #ffffff;
-  box-shadow: 0 4px 12px rgba(20, 20, 19, 0.04), 0 1px 3px rgba(20, 20, 19, 0.02);
-}
-
-:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="hero"]:focus-within {
-  border-color: rgba(20, 20, 19, 0.18);
-  box-shadow:
-    0 0 0 1px rgba(20, 20, 19, 0.067),
-    0 6px 18px rgba(20, 20, 19, 0.03),
-    0 2px 6px rgba(20, 20, 19, 0.016);
-}
-
-:root[data-theme="dark"] .codex-shot .composer-card[data-composer-variant="hero"]:focus-within {
-  border-color: rgba(250, 249, 245, 0.22);
-  box-shadow:
-    0 0 0 1px rgba(250, 249, 245, 0.09),
-    0 6px 24px rgba(0, 0, 0, 0.22),
-    0 2px 8px rgba(0, 0, 0, 0.11);
-}
-
-.codex-shot .composer-card[data-composer-variant="hero"] .dsh-claude-input-box {
-  padding: 4px 16px 4px;
-}
-
-.codex-shot .composer-card[data-composer-variant="hero"] .composer-input {
-  min-height: 76px;
-  padding: 0;
-  font-size: 15px;
-  line-height: 24px;
-}
-
-/* Integrated bottom workspace tray under Hero card (`heroWorkspaceRow` L183) */
-.codex-shot .composer-context-tray.dsh-claude-hero-tray {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  min-height: 44px;
-  margin: -18px auto 0;
-  padding: 18px 12px 2px;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-top: 0;
-  border-radius: 0 0 18px 18px;
-  background: transparent;
-  display: flex;
-  align-items: center;
-}
-
-/* 2. Inline Composer Card (conversation page: two-tier structure, L187-242) */
-.codex-shot .composer-card[data-composer-variant="inline"],
-.codex-shot .composer-card[data-composer-variant="inline"]:focus-within {
-  position: relative;
-  background: transparent !important;
-  border: 0 !important;
-  border-radius: 0 !important;
+  background: var(--dsh-claude-canvas, var(--app)) !important;
+  background-image: none !important;
+  padding: 6px 24px 12px !important;
   box-shadow: none !important;
-  padding: 0 !important;
-  gap: 0;
+}
+
+.codex-shot .composer-dock::before,
+.codex-shot .composer-dock::after {
+  content: none !important;
+  display: none !important;
+}
+
+.codex-shot .main-stage > .composer-dock > .composer-area.codex-composer {
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+/* Unified DSH card for both home (`hero`) and conversation (`inline`) */
+.codex-shot .composer-card,
+.codex-shot .composer-card.unified,
+.codex-shot .composer-card.follow-up,
+.codex-shot .composer-card[data-composer-variant="hero"],
+.codex-shot .composer-card[data-composer-variant="inline"],
+.codex-shot .task-start-composer .composer-card.with-chips {
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0 8px !important;
+  border: 1px solid var(--dsh-claude-border-l2, var(--border)) !important;
+  border-radius: 20px !important;
+  background: var(--dsh-claude-input-major, var(--panel)) !important;
+  box-shadow:
+    0 2px 10px rgba(0, 0, 0, 0.22),
+    0 1px 2px rgba(0, 0, 0, 0.12) !important;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
   overflow: visible;
 }
 
-.codex-shot .composer-card[data-composer-variant="inline"] .dsh-claude-input-box {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
+:root[data-theme="light"] .codex-shot .composer-card,
+:root[data-theme="light"] .codex-shot .composer-card.unified,
+:root[data-theme="light"] .codex-shot .composer-card.follow-up,
+:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="hero"],
+:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="inline"],
+:root[data-theme="light"] .codex-shot .task-start-composer .composer-card.with-chips {
+  background: #ffffff !important;
+  border-color: var(--dsh-claude-border-l2, #dedcd2) !important;
+  box-shadow:
+    0 2px 10px rgba(20, 20, 19, 0.05),
+    0 1px 2px rgba(20, 20, 19, 0.03) !important;
+}
+
+:root[data-theme="light"] .codex-shot .composer-card:focus-within,
+:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="hero"]:focus-within,
+:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="inline"]:focus-within {
+  border-color: rgba(20, 20, 19, 0.28) !important;
+  box-shadow:
+    0 4px 16px rgba(20, 20, 19, 0.07),
+    0 1px 3px rgba(20, 20, 19, 0.04) !important;
+}
+
+:root[data-theme="dark"] .codex-shot .composer-card:focus-within,
+:root[data-theme="dark"] .codex-shot .composer-card[data-composer-variant="hero"]:focus-within,
+:root[data-theme="dark"] .codex-shot .composer-card[data-composer-variant="inline"]:focus-within {
+  border-color: rgba(250, 249, 245, 0.26) !important;
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.32),
+    0 1px 4px rgba(0, 0, 0, 0.18) !important;
+}
+
+/* Inner input area (`.uWtHQG_input`) */
+.codex-shot .dsh-claude-input-box {
   width: 100%;
-  min-height: 40px;
-  padding: 7px 40px 7px 14px;
   box-sizing: border-box;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 14px;
-  background: var(--dsh-claude-input-major, var(--panel));
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  padding: 2px 16px 0;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
   cursor: text;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
-:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="inline"] .dsh-claude-input-box {
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.03);
-}
-
-:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="inline"]:focus-within .dsh-claude-input-box {
-  border-color: rgba(20, 20, 19, 0.18) !important;
-  box-shadow: 0 0 0 1px rgba(20, 20, 19, 0.067), 0 4px 12px rgba(20, 20, 19, 0.025);
-}
-
-:root[data-theme="dark"] .codex-shot .composer-card[data-composer-variant="inline"]:focus-within .dsh-claude-input-box {
-  border-color: rgba(250, 249, 245, 0.22) !important;
-  box-shadow: 0 0 0 1px rgba(250, 249, 245, 0.09), 0 4px 16px rgba(0, 0, 0, 0.2);
-}
-
-.codex-shot .composer-card[data-composer-variant="inline"] .composer-input {
+.codex-shot .composer-input {
   width: 100%;
-  min-height: 24px;
+  min-height: 36px;
+  max-height: 220px;
   padding: 0;
   margin: 0;
   border: 0;
+  outline: none;
   background: transparent;
   color: var(--text);
+  caret-color: var(--accent, #d97757);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: 14.5px;
   line-height: 24px;
 }
 
-.codex-shot .composer-card[data-composer-variant="inline"] .inline-send-control {
-  position: absolute;
-  right: 7px;
-  bottom: 6px;
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  padding: 0;
-  border-radius: 6px;
-  z-index: 5;
-}
-
-.codex-shot .composer-card[data-composer-variant="inline"] .composer-toolbar {
-  min-height: 28px;
-  height: 28px;
-  margin: 6px 0 0;
-  padding: 0 4px;
-  background: transparent;
-  border: 0;
+.codex-shot .composer-card[data-composer-variant="hero"] .composer-input {
+  min-height: 54px;
 }
 
 .codex-shot .composer-input::placeholder {
   color: var(--dsh-claude-caption, var(--text-3));
 }
 
+/* Bottom control bar inside the card (`.uWtHQG_row`) */
 .codex-shot .composer-toolbar,
+.codex-shot .composer-card[data-composer-variant="inline"] .composer-toolbar,
 .codex-shot .task-start-composer .composer-toolbar {
-  padding-inline: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+  height: auto;
+  margin: 0;
+  padding: 2px 10px 0 12px;
+  background: transparent;
+  border: 0;
+}
+
+.codex-shot .composer-toolbar-left,
+.codex-shot .composer-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* DSH round `+` button (`.uWtHQG_add`: 28x28 pill) */
+.codex-shot .dsh-input-add-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px !important;
+  background: var(--dsh-claude-chip) !important;
+  color: var(--text) !important;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.codex-shot .dsh-input-add-btn:hover:not(:disabled) {
+  background: var(--panel-strong) !important;
+}
+
+/* DSH round 34x34 primary send/stop button (`.uWtHQG_primary`) */
+.codex-shot .send-button.dsh-primary-send,
+.codex-shot .stop-button.dsh-primary-send {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 999px !important;
+  border: 0 !important;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
+}
+
+.codex-shot .send-button.dsh-primary-send {
+  background: var(--accent, #d97757) !important;
+  color: #ffffff !important;
+}
+
+.codex-shot .send-button.dsh-primary-send:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent, #d97757) 86%, #141413) !important;
+}
+
+:root[data-theme="dark"] .codex-shot .send-button.dsh-primary-send:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent, #d97757) 85%, #faf9f5) !important;
+}
+
+.codex-shot .send-button.dsh-primary-send:disabled {
+  background: var(--accent, #d97757) !important;
+  color: #ffffff !important;
+  opacity: 0.4 !important;
+  cursor: default;
+}
+
+.codex-shot .stop-button.dsh-primary-send {
+  background: var(--text) !important;
+  color: var(--app) !important;
+}
+
+.codex-shot .stop-button.dsh-primary-send:hover {
+  opacity: 0.88;
+}
+
+/* DSH Hero workspace row below the card (`.ank0OG_heroWorkspaceRow`) */
+.codex-shot .composer-context-tray.dsh-claude-hero-tray {
+  width: 100%;
+  min-height: 28px;
+  margin: 6px 0 0;
+  padding: 0 8px;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  display: flex;
+  align-items: center;
+}
+
+.codex-shot .composer-context-tray.dsh-claude-hero-tray .composer-chips {
+  padding: 0;
+  gap: 6px;
 }
 
 .codex-shot .chip,
 .codex-shot .composer-context-tray .chip {
-  border: 1px solid transparent;
-  border-radius: 7px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-2);
   font-family: var(--font-ui);
@@ -604,7 +662,6 @@
 .codex-shot .chip:hover,
 .codex-shot .chip.active,
 .codex-shot .composer-context-tray .chip:hover {
-  border-color: transparent;
   background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
 }
@@ -612,7 +669,7 @@
 .codex-shot .composer-icon-button,
 .codex-shot .model-combo,
 .codex-shot .compact-select {
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--text-2);
   background: transparent;
   font-family: var(--font-ui);
@@ -636,56 +693,8 @@
   color: var(--text-3);
 }
 
-/* Send & Stop buttons */
-.codex-shot .send-button,
-.codex-shot .stop-button {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
-}
-
-.codex-shot .send-button {
-  background: var(--accent, #d97757);
-  color: var(--accent-text, #faf9f5);
-}
-
-.codex-shot .send-button:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--accent, #d97757) 86%, #141413);
-}
-
-:root[data-theme="dark"] .codex-shot .send-button:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--accent, #d97757) 85%, #faf9f5);
-}
-
-.codex-shot .send-button:active:not(:disabled),
-.codex-shot .stop-button:active {
-  transform: scale(0.95);
-}
-
-.codex-shot .send-button:disabled,
-:root[data-theme="light"] .codex-shot .send-button:disabled,
-:root[data-theme="dark"] .codex-shot .send-button:disabled {
-  opacity: 1;
-  background: transparent;
-  color: var(--dsh-claude-caption, var(--text-3));
-  border: 1px solid var(--dsh-claude-border-l2, var(--border-strong));
-  box-shadow: none;
-  cursor: default;
-}
-
-.codex-shot .stop-button {
-  background: transparent;
-  color: var(--text);
-  border: 1.6px solid currentColor;
-  border-radius: 50%;
-}
-
-.codex-shot .stop-button:hover {
-  background: var(--dsh-claude-hover-bg, var(--hover));
+.codex-shot .attachment-strip {
+  padding: 2px 14px 0;
 }
 
 .codex-shot .attachment-chip {

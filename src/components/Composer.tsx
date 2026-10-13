@@ -326,7 +326,7 @@ export const Composer = memo(function Composer({
             rows={1}
             disabled={disabled}
             className="composer-input"
-            placeholder={disabled ? "正在准备…" : isStreaming ? "继续指示…" : "如何让 Claude 帮您？"}
+            placeholder={disabled ? "正在准备…" : isStreaming ? "继续指示…" : "发消息，用 / 调用命令，@ 引用文件…"}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
               const shouldSubmit = requireCtrlEnter ? event.ctrlKey || event.metaKey : !event.shiftKey;
@@ -336,27 +336,21 @@ export const Composer = memo(function Composer({
               }
             }}
           />
-          {isInlineVariant && (
-            isStreaming ? (
-              <button type="button" className="stop-button inline-send-control" onClick={(e) => { e.stopPropagation(); onStop(); }} title="停止">
-                <Square size={8} fill="currentColor" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="send-button inline-send-control"
-                disabled={sendDisabled}
-                onClick={(e) => { e.stopPropagation(); void submit(); }}
-                title="发送"
-              >
-                <ArrowUp size={15} strokeWidth={2.2} />
-              </button>
-            )
-          )}
         </div>
 
         <div className="composer-toolbar">
           <div className="composer-toolbar-left">
+            <button
+              type="button"
+              className="composer-icon-button composer-add-trigger dsh-input-add-btn"
+              data-dsh-claude-control="commands"
+              onClick={() => { setWorkspaceOpen(false); setEnvironmentOpen(false); setActionsOpen((v) => !v); }}
+              disabled={disabled}
+              title="添加附件与切换模式"
+            >
+              <Plus size={16} strokeWidth={1.9} />
+            </button>
+
             <div className="dsh-claude-segments" role="radiogroup" aria-label="权限模式">
               {PERMISSION_OPTIONS.map((option) => {
                 const active = permissionMode === option.value;
@@ -379,17 +373,6 @@ export const Composer = memo(function Composer({
                 );
               })}
             </div>
-
-            <button
-              type="button"
-              className="composer-icon-button composer-add-trigger"
-              data-dsh-claude-control="commands"
-              onClick={() => { setWorkspaceOpen(false); setEnvironmentOpen(false); setActionsOpen((v) => !v); }}
-              disabled={disabled}
-              title="添加附件与切换模式"
-            >
-              <Plus size={16} strokeWidth={1.8} />
-            </button>
             {actionsOpen && (
               <div className="composer-actions-menu" role="menu">
                 <button type="button" onClick={() => { setActionsOpen(false); onPickAttachments(); }}>
@@ -510,22 +493,20 @@ export const Composer = memo(function Composer({
               onModelChange={onModelChange}
               onThinkingChange={onThinkingChange}
             />
-            {!isInlineVariant && (
-              isStreaming ? (
-                <button type="button" className="stop-button" onClick={onStop} title="停止">
-                  <Square size={11} fill="currentColor" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="send-button"
-                  disabled={sendDisabled}
-                  onClick={() => void submit()}
-                  title="发送"
-                >
-                  <ArrowUp size={16} strokeWidth={2.25} />
-                </button>
-              )
+            {isStreaming ? (
+              <button type="button" className="stop-button dsh-primary-send" onClick={onStop} title="停止">
+                <Square size={11} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="send-button dsh-primary-send"
+                disabled={sendDisabled}
+                onClick={() => void submit()}
+                title="发送"
+              >
+                <ArrowUp size={16} strokeWidth={2.25} />
+              </button>
             )}
           </div>
         </div>

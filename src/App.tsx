@@ -74,7 +74,7 @@ import { usePiStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import type { SettingsPage } from "./components/SettingsModal";
-import { PetCompanion } from "./components/PetCompanion";
+import { PetAvatar, PetCompanion } from "./components/PetCompanion";
 import {
   DESKTOP_PET_EVENT,
   DESKTOP_PET_DISABLE_EVENT,
@@ -88,7 +88,6 @@ import type { InspectorTab } from "./components/InspectorPanel";
 import { ConnectedInspectorPanel } from "./components/ConnectedInspectorPanel";
 import { ConversationMessages } from "./components/ConversationMessages";
 import { ClaudeHomeDashboard } from "./components/ClaudeHomeDashboard";
-import { CLAUDE_MARKS } from "./lib/claudeCrabSheets";
 import { ActiveGoalBar } from "./components/ActiveGoalBar";
 import { LivePlanBar } from "./components/LivePlanBar";
 import { isWorkspaceTool, ToolRail, type WorkspaceTool } from "./components/ToolRail";
@@ -2184,11 +2183,9 @@ export default function App() {
                   data-dsh-claude-home-layout={homeLayout}
                 >
                   <div className="vetta-home-intro dsh-claude-hero-headline">
-                    <span
-                      className="dsh-claude-hero-mark"
-                      style={{ backgroundImage: `url("${CLAUDE_MARKS["--dsh-claude-image-claude-mark-clay"]}")` }}
-                      aria-hidden="true"
-                    />
+                    <span className="dsh-claude-hero-pet" aria-hidden="true">
+                      <PetAvatar pet={activePet} busy={petBusy} state={petActivity} />
+                    </span>
                     <h1 className="new-task-heading">
                       {homeLayout === "studio"
                         ? (quickChat ? "接下来聊些什么？" : `接下来在 ${taskWorkspaceName} 做什么？`)

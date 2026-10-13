@@ -14,7 +14,7 @@
 .codex-shot .conversation {
   position: relative;
   gap: 12px;
-  padding-bottom: var(--dsh-claude-composer-fade-h, 40px);
+  padding-bottom: 16px;
 }
 
 .codex-shot .conversation .message-row {
