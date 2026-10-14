@@ -881,13 +881,6 @@ export function Sidebar({
               <span className="dsh-claude-account-popover-sub">本地工作区模式</span>
             </div>
             <div className="sidebar-popover-separator" />
-            <button type="button" onClick={() => { closePopovers(); onPickFolder(); }}>
-              <FolderOpen size={15} />打开项目文件夹…
-            </button>
-            <button type="button" onClick={() => { closePopovers(); onOpenPlugins(); }}>
-              <AtSign size={15} />插件与资源中心
-            </button>
-            <div className="sidebar-popover-separator" />
             <button type="button" onClick={() => { closePopovers(); onOpenSettings(); }}>
               <Settings size={15} />设置
             </button>
