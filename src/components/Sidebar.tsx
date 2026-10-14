@@ -487,13 +487,6 @@ export function Sidebar({
         </div>
       </div>
 
-      {brandMenuOpen && (
-        <div className="sidebar-popover sidebar-brand-menu" data-sidebar-popover>
-          <button type="button" onClick={() => { closePopovers(); onPickFolder(); }}><FolderOpen size={15} />选择项目</button>
-          <button type="button" onClick={() => { closePopovers(); onOpenSettings(); }}><Settings size={15} />设置</button>
-        </div>
-      )}
-
       {searchOpen && (
         <label className="session-search sidebar-search-popover" data-sidebar-popover>
           <Search size={13} />

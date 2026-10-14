@@ -383,47 +383,120 @@
   to { opacity: 1; transform: none; }
 }
 
-/* ── Permission Segmented Control (`.dsh-claude-segments`) ─────────── */
+/* ── Permission Chip & Menu (`.chip-permission` + `.permission-menu`) ─ */
 
-.codex-shot .dsh-claude-segments {
+.codex-shot .chip-permission {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 8px;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
   background: var(--dsh-claude-chip);
-  position: relative;
-}
-
-.codex-shot .dsh-claude-segment {
-  appearance: none;
-  margin: 0;
-  border: 0;
-  cursor: pointer;
-  background: transparent;
+  border: 1px solid transparent;
   color: var(--text-2);
   font-family: var(--font-ui);
   font-size: 12.5px;
   font-weight: 500;
-  line-height: 18px;
-  padding: 3px 10px;
-  border-radius: 6px;
-  transition: background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+  cursor: pointer;
+  transition: all 0.12s ease;
 }
 
-.codex-shot .dsh-claude-segment:hover:not([data-active]) {
+.codex-shot .chip-permission:hover,
+.codex-shot .chip-permission.active {
+  background: var(--dsh-claude-hover-bg, var(--hover));
+  color: var(--text);
+  border-color: var(--dsh-claude-border-l1, var(--border));
+}
+
+.codex-shot .chip-permission svg:first-child {
+  color: var(--accent, #d97757);
+}
+
+.codex-shot .chip-permission svg:last-child {
+  color: var(--text-3);
+  transition: transform 0.14s ease;
+}
+
+.codex-shot .chip-permission.active svg:last-child {
+  transform: rotate(180deg);
+}
+
+.codex-shot .permission-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 70;
+  width: 250px;
+  padding: 6px;
+  border: 1px solid var(--dsh-claude-border-l1, var(--border));
+  border-radius: 12px;
+  background: var(--dsh-claude-raised, var(--popover));
+  color: var(--text);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.codex-shot .permission-menu-heading {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 600;
+  padding: 4px 8px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.codex-shot .permission-menu > button {
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 9px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s ease;
+}
+
+.codex-shot .permission-menu > button:hover {
+  background: var(--dsh-claude-hover-bg, var(--hover));
+}
+
+.codex-shot .permission-menu > button.active {
+  background: var(--dsh-claude-hover-bg, var(--hover));
+  font-weight: 500;
+}
+
+.codex-shot .permission-menu > button.active > svg {
+  color: var(--accent, #d97757);
+}
+
+.codex-shot .permission-menu-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.codex-shot .permission-menu-copy strong {
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text);
 }
 
-.codex-shot .dsh-claude-segment[data-active] {
-  color: var(--text);
-  background: var(--panel-strong);
-}
-
-:root[data-theme="light"] .codex-shot .dsh-claude-segment[data-active] {
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(20, 20, 19, 0.08);
+.codex-shot .permission-menu-copy small {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.35;
 }
 
 /* ── DSH Native InputBar Card (`InputBar.module.css` `.uWtHQG_card`) ─ */
@@ -614,9 +687,9 @@
 }
 
 .codex-shot .send-button.dsh-primary-send:disabled {
-  background: var(--accent, #d97757) !important;
-  color: #ffffff !important;
-  opacity: 0.4 !important;
+  background: var(--dsh-claude-chip, var(--panel-strong)) !important;
+  color: var(--text-3) !important;
+  opacity: 0.7 !important;
   cursor: default;
 }
 
@@ -680,24 +753,116 @@
   min-width: 180px;
 }
 
-.codex-shot .chip,
-.codex-shot .composer-context-tray .chip {
+/* ── Context Chips Above Card (Crisp, High-Contrast & Clearly Defined) ── */
+
+.codex-shot .composer-breadcrumb-trail {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  margin: 0 0 10px 4px;
+  width: 100%;
+}
+
+.codex-shot .composer-breadcrumb-trail .chip {
   height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
+  padding: 0 11px;
+  border: 1px solid var(--dsh-claude-border-l1, var(--border));
+  border-radius: 8px;
+  background: var(--dsh-claude-chip, var(--panel-strong));
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: all 0.12s ease;
+}
+
+:root[data-theme="light"] .codex-shot .composer-breadcrumb-trail .chip {
+  background: #f6f6f4;
+  border-color: #dedcd2;
+  color: #141413;
+  box-shadow: 0 1px 2px rgba(20, 20, 19, 0.05);
+}
+
+.codex-shot .composer-breadcrumb-trail .chip:hover {
+  background: var(--dsh-claude-hover-bg, var(--hover));
+  color: var(--text);
+  border-color: var(--dsh-claude-border-l2, var(--border-strong));
+}
+
+:root[data-theme="light"] .codex-shot .composer-breadcrumb-trail .chip:hover {
+  background: #ffffff;
+  border-color: #c8c5b8;
+}
+
+.codex-shot .composer-breadcrumb-trail .chip svg:first-child {
+  color: var(--accent, #d97757);
+}
+
+.codex-shot .composer-breadcrumb-trail .chip svg:last-child {
+  color: var(--text-3);
+  transition: transform 0.14s ease;
+}
+
+.codex-shot .composer-breadcrumb-trail .chip-project span,
+.codex-shot .composer-breadcrumb-trail .chip-branch span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.codex-shot .composer-breadcrumb-trail .chip-branch {
+  cursor: default;
+  opacity: 0.85;
+}
+
+/* Integrated Workspace & Toolbar Chips */
+.codex-shot .chip,
+.codex-shot .composer-toolbar .chip {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--dsh-claude-chip);
   color: var(--text-2);
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.12s ease;
 }
 
 .codex-shot .chip:hover,
-.codex-shot .chip.active,
-.codex-shot .composer-context-tray .chip:hover {
+.codex-shot .composer-toolbar .chip:hover {
   background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
+  border-color: var(--dsh-claude-border-l1, var(--border));
+}
+
+.codex-shot .chip svg {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.codex-shot .chip:hover svg {
+  color: var(--text);
+}
+
+.codex-shot .chip-project span,
+.codex-shot .chip-branch span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
 }
 
 .codex-shot .composer-icon-button,
@@ -796,6 +961,60 @@
 .codex-shot .command-menu button:hover,
 .codex-shot .command-menu button.active {
   background: var(--dsh-claude-hover-bg, var(--hover));
+}
+
+/* ── Slash Command Menu Enhanced Layout ───────────────────────────── */
+
+.codex-shot .command-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 8px);
+  z-index: 70;
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.codex-shot .command-menu-item {
+  width: 100%;
+  display: grid !important;
+  grid-template-columns: minmax(90px, auto) 1fr auto !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 6px 10px !important;
+  border-radius: 7px !important;
+}
+
+.codex-shot .command-item-name {
+  font-family: var(--code-font);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent, #d97757);
+  background: color-mix(in srgb, var(--accent, #d97757) 14%, transparent);
+  padding: 1px 6px;
+  border-radius: 5px;
+  letter-spacing: -0.02em;
+}
+
+.codex-shot .command-item-desc {
+  font-size: 12.5px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .command-item-source {
+  font-style: normal;
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--dsh-claude-chip);
+  color: var(--text-3);
+  border: 1px solid var(--dsh-claude-border-l1, var(--border));
 }
 
 .codex-shot .composer-actions-menu button.active,

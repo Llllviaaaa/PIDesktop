@@ -23,12 +23,8 @@ import {
   X,
 } from "lucide-react";
 import type { AppSettings, AttachmentPayload, ManagedQueuedMessage, ModelInfo, SessionStats, SlashCommand } from "../types";
-import {
-  TRANSCRIPT_DENSITY_LABELS,
-  TRANSCRIPT_DENSITY_ORDER,
-  normalizeTranscriptDensity,
-  type TranscriptDensity,
-} from "../lib/transcriptDensity";
+import type { AppearancePetDefinition } from "../lib/appearanceCatalog";
+import type { TranscriptDensity } from "../lib/transcriptDensity";
 import { ClaudeComposerCrab } from "./ClaudeComposerCrab";
 import { ModelPicker } from "./ModelPicker";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
@@ -45,6 +41,7 @@ const PERMISSION_OPTIONS: Array<{
 ];
 
 interface ComposerProps {
+  pet?: AppearancePetDefinition;
   isStreaming: boolean;
   isSwitchingModel?: boolean;
   disabled?: boolean;
@@ -93,6 +90,7 @@ interface ComposerProps {
 }
 
 export const Composer = memo(function Composer({
+  pet,
   isStreaming,
   isSwitchingModel = false,
   disabled,
@@ -118,8 +116,8 @@ export const Composer = memo(function Composer({
   agentMode = "agent",
   contextUsage,
   variant = "follow-up",
-  transcriptDensity = "normal",
-  onTranscriptDensityChange,
+  transcriptDensity: _transcriptDensity = "normal",
+  onTranscriptDensityChange: _onTranscriptDensityChange,
   onSend,
   onStop,
   onPickAttachments,
@@ -233,6 +231,7 @@ export const Composer = memo(function Composer({
       .slice(0, 8);
   }, [workspaceOptions, workspaceQuery]);
   const workspaceName = workspace.split(/[\\/]/).filter(Boolean).pop() || "选择项目";
+  const activePermission = PERMISSION_OPTIONS.find((option) => option.value === permissionMode) ?? PERMISSION_OPTIONS[1];
 
   const submit = async () => {
     if (disabled || isSwitchingModel || (!text.trim() && attachments.length === 0)) return;
@@ -270,6 +269,79 @@ export const Composer = memo(function Composer({
         event.stopPropagation();
       }}
     >
+      {showWorkspaceChips && (
+        <div className="composer-breadcrumb-trail" aria-label="项目与工作环境">
+          <div className="workspace-context-wrap">
+            <button
+              type="button"
+              className="chip chip-project"
+              onClick={() => { setEnvironmentOpen(false); setActionsOpen(false); setWorkspaceOpen((v) => !v); }}
+              title={workspace || "选择项目"}
+            >
+              <Folder size={13} strokeWidth={1.75} />
+              <span>{workspaceName}</span>
+              <ChevronDown size={11} strokeWidth={1.75} />
+            </button>
+            {workspaceOpen && (
+              <div className="workspace-context-menu">
+                <label><Search size={13} /><input autoFocus value={workspaceQuery} onChange={(e) => setWorkspaceQuery(e.target.value)} placeholder="搜索项目" /></label>
+                <div className="workspace-context-list">
+                  {visibleWorkspaces.map((item) => (
+                    <button key={item} type="button" onClick={() => { onWorkspaceSelect?.(item); setWorkspaceOpen(false); setWorkspaceQuery(""); }} title={item}>
+                      <span>{item.split(/[\\/]/).filter(Boolean).pop()}</span>
+                      {item === workspace && <Check size={13} />}
+                    </button>
+                  ))}
+                  {visibleWorkspaces.length === 0 && <small>没有已知项目</small>}
+                </div>
+                <button type="button" className="workspace-context-new" onClick={() => { setWorkspaceOpen(false); onPickWorkspace?.(); }}>
+                  打开其他文件夹…
+                </button>
+                <button type="button" className="workspace-context-new" onClick={() => { setWorkspaceOpen(false); onQuickChat?.(); }}>
+                  不在项目中工作
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="environment-context-wrap">
+            <button
+              type="button"
+              className={`chip chip-env ${environment === "worktree" ? "worktree" : "local"}`}
+              onClick={() => { setWorkspaceOpen(false); setActionsOpen(false); setEnvironmentOpen((value) => !value); }}
+              title={environment === "worktree" ? "Worktree 隔离检出" : "本地工作区"}
+              aria-haspopup="menu"
+              aria-expanded={environmentOpen}
+            >
+              {environment === "worktree" ? <GitBranch size={13} /> : <Monitor size={13} />}
+              <span>{environment === "worktree" ? "Worktree" : "本地"}</span>
+              <ChevronDown size={11} strokeWidth={1.75} />
+            </button>
+            {environmentOpen && (
+              <div className="workspace-context-menu environment-context-menu" role="menu">
+                <div className="workspace-context-list">
+                  <button type="button" role="menuitem" onClick={() => { onEnvironmentChange?.("local"); setEnvironmentOpen(false); }}>
+                    <Monitor size={13} />
+                    <span>本地</span>
+                    {environment === "local" && <Check size={13} />}
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => { onEnvironmentChange?.("worktree"); setEnvironmentOpen(false); }}>
+                    <GitBranch size={13} />
+                    <span>Worktree</span>
+                    {environment === "worktree" && <Check size={13} />}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          {branchLabel ? (
+            <span className="chip chip-branch" title="当前分支">
+              <GitBranch size={13} strokeWidth={1.75} />
+              <span>{branchLabel}</span>
+            </span>
+          ) : null}
+        </div>
+      )}
+
       <div
         className={`composer-card unified ${showWorkspaceChips ? "with-chips" : "follow-up"}`}
         data-composer-card=""
@@ -278,24 +350,27 @@ export const Composer = memo(function Composer({
         data-dsh-claude-draft-empty={!text.trim() ? "" : undefined}
       >
         <ClaudeComposerCrab
+          pet={pet}
           isStreaming={isStreaming}
           isThinking={isStreaming && thinkingLevel !== "off"}
         />
 
         {commandMatches.length > 0 && (
-          <div className="command-menu">
+          <div className="command-menu" role="menu" aria-label="快捷指令">
             {commandMatches.map((command) => (
               <button
                 key={`${command.source}-${command.name}`}
                 type="button"
+                className="command-menu-item"
+                role="menuitem"
                 onClick={() => {
                   setText(`/${command.name} `);
                   textareaRef.current?.focus();
                 }}
               >
-                <span>/{command.name}</span>
-                <small>{command.description || command.source}</small>
-                <em>{command.source}</em>
+                <span className="command-item-name">/{command.name}</span>
+                <small className="command-item-desc">{command.description || command.source}</small>
+                <em className="command-item-source">{command.source}</em>
               </button>
             ))}
           </div>
@@ -351,27 +426,50 @@ export const Composer = memo(function Composer({
               <Plus size={16} strokeWidth={1.9} />
             </button>
 
-            <div className="dsh-claude-segments" role="radiogroup" aria-label="权限模式">
-              {PERMISSION_OPTIONS.map((option) => {
-                const active = permissionMode === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    data-active={active ? "" : undefined}
-                    disabled={disabled}
-                    className="dsh-claude-segment"
-                    title={option.description}
-                    onClick={() => {
-                      if (!active) void onPermissionChange?.(option.value);
-                    }}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
+            <div className="permission-context-wrap">
+              <button
+                type="button"
+                className={`chip chip-permission ${permissionOpen ? "active" : ""}`}
+                disabled={disabled}
+                onClick={() => {
+                  setWorkspaceOpen(false);
+                  setEnvironmentOpen(false);
+                  setActionsOpen(false);
+                  setPermissionOpen((value) => !value);
+                }}
+                title={`权限模式：${activePermission.label} · ${activePermission.description}`}
+                aria-label={`权限模式：${activePermission.label}`}
+                aria-haspopup="menu"
+                aria-expanded={permissionOpen}
+              >
+                <CircleCheck size={13} strokeWidth={1.75} />
+                <span>{activePermission.label}</span>
+                <ChevronDown size={11} strokeWidth={1.75} />
+              </button>
+              {permissionOpen && (
+                <div className="permission-menu" role="menu" aria-label="权限模式">
+                  <div className="permission-menu-heading">执行权限</div>
+                  {PERMISSION_OPTIONS.map((option) => (
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={permissionMode === option.value}
+                      className={permissionMode === option.value ? "active" : ""}
+                      key={option.value}
+                      onClick={() => {
+                        setPermissionOpen(false);
+                        void onPermissionChange?.(option.value);
+                      }}
+                    >
+                      <div className="permission-menu-copy">
+                        <strong>{option.label}</strong>
+                        <small>{option.description}</small>
+                      </div>
+                      {permissionMode === option.value && <Check size={14} />}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             {actionsOpen && (
               <div className="composer-actions-menu" role="menu">
@@ -437,20 +535,6 @@ export const Composer = memo(function Composer({
           </div>
 
           <div className="composer-toolbar-right">
-            {variant === "follow-up" && onTranscriptDensityChange && (
-              <label className="compact-select transcript-density" title="对话详细程度 (Ctrl+O)">
-                <select
-                  value={normalizeTranscriptDensity(transcriptDensity)}
-                  aria-label="对话详细程度"
-                  onChange={(event) => onTranscriptDensityChange(normalizeTranscriptDensity(event.target.value))}
-                >
-                  {TRANSCRIPT_DENSITY_ORDER.map((value) => (
-                    <option value={value} key={value}>{TRANSCRIPT_DENSITY_LABELS[value]}</option>
-                  ))}
-                </select>
-                <ChevronDown size={12} />
-              </label>
-            )}
             {normalizedContextPercent !== null && (
               <span className="composer-context-usage">
                 <span
@@ -512,73 +596,6 @@ export const Composer = memo(function Composer({
         </div>
       </div>
 
-      {showWorkspaceChips && (
-        <div className="composer-context-tray dsh-claude-hero-tray">
-          <div className="composer-chips in-card">
-            <div className="workspace-context-wrap">
-              <button type="button" className="chip chip-project" onClick={() => { setEnvironmentOpen(false); setActionsOpen(false); setWorkspaceOpen((v) => !v); }} title={workspace || "选择项目"}>
-                <Folder size={13} strokeWidth={1.75} />
-                <span>{workspaceName}</span>
-              </button>
-              {workspaceOpen && (
-                <div className="workspace-context-menu">
-                  <label><Search size={13} /><input autoFocus value={workspaceQuery} onChange={(e) => setWorkspaceQuery(e.target.value)} placeholder="搜索项目" /></label>
-                  <div className="workspace-context-list">
-                    {visibleWorkspaces.map((item) => (
-                      <button key={item} type="button" onClick={() => { onWorkspaceSelect?.(item); setWorkspaceOpen(false); setWorkspaceQuery(""); }} title={item}>
-                        <span>{item.split(/[\\/]/).filter(Boolean).pop()}</span>
-                        {item === workspace && <Check size={13} />}
-                      </button>
-                    ))}
-                    {visibleWorkspaces.length === 0 && <small>没有已知项目</small>}
-                  </div>
-                  <button type="button" className="workspace-context-new" onClick={() => { setWorkspaceOpen(false); onPickWorkspace?.(); }}>
-                    打开其他文件夹…
-                  </button>
-                  <button type="button" className="workspace-context-new" onClick={() => { setWorkspaceOpen(false); onQuickChat?.(); }}>
-                    不在项目中工作
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="environment-context-wrap">
-              <button
-                type="button"
-                className={`chip chip-env ${environment === "worktree" ? "worktree" : "local"}`}
-                onClick={() => { setWorkspaceOpen(false); setActionsOpen(false); setEnvironmentOpen((value) => !value); }}
-                title={environment === "worktree" ? "Worktree 隔离检出" : "本地工作区"}
-                aria-haspopup="menu"
-                aria-expanded={environmentOpen}
-              >
-                {environment === "worktree" ? <GitBranch size={13} /> : <Monitor size={13} />}
-                <span>{environment === "worktree" ? "Worktree" : "本地"}</span>
-              </button>
-              {environmentOpen && (
-                <div className="workspace-context-menu environment-context-menu" role="menu">
-                  <div className="workspace-context-list">
-                    <button type="button" role="menuitem" onClick={() => { onEnvironmentChange?.("local"); setEnvironmentOpen(false); }}>
-                      <Monitor size={13} />
-                      <span>本地</span>
-                      {environment === "local" && <Check size={13} />}
-                    </button>
-                    <button type="button" role="menuitem" onClick={() => { onEnvironmentChange?.("worktree"); setEnvironmentOpen(false); }}>
-                      <GitBranch size={13} />
-                      <span>Worktree</span>
-                      {environment === "worktree" && <Check size={13} />}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-            {branchLabel ? (
-              <span className="chip chip-branch" title="当前分支">
-                <GitBranch size={13} strokeWidth={1.75} />
-                <span>{branchLabel}</span>
-              </span>
-            ) : null}
-          </div>
-        </div>
-      )}
       {pendingCount > 0 && (
         <div className={`composer-queue ${queueOpen ? "open" : ""}`}>
           <button
