@@ -4261,7 +4261,6 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .codex-shot .task-start-composer .composer-card.with-chips {
   position: relative;
   z-index: 2;
-  margin-top: -10px;
   padding: 7px 0 5px;
   border-radius: 20px;
   background: #fff;

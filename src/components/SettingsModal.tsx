@@ -800,7 +800,7 @@ function ShortcutsPage({ form, update }: { form: AppSettings; update: Update }) 
   ];
   return <>
     <PageHeading title="键盘快捷键" description="查看并自定义常用操作的快捷键。" />
-    <Card>{rows.map(([key, title, description]) => <Row key={key} title={title} description={description}><input className="shortcut-input" value={String(form[key])} onChange={(event) => update(key, event.target.value as never)} /></Row>)}</Card>
+    <Card title="快捷键">{rows.map(([key, title, description]) => <Row key={key} title={title} description={description}><input className="shortcut-input" value={String(form[key])} onChange={(event) => update(key, event.target.value as never)} /></Row>)}</Card>
     <button className="secondary-button reset-shortcuts" onClick={() => rows.forEach(([key]) => update(key, DEFAULTS[key] as never))}><Undo2 size={14} /> 重置快捷键</button>
   </>;
 }
