@@ -204,6 +204,7 @@ export default function App() {
   }, [setTranscriptDensity, transcriptDensity]);
   const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth > 900);
   const [sidebarHoverPreview, setSidebarHoverPreview] = useState(false);
+  const [sidebarSearchRequested, setSidebarSearchRequested] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("general");
   const [hubView, setHubView] = useState<HubView | null>(null);
@@ -796,6 +797,8 @@ export default function App() {
       changes: settings?.shortcutChanges ?? "Ctrl+Shift+G",
       toggleSidebar: settings?.shortcutToggleSidebar ?? "Ctrl+B",
     };
+    // A shortcut the user bound to Ctrl+K wins over the built-in search.
+    const ctrlKBound = Object.values(shortcuts).some((value) => normalize(value) === "ctrl+k");
     const shortcutFor = (event: KeyboardEvent) => [
       event.ctrlKey ? "Ctrl" : "",
       event.altKey ? "Alt" : "",
@@ -818,6 +821,13 @@ export default function App() {
         if (document.querySelector("[data-escape-layer]")) return;
         event.preventDefault();
         setSettingsOpen(false);
+        return;
+      }
+      // Shells use Ctrl+K to kill the rest of the line.
+      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k" && !inTerminal && !settingsOpen && !ctrlKBound) {
+        event.preventDefault();
+        pinPrimarySidebar();
+        setSidebarSearchRequested(true);
         return;
       }
       if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "o" && !inTerminal) {
@@ -879,7 +889,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [connection, cycleTranscriptDensity, settings, settingsOpen, prepareNewTask, togglePrimarySidebar, toggleWorkspaceSidebar, toggleWorkspaceTool]);
+  }, [connection, cycleTranscriptDensity, settings, settingsOpen, prepareNewTask, pinPrimarySidebar, togglePrimarySidebar, toggleWorkspaceSidebar, toggleWorkspaceTool]);
 
   useSyncOnChange([editingTitle, resolvedThreadTitle], () => {
     if (!editingTitle) setTitleDraft(resolvedThreadTitle);
@@ -1893,6 +1903,9 @@ export default function App() {
             )}
             onOpenSettings={() => openSettingsPage("general")}
             onPickFolder={() => void pickFolder()}
+            newChatShortcut={settings?.shortcutNewChat ?? "Ctrl+Shift+N"}
+            searchRequested={sidebarSearchRequested}
+            onSearchRequestHandled={() => setSidebarSearchRequested(false)}
             hoverPreview={!sidebarVisible}
             onHoverEnter={cancelSidebarHoverClose}
             onHoverLeave={scheduleSidebarHoverClose}

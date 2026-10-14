@@ -74,6 +74,11 @@ interface SidebarProps {
   onArchiveProject: (workspace: string, sessions: SessionInfo[]) => void | Promise<void>;
   onOpenSettings: () => void;
   onPickFolder: () => void;
+  /** Shown as keycaps on the new session row, e.g. "Ctrl+Shift+N". */
+  newChatShortcut?: string;
+  /** Set by the Ctrl+K shortcut; the sidebar opens its search and then reports back. */
+  searchRequested?: boolean;
+  onSearchRequestHandled?: () => void;
   hoverPreview?: boolean;
   onHoverEnter?: () => void;
   onHoverLeave?: () => void;
@@ -182,11 +187,15 @@ export function Sidebar({
   onArchiveProject,
   onOpenSettings,
   onPickFolder,
+  newChatShortcut,
+  searchRequested = false,
+  onSearchRequestHandled,
   hoverPreview = false,
   onHoverEnter,
   onHoverLeave,
 }: SidebarProps) {
   const sidebarRef = useRef<HTMLElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const previewCloseTimer = useRef<number | null>(null);
   const requestedBranches = useRef(new Set<string>());
   const [query, setQuery] = useState("");
@@ -408,6 +417,21 @@ export function Sidebar({
     if (previewCloseTimer.current !== null) window.clearTimeout(previewCloseTimer.current);
   }, []);
 
+  useSyncOnChange([searchRequested], () => {
+    if (!searchRequested) return;
+    setSearchOpen(true);
+    setBrandMenuOpen(false);
+    setNotificationsOpen(false);
+    setProjectMenu(null);
+  });
+  useEffect(() => {
+    if (!searchRequested) return;
+    // The search may already be open with focus elsewhere, where autoFocus would not fire again.
+    searchInputRef.current?.focus();
+    searchInputRef.current?.select();
+    onSearchRequestHandled?.();
+  }, [onSearchRequestHandled, searchRequested]);
+
   useEffect(() => {
     const reload = () => void loadProjectConfigs();
     window.addEventListener("pid-desktop:projects-changed", reload);
@@ -448,26 +472,22 @@ export function Sidebar({
           <span className="codex-brand-name">Pi Desktop</span>
         </button>
 
-        <button
-          type="button"
-          className="dsh-claude-search-trigger"
-          onClick={() => {
-            setSearchOpen(true);
-            setBrandMenuOpen(false);
-            setNotificationsOpen(false);
-            setProjectMenu(null);
-          }}
-          title="搜索会话与项目 (Ctrl+K)"
-        >
-          <span className="dsh-claude-search-trigger-icon"><Search size={14} strokeWidth={1.8} /></span>
-          <span className="dsh-claude-search-trigger-label">{query ? `搜索：${query}` : "搜索"}</span>
-          <span className="dsh-claude-search-keys" aria-hidden="true">
-            <kbd className="dsh-claude-search-key">Ctrl</kbd>
-            <kbd className="dsh-claude-search-key">K</kbd>
-          </span>
-        </button>
-
         <div className="sidebar-brand-actions">
+          <button
+            type="button"
+            className={`icon-button ${searchOpen || query ? "active" : ""}`}
+            title={query ? `搜索：${query} (Ctrl+K)` : "搜索会话与项目 (Ctrl+K)"}
+            aria-label="搜索会话与项目"
+            aria-expanded={searchOpen}
+            onClick={() => {
+              setSearchOpen((value) => !value);
+              setBrandMenuOpen(false);
+              setNotificationsOpen(false);
+              setProjectMenu(null);
+            }}
+          >
+            <Search size={15} strokeWidth={1.7} />
+          </button>
           <button
             type="button"
             className={`icon-button notification-button ${notificationsOpen ? "active" : ""}`}
@@ -491,6 +511,7 @@ export function Sidebar({
         <label className="session-search sidebar-search-popover" data-sidebar-popover>
           <Search size={13} />
           <input
+            ref={searchInputRef}
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -569,10 +590,11 @@ export function Sidebar({
             <Plus size={12} strokeWidth={2.2} />
           </span>
           <span className="dsh-claude-new-session-label">新会话</span>
-          <span className="dsh-claude-new-session-shortcut" aria-hidden="true">
-            <kbd>Ctrl</kbd>
-            <kbd>N</kbd>
-          </span>
+          {newChatShortcut && (
+            <span className="dsh-claude-new-session-shortcut" aria-hidden="true">
+              {newChatShortcut.split("+").filter(Boolean).map((key) => <kbd key={key}>{key}</kbd>)}
+            </span>
+          )}
         </button>
         <button type="button" className={`nav-item ${activeHub === "plugins" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenPlugins(); }}>
           <AtSign size={14} strokeWidth={1.75} />
