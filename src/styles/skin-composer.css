@@ -701,24 +701,28 @@
   min-width: 180px;
 }
 
-/* ── Context Chips Above Card (Crisp, High-Contrast & Clearly Defined) ── */
+/* ── Context row above the card: quiet ghost selectors, like `.model-combo` ── */
 
 .codex-shot .composer-breadcrumb-trail {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
-  margin: 0 0 10px 4px;
+  gap: 2px;
   width: 100%;
+  min-width: 0;
+  margin: 0 0 6px;
+  /* 8px here + the chip's own 8px lines the first icon up with the card's text. */
+  padding: 0 8px;
 }
 
 .codex-shot .composer-breadcrumb-trail .chip {
-  height: 28px;
-  padding: 0 11px;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 8px;
-  background: var(--dsh-claude-chip, var(--panel-strong));
-  color: var(--text);
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
   font-family: var(--font-ui);
   font-size: 12.5px;
   font-weight: 500;
@@ -726,35 +730,22 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-  transition: all 0.12s ease;
+  box-shadow: none;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
-:root[data-theme="light"] .codex-shot .composer-breadcrumb-trail .chip {
-  background: #f6f6f4;
-  border-color: #dedcd2;
-  color: #141413;
-  box-shadow: 0 1px 2px rgba(20, 20, 19, 0.05);
-}
-
-.codex-shot .composer-breadcrumb-trail .chip:hover {
+.codex-shot .composer-breadcrumb-trail .chip:hover,
+.codex-shot .composer-breadcrumb-trail :is(.workspace-context-wrap, .environment-context-wrap):has(.workspace-context-menu) > .chip {
   background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
-  border-color: var(--dsh-claude-border-l2, var(--border-strong));
-}
-
-:root[data-theme="light"] .codex-shot .composer-breadcrumb-trail .chip:hover {
-  background: #ffffff;
-  border-color: #c8c5b8;
-}
-
-.codex-shot .composer-breadcrumb-trail .chip svg:first-child {
-  color: var(--accent, #d97757);
 }
 
 .codex-shot .composer-breadcrumb-trail .chip svg:last-child {
-  color: var(--text-3);
   transition: transform 0.14s ease;
+}
+
+.codex-shot .composer-breadcrumb-trail :is(.workspace-context-wrap, .environment-context-wrap):has(.workspace-context-menu) > .chip svg:last-child {
+  transform: rotate(180deg);
 }
 
 .codex-shot .composer-breadcrumb-trail .chip-project span,
@@ -765,9 +756,16 @@
   max-width: 160px;
 }
 
-.codex-shot .composer-breadcrumb-trail .chip-branch {
+/* The branch is a read-only label, so it stays flat and a step quieter. */
+.codex-shot .composer-breadcrumb-trail .chip-branch,
+.codex-shot .composer-breadcrumb-trail .chip-branch:hover {
+  background: transparent;
+  color: var(--text-3);
   cursor: default;
-  opacity: 0.85;
+}
+
+.codex-shot .composer-breadcrumb-trail .chip-branch:hover svg {
+  color: var(--text-3);
 }
 
 /* Integrated Workspace & Toolbar Chips */
