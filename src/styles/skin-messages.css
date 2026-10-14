@@ -1,25 +1,137 @@
 /*
- * Claude Code Desktop skin (`dsh-claude-style` port): transcript & message presentation.
+ * Claude Code Desktop skin: the transcript, ported from what DSH Desktop draws
+ * under `dsh-claude-style` — DeepSeek Harness' chat modules (`MessageItem`,
+ * `TurnProcessNodeView`, `ChatGroupSeat`, `ReasoningRow`, `AssistantMarkdown`,
+ * `MessageIconActions`, `ToolRow`, `DisclosureRow`, `TextShimmer`,
+ * `MarkdownText`, `CodeBlock`; MIT) with the skin's own overrides on top
+ * (palette, prose face, markdown rhythm, inline code, waiting line; MIT).
  *
- * Recreates the exact visual and structural presentation of `dsh-claude-style`:
- * - User message bubble: right-aligned warm wash (`--dsh-claude-bubble`), 16px radius, 10px 16px padding, max-width 70.2%.
- * - Turn process header (`.work-log`): 33px hairline-bottom row with process summary ("执行 N 次思考，调用 M 次工具") and shimmer while live.
- * - Reasoning row (`.claude-reasoning-row`): 24px disclosure row with single-line preview when collapsed and masked reasoning stream window when expanded.
- * - Tool row (`.tool-step`): 24px compact disclosure row with 16px leading icon/chevron swap, 2px dot separator, dotted-underline file link, and tabular `+n -m` diff stats.
- * - Markdown prose: editorial serif/prose rhythm (23px line-height), warm red inline code (`#943333` / `#e8a08a` with 1px border & 1.2 line-height), solid-underlined blue links (`#184f95` / `#8ab4f8`), neutral container blockquotes, and 12px bordered code/table cards.
- * - Waiting line (`.dsh-claude-chat-wait`): live status swap + tabular elapsed clock + 10s overtime badge.
- * - Turn navigator (`.dsh-claude-turn-rail`): right-edge tick rail with hover popover list and clay landed flash.
+ * Every size below is the host's at its default 14px content size.
  */
 
-.codex-shot .conversation {
+/* ── Tokens: the host aliases the transcript reads, per palette ─────── */
+
+.codex-shot {
+  --dshc-label-primary: var(--text);
+  --dshc-label-secondary: var(--text-2);
+  --dshc-label-tertiary: var(--text-3);
+  --dshc-label-caption: #6b6a65;
+  --dshc-border-l1: var(--border);
+  --dshc-border-l2: var(--border-strong);
+  --dshc-border-l3: #3a3833;
+  --dshc-bg-base: var(--app);
+  --dshc-hover: rgba(255, 255, 255, 0.08);
+  --dshc-hover-solid: #2e2c29;
+  --dshc-bubble: #2c2c2e;
+  --dshc-code-block: #1c1b1a;
+  --dshc-code-banner: #242320;
+  --dshc-inline-code-bg: rgba(255, 255, 255, 0.05);
+  --dshc-inline-code-fg: #e8a08a;
+  --dshc-link: #8ab4f8;
+  --dshc-link-underline: rgba(138, 180, 248, 0.6);
+  --dshc-file-link: #e08a6d;
+  --dshc-table-head: #242320;
+  --dshc-quote-bg: #faf9f50f;
+  --dshc-success: #22c55e;
+  --dshc-error: #f25a5a;
+  --dshc-warn: #f59e0b;
+  --dshc-warn-label: #dd8629;
+  --dshc-diff-added: #22c55e1f;
+  --dshc-diff-deleted: #f25a5a1f;
+  --dshc-shimmer: color-mix(in srgb, #fff 45%, transparent);
+  --dshc-deep-diving: color-mix(in srgb, #5686fe 55%, #adb2b8);
+  --dshc-font-ui: var(--font-ui);
+  --dshc-font-prose: var(--font-prose);
+  --dshc-font-code: var(--code-font);
+  /*
+   * The host's content size axis: the body size (Settings → 对话字号), the
+   * secondary tier one step under it, and the px deltas the row heights,
+   * line heights and glyph boxes move by.
+   */
+  --dshc-fs: var(--dsh-content-font-size, 14px);
+  --dshc-fd: calc(var(--dshc-fs) - 14px);
+  --dshc-fs-2: min(calc(var(--dshc-fs) - 1px), max(13px, calc(var(--dshc-fs) - 2px)));
+  --dshc-fd-2: calc(var(--dshc-fs-2) - 13px);
+}
+
+:root[data-theme="light"] .codex-shot {
+  --dshc-label-caption: #a6a094;
+  --dshc-border-l3: #d0cdc1;
+  --dshc-hover: rgba(0, 0, 0, 0.08);
+  --dshc-hover-solid: #f0efe9;
+  --dshc-bubble: rgba(0, 0, 0, 0.08);
+  --dshc-code-block: #ffffff;
+  --dshc-code-banner: #ffffff;
+  --dshc-inline-code-bg: rgba(0, 0, 0, 0.05);
+  --dshc-inline-code-fg: #943333;
+  --dshc-link: #184f95;
+  --dshc-link-underline: rgba(24, 79, 149, 0.6);
+  --dshc-file-link: #c6613f;
+  --dshc-table-head: #f0f0ef;
+  --dshc-quote-bg: #1414130a;
+  --dshc-error: #ec1313;
+  --dshc-diff-added: #22c55e14;
+  --dshc-diff-deleted: #ec131314;
+  --dshc-shimmer: color-mix(in srgb, #000 30%, transparent);
+  --dshc-deep-diving: color-mix(in srgb, #4176e6 70%, #172554);
+}
+
+.codex-shot .dshc-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Flow: the column's gaps (ChatView.module.css) ─────────────────── */
+
+.codex-shot .conversation:not(.new-task-conversation) {
   position: relative;
-  gap: 12px;
   padding-bottom: 16px;
 }
 
-.codex-shot .conversation .message-row {
-  color: var(--text);
-  position: relative;
+.codex-shot .dshc-flow {
+  min-width: 0;
+  margin: 0;
+  color: var(--dshc-label-primary);
+  font-family: var(--dshc-font-ui);
+  font-size: var(--dshc-fs);
+  line-height: calc(24px + var(--dshc-fd));
+}
+
+.codex-shot .dshc-flow + .dshc-flow {
+  margin-top: 6px;
+}
+
+/* A settled turn's duration divider and a reply's answer sit further from what precedes them. */
+.codex-shot .dshc-flow + .dshc-turn:has(> .dshc-turn-process:first-child) {
+  margin-top: 16px;
+}
+
+.codex-shot .dshc-flow + .dshc-turn:has(> .dshc-answer:first-child) {
+  margin-top: 12px;
+}
+
+.codex-shot .load-earlier-messages {
+  display: flex;
+  justify-content: center;
+  width: fit-content;
+  min-height: 0;
+  margin: 0 auto 12px;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--dshc-hover-solid);
+  color: var(--dshc-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.codex-shot .load-earlier-messages:hover {
+  background: var(--dshc-hover-solid);
+  color: var(--dshc-label-primary);
 }
 
 /* Turn navigator landed flash (dsh-claude-style D34) */
@@ -47,291 +159,437 @@
   animation: dsh-claude-turn-nav-landed 1.4s ease-out forwards;
 }
 
-/* ── User bubble (`MessageItem.module.css` + `dsh-claude-style`) ───── */
+/* ── User row: right-aligned plain-text bubble (MessageItem.module.css) ── */
 
-.codex-shot .user-message,
-.codex-shot .conversation:not(.new-task-conversation) > .user-message {
-  width: 100% !important;
-  max-width: 100% !important;
-  margin-left: 0 !important;
+.codex-shot .dshc-user-row {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 6px;
 }
 
-.codex-shot .user-message .user-content,
-.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-content {
+.codex-shot .dshc-user-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(70.2%, 82%);
+}
+
+.codex-shot .side-chat-messages .dshc-user-stack {
+  max-width: 82%;
+}
+
+.codex-shot .dshc-bubble {
   position: relative;
   box-sizing: border-box;
-  width: fit-content !important;
-  min-width: 0;
-  max-width: min(calc(748px * 0.702), 82%) !important;
-  padding: 10px 16px !important;
-  border: 0;
-  border-radius: 16px !important;
-  background: var(--dsh-claude-bubble, var(--hover)) !important;
-  color: var(--text) !important;
-  font-family: var(--font-ui);
-  font-size: 14px !important;
-  line-height: 22px !important;
-  box-shadow: none !important;
-  white-space: pre-wrap;
-  word-break: normal !important;
-  overflow-wrap: break-word !important;
-}
-
-.codex-shot .user-message .user-message-text,
-.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-message-text {
-  width: auto;
   max-width: 100%;
-  min-width: 0;
-}
-
-.codex-shot .user-message .user-content .markdown-body,
-.codex-shot .user-message .user-content .markdown-body p,
-.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-content .markdown-body,
-.codex-shot .conversation:not(.new-task-conversation) > .user-message .user-content .markdown-body p {
-  font-family: var(--font-ui);
-  font-size: 14px !important;
-  line-height: 22px !important;
-  margin: 0;
+  padding: 10px 16px;
+  border-radius: 20px;
+  background: var(--dshc-bubble);
+  color: var(--dshc-label-primary);
+  font-family: var(--dshc-font-ui);
+  font-size: var(--dshc-fs);
+  line-height: calc(22px + var(--dshc-fd));
   white-space: pre-wrap;
-  word-break: normal !important;
-  overflow-wrap: break-word !important;
+  word-break: break-word;
 }
 
-.codex-shot .user-message .user-content .markdown-body p + p {
-  margin-top: 6px;
+.codex-shot .dshc-bubble-text {
+  min-width: 0;
+  transition: max-height 360ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.codex-shot .user-message-text.is-collapsed::after {
-  background: linear-gradient(to bottom, transparent, var(--panel-strong));
+.codex-shot .dshc-bubble.is-collapsible {
+  padding-bottom: 36px;
 }
 
-.codex-shot .user-message-expand {
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 999px;
-  background: var(--dsh-claude-card, var(--app));
-  color: var(--text-2);
+.codex-shot .dshc-bubble.is-collapsed .dshc-bubble-text {
+  max-height: var(--user-message-collapsed-height, 132px);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 44px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 44px), transparent 100%);
 }
 
-.codex-shot .user-message-expand:hover {
-  background: var(--dsh-claude-hover-bg, var(--hover));
-  color: var(--text);
+.codex-shot .dshc-bubble.is-expanded .dshc-bubble-text {
+  max-height: var(--user-message-full-height, none);
+  overflow: hidden;
 }
 
-.codex-shot .message-images img {
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 12px;
-  background: var(--panel-soft);
+.codex-shot .dshc-bubble-expand {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 28px;
+  height: calc(24px + var(--dshc-fd));
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dshc-label-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(-50%);
+  cursor: pointer;
 }
 
-.codex-shot .user-message-actions {
+.codex-shot .dshc-bubble-expand:hover {
+  background: var(--dshc-hover);
+}
+
+.codex-shot .dshc-attachment-row {
+  display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
-  height: 28px;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 80ms ease;
+  gap: 8px;
+  max-width: 100%;
 }
 
-.codex-shot .user-message:hover .user-message-actions,
-.codex-shot .user-message:focus-within .user-message-actions {
-  opacity: 1;
+.codex-shot .dshc-attachment-row img {
+  max-width: 240px;
+  max-height: 200px;
+  object-fit: contain;
+  border: 0.5px solid var(--dshc-border-l2);
+  border-radius: 12px;
+  background: var(--dshc-bg-base);
 }
 
-.codex-shot .message-edit-card {
-  width: min(100%, 640px);
-  border: 1px solid var(--dsh-claude-border-l2, var(--border-strong));
-  border-radius: 16px;
+.codex-shot .dshc-user-row.is-editing {
+  align-items: stretch;
+}
+
+.codex-shot .dshc-user-row .message-edit-card {
+  width: 100%;
+  border: 1px solid var(--dshc-border-l2);
+  border-radius: 20px;
   background: var(--dsh-claude-input-major, var(--panel));
   box-shadow: 0 4px 12px rgba(20, 20, 19, 0.06);
 }
 
-.codex-shot .message-edit-submit {
+.codex-shot .dshc-user-row .message-edit-submit {
   border-radius: 9999px;
   background: var(--accent);
   color: var(--accent-text);
   font-weight: 500;
 }
 
-/* ── Turn process group (`.work-log` / `TurnProcessNodeView` + `ChatGroupSeat`) ── */
+/* ── Icon actions: copy, the caller's own, and the clock (MessageIconActions) ── */
 
-.codex-shot .work-log {
-  margin-bottom: 12px;
-  padding-bottom: 0;
-  border-bottom: 0;
-}
-
-.codex-shot .assistant-message.work-only .work-log {
-  border-bottom: 0;
-  margin-bottom: 0;
-}
-
-.codex-shot .work-log-toggle {
-  box-sizing: border-box;
+.codex-shot .dshc-actions {
   display: flex;
-  width: 100%;
-  min-width: 0;
-  height: 33px;
   align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 0 0 8px;
-  border: 0;
-  border-bottom: 0.5px solid var(--dsh-claude-border-l2, var(--border));
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-3);
-  font-family: var(--font-ui);
-  font-size: 13.5px;
-  font-weight: 400;
-  line-height: 24px;
-  cursor: pointer;
-  user-select: none;
-  transition: color 0.1s ease;
-  list-style: none;
+  gap: 8px;
+  height: calc(28px + var(--dshc-fd));
 }
 
-.codex-shot .work-log-toggle::-webkit-details-marker {
-  display: none;
-}
-
-.codex-shot .work-log-toggle.is-static {
-  cursor: default;
-}
-
-.codex-shot .work-log-toggle:not(.is-static):hover {
-  background: transparent;
-  color: var(--text-2);
-}
-
-.codex-shot .work-log-label {
-  flex: 0 0 auto;
-  font-variant-numeric: tabular-nums;
-}
-
-.codex-shot .dsh-claude-process-summary {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.codex-shot .dshc-time-start {
+  padding-right: 12px;
+  color: var(--dshc-label-tertiary);
+  font-size: var(--dshc-fs-2);
+  line-height: calc(24px + var(--dshc-fd));
   white-space: nowrap;
-  color: var(--text-3);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
 }
 
-.codex-shot .work-log-summary-dot {
-  color: var(--dsh-claude-caption, var(--text-3));
-}
-
-.codex-shot .work-log-toggle svg {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  margin-left: 2px;
+.codex-shot .dshc-time-end {
   color: inherit;
-  transition: transform 0.14s ease;
-}
-
-.codex-shot .work-log-toggle svg.open {
-  transform: rotate(90deg);
-}
-
-.codex-shot .work-log.is-live .work-log-label,
-.codex-shot .work-log.is-live .dsh-claude-process-summary {
-  color: transparent;
-  background-image: linear-gradient(
-    90deg,
-    var(--tool-shimmer-base) 0%,
-    var(--tool-shimmer-base) 40%,
-    var(--tool-shimmer-peak) 50%,
-    var(--tool-shimmer-base) 60%,
-    var(--tool-shimmer-base) 100%
-  );
-  background-size: 250% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  animation: text-shimmer 1.6s cubic-bezier(0.33, 0, 0.67, 1) infinite;
-}
-
-/* Process body: stacked disclosure rows with 6px flow gap (ChatGroupSeat.module.css) */
-.codex-shot .work-log-body {
-  margin: 6px 0 0;
-  padding: 2px 0 4px;
-  border-left: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: min(400px, 50vh);
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-gutter: stable;
-  animation: work-log-open 150ms ease-out both;
-}
-
-.codex-shot .conversation.density-verbose .work-log-body {
-  max-height: none;
-  overflow: visible;
-}
-
-@keyframes work-log-open {
-  from { opacity: 0; transform: translateY(-2px); }
-  to { opacity: 1; transform: none; }
-}
-
-/* ── Reasoning row (`ReasoningRow.module.css` + `reasoning-stream.css`) ── */
-
-.codex-shot .claude-reasoning-row {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.codex-shot .claude-reasoning-header {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  height: 24px;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-3);
-  font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 24px;
-  text-align: left;
-  cursor: pointer;
-  transition: color 100ms ease;
+  white-space: nowrap;
 }
 
-.codex-shot .claude-reasoning-header:hover {
-  color: var(--text-2);
+.codex-shot .dshc-end-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-left: 8px;
+  color: var(--dshc-label-tertiary);
 }
 
-.codex-shot .claude-reasoning-leading {
-  position: relative;
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin-right: 6px;
+.codex-shot .dshc-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: calc(28px + var(--dshc-fd));
+  height: calc(28px + var(--dshc-fd));
+  padding: 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dshc-label-tertiary);
+  cursor: pointer;
+}
+
+.codex-shot .dshc-action svg {
+  width: calc(15px + var(--dshc-fd));
+  height: calc(15px + var(--dshc-fd));
+}
+
+.codex-shot .dshc-actions[data-clock="end"] .dshc-action svg {
+  width: calc(17px + var(--dshc-fd));
+  height: calc(17px + var(--dshc-fd));
+}
+
+.codex-shot .dshc-action:hover:not(:disabled) {
+  background: var(--dshc-hover);
+  color: var(--dshc-label-secondary);
+}
+
+.codex-shot .dshc-action:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.codex-shot .dshc-turn-actions {
+  margin-left: -6px;
+}
+
+@media (hover: hover) {
+  .codex-shot [data-actions-reveal="hover"] .dshc-actions,
+  .codex-shot [data-chat-flow-kind="user"]:has(~ [data-chat-flow-kind="user"]) .dshc-actions {
+    opacity: 0;
+    transition: opacity 80ms;
+  }
+
+  .codex-shot [data-actions-reveal="hover"]:hover .dshc-actions,
+  .codex-shot [data-actions-reveal="hover"]:focus-within .dshc-actions,
+  .codex-shot [data-chat-flow-kind="user"]:has(~ [data-chat-flow-kind="user"]):hover .dshc-actions,
+  .codex-shot [data-chat-flow-kind="user"]:has(~ [data-chat-flow-kind="user"]):focus-within .dshc-actions {
+    opacity: 1;
+  }
+}
+
+/* ── An assistant turn: divider, process, answer, running line, tail ── */
+
+.codex-shot .dshc-turn {
+  display: flex;
+  flex-direction: column;
+}
+
+.codex-shot .dshc-turn > * + * {
+  margin-top: 6px;
+}
+
+/* A narration is a response part: 12px either side of it (ChatView flow gaps). */
+.codex-shot .dshc-turn > * + .dshc-process-text,
+.codex-shot .dshc-turn > .dshc-process-text + * {
+  margin-top: 12px;
+}
+
+.codex-shot .dshc-turn > .dshc-turn-process + *,
+.codex-shot .dshc-turn > * + .dshc-answer,
+.codex-shot .dshc-turn > * + .dshc-turn-error,
+.codex-shot .dshc-turn > * + .turn-plan {
+  margin-top: 16px;
+}
+
+.codex-shot .dshc-turn[data-turn-open] > * + .dshc-answer,
+.codex-shot .dshc-turn > * + .dshc-running {
+  margin-top: 12px;
+}
+
+.codex-shot .dshc-turn > * + .dshc-turn-actions {
+  margin-top: 16px;
+}
+
+/* The settled turn's duration and process disclosure (TurnProcessNodeView.module.css). */
+.codex-shot .dshc-turn-process {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  height: calc(33px + var(--dshc-fd));
+  margin-bottom: 0;
+  padding: 0 0 8px;
+  border: none;
+  border-bottom: 0.5px solid var(--dshc-border-l2);
+  border-radius: 0;
+  background: transparent;
+  color: var(--dshc-label-tertiary);
+  font: inherit;
+  font-family: var(--dshc-font-ui);
+  font-size: var(--dshc-fs);
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.1s;
+}
+
+.codex-shot .dshc-turn-process:disabled {
+  cursor: default;
+}
+
+.codex-shot .dshc-turn-process:hover:not(:disabled) {
+  color: var(--dshc-label-secondary);
+}
+
+.codex-shot .dshc-turn-process-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: inherit;
+  line-height: calc(24px + var(--dshc-fd));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .dshc-duration-number {
+  font-family: var(--dshc-font-code);
+  font-variant-numeric: tabular-nums;
+}
+
+.codex-shot .dshc-turn-process-chevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  color: inherit;
+  transition: transform 0.1s;
+}
+
+.codex-shot .dshc-turn-process[data-open] .dshc-turn-process-chevron {
+  transform: rotate(180deg);
+}
+
+.codex-shot .dshc-hint {
+  color: var(--dshc-label-tertiary);
+  font-size: var(--dshc-fs-2);
+  line-height: calc(18px + var(--dshc-fd-2));
+}
+
+/* ── Shared row primitives: TextShimmer, DisclosureRow, StateDot ───── */
+
+.codex-shot .dshc-shimmer {
+  position: relative;
+  display: inline-grid;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: top;
   color: inherit;
 }
 
-.codex-shot .claude-reasoning-icon {
+.codex-shot .dshc-shimmer-content {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.codex-shot .dshc-shimmer-decoration {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+  user-select: none;
+}
+
+.codex-shot .dshc-shimmer-sweep {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--dshc-shimmer);
+  -webkit-mask-image: linear-gradient(105deg, transparent 0%, black 40% 60%, transparent 100%);
+  mask-image: linear-gradient(105deg, transparent 0%, black 40% 60%, transparent 100%);
+  transform: translateX(-100%);
+  animation-name: dshc-shimmer-sweep;
+}
+
+.codex-shot .dshc-shimmer-sweep * {
+  color: inherit !important;
+  text-decoration-color: currentColor !important;
+}
+
+.codex-shot .dshc-shimmer-sweep [data-shimmer-decoration] {
+  background: currentColor;
+}
+
+.codex-shot .dshc-shimmer-highlight {
+  width: 100%;
+  height: 100%;
+  transform: translateX(100%);
+  animation-name: dshc-shimmer-highlight;
+}
+
+.codex-shot .dshc-shimmer-sweep,
+.codex-shot .dshc-shimmer-highlight {
+  animation-duration: 1.5s;
+  animation-delay: 0.3s;
+  animation-timing-function: steps(48, end);
+  animation-iteration-count: infinite;
+}
+
+@keyframes dshc-shimmer-sweep {
+  0% { transform: translateX(-100%); }
+  66.6667%, 100% { transform: translateX(100%); }
+}
+
+@keyframes dshc-shimmer-highlight {
+  0% { transform: translateX(100%); }
+  66.6667%, 100% { transform: translateX(-100%); }
+}
+
+.codex-shot .dshc-disclosure {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+.codex-shot .dshc-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: calc(24px + var(--dshc-fd));
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dshc-label-tertiary);
+  font-family: var(--dshc-font-ui);
+  font-size: var(--dshc-fs);
+  transition: color 100ms ease;
+}
+
+.codex-shot .dshc-row[data-expandable] {
+  cursor: pointer;
+}
+
+.codex-shot .dshc-row:hover {
+  color: var(--dshc-label-secondary);
+}
+
+.codex-shot .dshc-row:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+  border-radius: 4px;
+}
+
+.codex-shot .dshc-leading {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(16px + var(--dshc-fd));
+  height: calc(16px + var(--dshc-fd));
+  margin-right: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+.codex-shot .dshc-leading svg:not([data-state]) {
+  width: calc(14px + var(--dshc-fd));
+  height: calc(14px + var(--dshc-fd));
+}
+
+.codex-shot .dshc-icon-idle {
+  display: inline-flex;
   opacity: 1;
   transition: opacity 100ms ease;
 }
 
-.codex-shot .claude-reasoning-chevron {
+.codex-shot .dshc-chevron-hover {
   position: absolute;
   inset: 0;
   margin: auto;
@@ -339,605 +597,1221 @@
   transition: opacity 100ms ease;
 }
 
-.codex-shot .claude-reasoning-header:hover .claude-reasoning-icon {
+.codex-shot .dshc-row:hover .dshc-icon-idle {
   opacity: 0;
 }
 
-.codex-shot .claude-reasoning-header:hover .claude-reasoning-chevron {
+.codex-shot .dshc-row:hover .dshc-chevron-hover {
   opacity: 1;
 }
 
-.codex-shot .claude-reasoning-title {
+/* The skin sets every `*title*` in its serif display face at 500 (dsh-claude-style Typography). */
+.codex-shot .dshc-title {
   flex: none;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 24px;
   color: inherit;
+  font-family: var(--dshc-font-prose);
+  font-size: var(--dshc-fs-2);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
 }
 
-.codex-shot .claude-reasoning-sep {
+.codex-shot .dshc-sep {
   flex: none;
   width: 2px;
   height: 2px;
   margin: 0 8px;
   border-radius: 1px;
-  background: var(--dsh-claude-caption, var(--text-3));
+  background: var(--dshc-label-caption);
 }
 
-.codex-shot .claude-reasoning-preview {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-3);
-  font-size: 13px;
-  line-height: 20px;
-}
-
-.codex-shot .work-log-thinking,
-.codex-shot .work-log-note {
-  margin: 0;
-  padding: 4px 0 4px 22px;
-  border: 0;
-  background: transparent;
-  color: var(--text-3);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  font-style: normal;
-  line-height: 20px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.codex-shot .work-log-thinking[hidden] {
-  display: none !important;
-}
-
-.codex-shot .work-log-thinking[data-dsh-claude-reason-window] {
-  max-height: 220px;
-  overflow-y: auto;
-  mask-image: linear-gradient(transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
-  -webkit-mask-image: linear-gradient(transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
-}
-
-.codex-shot .tool-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-/* ── Tool rows (`DisclosureRow.module.css` + `ToolRow.module.css` + `chat-files.css`) ── */
-
-.codex-shot .tool-step {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  margin: 0;
-  border: 0;
-  background: transparent;
-}
-
-.codex-shot .tool-step-heading {
+.codex-shot .dshc-state-dot {
   position: relative;
-  overflow: hidden;
-  width: 100%;
-  max-width: 100%;
-  height: 24px;
-  min-height: 24px;
-  display: flex;
-  align-items: center;
-  gap: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-3);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  line-height: 24px;
-  text-align: left;
-  transition: color 100ms ease;
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  color: var(--dshc-success);
 }
 
-.codex-shot .tool-step-heading:not(:disabled) {
-  cursor: pointer;
+.codex-shot .dshc-state-dot::after {
+  content: "";
+  position: absolute;
+  inset: 20%;
+  border-radius: 50%;
+  background: currentColor;
 }
 
-.codex-shot .tool-step-heading:not(:disabled):hover {
-  background: transparent;
-  color: var(--text-2);
+.codex-shot .dshc-state-dot[data-state="error"] {
+  color: var(--dshc-error);
 }
 
-.codex-shot .tool-step-heading:disabled {
-  opacity: 1;
-  cursor: default;
-}
-
-.codex-shot .tool-icon {
-  position: relative;
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  margin-right: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.codex-shot .dshc-spinner {
+  flex: none;
   color: inherit;
 }
 
-.codex-shot .tool-icon svg {
-  width: 14px;
-  height: 14px;
+.codex-shot .dshc-spinner-motion {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dshc-state-spin 1.5s linear infinite;
 }
 
-.codex-shot .tool-icon-idle {
+.codex-shot .dshc-spinner-track,
+.codex-shot .dshc-spinner-arc {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.codex-shot .dshc-spinner-track {
+  opacity: 0.25;
+}
+
+.codex-shot .dshc-spinner-arc {
+  stroke-dasharray: 12 150;
+  animation: dshc-state-dash 1.5s ease-in-out infinite;
+}
+
+@keyframes dshc-state-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes dshc-state-dash {
+  0% { stroke-dasharray: 12 150; stroke-dashoffset: 0; }
+  50% { stroke-dasharray: 24 150; stroke-dashoffset: -6; }
+  100% { stroke-dasharray: 12 150; stroke-dashoffset: 0; }
+}
+
+/* ── Process group: a folded header over a capped body (ChatGroupSeat.module.css) ── */
+
+.codex-shot .dshc-group {
+  min-width: 0;
+}
+
+.codex-shot .dshc-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dshc-label-tertiary);
+  font: inherit;
+  font-family: var(--dshc-font-prose);
+  font-size: var(--dshc-fs);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.1s;
+}
+
+.codex-shot .dshc-group-title:hover {
+  color: var(--dshc-label-secondary);
+}
+
+.codex-shot .dshc-group-title[aria-expanded="true"] {
+  padding-bottom: 8px;
+}
+
+.codex-shot .dshc-group-leading {
+  position: relative;
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  opacity: 1;
-  transition: opacity 100ms ease;
+  width: calc(16px + var(--dshc-fd));
+  height: calc(16px + var(--dshc-fd));
+  color: inherit;
 }
 
-.codex-shot .tool-icon-chevron {
+.codex-shot .dshc-group-leading svg {
+  width: calc(14px + var(--dshc-fd));
+  height: calc(14px + var(--dshc-fd));
+}
+
+.codex-shot .dshc-group-activity,
+.codex-shot .dshc-group-chevron {
   position: absolute;
   inset: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity 100ms ease;
+  transition: opacity 0.1s;
 }
 
-.codex-shot .tool-step-heading:not(:disabled):hover .tool-icon:has(.tool-icon-chevron) .tool-icon-idle {
-  opacity: 0;
-}
-
-.codex-shot .tool-step-heading:not(:disabled):hover .tool-icon-chevron {
+.codex-shot .dshc-group-activity {
   opacity: 1;
 }
 
-.codex-shot .tool-summary {
-  min-width: 0;
-  flex: 0 1 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  overflow: hidden;
+.codex-shot .dshc-group-chevron,
+.codex-shot .dshc-group-title:is(:hover, :focus-visible) .dshc-group-activity,
+.codex-shot .dshc-group-title[aria-expanded="true"] .dshc-group-activity {
+  opacity: 0;
 }
 
-.codex-shot .tool-verb {
-  flex: 0 0 auto;
-  color: inherit;
-  font-weight: 400;
-  transition: color 0.1s ease;
+.codex-shot .dshc-group-title:is(:hover, :focus-visible) .dshc-group-chevron,
+.codex-shot .dshc-group-title[aria-expanded="true"] .dshc-group-chevron {
+  opacity: 1;
 }
 
-.codex-shot .tool-step-heading:hover .tool-verb {
-  color: var(--text);
-}
-
-.codex-shot .tool-sep {
-  flex: none;
-  width: 2px;
-  height: 2px;
-  margin: 0 8px;
-  border-radius: 1px;
-  background: var(--dsh-claude-caption, var(--text-3));
-}
-
-.codex-shot .tool-target {
+.codex-shot .dshc-group-label {
   min-width: 0;
   overflow: hidden;
-  color: var(--text-3);
-  font-size: 13px;
-  line-height: 24px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: color 0.1s ease;
 }
 
-/* dsh-claude-style file link: dotted underline, secondary ink, primary on hover */
-.codex-shot .tool-target.is-file {
-  color: var(--text-2);
-  text-decoration: underline dotted;
-  text-decoration-color: var(--text-3);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
+.codex-shot .dshc-group-body {
+  max-height: min(400px, 50vh);
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  scrollbar-gutter: stable;
 }
 
-.codex-shot .tool-step-heading:hover .tool-target.is-file,
-.codex-shot .tool-target.is-file:hover {
-  color: var(--text);
-  text-decoration-color: currentColor;
+.codex-shot .dshc-group-body.is-expanded {
+  max-height: none;
+  overflow: visible;
+  scrollbar-gutter: auto;
 }
 
-.codex-shot .tool-target.is-command {
-  padding: 0 5px;
-  border: 0.5px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 4px;
-  background: var(--dsh-claude-inline-code-bg);
-  color: var(--text-2);
-  font-family: var(--code-font);
-  font-size: 12px;
-  line-height: 18px;
+.codex-shot .dshc-group-body.is-fade-top {
+  -webkit-mask-image: linear-gradient(transparent 0, #000 24px 100%);
+  mask-image: linear-gradient(transparent 0, #000 24px 100%);
 }
 
-.codex-shot .tool-diff-totals {
-  flex: none;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  margin-left: 10px;
+.codex-shot .dshc-group-body.is-fade-bottom {
+  -webkit-mask-image: linear-gradient(#000 0 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(#000 0 calc(100% - 24px), transparent 100%);
+}
+
+.codex-shot .dshc-group-body.is-fade-top.is-fade-bottom {
+  -webkit-mask-image: linear-gradient(transparent 0, #000 24px calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(transparent 0, #000 24px calc(100% - 24px), transparent 100%);
+}
+
+.codex-shot .dshc-group-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.codex-shot .dshc-group-content > * {
+  flex-shrink: 0;
+}
+
+.codex-shot .dshc-group-content > * + * {
+  margin-top: 6px;
+}
+
+/* ── Reasoning: the Think row and its compact Markdown (ReasoningRow.module.css) ── */
+
+.codex-shot .dshc-reasoning {
+  display: flex;
+  flex-direction: column;
+}
+
+.codex-shot .dshc-reasoning:not([data-expanded]) {
+  height: calc(24px + var(--dshc-fd));
+  contain: size layout;
+}
+
+.codex-shot .dshc-reasoning[data-expanded] [data-open] > [data-disclosure-row] {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--dshc-bg-base);
+}
+
+.codex-shot .dshc-reasoning-summary {
+  flex: auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--dshc-fs-2);
+  line-height: calc(20px + var(--dshc-fd-2));
   white-space: nowrap;
 }
 
-.codex-shot .tool-step-heading small {
-  flex: 0 0 auto;
-  color: var(--text-3);
-  font-family: var(--code-font);
-  font-size: 11px;
-  line-height: 24px;
-  font-variant-numeric: tabular-nums;
+.codex-shot .dshc-reasoning-summary-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.codex-shot .tool-merged-badge {
-  margin-left: 8px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--dsh-claude-hover-bg, var(--hover));
-  color: var(--text-2);
-  font-size: 11px;
-  line-height: 16px;
+.codex-shot .dshc-reasoning-summary[data-streaming] {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 48px), transparent);
 }
 
-.codex-shot .tool-hit-count,
-.codex-shot .tool-duration {
-  margin-left: 8px;
+.codex-shot .dshc-reasoning-summary[data-streaming] .dshc-reasoning-summary-text {
+  overflow: visible;
+  text-overflow: clip;
 }
 
-.codex-shot .tool-step-heading small.tool-stat-add {
-  color: var(--green);
-}
-
-.codex-shot .tool-step-heading small.tool-stat-del {
-  color: var(--red);
-}
-
-/* Trailing status is handled by leading icon swap in Claude style; keep hidden unless error */
-.codex-shot .tool-status {
+.codex-shot .dshc-reasoning:not([data-preview]) .dshc-reasoning-sep,
+.codex-shot .dshc-reasoning:not([data-preview]) .dshc-reasoning-summary {
   display: none;
 }
 
-.codex-shot .tool-step.error .tool-icon,
-.codex-shot .tool-step.error .tool-verb,
-.codex-shot .tool-step.error .tool-target {
-  color: var(--red);
+.codex-shot .dshc-think-body {
+  min-width: 0;
+  padding: 4px 0 4px calc(22px + var(--dshc-fd));
 }
 
-.codex-shot .tool-step.is-running .tool-verb,
-.codex-shot .tool-step.is-running .tool-target:not(.is-command) {
-  color: transparent;
-  background-image: linear-gradient(
-    90deg,
-    var(--tool-shimmer-base) 0%,
-    var(--tool-shimmer-base) 40%,
-    var(--tool-shimmer-peak) 50%,
-    var(--tool-shimmer-base) 60%,
-    var(--tool-shimmer-base) 100%
-  );
-  background-size: 200% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  animation: text-shimmer 2s linear infinite;
+/* The live reasoning window grows with its text up to the process body's cap, then follows the newest line. */
+.codex-shot .dshc-think-body[data-dsh-claude-reason-window] {
+  max-height: 400px;
+  overflow: hidden;
 }
 
-/* Expanded tool body: indented 22px under the disclosure row (`ToolRow.module.css` + `chat-files.css`) */
-.codex-shot .tool-step > .tool-card,
-.codex-shot .tool-step > .tool-body {
-  margin: 4px 0 4px 22px;
-  padding: 0;
-  border-left: 0;
-  animation: work-log-open 140ms ease-out both;
+.codex-shot .dshc-think-body[data-dsh-claude-reason-capped] {
+  -webkit-mask-image: linear-gradient(transparent 0, black 28px, black calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(transparent 0, black 28px, black calc(100% - 28px), transparent 100%);
 }
 
-.codex-shot .tool-step > .tool-card,
-.codex-shot .tool-body .tool-card {
+/* ── Tool rows (ToolRow.module.css) and their result cards ─────────── */
+
+.codex-shot .dshc-tool {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  border: 0.5px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 12px;
-  background: var(--dsh-claude-code-block-bg, var(--panel-soft));
 }
 
-.codex-shot .tool-io-section {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  column-gap: 14px;
-  align-items: baseline;
-  padding: 10px 16px;
-  max-height: 180px;
+.codex-shot .dshc-tool-summary {
+  flex: auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--dshc-fs-2);
+  line-height: calc(24px + var(--dshc-fd));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .dshc-tool-summary.is-error {
+  color: var(--dshc-error);
+}
+
+.codex-shot .dshc-summary-suffix {
+  flex: none;
+  margin-left: 4px;
+  font-size: var(--dshc-fs-2);
+  line-height: calc(24px + var(--dshc-fd));
+  white-space: nowrap;
+}
+
+.codex-shot .dshc-diff-stat {
+  margin-left: 10px;
+  font-family: var(--dshc-font-code);
+  font-size: 11px;
+  transform: translateY(0.5px);
+}
+
+.codex-shot .dshc-tool-row:is(:hover, [aria-expanded="true"]) .dshc-diff-added {
+  color: var(--dshc-success);
+}
+
+.codex-shot .dshc-tool-row:is(:hover, [aria-expanded="true"]) .dshc-diff-removed {
+  color: var(--dshc-error);
+}
+
+.codex-shot .dshc-file-link {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--dshc-fs-2);
+  line-height: calc(24px + var(--dshc-fd));
+  text-align: left;
+  text-decoration: underline 1px dotted;
+  text-overflow: ellipsis;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.codex-shot .dshc-tool-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.codex-shot .dshc-tool-body > * {
+  margin: 4px 0 4px 4px;
+}
+
+/* Terminal card (TerminalBlock.module.css with ToolRow's small-code rebinding). */
+.codex-shot .dshc-terminal {
+  position: relative;
+  overflow: hidden;
+  padding-left: 30px;
+  border: 0.5px solid var(--dshc-border-l1);
+  border-radius: 16px;
+  background: var(--dshc-code-block);
+  color: var(--dshc-label-primary);
+}
+
+.codex-shot .dshc-terminal-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  max-height: 150px;
+  margin-left: -30px;
+  padding: 9px 14px 9px 30px;
   overflow-y: auto;
 }
 
-.codex-shot .tool-io-section + .tool-io-section {
-  border-top: 0.5px solid var(--dsh-claude-border-l2, var(--border));
+.codex-shot .dshc-terminal[data-body] .dshc-terminal-header {
+  border-bottom: 0.5px solid var(--dshc-border-l2);
 }
 
-.codex-shot .tool-io-label {
+.codex-shot .dshc-terminal-prompt {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font: 11px/16px var(--dshc-font-code);
+}
+
+.codex-shot .dshc-terminal-prompt-line {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  line-height: 18px;
+}
+
+.codex-shot .dshc-terminal-dot {
+  position: absolute;
+  top: 50%;
+  left: -22px;
+  transform: translateY(-50%);
+  color: var(--dshc-success);
+}
+
+.codex-shot .dshc-terminal-dot.dshc-spinner {
+  color: var(--dshc-label-tertiary);
+}
+
+.codex-shot .dshc-terminal-dot[data-state="error"] {
+  color: var(--dshc-error);
+}
+
+.codex-shot .dshc-terminal-command {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dshc-label-primary);
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.codex-shot .dshc-terminal-status {
+  flex: none;
+  height: 18px;
+  color: var(--dshc-error);
+  font: 11px/18px var(--dshc-font-ui);
+}
+
+.codex-shot .dshc-terminal-output {
+  max-height: 224px;
+  padding: 12px 14px 12px 0;
+  overflow: auto;
+  font: 11px/16px var(--dshc-font-code);
+}
+
+.codex-shot .dshc-terminal-line {
+  min-height: 18px;
+  line-height: 18px;
+  white-space: pre;
+}
+
+.codex-shot .dshc-terminal-empty {
+  padding: 12px 14px 12px 0;
+  color: var(--dshc-label-tertiary);
+  font: 11px/18px var(--dshc-font-code);
+}
+
+/* Code card, diff and read bodies (CodeCard / DiffBlock / ReadBlock). */
+.codex-shot .dshc-code-card {
+  position: relative;
+  border-radius: 16px;
+  background: var(--dshc-code-block);
+  color: var(--dshc-label-primary);
+  font: 11px/19px var(--dshc-font-code);
+}
+
+.codex-shot .dshc-code-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px 8px 22px;
+  color: var(--dshc-label-secondary);
+  font: 11px/18px var(--dshc-font-ui);
+}
+
+.codex-shot .dshc-code-card-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dshc-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .dshc-code-card-body {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.codex-shot .dshc-diff,
+.codex-shot .dshc-read {
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr);
+  padding: 6px 0 20px;
+}
+
+.codex-shot .dshc-code-card-header + .dshc-code-card-body .dshc-diff,
+.codex-shot .dshc-code-card-header + .dshc-code-card-body .dshc-read {
+  padding-top: 0;
+}
+
+.codex-shot .dshc-diff-line {
+  box-sizing: border-box;
+  min-height: 1lh;
+  padding: 0 22px;
+  color: var(--dshc-label-secondary);
+  white-space: pre;
+}
+
+.codex-shot .dshc-diff-line.is-ctx::before { content: "  "; }
+
+.codex-shot .dshc-diff-line.is-add {
+  color: var(--dshc-success);
+  background: var(--dshc-diff-added);
+  box-shadow: inset 3px 0 0 var(--dshc-success);
+}
+
+.codex-shot .dshc-diff-line.is-add::before { content: "+ "; }
+
+.codex-shot .dshc-diff-line.is-del {
+  color: var(--dshc-error);
+  background: var(--dshc-diff-deleted);
+  box-shadow: inset 3px 0 0 var(--dshc-error);
+}
+
+.codex-shot .dshc-diff-line.is-del::before { content: "- "; }
+
+.codex-shot .dshc-diff-line:is(.is-hunk, .is-meta) {
+  color: var(--dshc-label-tertiary);
+}
+
+.codex-shot .dshc-read-line {
+  display: flex;
+  min-height: 1lh;
+  padding: 0 22px;
+  white-space: pre;
+}
+
+.codex-shot .dshc-read-gutter {
+  flex: none;
+  width: 28px;
+  margin-right: 12px;
+  color: var(--dshc-label-tertiary);
+  text-align: right;
+  user-select: none;
+}
+
+.codex-shot .dshc-read-content {
+  min-width: 0;
+  color: var(--dshc-label-primary);
+}
+
+/* Search card (SearchBlock.module.css). */
+.codex-shot .dshc-search {
+  position: relative;
+  border-radius: 16px;
+  background: var(--dshc-code-block);
+  color: var(--dshc-label-primary);
+}
+
+.codex-shot .dshc-search-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  background: var(--dshc-code-banner);
+}
+
+.codex-shot .dshc-search-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dshc-label-secondary);
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .dshc-search-body {
+  max-height: 260px;
+  margin: 0;
+  padding: 8px 14px 12px 0;
+  overflow: auto;
+  list-style: none;
+  font: 11px/19px var(--dshc-font-code);
+}
+
+.codex-shot .dshc-search-line {
+  min-height: 22px;
+  padding-left: 14px;
+  line-height: 22px;
+  white-space: pre;
+}
+
+.codex-shot .dshc-search-line.is-openable {
+  cursor: pointer;
+}
+
+.codex-shot .dshc-search-line.is-openable:hover .dshc-search-path {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.codex-shot .dshc-search-path {
+  color: var(--dshc-label-primary);
+  font-weight: 600;
+}
+
+.codex-shot .dshc-search-line-number {
+  color: var(--dshc-label-tertiary);
+}
+
+.codex-shot .dshc-search-text {
+  color: var(--dshc-label-secondary);
+}
+
+/* IN / OUT card (ToolRow ioCard). */
+.codex-shot .dshc-io-card {
+  display: flex;
+  flex-direction: column;
+  border: 0.5px solid var(--dshc-border-l1);
+  border-radius: 16px;
+  background: var(--dshc-code-block);
+  font: 11px/16px var(--dshc-font-code);
+}
+
+.codex-shot .dshc-io-section {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: baseline;
+  column-gap: 14px;
+  max-height: 150px;
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+
+.codex-shot .dshc-io-label {
   position: sticky;
   top: 0;
   align-self: start;
-  padding: 0;
-  color: var(--dsh-claude-caption, var(--text-3));
-  font-family: var(--code-font);
-  font-size: 11.5px;
-  font-weight: 500;
-  line-height: 18px;
+  color: var(--dshc-label-caption);
 }
 
-.codex-shot .tool-io-text {
-  margin: 0;
-  padding: 0;
-  max-height: none;
-  overflow: visible;
-  background: transparent;
-  color: var(--text-2);
-  font-family: var(--code-font);
-  font-size: 12px;
-  line-height: 18px;
+.codex-shot .dshc-io-divider {
+  flex: none;
+  height: 0.5px;
+  background: var(--dshc-border-l2);
+}
+
+.codex-shot .dshc-io-text {
+  min-width: 0;
+  color: var(--dshc-label-secondary);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-/* DiffBlock (`DiffBlock.module.css`): 12px card with 3px inset status bar */
-.codex-shot .tool-diff {
+.codex-shot .dshc-io-text[data-error] {
+  color: var(--dshc-error);
+}
+
+.codex-shot .dshc-plan-card,
+.codex-shot .dshc-web-card {
+  gap: 2px;
+  padding: 12px 16px;
+}
+
+.codex-shot .dshc-plan-explanation {
+  margin-bottom: 6px;
+  color: var(--dshc-label-tertiary);
+}
+
+.codex-shot .dshc-plan-steps {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--dshc-label-secondary);
+}
+
+.codex-shot .dshc-plan-step.is-completed {
+  color: var(--dshc-label-tertiary);
+  text-decoration: line-through;
+}
+
+.codex-shot .dshc-plan-step.is-in_progress {
+  color: var(--dshc-label-primary);
+}
+
+.codex-shot .dshc-web-source {
   overflow: hidden;
-  border: 0.5px solid var(--dsh-claude-border-l1, var(--border));
+  color: var(--dshc-link);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .dshc-tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.codex-shot .dshc-tool-images img {
+  max-width: min(100%, 480px);
+  max-height: 320px;
   border-radius: 12px;
-  background: var(--dsh-claude-code-block-bg, var(--panel-soft));
-  padding: 6px 0;
-  font-family: var(--code-font);
-  font-size: 12px;
-  line-height: 1.6;
+  object-fit: contain;
 }
 
-.codex-shot .tool-diff-line {
-  padding: 0 16px;
-  color: var(--text-2);
-  background: transparent;
+/* ── The answer: AssistantMarkdown in the skin's prose face ───────── */
+
+.codex-shot .dshc-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  color: var(--dshc-label-primary);
+  font-size: var(--dshc-fs);
+  line-height: calc(24px + var(--dshc-fd));
 }
 
-.codex-shot .tool-diff-line.is-add {
-  background: color-mix(in srgb, var(--green) 13%, transparent);
-  color: color-mix(in srgb, var(--green) 80%, var(--text));
-  box-shadow: inset 3px 0 0 var(--green);
+.codex-shot .dshc-md .markdown-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--dshc-label-primary);
+  font-family: var(--dshc-font-prose);
+  font-size: var(--dshc-fs);
+  font-weight: 400;
+  line-height: calc(23px + var(--dshc-fd));
 }
 
-.codex-shot .tool-diff-line.is-del {
-  background: color-mix(in srgb, var(--red) 12%, transparent);
-  color: color-mix(in srgb, var(--red) 80%, var(--text));
-  box-shadow: inset 3px 0 0 var(--red);
-}
-
-.codex-shot .tool-diff-line.is-hunk {
-  color: var(--text-3);
-}
-
-.codex-shot .tool-diff-gutter {
-  color: inherit;
-  opacity: 0.75;
-}
-
-.codex-shot .tool-hit-loc {
-  color: var(--dsh-claude-link);
-  font-family: var(--code-font);
-}
-
-.codex-shot .tool-hit-text {
-  color: var(--text-2);
-}
-
-.codex-shot .tool-plan-step { color: var(--text-2); }
-.codex-shot .tool-plan-step.is-completed { color: var(--text-3); text-decoration: line-through; }
-.codex-shot .tool-plan-step.is-in_progress { color: var(--text); }
-
-.codex-shot .tool-search-sources a {
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 999px;
-  background: var(--dsh-claude-code-block-bg, var(--panel));
-  color: var(--dsh-claude-link);
-}
-
-/* ── Assistant Markdown (`dsh-claude-style` typography & material) ──── */
-
-.codex-shot .assistant-content .markdown-body,
-.codex-shot .notice-content .markdown-body {
-  color: var(--text);
-  font-family: var(--font-prose);
-  font-size: 14.5px;
-  line-height: 23px;
-}
-
-.codex-shot .assistant-content .markdown-body p {
+.codex-shot .dshc-md .markdown-body p {
   margin: 12px 0;
 }
 
-.codex-shot .assistant-content .markdown-body > :first-child { margin-top: 0 !important; }
-.codex-shot .assistant-content .markdown-body > :last-child { margin-bottom: 0 !important; }
-
-.codex-shot .assistant-content .markdown-body h1 {
-  margin: 24px 0 12px;
-  font-family: var(--font-serif);
-  font-size: 21px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  line-height: 1.28;
+.codex-shot .dshc-md .markdown-body > :first-child,
+.codex-shot .dshc-md .markdown-body p:first-child {
+  margin-top: 0 !important;
 }
 
-.codex-shot .assistant-content .markdown-body h2 {
-  margin: 24px 0 12px;
+.codex-shot .dshc-md .markdown-body > :last-child,
+.codex-shot .dshc-md .markdown-body p:last-child {
+  margin-bottom: 0 !important;
+}
+
+.codex-shot .dshc-md .markdown-body strong {
+  color: inherit;
+  font-weight: 600;
+}
+
+.codex-shot .dshc-md .markdown-body :is(h1, h2, h3, h4, h5, h6) {
   padding: 0;
   border: 0;
-  font-family: var(--font-prose);
-  font-size: 18px;
-  font-weight: 700;
+  color: var(--dshc-label-primary);
+  font-family: var(--dshc-font-prose);
   letter-spacing: -0.01em;
-  line-height: 26px;
 }
 
-.codex-shot .assistant-content .markdown-body h3 {
-  margin: 20px 0 10px;
-  font-family: var(--font-prose);
-  font-size: 16px;
+.codex-shot .dshc-md .markdown-body h1 {
+  margin: 24px 0 12px;
+  font-size: calc(21px + var(--dshc-fd));
   font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 24px;
+  letter-spacing: -0.015em;
+  line-height: calc(30px + var(--dshc-fd));
 }
 
-.codex-shot .assistant-content .markdown-body h4,
-.codex-shot .assistant-content .markdown-body h5,
-.codex-shot .assistant-content .markdown-body h6 {
+.codex-shot .dshc-md .markdown-body h2 {
+  margin: 24px 0 12px;
+  font-size: calc(18px + var(--dshc-fd));
+  font-weight: 700;
+  line-height: calc(26px + var(--dshc-fd));
+}
+
+.codex-shot .dshc-md .markdown-body h3 {
+  margin: 24px 0 12px;
+  font-size: calc(16px + var(--dshc-fd));
+  font-weight: 700;
+  line-height: calc(24px + var(--dshc-fd));
+}
+
+.codex-shot .dshc-md .markdown-body :is(h4, h5, h6) {
   margin: 16px 0 8px;
-  font-family: var(--font-prose);
-  font-size: 14.5px;
-  font-weight: 650;
-  line-height: 22px;
+  font-size: var(--dshc-fs);
+  font-weight: 600;
+  line-height: calc(24px + var(--dshc-fd));
 }
 
-.codex-shot .assistant-content .markdown-body :is(h1, h2, h3) + :is(h1, h2, h3) {
+.codex-shot .dshc-md .markdown-body :is(h1, h2, h3) + :is(h1, h2, h3) {
   margin-top: 8px;
 }
 
-.codex-shot .assistant-content .markdown-body strong {
-  color: var(--text);
-  font-weight: 600;
+.codex-shot .dshc-md .markdown-body :is(h1, h2, h3, h4, h5, h6) strong {
+  font-weight: inherit;
 }
 
-/* Standard clean lists matching `MarkdownText.module.css` */
-.codex-shot .assistant-content .markdown-body ul,
-.codex-shot .assistant-content .markdown-body ol {
-  margin: 12px 0;
-  padding-left: 20px;
+.codex-shot .dshc-md .markdown-body :is(ul, ol) {
+  margin: 16px 0;
+  padding-left: 18px;
 }
 
-.codex-shot .assistant-content .markdown-body ul {
+.codex-shot .dshc-md .markdown-body ul {
   list-style: disc;
 }
 
-.codex-shot .assistant-content .markdown-body ol {
+.codex-shot .dshc-md .markdown-body ol {
   list-style: decimal;
 }
 
-.codex-shot .assistant-content .markdown-body li {
-  position: static;
+.codex-shot .dshc-md .markdown-body li {
   margin: 0;
   padding: 0;
-  line-height: 23px;
 }
 
-.codex-shot .assistant-content .markdown-body li + li {
+.codex-shot .dshc-md .markdown-body li:not(:first-child) {
   margin-top: 6px;
 }
 
-.codex-shot .assistant-content .markdown-body li::before,
-.codex-shot .assistant-content .markdown-body li::after {
-  content: none !important;
-  border: 0 !important;
+.codex-shot .dshc-md .markdown-body li > :is(ul, ol) {
+  margin-top: 4px;
+  margin-bottom: 0;
 }
 
-.codex-shot .assistant-content .markdown-body li::marker {
-  color: var(--text-2);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
+.codex-shot .dshc-md .markdown-body li::marker {
+  color: var(--dshc-label-secondary);
 }
 
-.codex-shot .assistant-content .markdown-body li > p {
-  margin: 6px 0;
+.codex-shot .dshc-md .markdown-body :is(h4, h5, h6) + :is(ul, ol) {
+  margin-top: 8px;
 }
 
-.codex-shot .assistant-content .markdown-body input[type="checkbox"] {
+.codex-shot .dshc-md .markdown-body input[type="checkbox"] {
   margin: 0 8px 0 0;
-  accent-color: var(--text-2);
+  accent-color: var(--dshc-label-secondary);
 }
 
-/* dsh-claude-style links & file mentions: link blue + 1.5px solid underline */
-.codex-shot .assistant-content .markdown-body a,
-.codex-shot .assistant-content .markdown-body .file-ref {
-  display: inline;
+.codex-shot .dshc-md .markdown-body a {
   padding: 0;
   border: 0;
-  border-radius: 0;
   background: transparent;
-  color: var(--dsh-claude-link);
-  font-size: inherit;
+  color: var(--dshc-link);
   font-weight: 500;
-  line-height: inherit;
   text-decoration: underline;
-  text-decoration-color: var(--dsh-claude-link-underline);
+  text-decoration-color: var(--dshc-link-underline);
   text-decoration-thickness: 1.5px;
   text-underline-offset: 2px;
-  transition: color 0.12s ease, text-decoration-color 0.12s ease;
 }
 
-.codex-shot .assistant-content .markdown-body a:hover,
-.codex-shot .assistant-content .markdown-body .file-ref:hover {
-  background: transparent;
-  color: var(--dsh-claude-link);
-  text-decoration-color: var(--dsh-claude-link);
+.codex-shot .dshc-md .markdown-body a:is(:hover, :focus-visible) {
+  color: var(--dshc-link);
+  text-decoration-color: var(--dshc-link);
 }
 
-.codex-shot .assistant-content .markdown-body a svg,
-.codex-shot .assistant-content .markdown-body .file-ref svg {
+/* A file link is the host's `.fileLink`: the clay link alias at 500, underlined only under the pointer. */
+.codex-shot .dshc-md .markdown-body a.file-ref {
+  display: inline;
+  gap: 0;
+  color: var(--dshc-file-link);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.codex-shot .dshc-md .markdown-body a.file-ref:is(:hover, :focus-visible) {
+  color: var(--dshc-file-link);
+  text-decoration: underline dotted var(--dshc-file-link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.codex-shot .dshc-md .markdown-body a.file-ref svg {
   display: none;
 }
 
-/* dsh-claude-style inline code: warm red ink, 1px border-l1, 4px radius, 1.2 line-height */
-.codex-shot .assistant-content .markdown-body :not(pre) > code {
+.codex-shot .dshc-md .markdown-body :not(pre) > code {
   display: inline-flex;
   align-items: center;
-  padding: 1px 5px;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
+  box-sizing: border-box;
+  padding: 1px;
+  border: 1px solid var(--dshc-border-l1);
   border-radius: 4px;
-  background: var(--dsh-claude-inline-code-bg);
-  color: var(--dsh-claude-inline-code-fg);
-  font-family: var(--code-font);
+  background: var(--dshc-inline-code-bg);
+  color: var(--dshc-inline-code-fg);
+  font-family: var(--dshc-font-code);
   font-size: calc(1em - 1px);
+  font-weight: 400;
   line-height: 1.2;
 }
 
-.codex-shot .assistant-content .markdown-body :not(pre) > code > a,
-.codex-shot .assistant-content .markdown-body :not(pre) > code > .file-ref {
-  color: var(--dsh-claude-link);
-  font-weight: 500;
-  text-decoration: underline;
-  text-decoration-color: var(--dsh-claude-link-underline);
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 2px;
+/* A path written as inline code stays a plain code chip (as DSH draws it); it is still clickable. */
+.codex-shot .dshc-md .markdown-body :not(pre) > code > a.file-ref {
+  color: inherit;
+  font-weight: inherit;
 }
 
-/* dsh-claude-style blockquote: neutral container wash, 2px caption border, 0 8px 8px 0 radius */
-.codex-shot .assistant-content .markdown-body blockquote {
-  margin: 12px 0;
+.codex-shot .dshc-md .markdown-body :not(pre) > code > a.file-ref:is(:hover, :focus-visible) {
+  color: inherit;
+  text-decoration-color: currentColor;
+}
+
+.codex-shot .dshc-md .markdown-body :is(h1, h2, h3, h4, h5, h6) code {
+  font: inherit;
+  font-family: var(--dshc-font-code);
+}
+
+.codex-shot .dshc-md .markdown-body blockquote {
+  margin: 16px 0 0;
   padding: 0.6em 1em;
-  border-left: 2px solid var(--dsh-claude-caption, var(--text-3));
+  border-left: 2px solid var(--dshc-label-caption);
   border-radius: 0 8px 8px 0;
-  background: rgba(250, 249, 245, 0.06);
-  color: var(--text-2);
-  font-family: var(--font-prose);
+  background: var(--dshc-quote-bg);
+  color: var(--dshc-label-secondary);
+  font-family: var(--dshc-font-prose);
   font-style: normal;
 }
 
-:root[data-theme="light"] .codex-shot .assistant-content .markdown-body blockquote {
-  background: rgba(20, 20, 19, 0.04);
+.codex-shot .dshc-md .markdown-body hr {
+  display: block;
+  height: 0.5px;
+  margin: 1.6em 0;
+  border: none;
+  border-top: 1px solid rgba(20, 20, 19, 0.14);
+  background: var(--dshc-border-l2);
 }
 
-.codex-shot .assistant-content .markdown-body hr {
-  margin: 1.6em 0;
+/* Fenced code (CodeBlock.module.css under the skin's 12px bordered card). */
+.codex-shot .dshc-md .markdown-code {
+  position: relative;
+  margin: 12px 0;
+  overflow: hidden;
+  border: 1px solid var(--dshc-border-l1);
+  border-radius: 12px;
+  background: var(--dshc-code-block);
+  color: var(--dshc-label-primary);
+  box-shadow: none;
+}
+
+.codex-shot .dshc-md .markdown-code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 0;
+  padding: 9px 14px;
+  border-bottom: 0;
+  background: var(--dshc-code-banner);
+  color: var(--dshc-label-primary);
+  font: 11px/18px var(--dshc-font-code);
+}
+
+.codex-shot .dshc-md .markdown-code-copy {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dshc-label-secondary);
+}
+
+.codex-shot .dshc-md .markdown-code-copy:hover {
+  background: transparent;
+  color: var(--dshc-label-primary);
+}
+
+.codex-shot .dshc-md .markdown-code pre {
+  margin: 0;
+  padding: 16px;
   border: 0;
-  border-top: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  border-radius: 0;
+  background: var(--dshc-code-block);
+  font-family: var(--dshc-font-code);
+  font-size: calc(1em - 1px);
+  font-weight: 500;
+  line-height: calc(23px + var(--dshc-fd));
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.codex-shot .dshc-md .markdown-code pre code {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+}
+
+/* Tables (MarkdownText tableScroll under the skin's bordered card). */
+.codex-shot .dshc-md .markdown-table-scroll {
+  max-width: 100%;
+  margin: 16px 0;
+  overflow-x: auto;
+  border: 0.5px solid var(--dshc-border-l2);
+  border-radius: 12px;
+  background-clip: padding-box;
+}
+
+.codex-shot .dshc-md .markdown-table-scroll table {
+  width: max-content;
+  min-width: 100%;
+  max-width: max-content;
+  margin: 0;
+  border-collapse: collapse;
+  border-spacing: 0;
+  font-family: var(--dshc-font-prose);
+  font-size: var(--dshc-fs);
+}
+
+.codex-shot .dshc-md .markdown-table-scroll :is(th, td) {
+  min-width: 100px;
+  max-width: min(30vw, 320px);
+  padding: 10px 16px;
+  border: 0;
+  text-align: start;
+  line-height: calc(22px + var(--dshc-fd-2));
+}
+
+.codex-shot .dshc-md .markdown-table-scroll th {
+  border-bottom: 0.5px solid var(--dshc-border-l3);
+  background: var(--dshc-table-head);
+  color: var(--dshc-label-primary);
+  font-weight: 500;
+}
+
+.codex-shot .dshc-md .markdown-table-scroll td {
+  border-bottom: 0.5px solid var(--dshc-border-l2);
+}
+
+.codex-shot .dshc-md .markdown-table-scroll tr:last-child > td {
+  border-bottom: 0;
+}
+
+/* The reasoning body: MarkdownText's compact variant as the skin leaves it (13px tertiary prose). */
+.codex-shot .dshc-md-compact .markdown-body {
+  color: var(--dshc-label-tertiary);
+  font-size: var(--dshc-fs-2);
+}
+
+.codex-shot .dshc-md-compact .markdown-body :is(h1, h2, h3, h4, h5, h6) {
+  margin: 8px 0 4px;
+  color: inherit;
+  font: inherit;
+  font-family: var(--dshc-font-prose);
+  font-weight: 600;
+}
+
+.codex-shot .dshc-md-compact .markdown-body :is(ul, ol, blockquote) {
+  margin: 4px 0;
+}
+
+.codex-shot .dshc-md-compact .markdown-body li:not(:first-child) {
+  margin-top: 2px;
+}
+
+.codex-shot .dshc-md-compact .markdown-body li::marker {
+  color: inherit;
+}
+
+.codex-shot .dshc-md-compact .markdown-body blockquote {
+  padding-left: 8px;
+}
+
+.codex-shot .dshc-md-compact .markdown-body a {
+  color: inherit;
+  font-weight: inherit;
+  text-decoration: underline dotted;
+}
+
+.codex-shot .dshc-md-compact .markdown-body .markdown-code {
+  margin: 4px 0;
+  color: inherit;
+}
+
+.codex-shot .dshc-md-compact .markdown-body .markdown-code pre,
+.codex-shot .dshc-md-compact .markdown-body .markdown-code pre :is(code, span) {
+  color: inherit !important;
+}
+
+.codex-shot .dshc-md-compact .markdown-body .markdown-table-scroll :is(th, td) {
+  padding: 4px 8px;
+  font: inherit;
+}
+
+/* A narration between process groups keeps the answer's prose. */
+.codex-shot .dshc-process-text {
+  min-width: 0;
+}
+
+/* ── The running line (ChatView running + dsh-claude-style chat-wait) ── */
+
+.codex-shot .dshc-running {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  color: var(--dshc-deep-diving);
+  font-size: calc(var(--dshc-fs) - 2px);
+  line-height: calc(22px + var(--dshc-fd));
+}
+
+.codex-shot .dshc-running-divider {
+  display: block;
+  width: 100%;
+  height: 0.5px;
+  margin: 8px 0 10px;
+  background: color-mix(in srgb, var(--dshc-border-l1) 75%, var(--dshc-border-l2));
+  pointer-events: none;
+}
+
+.codex-shot .dshc-running-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.codex-shot .dshc-running-icon {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  overflow: hidden;
+}
+
+.codex-shot .dsh-claude-chat-wait {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 24px;
+  white-space: nowrap;
+}
+
+.codex-shot .dsh-claude-chat-wait-label {
+  position: relative;
+  display: inline-block;
+  color: var(--dshc-label-secondary);
+}
+
+.codex-shot .dsh-claude-chat-wait-label::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(90deg, transparent 0%, transparent 40%, var(--dshc-label-primary) 50%, transparent 60%, transparent 100%);
+  background-repeat: no-repeat;
+  background-size: 400% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: dshc-wait-shimmer 2s linear infinite;
+}
+
+@keyframes dshc-wait-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: 0% 0; }
+}
+
+.codex-shot .dsh-claude-chat-wait-clock {
+  margin-left: 8px;
+  color: var(--dshc-label-caption);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.codex-shot .dsh-claude-chat-wait-badge {
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--dshc-warn-label) 16%, transparent);
+  color: var(--dshc-warn-label);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* ── A turn that failed (MessageItem turnErrorRow) ─────────────────── */
+
+.codex-shot .dshc-turn-error {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: var(--dshc-fs-2);
+  line-height: calc(20px + var(--dshc-fd-2));
+}
+
+.codex-shot .dshc-turn-error .dshc-state-dot {
+  margin-top: 5px;
+}
+
+.codex-shot .dshc-turn-error-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.codex-shot .dshc-turn-error-title {
+  margin-right: 6px;
+  color: var(--dshc-error);
+  font-weight: 600;
+}
+
+.codex-shot .dshc-turn-error-message {
+  color: var(--dshc-label-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codex-shot .dshc-shimmer-decoration {
+    display: none;
+  }
+
+  .codex-shot :is(.dshc-shimmer-sweep, .dshc-shimmer-highlight, .dshc-spinner-motion, .dshc-spinner-arc) {
+    animation: none;
+  }
+
+  .codex-shot .dsh-claude-chat-wait-label::before {
+    content: none;
+  }
+
+  .codex-shot :is(.dshc-row, .dshc-icon-idle, .dshc-chevron-hover, .dshc-turn-process, .dshc-turn-process-chevron, .dshc-group-title, .dshc-group-activity, .dshc-group-chevron, .dshc-bubble-text) {
+    transition: none;
+  }
+}
+
+/* ── Markdown elsewhere (notices, panels): the skin's code and table cards ── */
+
+.codex-shot .notice-content .markdown-body {
+  color: var(--text);
+  font-family: var(--font-prose);
+  font-size: 14px;
+  line-height: 23px;
 }
 
 /* dsh-claude-style code blocks: 1px border-l1, 12px radius, banner + pre */
@@ -1025,87 +1899,6 @@
 
 .codex-shot .markdown-table-scroll tr:last-child > td {
   border-bottom: 0;
-}
-
-/* ── Reply footer, waiting line, notices and dividers ──────────────── */
-
-.codex-shot .message-actions {
-  height: 28px;
-  margin-top: 8px;
-  margin-left: -6px;
-  gap: 4px;
-}
-
-.codex-shot .message-copy {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  color: var(--text-3);
-}
-
-.codex-shot .message-copy:hover:not(:disabled) {
-  background: var(--dsh-claude-hover-bg, var(--hover));
-  color: var(--text-2);
-}
-
-.codex-shot .message-time {
-  margin-left: 6px;
-  color: var(--text-3);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-/* dsh-claude-style waiting line (`.dsh-claude-chat-wait`) */
-.codex-shot .response-waiting.dsh-claude-chat-wait {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  min-width: 0;
-  margin-top: 4px;
-  font-family: var(--font-ui);
-  font-size: 14px;
-  line-height: 24px;
-  white-space: nowrap;
-}
-
-.codex-shot .dsh-claude-wait-spark {
-  flex: none;
-  margin-right: 7px;
-  color: var(--accent, #d97757);
-  animation: claude-spark-pulse 1.8s ease-in-out infinite;
-}
-
-@keyframes claude-spark-pulse {
-  0%, 100% { opacity: 0.65; transform: scale(0.94); }
-  50% { opacity: 1; transform: scale(1.06); }
-}
-
-.codex-shot .dsh-claude-chat-wait-label {
-  position: relative;
-  display: inline-block;
-  color: var(--text-2);
-  font-weight: 450;
-}
-
-.codex-shot .dsh-claude-chat-wait-clock {
-  margin-left: 8px;
-  color: var(--dsh-claude-caption, var(--text-3));
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-.codex-shot .dsh-claude-chat-wait-badge {
-  margin-left: 8px;
-  padding: 0 6px;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--yellow, #d29922) 16%, transparent);
-  color: var(--yellow, #d29922);
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.codex-shot .response-waiting-dots {
-  display: none;
 }
 
 .codex-shot .compaction-divider {

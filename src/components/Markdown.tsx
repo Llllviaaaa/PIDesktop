@@ -296,7 +296,8 @@ export function Markdown({ content, allowRichContent = false }: MarkdownProps) {
                 : null;
             if (!className && text) {
               const match = INLINE_FILE_RE.exec(text.trim());
-              if (match) return <FileRef href={fileHref(match[1], match[2])}>{text.trim()}</FileRef>;
+              // A path in inline code stays a code chip whose text is the file link (dsh-claude-style file mentions).
+              if (match) return <code className="file-mention"><FileRef href={fileHref(match[1], match[2])}>{text.trim()}</FileRef></code>;
             }
             return <code className={className} {...rest}>{children}</code>;
           },

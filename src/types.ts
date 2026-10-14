@@ -316,6 +316,8 @@ export interface AppSettings {
   uiFont: string;
   codeFont: string;
   uiScale: number;
+  /** Transcript body size in px (10–22), as DSH's content font size. */
+  messageFontSize: number;
   personality: "friendly" | "pragmatic" | "none";
   customInstructions: string;
   suggestedPrompts: boolean;
