@@ -770,7 +770,12 @@ export default function App() {
       for (const [name, value] of Object.entries(variables)) root.style.setProperty(name, value);
       root.style.setProperty(
         "--code-font",
-        settings?.codeFont || '"JetBrains Mono", "Cascadia Code", "SF Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace',
+        settings?.codeFont || '"JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", "SF Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace',
+      );
+      const messageFontSize = Number(settings?.messageFontSize);
+      root.style.setProperty(
+        "--dsh-content-font-size",
+        `${Number.isFinite(messageFontSize) ? Math.min(22, Math.max(10, messageFontSize)) : 15}px`,
       );
       root.style.fontFamily = settings?.uiFont || 'var(--font-ui)';
       root.style.color = palette.text;

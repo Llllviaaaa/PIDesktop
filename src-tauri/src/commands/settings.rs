@@ -46,6 +46,11 @@ pub(crate) fn set_settings(
             "UI scale must be between 75 and 150".to_string(),
         ));
     }
+    if !(10..=22).contains(&settings.message_font_size) {
+        return Err(AppError::InvalidInput(
+            "message font size must be between 10 and 22".to_string(),
+        ));
+    }
     if !(80..=224).contains(&settings.pet_size) {
         return Err(AppError::InvalidInput(
             "pet size must be between 80 and 224".to_string(),

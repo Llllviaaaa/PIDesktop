@@ -110,6 +110,7 @@ const DEFAULTS: AppSettings = {
   uiFont: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   codeFont: 'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
   uiScale: 100,
+  messageFontSize: 15,
   personality: "pragmatic",
   customInstructions: "",
   suggestedPrompts: true,
@@ -739,6 +740,7 @@ function AppearancePage({
       <Row title="界面字体"><input value={form.uiFont} onChange={(event) => update("uiFont", event.target.value)} /></Row>
       <Row title="代码字体"><input value={form.codeFont} onChange={(event) => update("codeFont", event.target.value)} /></Row>
       <Row title="界面缩放" description="调整应用内容的整体显示大小。"><label className="appearance-number-control"><input aria-label="界面缩放百分比" type="number" min="75" max="150" step="5" value={form.uiScale} onChange={(event) => update("uiScale", Number(event.target.value))} /><span>%</span></label></Row>
+      <Row title="对话字号" description="对话正文的字号，行高与行距随之调整。"><label className="appearance-number-control"><input aria-label="对话字号" type="number" min="10" max="22" step="1" value={form.messageFontSize} onChange={(event) => update("messageFontSize", Number(event.target.value))} /><span>px</span></label></Row>
     </Card>
   </>;
 }

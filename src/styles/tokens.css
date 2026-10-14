@@ -4,10 +4,10 @@
  */
 :root {
   --radius: 0.5rem;
-  --font-ui: "Anthropic Sans Web Text", "Inter", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", sans-serif;
-  --font-serif: "Anthropic Serif Web Text", "Noto Serif", Georgia, "Times New Roman", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "PingFang SC", "Microsoft YaHei", serif;
-  --font-prose: "Anthropic Serif Web Text", "Noto Serif", Georgia, "Times New Roman", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --code-font: "JetBrains Mono", "Cascadia Code", "SF Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  --font-ui: "Anthropic Sans Web Text", "Inter Variable", "Inter", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", sans-serif;
+  --font-serif: "Anthropic Serif Web Text", "Noto Serif Variable", "Noto Serif", Georgia, "Times New Roman", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-prose: "Anthropic Serif Web Text", "Noto Serif Variable", "Noto Serif", Georgia, "Times New Roman", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --code-font: "JetBrains Mono Variable", "JetBrains Mono", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-monospace, "SF Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace;
 
   /* Claude Style semantic aliases */
   --dsh-claude-canvas: var(--app, #141413);

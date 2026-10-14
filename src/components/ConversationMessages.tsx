@@ -77,6 +77,14 @@ export function ConversationMessages({
     return null;
   }, [displayMessages]);
 
+  // The running line's clock counts from the message that opened the newest turn.
+  const lastTurnStartedAt = useMemo(() => {
+    for (let index = displayMessages.length - 1; index >= 0; index -= 1) {
+      if (displayMessages[index].role === "user") return displayMessages[index].timestamp;
+    }
+    return undefined;
+  }, [displayMessages]);
+
   // Start each conversation from the most recent page.
   const [pagedConversation, setPagedConversation] = useState(conversationKey);
   if (pagedConversation !== conversationKey) {
@@ -197,6 +205,7 @@ export function ConversationMessages({
           isLastAssistant={message.id === lastAssistantId}
           globalStreaming={isStreaming}
           workingLabel={message.id === lastAssistantId ? statusText : undefined}
+          turnStartedAt={message.id === lastAssistantId ? lastTurnStartedAt : undefined}
           allowRichContent
           density={transcriptDensity}
           editing={editingMessageId === message.id}

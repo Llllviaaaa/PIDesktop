@@ -33,6 +33,19 @@ This product includes software developed at Vetta (https://www.openvetta.com).
 - Copyright: Nwflower
 - Used for: Claude Code Desktop warm ivory/dark palettes, clay accent tokens, composer card/popover geometry, turn navigator rail, file-change row merging, and transcript disclosure styling in `src/styles/` and `src/components/`.
 
+## DeepSeek Harness client UI
+
+- Packages: `@deepseek-ai/dsh-client-ui-chat`, `@deepseek-ai/dsh-client-ui-tool`, `@deepseek-ai/dsh-client-ui-primitives`
+- License: MIT
+- Copyright: 2026 DeepSeek
+- Used for: the transcript's structure and geometry — the user bubble, message icon actions and clocks, the turn-process divider, process groups, reasoning and tool disclosure rows, text shimmer, result cards and Markdown rhythm in `src/components/Message.tsx`, `src/components/ToolCall.tsx`, `src/components/TranscriptPrimitives.tsx`, `src/styles/skin-messages.css`, and the outline icon artwork in `src/components/DshIcons.tsx`.
+
+## Fonts
+
+- Inter (`@fontsource-variable/inter`) — SIL Open Font License 1.1, Copyright The Inter Project Authors
+- Noto Serif (`@fontsource-variable/noto-serif`) — SIL Open Font License 1.1, Copyright The Noto Project Authors
+- JetBrains Mono (`@fontsource-variable/jetbrains-mono`) — SIL Open Font License 1.1, Copyright The JetBrains Mono Project Authors
+
 The generated runtime also includes the license identifiers and available license files for bundled transitive npm dependencies in `runtime-licenses.json` and `licenses/`.
 
 ## MIT License

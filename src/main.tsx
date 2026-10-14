@@ -7,6 +7,10 @@ import { queryClient } from "./lib/queryClient";
 import { moveManagedQueueItem, removeManagedQueueItem } from "./lib/managedQueue";
 import { usePiStore } from "./store";
 import type { AssistantMessage, UiMessage } from "./types";
+// dsh-claude-style's bundled faces (OFL): Inter for the UI, Noto Serif for prose, JetBrains Mono for code.
+import "@fontsource-variable/inter/wght.css";
+import "@fontsource-variable/noto-serif/wght.css";
+import "@fontsource-variable/jetbrains-mono/wght.css";
 import "./styles/index.css";
 
 const fixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("fixture") : null;
@@ -159,27 +163,11 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
         timestamp: Date.now() - 30_000,
       },
       {
-        id: "fixture-assistant",
+        id: "fixture-assistant-read",
         role: "assistant",
-        content: [
-          "已经完成消息区域的整理，主要包括：",
-          "",
-          "- **正文层级**：助手回复保持紧凑、易读，不再和用户气泡使用同一字号。",
-          "- **流式反馈**：思考过程和最终回复都会持续更新。",
-          "- **代码展示**：`src/components/Message.tsx` 等文件引用保持清晰。",
-          "",
-          "```ts",
-          "const streaming = {",
-          "  thinking: true,",
-          "  text: true,",
-          "};",
-          "```",
-          "",
-          "::code-comment{title=\"[P1] 状态更新可能过期\" body=\"该变量在工作区切换后仍可能引用旧状态，请从当前 store 读取。\" file=\"src/App.tsx\" start=2 end=2 priority=1}",
-        ].join("\n"),
+        content: "先读取 `src/components/Message.tsx` 的结构。",
         thinking: "先检查消息容器的字号和行高，再分别校准 Markdown、思考过程与代码块，避免不同内容层级互相抢视觉焦点。",
-        durationMs: 13_000,
-        timestamp: Date.now() - 15_000,
+        timestamp: Date.now() - 25_000,
         toolCalls: [
           {
             id: "fixture-read",
@@ -190,6 +178,14 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
             startedAt: Date.now() - 25_000,
             finishedAt: Date.now() - 18_000,
           },
+        ],
+      },
+      {
+        id: "fixture-assistant-edit",
+        role: "assistant",
+        content: "正在修改 `src/App.tsx` 的标题，然后运行测试。",
+        timestamp: Date.now() - 17_000,
+        toolCalls: [
           {
             id: "fixture-edit",
             name: "edit",
@@ -211,6 +207,30 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
             startedAt: Date.now() - 16_000,
             finishedAt: Date.now() - 15_000,
           },
+        ],
+      },
+      {
+        id: "fixture-assistant",
+        role: "assistant",
+        content: [
+          "已经完成消息区域的整理，主要包括：",
+          "",
+          "- **正文层级**：助手回复保持紧凑、易读，不再和用户气泡使用同一字号。",
+          "- **流式反馈**：思考过程和最终回复都会持续更新。",
+          "- **代码展示**：`src/components/Message.tsx` 等文件引用保持清晰。",
+          "",
+          "```ts",
+          "const streaming = {",
+          "  thinking: true,",
+          "  text: true,",
+          "};",
+          "```",
+          "",
+          "::code-comment{title=\"[P1] 状态更新可能过期\" body=\"该变量在工作区切换后仍可能引用旧状态，请从当前 store 读取。\" file=\"src/App.tsx\" start=2 end=2 priority=1}",
+        ].join("\n"),
+        durationMs: 13_000,
+        timestamp: Date.now() - 15_000,
+        toolCalls: [
           {
             id: "fixture-plan",
             name: "update_plan",

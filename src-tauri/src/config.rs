@@ -61,6 +61,8 @@ pub(crate) struct AppSettings {
     pub(crate) ui_font: String,
     pub(crate) code_font: String,
     pub(crate) ui_scale: u16,
+    /// Transcript body size in px (DSH's content font size); rows and line heights follow it.
+    pub(crate) message_font_size: u16,
     pub(crate) personality: String,
     pub(crate) custom_instructions: String,
     pub(crate) suggested_prompts: bool,
@@ -236,6 +238,7 @@ impl Default for AppSettings {
             ui_font: CODEX_UI_FONT.to_string(),
             code_font: CODEX_CODE_FONT.to_string(),
             ui_scale: 100,
+            message_font_size: 15,
             personality: "pragmatic".to_string(),
             custom_instructions: String::new(),
             suggested_prompts: true,

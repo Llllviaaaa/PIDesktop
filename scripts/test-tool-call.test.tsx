@@ -4,6 +4,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ToolCall } from "../src/components/ToolCall";
 import { test } from "vitest";
 
+/** The row's visible words, tags removed, so assertions read the way the row does. */
+function words(markup: string): string {
+  return markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
 test("tool call", async () => {
   const read = renderToStaticMarkup(createElement(ToolCall, {
     call: {
@@ -16,10 +21,16 @@ test("tool call", async () => {
       finishedAt: 1100,
     },
   }));
-  assert.match(read, /读取 README.md/);
+  // A DSH ToolRow: title, a 2px dot, then the summary, all in one 24px disclosure row.
+  assert.match(read, /class="dshc-tool"/);
+  assert.match(read, /data-disclosure-row=""/);
+  assert.match(words(read), /读取 README\.md/);
+  assert.match(read, /class="dshc-sep"/);
+  assert.match(read, /aria-expanded="false"/);
   assert.doesNotMatch(read, /# Pi Desktop/);
   assert.doesNotMatch(read, /"offset"/);
-  assert.match(read, /1\.1s/);
+  // The host's rows carry no per-call duration.
+  assert.doesNotMatch(read, /1\.1s/);
 
   const listed = renderToStaticMarkup(createElement(ToolCall, {
     call: {
@@ -30,8 +41,8 @@ test("tool call", async () => {
       running: false,
     },
   }));
-  assert.match(listed, /读取 SKILL.md/);
-  assert.doesNotMatch(listed, /class="tool-diff"/);
+  assert.match(words(listed), /读取 SKILL\.md/);
+  assert.doesNotMatch(listed, /tool-diff/);
   assert.doesNotMatch(listed, /tool-stat-del/);
   assert.doesNotMatch(listed, /File mutations/);
 
@@ -43,9 +54,10 @@ test("tool call", async () => {
       running: false,
     },
   }));
-  assert.match(edit, /编辑 src\/App\.tsx/);
-  assert.match(edit, /class="tool-diff"/);
-  assert.match(edit, /tool-stat-add/);
+  assert.match(words(edit), /编辑 src\/App\.tsx \+1 -1/);
+  assert.match(edit, /class="dshc-diff-added tool-stat-add"/);
+  // The diff stays folded until the row is opened, as the host's FileMutationRow does.
+  assert.doesNotMatch(edit, /tool-diff/);
   assert.doesNotMatch(edit, /"old_string"/);
 
   const shell = renderToStaticMarkup(createElement(ToolCall, {
@@ -57,8 +69,8 @@ test("tool call", async () => {
       running: false,
     },
   }));
-  assert.match(shell, /运行 npm test/);
-  assert.doesNotMatch(shell, /class="tool-body"/);
+  assert.match(words(shell), /运行命令 npm test/);
+  assert.doesNotMatch(shell, /dshc-terminal/);
   assert.doesNotMatch(shell, /"command"/);
 
   const search = renderToStaticMarkup(createElement(ToolCall, {
@@ -70,25 +82,10 @@ test("tool call", async () => {
       running: false,
     },
   }));
-  assert.match(search, /搜索 work-log/);
-  assert.doesNotMatch(search, /class="tool-hits"/);
+  assert.match(words(search), /搜索文件内容 work-log · src 1 处/);
+  assert.doesNotMatch(search, /tool-hits/);
   assert.doesNotMatch(search, /Message\.tsx:12/);
   assert.doesNotMatch(search, /"pattern"/);
-
-  const instant = renderToStaticMarkup(createElement(ToolCall, {
-    call: {
-      id: "read-instant",
-      name: "read",
-      args: { path: "README.md" },
-      result: "# Pi Desktop",
-      running: false,
-      startedAt: 1,
-      finishedAt: 200,
-    },
-  }));
-  assert.match(instant, /读取 README.md/);
-  assert.doesNotMatch(instant, /0\.2s/);
-  assert.doesNotMatch(instant, /lucide-check/);
 
   const liveShell = renderToStaticMarkup(createElement(ToolCall, {
     call: {
@@ -99,9 +96,9 @@ test("tool call", async () => {
       running: true,
     },
   }));
-  assert.match(liveShell, /class="tool-io-label"/);
-  assert.match(liveShell, /命令/);
-  assert.match(liveShell, /输出/);
-  assert.match(liveShell, /tool-card is-terminal/);
-  assert.doesNotMatch(liveShell, /lucide-check/);
+  // A running row keeps its glyph and sweeps its words with the host's shimmer.
+  assert.match(liveShell, /data-state="running"/);
+  assert.match(liveShell, /data-shimmer="true"/);
+  assert.match(liveShell, /运行中/);
+  assert.match(words(liveShell), /运行命令 npm test/);
 });
