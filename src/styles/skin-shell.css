@@ -182,7 +182,10 @@
   border-bottom: 0.5px solid var(--dsh-claude-border-l1, var(--border));
 }
 
+/* Pin the side slots to their columns: the center slot is optional, and
+   without it `.topbar-right` would auto-place into the middle column. */
 .codex-shot .topbar-left {
+  grid-column: 1;
   justify-self: start;
   min-width: 0;
 }
@@ -194,6 +197,7 @@
 }
 
 .codex-shot .topbar-right {
+  grid-column: 3;
   justify-self: end;
 }
 
