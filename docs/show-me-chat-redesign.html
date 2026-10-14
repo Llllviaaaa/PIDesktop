@@ -1,0 +1,1545 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pi Desktop 聊天输入框全功能高保真交互原型</title>
+  <style>
+    :root {
+      --font-sans: "Anthropic Sans Web Text", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+      
+      /* Dark Theme Tokens */
+      --bg: #141413;
+      --panel: #1b1b1a;
+      --card-bg: #1e1e1d;
+      --card-border: #2e2c29;
+      --card-border-focus: rgba(250, 249, 245, 0.32);
+      --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.36), 0 1px 3px rgba(0, 0, 0, 0.2);
+      --card-shadow-focus: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.25);
+      --text: #f5f4ef;
+      --text-muted: #a6a094;
+      --text-dim: #6b6a65;
+      --accent: #d97757;
+      --accent-hover: #e28263;
+      --chip-bg: #282724;
+      --hover-bg: rgba(255, 255, 255, 0.07);
+      --active-bg: rgba(255, 255, 255, 0.12);
+      --bubble-user: rgba(255, 255, 255, 0.08);
+      --popover-bg: #222221;
+      --tag-bg: rgba(255, 255, 255, 0.06);
+    }
+
+    [data-theme="light"] {
+      --bg: #fcfcfb;
+      --panel: #f7f7f5;
+      --card-bg: #ffffff;
+      --card-border: #dedcd2;
+      --card-border-focus: rgba(20, 20, 19, 0.3);
+      --card-shadow: 0 4px 18px rgba(20, 20, 19, 0.06), 0 1px 3px rgba(20, 20, 19, 0.03);
+      --card-shadow-focus: 0 8px 28px rgba(20, 20, 19, 0.09), 0 2px 6px rgba(20, 20, 19, 0.04);
+      --text: #141413;
+      --text-muted: #6e6a60;
+      --text-dim: #a6a094;
+      --accent: #d97757;
+      --accent-hover: #c46445;
+      --chip-bg: #f3f2ee;
+      --hover-bg: rgba(20, 20, 19, 0.05);
+      --active-bg: rgba(20, 20, 19, 0.09);
+      --bubble-user: rgba(20, 20, 19, 0.065);
+      --popover-bg: #ffffff;
+      --tag-bg: rgba(20, 20, 19, 0.05);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Top presentation banner */
+    .top-deck {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+    }
+    .top-deck-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 14.5px;
+      font-weight: 600;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 500;
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      color: var(--accent);
+    }
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .btn {
+      appearance: none;
+      border: 1px solid var(--card-border);
+      background: var(--card-bg);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.14s ease;
+    }
+    .btn:hover {
+      background: var(--hover-bg);
+      border-color: var(--card-border-focus);
+    }
+    .btn.active {
+      background: var(--text);
+      color: var(--bg);
+      border-color: transparent;
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      max-width: 1080px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 24px 20px 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .section-head h2 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .section-head p {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Mode switcher tabs */
+    .view-mode-tabs {
+      display: inline-flex;
+      background: var(--panel);
+      padding: 3px;
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+      gap: 4px;
+      align-self: flex-start;
+    }
+    .view-tab {
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      padding: 6px 14px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .view-tab:hover {
+      color: var(--text);
+    }
+    .view-tab.active {
+      background: var(--card-bg);
+      color: var(--text);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    /* Simulation stage */
+    .stage-wrapper {
+      position: relative;
+      background: color-mix(in srgb, var(--panel) 50%, var(--bg));
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 36px 24px 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      min-height: 520px;
+      transition: max-width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      margin: 0 auto;
+      width: 100%;
+    }
+    .stage-wrapper.narrow {
+      max-width: 380px !important;
+    }
+
+    /* Simulated conversation history */
+    .transcript-scroll {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 24px;
+      overflow-y: auto;
+      max-height: 300px;
+    }
+    .msg-user {
+      align-self: flex-end;
+      background: var(--bubble-user);
+      color: var(--text);
+      padding: 10px 16px;
+      border-radius: 16px;
+      max-width: 78%;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .msg-assistant {
+      align-self: flex-start;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 90%;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .worklog-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-dim);
+      font-size: 12.5px;
+      padding: 3px 0;
+      border-bottom: 0.5px solid var(--card-border);
+      width: fit-content;
+      cursor: pointer;
+    }
+
+    /* ========================================================
+       MASTER COMPOSER CARD
+       ======================================================== */
+    .composer-shell {
+      position: relative;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* Context Tray (Workspace + Worktree + Branch) */
+    .context-tray {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 0 4px;
+      font-size: 12.5px;
+    }
+    .context-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 8px;
+      background: var(--chip-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 12.5px;
+      font-weight: 500;
+      transition: all 0.14s ease;
+      position: relative;
+    }
+    .context-chip:hover {
+      background: var(--hover-bg);
+      color: var(--text);
+      border-color: var(--card-border-focus);
+    }
+    .context-chip svg {
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+    .context-chip.active-env {
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--card-border));
+      color: var(--text);
+    }
+
+    /* Main Card */
+    .composer-card {
+      position: relative;
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      background: var(--card-bg);
+      padding: 12px 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: var(--card-shadow);
+      transition: border-color 0.16s ease, box-shadow 0.16s ease;
+    }
+    .composer-card:focus-within {
+      border-color: var(--card-border-focus);
+      box-shadow: var(--card-shadow-focus);
+    }
+
+    /* Pixel Pet Mascot */
+    .pet-mascot {
+      position: absolute;
+      right: 18px;
+      bottom: calc(100% - 8px);
+      z-index: 25;
+      cursor: pointer;
+      transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .pet-mascot:hover {
+      transform: translateY(-4px) scale(1.08);
+    }
+    .pet-bubble {
+      position: absolute;
+      right: calc(100% + 8px);
+      bottom: 8px;
+      background: var(--popover-bg);
+      border: 1px solid var(--card-border);
+      padding: 3px 8px;
+      border-radius: 8px;
+      font-size: 11px;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      color: var(--text-muted);
+      opacity: 0;
+      transform: translateY(2px);
+      transition: all 0.15s ease;
+      pointer-events: none;
+    }
+    .pet-mascot:hover .pet-bubble {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Attachment Strip */
+    .attachment-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 2px 2px 4px;
+      border-bottom: 1px dashed color-mix(in srgb, var(--card-border) 80%, transparent);
+    }
+    .attachment-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 9px;
+      border-radius: 8px;
+      background: var(--tag-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 500;
+      animation: chip-pop 0.15s ease-out;
+    }
+    @keyframes chip-pop {
+      from { opacity: 0; transform: scale(0.92); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .attachment-chip svg {
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    .attachment-chip .btn-remove {
+      border: none;
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 2px;
+      border-radius: 4px;
+      display: grid;
+      place-items: center;
+    }
+    .attachment-chip .btn-remove:hover {
+      background: var(--hover-bg);
+      color: var(--red);
+    }
+
+    /* Textarea */
+    .input-box textarea {
+      width: 100%;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--text);
+      font-size: 14.5px;
+      line-height: 24px;
+      resize: none;
+      min-height: 44px;
+      max-height: 200px;
+      caret-color: var(--accent);
+      font-family: inherit;
+    }
+    .input-box textarea::placeholder {
+      color: var(--text-dim);
+    }
+
+    /* Toolbar Row */
+    .toolbar-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 32px;
+    }
+    .tool-group-left, .tool-group-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    /* Icon Pill Buttons */
+    .btn-circle {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--chip-bg);
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      display: inline-grid;
+      place-items: center;
+      cursor: pointer;
+      transition: all 0.14s ease;
+      position: relative;
+    }
+    .btn-circle:hover {
+      background: var(--hover-bg);
+      color: var(--text);
+      border-color: var(--card-border);
+    }
+
+    /* Permission Pill */
+    .permission-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: var(--chip-bg);
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.14s ease;
+      position: relative;
+    }
+    .permission-pill:hover {
+      background: var(--hover-bg);
+      color: var(--text);
+      border-color: var(--card-border);
+    }
+    .permission-pill svg.icon-shield {
+      color: var(--accent);
+    }
+
+    /* Context Ring Indicator with Tooltip Card */
+    .context-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .context-ring-btn {
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      padding: 4px;
+      border-radius: 6px;
+    }
+    .context-ring-btn:hover {
+      background: var(--hover-bg);
+    }
+    .context-ring {
+      width: 18px;
+      height: 18px;
+      display: block;
+    }
+    .context-ring circle.bg {
+      stroke: var(--card-border);
+    }
+    .context-ring circle.progress {
+      stroke: var(--accent);
+      transform: rotate(-90deg);
+      transform-origin: 50% 50%;
+    }
+
+    /* Model Pill */
+    .model-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 8px;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.14s ease;
+      position: relative;
+    }
+    .model-pill:hover {
+      background: var(--hover-bg);
+      color: var(--text);
+      border-color: var(--card-border);
+    }
+    .thinking-tag {
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      color: var(--accent);
+    }
+
+    /* Smart Elevated Send Button */
+    .send-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: none;
+      display: inline-grid;
+      place-items: center;
+      cursor: pointer;
+      transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+      background: var(--chip-bg);
+      color: var(--text-dim);
+    }
+    .send-btn.armed {
+      background: var(--accent);
+      color: #ffffff;
+      box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 45%, transparent);
+      transform: scale(1.04);
+    }
+    .send-btn.armed:hover {
+      background: var(--accent-hover);
+      box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 55%, transparent);
+      transform: scale(1.08);
+    }
+
+    /* Popover Menus */
+    .popover {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      background: var(--popover-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 6px;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.35);
+      z-index: 60;
+      display: none;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .popover.open { display: flex; }
+
+    /* Slash Command Menu */
+    .command-menu {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: calc(100% + 10px);
+      z-index: 70;
+      background: var(--popover-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 6px;
+      box-shadow: 0 16px 44px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.18);
+      display: none;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 330px;
+      overflow-y: auto;
+      backdrop-filter: blur(16px);
+      animation: cmd-menu-in 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .command-menu.open { display: flex; }
+    @keyframes cmd-menu-in {
+      from { opacity: 0; transform: translateY(6px) scale(0.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .command-menu-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 10px 6px;
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 600;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 3px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .command-item {
+      width: 100%;
+      border: none;
+      background: transparent;
+      padding: 8px 10px;
+      border-radius: 8px;
+      display: grid;
+      grid-template-columns: minmax(100px, auto) 1fr auto;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.12s ease;
+    }
+    .command-item:hover, .command-item.focused {
+      background: var(--hover-bg);
+    }
+    .command-name {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      padding: 2px 7px;
+      border-radius: 6px;
+      letter-spacing: -0.02em;
+      display: inline-block;
+      width: fit-content;
+    }
+    .command-desc {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .command-source {
+      font-size: 11px;
+      padding: 1px 7px;
+      border-radius: 5px;
+      background: var(--tag-bg);
+      color: var(--text-dim);
+      border: 1px solid var(--card-border);
+      font-variant-caps: all-small-caps;
+    }
+    .command-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px 2px;
+      margin-top: 4px;
+      border-top: 1px solid var(--card-border);
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .command-footer kbd {
+      background: var(--chip-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    
+    .workspace-popover {
+      left: 0;
+      width: 260px;
+    }
+    .workspace-popover input {
+      width: 100%;
+      border: 1px solid var(--card-border);
+      background: var(--bg);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      outline: none;
+      margin-bottom: 4px;
+    }
+    .popover button {
+      border: none;
+      background: transparent;
+      color: var(--text);
+      padding: 7px 10px;
+      border-radius: 6px;
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      text-align: left;
+    }
+    .popover button:hover {
+      background: var(--hover-bg);
+    }
+    .popover button.active {
+      background: var(--active-bg);
+      font-weight: 600;
+    }
+    .popover .divider {
+      height: 1px;
+      background: var(--card-border);
+      margin: 4px 0;
+    }
+
+    /* Model Popover with Flyout Thinking level */
+    .model-popover {
+      right: 0;
+      width: 240px;
+    }
+    .provider-header {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 600;
+      padding: 4px 8px 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .thinking-flyout {
+      position: absolute;
+      right: calc(100% + 6px);
+      top: 0;
+      width: 140px;
+      background: var(--popover-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 6px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.3);
+      display: none;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .thinking-row:hover .thinking-flyout {
+      display: flex;
+    }
+
+    /* Context Detail Card */
+    .context-card {
+      right: 0;
+      width: 220px;
+      padding: 10px;
+      font-size: 12px;
+    }
+    .context-card-title {
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .token-bar {
+      height: 6px;
+      background: var(--card-border);
+      border-radius: 3px;
+      overflow: hidden;
+      margin: 6px 0 8px;
+    }
+    .token-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 3px;
+      width: 32%;
+    }
+
+    /* Responsive Adaptation Rule */
+    @container (max-width: 480px) {
+      .context-tray { gap: 4px; }
+      .model-pill span.model-name { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top bar -->
+  <header class="top-deck">
+    <div class="top-deck-title">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+      </svg>
+      <span>Pi Desktop · 聊天输入框全功能高保真交互套件</span>
+      <span class="badge">FIDELITY MAX</span>
+    </div>
+    <div class="controls">
+      <button class="btn" onclick="toggleTheme()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        </svg>
+        <span>深/浅色模式</span>
+      </button>
+      <button class="btn" id="narrow-btn" onclick="toggleNarrow()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+          <line x1="12" y1="18" x2="12.01" y2="18"></line>
+        </svg>
+        <span>模拟 360px 侧边栏/分屏</span>
+      </button>
+      <button class="btn" onclick="triggerSlashCommandDemo()">
+        <span style="font-family: var(--font-mono); font-weight: 700; color: var(--accent);">/</span>
+        <span>输入 / 触发指令菜单</span>
+      </button>
+      <button class="btn" onclick="addMockAttachment()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+        </svg>
+        <span>注入测试附件</span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+
+    <div class="section-head">
+      <h2>全功能场景交互模拟</h2>
+      <p>包含工作目录切换、本地/Worktree 检出、附件解析条、模型与思考深度二级浮层、上下文 Token 进度卡以及智能发送键。</p>
+    </div>
+
+    <!-- Competitor Design Patterns Analysis Section -->
+    <section style="background: var(--panel); border: 1px solid var(--card-border); border-radius: 16px; padding: 20px 24px; margin-bottom: 24px;">
+      <div class="section-head" style="margin-bottom: 16px;">
+        <h2 style="font-size: 18px;">竞品（Codex / Claude Code / Cursor）是如何设计项目与环境选择的？</h2>
+        <p>直接平铺在输入框底栏左侧会导致参数过载、横向拥挤。主流顶级产品的 3 种解法如下：</p>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+        
+        <!-- Pattern A: Codex Official Style -->
+        <div style="background: var(--bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <strong style="font-size: 13.5px; color: var(--text);">方案 A · OpenAI Codex 官方模式</strong>
+            <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">高推荐度</span>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+            输入框上方悬浮一行极其轻盈的文字面包屑（<code>00_Inbox · Local · main</code>），不破坏卡片外轮廓。底栏左侧仅保留 <code>+</code> 与权限，极度 Sparse。
+          </p>
+          <div style="margin-top: auto; border: 1px dashed var(--card-border); border-radius: 8px; padding: 10px; background: var(--panel);">
+            <div style="font-size: 11px; color: var(--text-dim); margin-bottom: 6px; text-align: center;">00_Inbox · 本地 · main ▾</div>
+            <div style="background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 8px 10px; font-size: 11px; color: var(--text-muted);">
+              <div>发消息...</div>
+              <div style="display: flex; justify-content: space-between; margin-top: 12px;">
+                <span>[+] [完全访问 ▾]</span>
+                <span>[Claude 3.7 ▾] [↑]</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pattern B: Claude Desktop / Cursor Title-Integrated -->
+        <div style="background: var(--bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <strong style="font-size: 13.5px; color: var(--text);">方案 B · Claude / Cursor 标题融入</strong>
+            <span class="badge">最纯粹干净</span>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+            大标题本身即是选择入口：<code>接下来在 [00_Inbox ▾] 做什么？</code>，输入框彻底不重复显示项目名，卡片回归 100% 纯净书写空间。
+          </p>
+          <div style="margin-top: auto; border: 1px dashed var(--card-border); border-radius: 8px; padding: 10px; background: var(--panel);">
+            <div style="font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 8px; text-align: center;">在 <span style="text-decoration: underline dotted var(--accent); color: var(--accent);">00_Inbox ▾</span> 做什么？</div>
+            <div style="background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 8px 10px; font-size: 11px; color: var(--text-muted);">
+              <div>发消息...</div>
+              <div style="display: flex; justify-content: space-between; margin-top: 12px;">
+                <span>[+] [完全访问 ▾]</span>
+                <span>[Claude 3.7 ▾] [↑]</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pattern C: Modern Action Menu Consolidation -->
+        <div style="background: var(--bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <strong style="font-size: 13.5px; color: var(--text);">方案 C · 集中收纳至 [+] 菜单</strong>
+            <span class="badge">低频极简</span>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+            底栏不占用宝贵的横向视线，点击 <code>+</code> 弹出的菜单中提供项目切换、Worktree 检出、文件上传与模式切换，高频打字零干扰。
+          </p>
+          <div style="margin-top: auto; border: 1px dashed var(--card-border); border-radius: 8px; padding: 10px; background: var(--panel);">
+            <div style="background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 8px 10px; font-size: 11px; color: var(--text-muted);">
+              <div>发消息...</div>
+              <div style="display: flex; justify-content: space-between; margin-top: 12px;">
+                <span>[+] [完全访问 ▾]</span>
+                <span>[Claude 3.7 ▾] [↑]</span>
+              </div>
+            </div>
+            <div style="font-size: 10px; color: var(--text-dim); margin-top: 6px; text-align: center;">点击 [+] 菜单内可快捷切换项目与 Worktree</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- View Mode Switcher -->
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+      <div class="view-mode-tabs">
+        <button class="view-tab active" onclick="switchView('hero', this)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+          <span>首页问候视图 (Task-Start)</span>
+        </button>
+        <button class="view-tab" onclick="switchView('thread', this)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          <span>对话跟进流 (Follow-Up Thread)</span>
+        </button>
+      </div>
+
+      <!-- Problem 1/2/3 Focus Toggle -->
+      <button class="btn" id="flaws-toggle-btn" onclick="toggleFlawsMode()" style="border-color: #ef4444; color: #ef4444;">
+        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#ef4444;"></span>
+        <span id="flaws-btn-text">点击比对：还原截图 3 处红框问题</span>
+      </button>
+    </div>
+
+    <!-- Simulated Topbar for Context (Shows Red Box 1 issue) -->
+    <div id="simulated-topbar" style="display:none; align-items:center; justify-content:center; padding:8px 16px; background:var(--panel); border:1px dashed #ef4444; border-radius:12px; margin-bottom:-16px; position:relative;">
+      <span style="position:absolute; left:12px; top:-10px; background:#ef4444; color:#fff; font-size:10px; padding:1px 6px; border-radius:4px;">红框①：顶栏正中突兀悬挂的版面分段标签</span>
+      <div style="display:inline-flex; background:var(--chip-bg); padding:3px; border-radius:8px; border:1px solid var(--card-border);">
+        <button style="border:none; background:transparent; color:var(--text-muted); padding:3px 10px; font-size:12px; border-radius:5px;">工作室</button>
+        <button style="border:none; background:var(--card-bg); color:var(--text); font-weight:600; padding:3px 10px; font-size:12px; border-radius:5px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">经典</button>
+      </div>
+    </div>
+
+    <!-- Stage Box -->
+    <div class="stage-wrapper" id="stage">
+      
+      <!-- Headline Area (Shows Red Box 2 issue) -->
+      <div id="hero-headline-wrap" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; margin-bottom: 32px; text-align: center;">
+        <div id="headline-inner" style="display: flex; align-items: center; justify-content: center; gap: 12px; position: relative;">
+          
+          <!-- Red Box 2 Callout Tag -->
+          <div id="redbox-2-tag" style="display:none; position: absolute; left: -10px; top: -28px; background: #ef4444; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 4px; white-space: nowrap;">
+            红框②：大号阿尼亚硬塞在字头，破坏居中对称排版
+          </div>
+
+          <!-- Pet inside headline (Can be toggled) -->
+          <span id="headline-pet" style="display: none; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px dashed #ef4444; border-radius: 8px; padding: 2px;">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+              <!-- Anya Avatar Mock -->
+              <rect x="5" y="4" width="14" height="14" rx="7" fill="#fbcfe8"/>
+              <rect x="7" y="2" width="10" height="6" rx="2" fill="#fda4af"/>
+              <circle cx="9" cy="11" r="1.5" fill="#1e293b"/>
+              <circle cx="15" cy="11" r="1.5" fill="#1e293b"/>
+              <rect x="10" y="14" width="4" height="1" fill="#e11d48"/>
+            </svg>
+          </span>
+
+          <h1 id="headline-text" style="font-size: 32px; font-weight: 500; letter-spacing: -0.02em; margin: 0; color: var(--text);">
+            下午好，接下来做什么？
+          </h1>
+        </div>
+      </div>
+      
+      <!-- Simulated Chat Messages (Shown in thread mode) -->
+      <div class="transcript-scroll" id="transcript-box" style="display: none;">
+        <div class="msg-user">请检查当前工作目录，并将编译选项迁移到 ESM 模块规范。</div>
+        <div class="msg-assistant">
+          <div class="worklog-toggle">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            <span>执行 1 次思考，调用 3 次工具 (git, read, edit)</span>
+          </div>
+          <p>已在本地工作区完成探查。已识别出 <code>package.json</code> 与 <code>tsconfig.json</code> 配置。接下来我将继续执行修改。</p>
+        </div>
+      </div>
+
+      <!-- Composer Shell -->
+      <div class="composer-shell">
+
+        <!-- Top Context Tray: Workspace + Environment + Branch -->
+        <div class="context-tray" id="context-tray">
+          
+          <!-- Workspace Folder Selector -->
+          <div style="position: relative;">
+            <button class="context-chip" onclick="togglePopover('workspace-popover')">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              <span id="current-ws-label">PIDesktop</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="popover workspace-popover" id="workspace-popover">
+              <input type="text" placeholder="搜索项目工作区..." />
+              <button class="active" onclick="setWorkspace('PIDesktop')">
+                <span>PIDesktop (当前)</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </button>
+              <button onclick="setWorkspace('dsh-web-frontend')">
+                <span>dsh-web-frontend</span>
+              </button>
+              <button onclick="setWorkspace('pi-coding-agent')">
+                <span>pi-coding-agent</span>
+              </button>
+              <div class="divider"></div>
+              <button onclick="alert('触发系统文件夹选择对话框')">
+                <span>📁 打开其他本地文件夹…</span>
+              </button>
+              <button onclick="setWorkspace('快速聊天 (临时)')">
+                <span>💬 不在项目中工作 (临时模式)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Environment: Local vs Worktree -->
+          <div style="position: relative;">
+            <button class="context-chip active-env" onclick="togglePopover('env-popover')">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="env-icon">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
+              </svg>
+              <span id="current-env-label">本地</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="popover" id="env-popover" style="left: 0; width: 170px;">
+              <button class="active" onclick="setEnvironment('local')">
+                <span>🖥️ 本地 (Local)</span>
+              </button>
+              <button onclick="setEnvironment('worktree')">
+                <span>🌿 Worktree 隔离检出</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Git Branch -->
+          <span class="context-chip" style="cursor: default;" title="当前 Git 分支">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>
+            <span>main</span>
+          </span>
+
+        </div>
+
+        <!-- Master Input Card -->
+        <div class="composer-card">
+
+          <!-- Slash Command Floating Menu -->
+          <div class="command-menu" id="command-menu">
+            <div class="command-menu-header">
+              <span>快捷指令 (Slash Commands)</span>
+              <span>匹配到 <span id="cmd-count">8</span> 个指令</span>
+            </div>
+            <div id="cmd-list" style="display: flex; flex-direction: column; gap: 2px;"></div>
+            <div class="command-footer">
+              <span>使用 <kbd>↑</kbd> <kbd>↓</kbd> 切换选项，<kbd>Enter</kbd> 或 <kbd>Tab</kbd> 自动补全</span>
+              <span><kbd>Esc</kbd> 退出</span>
+            </div>
+          </div>
+          
+          <!-- Pixel Pet Mascot -->
+          <div class="pet-mascot" id="card-pet" onclick="triggerPetReaction()">
+            <div id="redbox-3-tag" style="display:none; position: absolute; right: -10px; bottom: calc(100% + 8px); background: #ef4444; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 4px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.25);">
+              红框③：卡片右上角又冒出一只橘猫（与阿尼亚发生双重冲突）
+            </div>
+            <div class="pet-bubble" id="pet-bubble">点击和我打招呼~</div>
+            <svg width="34" height="30" viewBox="0 0 24 20" fill="none" style="image-rendering: pixelated;">
+              <rect x="4" y="2" width="16" height="14" rx="3" fill="#d97757"/>
+              <rect x="7" y="6" width="3" height="3" fill="#ffffff"/>
+              <rect x="14" y="6" width="3" height="3" fill="#ffffff"/>
+              <rect x="8" y="7" width="1.5" height="1.5" fill="#141413"/>
+              <rect x="15" y="7" width="1.5" height="1.5" fill="#141413"/>
+              <rect x="10" y="11" width="4" height="1.5" fill="#141413"/>
+            </svg>
+          </div>
+
+          <!-- Attachment List (Dynamic) -->
+          <div class="attachment-strip" id="attachments-container" style="display: none;"></div>
+
+          <!-- Textarea -->
+          <div class="input-box">
+            <textarea 
+              id="main-input"
+              placeholder="发消息，用 / 调用命令，@ 引用文件…" 
+              oninput="handleTyping(this)"
+              onkeydown="handleKeyDown(event)"
+            ></textarea>
+          </div>
+
+          <!-- Bottom Control Toolbar -->
+          <div class="toolbar-row">
+            
+            <!-- Left: Add & Permission -->
+            <div class="tool-group-left">
+              
+              <!-- Plus Action Button -->
+              <div style="position: relative;">
+                <button class="btn-circle" title="添加文件或切换工作模式" onclick="togglePopover('plus-popover')">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                  </svg>
+                </button>
+                <div class="popover" id="plus-popover" style="left: 0; width: 200px;">
+                  <button onclick="addMockAttachment(); togglePopover('plus-popover');">
+                    <span>📎 添加文件或图片</span>
+                  </button>
+                  <div class="divider"></div>
+                  <div class="provider-header">工作模式</div>
+                  <button class="active"><span>🤖 执行模式 (Agent)</span></button>
+                  <button><span>📋 计划模式 (Plan)</span></button>
+                  <button><span>💬 问答模式 (Ask)</span></button>
+                </div>
+              </div>
+
+              <!-- Permission Pill -->
+              <div style="position: relative;">
+                <button class="permission-pill" onclick="togglePopover('perm-popover')">
+                  <svg class="icon-shield" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                  </svg>
+                  <span id="perm-label">先询问</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+                <div class="popover" id="perm-popover" style="left: 0; width: 220px;">
+                  <div class="provider-header">执行权限说明</div>
+                  <button onclick="setPermission('只读')">
+                    <div><strong>只读 (Read Only)</strong><br><small style="color:var(--text-dim)">可检查文件，不能修改</small></div>
+                  </button>
+                  <button class="active" onclick="setPermission('先询问')">
+                    <div><strong>先询问 (Ask First)</strong><br><small style="color:var(--text-dim)">写文件与执行前提示确认</small></div>
+                  </button>
+                  <button onclick="setPermission('工作区写入')">
+                    <div><strong>工作区写入</strong><br><small style="color:var(--text-dim)">自由修改工作区内文件</small></div>
+                  </button>
+                  <button onclick="setPermission('完全访问')">
+                    <div><strong>完全访问 (Full Access)</strong><br><small style="color:var(--text-dim)">不再逐项弹窗审批</small></div>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Right: Context + Model + Send -->
+            <div class="tool-group-right">
+              
+              <!-- Context Ring Usage -->
+              <div class="context-wrap">
+                <button class="context-ring-btn" title="查看上下文用量" onclick="togglePopover('context-popover')">
+                  <svg class="context-ring" viewBox="0 0 36 36">
+                    <circle class="bg" cx="18" cy="18" r="14" stroke-width="3.5" fill="none" />
+                    <circle class="progress" cx="18" cy="18" r="14" stroke-width="3.5" fill="none" stroke-dasharray="88" stroke-dashoffset="60" stroke-linecap="round" />
+                  </svg>
+                </button>
+                <div class="popover context-card" id="context-popover">
+                  <div class="context-card-title">上下文窗口用量</div>
+                  <div style="color: var(--text-muted);">已用 <strong>32%</strong> (剩余 68%)</div>
+                  <div class="token-bar">
+                    <div class="token-bar-fill"></div>
+                  </div>
+                  <div style="font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between;">
+                    <span>41K tokens 已用</span>
+                    <span>128K 总上限</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Model Selector with Flyout Thinking Level -->
+              <div style="position: relative;">
+                <button class="model-pill" onclick="togglePopover('model-popover')">
+                  <span class="model-name" id="selected-model-name">Claude 3.7</span>
+                  <span class="thinking-tag" id="selected-thinking-label">思考·高</span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+                <div class="popover model-popover" id="model-popover">
+                  
+                  <!-- Thinking Level Row with Left Flyout -->
+                  <div class="thinking-row" style="position: relative;">
+                    <button style="width: 100%; justify-content: space-between;">
+                      <span>⚡ 思考深度</span>
+                      <span style="font-size: 11px; color: var(--accent);" id="flyout-current-level">高 ▶</span>
+                    </button>
+                    <!-- Sub Flyout -->
+                    <div class="thinking-flyout">
+                      <button class="active" onclick="setThinkingLevel('高')"><span>高 (Deep)</span></button>
+                      <button onclick="setThinkingLevel('中')"><span>中 (Medium)</span></button>
+                      <button onclick="setThinkingLevel('低')"><span>低 (Low)</span></button>
+                      <button onclick="setThinkingLevel('关闭')"><span>关闭 (Off)</span></button>
+                    </div>
+                  </div>
+
+                  <div class="divider"></div>
+                  
+                  <div class="provider-header">Anthropic</div>
+                  <button class="active" onclick="setModel('Claude 3.7')">
+                    <span>Claude 3.7 Sonnet</span>
+                    <span style="font-size: 10px; color: var(--accent);">🖼️</span>
+                  </button>
+                  <button onclick="setModel('Claude 3.5 Sonnet')">
+                    <span>Claude 3.5 Sonnet</span>
+                  </button>
+
+                  <div class="provider-header">DeepSeek</div>
+                  <button onclick="setModel('DeepSeek R1')">
+                    <span>DeepSeek R1 (Reasoning)</span>
+                  </button>
+                  <button onclick="setModel('DeepSeek V3')">
+                    <span>DeepSeek V3 (Chat)</span>
+                  </button>
+
+                  <div class="provider-header">OpenAI</div>
+                  <button onclick="setModel('GPT-4o')">
+                    <span>GPT-4o</span>
+                    <span style="font-size: 10px; color: var(--accent);">🖼️</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Armed Send Button -->
+              <button class="send-btn" id="send-button" title="发送消息 (Enter)" onclick="handleSend()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <line x1="12" y1="19" x2="12" y2="5"></line>
+                  <polyline points="5 12 12 5 19 12"></polyline>
+                </svg>
+              </button>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    // Flaws Simulation Mode (reproduces user's 3 red boxes)
+    let isFlawsMode = false;
+    function toggleFlawsMode() {
+      isFlawsMode = !isFlawsMode;
+      const topbar = document.getElementById('simulated-topbar');
+      const tag2 = document.getElementById('redbox-2-tag');
+      const tag3 = document.getElementById('redbox-3-tag');
+      const headlinePet = document.getElementById('headline-pet');
+      const btnText = document.getElementById('flaws-btn-text');
+      const btn = document.getElementById('flaws-toggle-btn');
+      const cardPet = document.getElementById('card-pet');
+
+      if (isFlawsMode) {
+        topbar.style.display = 'flex';
+        tag2.style.display = 'block';
+        tag3.style.display = 'block';
+        headlinePet.style.display = 'inline-flex';
+        cardPet.style.display = 'inline-flex';
+        btn.style.background = '#ef4444';
+        btn.style.color = '#ffffff';
+        btnText.innerText = '当前正展示：截图 3 处缺陷还原模式 (点击切回优化方案)';
+      } else {
+        topbar.style.display = 'none';
+        tag2.style.display = 'none';
+        tag3.style.display = 'none';
+        headlinePet.style.display = 'none';
+        cardPet.style.display = 'inline-flex';
+        btn.style.background = 'transparent';
+        btn.style.color = '#ef4444';
+        btnText.innerText = '点击比对：还原截图 3 处红框问题';
+      }
+    }
+
+    // Theme Switch
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme') || 'dark';
+      html.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+    }
+
+    // Narrow View Simulator
+    let isNarrow = false;
+    function toggleNarrow() {
+      isNarrow = !isNarrow;
+      const stage = document.getElementById('stage');
+      const btn = document.getElementById('narrow-btn');
+      if (isNarrow) {
+        stage.classList.add('narrow');
+        btn.classList.add('active');
+      } else {
+        stage.classList.remove('narrow');
+        btn.classList.remove('active');
+      }
+    }
+
+    // View Mode (Hero vs Thread)
+    function switchView(mode, tabBtn) {
+      document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+      tabBtn.classList.add('active');
+      const transcript = document.getElementById('transcript-box');
+      if (mode === 'thread') {
+        transcript.style.display = 'flex';
+      } else {
+        transcript.style.display = 'none';
+      }
+    }
+
+    // Popover Manager
+    function togglePopover(id) {
+      const target = document.getElementById(id);
+      const isOpen = target.classList.contains('open');
+      document.querySelectorAll('.popover').forEach(p => p.classList.remove('open'));
+      if (!isOpen) target.classList.add('open');
+    }
+
+    document.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest('.context-chip, .btn-circle, .permission-pill, .model-pill, .context-wrap, .popover, .command-menu, #main-input')) {
+        document.querySelectorAll('.popover').forEach(p => p.classList.remove('open'));
+        closeCommandMenu();
+      }
+    });
+
+    // Workspace & Env Selectors
+    function setWorkspace(name) {
+      document.getElementById('current-ws-label').innerText = name;
+      togglePopover('workspace-popover');
+    }
+
+    function setEnvironment(env) {
+      const label = document.getElementById('current-env-label');
+      const icon = document.getElementById('env-icon');
+      if (env === 'worktree') {
+        label.innerText = 'Worktree';
+        icon.innerHTML = '<line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path>';
+      } else {
+        label.innerText = '本地';
+        icon.innerHTML = '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line>';
+      }
+      togglePopover('env-popover');
+    }
+
+    function setPermission(perm) {
+      document.getElementById('perm-label').innerText = perm;
+      togglePopover('perm-popover');
+    }
+
+    function setModel(name) {
+      document.getElementById('selected-model-name').innerText = name;
+      togglePopover('model-popover');
+    }
+
+    function setThinkingLevel(level) {
+      document.getElementById('selected-thinking-label').innerText = '思考·' + level;
+      document.getElementById('flyout-current-level').innerText = level + ' ▶';
+      togglePopover('model-popover');
+    }
+
+    // Attachments Handling
+    const attachments = [];
+    function addMockAttachment() {
+      const samples = [
+        { name: 'App.tsx', type: 'code' },
+        { name: 'skin-composer.css', type: 'code' },
+        { name: 'ui-mockup.png', type: 'image' }
+      ];
+      const pick = samples[attachments.length % samples.length];
+      attachments.push(pick);
+      renderAttachments();
+      updateSendButtonState();
+    }
+
+    function removeAttachment(index) {
+      attachments.splice(index, 1);
+      renderAttachments();
+      updateSendButtonState();
+    }
+
+    function renderAttachments() {
+      const container = document.getElementById('attachments-container');
+      if (attachments.length === 0) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+        return;
+      }
+      container.style.display = 'flex';
+      container.innerHTML = attachments.map((att, i) => `
+        <div class="attachment-chip">
+          <span>${att.type === 'image' ? '🖼️' : '📄'}</span>
+          <span>${att.name}</span>
+          <button class="btn-remove" onclick="removeAttachment(${i})" title="移除附件">✕</button>
+        </div>
+      `).join('');
+    }
+
+    // Slash Commands Handling
+    const SLASH_COMMANDS = [
+      { name: 'commit', desc: '暂存工作区变更并由 AI 自动生成规范 Commit', source: 'git' },
+      { name: 'review', desc: '全面审查当前代码修改，剖析潜在缺陷与测试缺口', source: 'review' },
+      { name: 'plan', desc: '为当前目标生成可落地的分步执行计划与依赖拓扑', source: 'plan' },
+      { name: 'compact', desc: '压缩当前会话上下文，保留关键记忆点并释放空间', source: 'builtin' },
+      { name: 'model', desc: '查看或切换底层大模型与实时思考等级 (Thinking)', source: 'builtin' },
+      { name: 'clear', desc: '清空当前窗口的历史对话流并重置屏幕视图', source: 'builtin' },
+      { name: 'undo', desc: '撤销最近一次自动工具调用或文件编辑', source: 'builtin' },
+      { name: 'help', desc: '列出全部支持的系统指令与全局快捷键清单', source: 'builtin' }
+    ];
+
+    let selectedCommandIndex = 0;
+    let filteredCommands = [...SLASH_COMMANDS];
+
+    function renderCommandMenu(query = '') {
+      const menu = document.getElementById('command-menu');
+      const list = document.getElementById('cmd-list');
+      const count = document.getElementById('cmd-count');
+
+      const q = query.trim().toLowerCase();
+      filteredCommands = SLASH_COMMANDS.filter(cmd => !q || cmd.name.toLowerCase().includes(q) || cmd.desc.toLowerCase().includes(q));
+
+      if (filteredCommands.length === 0) {
+        menu.classList.remove('open');
+        return;
+      }
+
+      count.innerText = filteredCommands.length;
+      if (selectedCommandIndex >= filteredCommands.length) selectedCommandIndex = 0;
+
+      list.innerHTML = filteredCommands.map((cmd, idx) => `
+        <button class="command-item ${idx === selectedCommandIndex ? 'focused' : ''}" onclick="applyCommand('${cmd.name}')">
+          <span class="command-name">/${cmd.name}</span>
+          <span class="command-desc">${cmd.desc}</span>
+          <span class="command-source">${cmd.source}</span>
+        </button>
+      `).join('');
+
+      menu.classList.add('open');
+    }
+
+    function closeCommandMenu() {
+      const menu = document.getElementById('command-menu');
+      menu.classList.remove('open');
+    }
+
+    function applyCommand(name) {
+      const input = document.getElementById('main-input');
+      input.value = `/${name} `;
+      closeCommandMenu();
+      input.focus();
+      handleTyping(input);
+    }
+
+    function triggerSlashCommandDemo() {
+      const input = document.getElementById('main-input');
+      input.value = '/';
+      input.focus();
+      handleTyping(input);
+    }
+
+    // Typing & Send Button
+    function handleTyping(textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 180) + 'px';
+      
+      const val = textarea.value;
+      if (val.startsWith('/') && !val.includes(' ')) {
+        const query = val.slice(1);
+        renderCommandMenu(query);
+      } else {
+        closeCommandMenu();
+      }
+
+      updateSendButtonState();
+    }
+
+    function updateSendButtonState() {
+      const input = document.getElementById('main-input');
+      const sendBtn = document.getElementById('send-button');
+      if (input.value.trim().length > 0 || attachments.length > 0) {
+        sendBtn.classList.add('armed');
+      } else {
+        sendBtn.classList.remove('armed');
+      }
+    }
+
+    function handleKeyDown(event) {
+      const menu = document.getElementById('command-menu');
+      const isCmdOpen = menu.classList.contains('open');
+
+      if (isCmdOpen) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          selectedCommandIndex = (selectedCommandIndex + 1) % filteredCommands.length;
+          renderCommandMenu(document.getElementById('main-input').value.slice(1));
+          return;
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          selectedCommandIndex = (selectedCommandIndex - 1 + filteredCommands.length) % filteredCommands.length;
+          renderCommandMenu(document.getElementById('main-input').value.slice(1));
+          return;
+        }
+        if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
+          event.preventDefault();
+          if (filteredCommands[selectedCommandIndex]) {
+            applyCommand(filteredCommands[selectedCommandIndex].name);
+          }
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeCommandMenu();
+          return;
+        }
+      }
+
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        handleSend();
+      }
+    }
+
+    function handleSend() {
+      const input = document.getElementById('main-input');
+      if (!input.value.trim() && attachments.length === 0) return;
+
+      const bubble = document.getElementById('pet-bubble');
+      bubble.innerText = '指令已发出 🚀';
+      bubble.style.opacity = '1';
+
+      // Reset
+      input.value = '';
+      input.style.height = '44px';
+      attachments.length = 0;
+      renderAttachments();
+      updateSendButtonState();
+
+      setTimeout(() => {
+        bubble.innerText = '点击和我打招呼~';
+        bubble.style.opacity = '0';
+      }, 2000);
+    }
+
+    function triggerPetReaction() {
+      const bubble = document.getElementById('pet-bubble');
+      const phrases = ['准备好开始重构了吗？', '当前工作区已同步！', '模型与上下文准备就绪 ✨', '双击解锁更多彩蛋~'];
+      bubble.innerText = phrases[Math.floor(Math.random() * phrases.length)];
+      bubble.style.opacity = '1';
+      setTimeout(() => { bubble.style.opacity = '0'; }, 2200);
+    }
+  </script>
+</body>
+</html>

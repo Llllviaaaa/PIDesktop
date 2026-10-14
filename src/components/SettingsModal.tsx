@@ -19,7 +19,6 @@ import {
   FolderOpen,
   GitBranch,
   Globe2,
-  Keyboard,
   Network,
   MonitorCog,
   Palette,
@@ -179,15 +178,14 @@ const SETTINGS_GROUPS: Array<{
   pages: SettingsPage[];
   layout: "single" | "stack" | "tabs";
 }> = [
-  { id: "general", label: "通用", description: "启动、消息发送、通知与集成终端。", icon: Settings2, pages: ["general", "environment"], layout: "stack" },
-  { id: "appearance", label: "外观", description: "", icon: Palette, pages: ["appearance"], layout: "single" },
-  { id: "models", label: "模型", description: "", icon: ServerCog, pages: ["providers"], layout: "single" },
-  { id: "agent", label: "Agent", description: "工作模式、审批规则与长期指令。", icon: Bot, pages: ["agent", "personalization"], layout: "stack" },
-  { id: "capabilities", label: "能力扩展", description: "技能、MCP 服务器，以及浏览器和电脑操控工具。", icon: Boxes, pages: ["skills", "mcp", "browser", "computer"], layout: "tabs" },
-  { id: "coding", label: "代码与 Git", description: "分支、审查、Worktree 与生命周期 Hooks。", icon: FolderGit2, pages: ["git", "review", "worktrees", "hooks"], layout: "tabs" },
-  { id: "shortcuts", label: "快捷键", description: "", icon: Keyboard, pages: ["shortcuts"], layout: "single" },
-  { id: "archived", label: "已归档", description: "", icon: Archive, pages: ["archived"], layout: "single" },
-  { id: "advanced", label: "高级", description: "用量统计与 Pi 进程诊断。", icon: SlidersHorizontal, pages: ["usage", "debug"], layout: "stack" },
+  { id: "general", label: "通用设置", description: "启动、消息发送、通知、终端与快捷键。", icon: Settings2, pages: ["general", "environment", "shortcuts"], layout: "stack" },
+  { id: "appearance", label: "外观与体验", description: "主题配色、桌面伴侣宠物与个人交互偏好。", icon: Palette, pages: ["appearance", "personalization"], layout: "stack" },
+  { id: "models", label: "模型与连接", description: "模型提供商、API 密钥与推理等级配置。", icon: ServerCog, pages: ["providers"], layout: "single" },
+  { id: "agent", label: "Agent 与安全", description: "默认工作模式、审批机制与执行规则。", icon: Bot, pages: ["agent"], layout: "single" },
+  { id: "capabilities", label: "能力扩展", description: "技能库、MCP 服务器与自动化工具。", icon: Boxes, pages: ["skills", "mcp", "browser", "computer"], layout: "tabs" },
+  { id: "coding", label: "Git 与工程", description: "代码分支、代码审查、Worktrees 与生命周期 Hooks。", icon: FolderGit2, pages: ["git", "worktrees", "hooks"], layout: "tabs" },
+  { id: "archived", label: "已归档", description: "历史会话归档管理与一键恢复。", icon: Archive, pages: ["archived"], layout: "single" },
+  { id: "advanced", label: "高级诊断", description: "用量统计分析与 Pi 进程诊断。", icon: SlidersHorizontal, pages: ["usage", "debug"], layout: "stack" },
 ];
 
 function groupForPage(page: SettingsPage) {
@@ -365,7 +363,7 @@ export function SettingsModal({
     <>
       {page === "general" && <GeneralPage form={form} update={update} />}
       {page === "appearance" && <AppearancePage form={form} update={update} catalog={appearanceCatalog} cwd={cwd} onReload={onReloadAppearance} />}
-      {page === "agent" && <AgentPage form={form} update={update} onOpenModels={() => setActive("providers")} />}
+      {page === "agent" && <AgentPage form={form} update={update} />}
       {page === "personalization" && <PersonalizationPage
         form={form}
         update={update}
@@ -426,7 +424,7 @@ export function SettingsModal({
       {page === "mcp" && <McpPage form={form} update={update} />}
       {page === "browser" && <BrowserPage form={form} update={update} />}
       {page === "computer" && <ComputerPage form={form} update={update} />}
-      {page === "review" && <CodeReviewPage form={form} update={update} />}
+      {page === "review" && <GitPage form={form} update={update} />}
       {page === "environment" && <EnvironmentPage form={form} update={update} />}
       {page === "hooks" && <HooksPage form={form} update={update} />}
       {page === "git" && <GitPage form={form} update={update} />}
@@ -565,7 +563,6 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
           {savedMissing && <option value={form.defaultFileOpener}>{form.defaultFileOpener}（未检测到）</option>}
         </select>
       </Row>
-      <Row title="界面语言"><select value="zh-CN" disabled><option value="zh-CN">简体中文</option></select></Row>
     </Card>
     <Card title="通知">
       <Row title="启用通知" description="允许系统显示任务完成和审批通知。"><Switch label="启用通知" checked={form.notificationsEnabled} onChange={(value) => update("notificationsEnabled", value)} /></Row>
@@ -803,7 +800,7 @@ function ShortcutsPage({ form, update }: { form: AppSettings; update: Update }) 
   ];
   return <>
     <PageHeading title="键盘快捷键" description="查看并自定义常用操作的快捷键。" />
-    <Card>{rows.map(([key, title, description]) => <Row key={key} title={title} description={description}><input className="shortcut-input" value={String(form[key])} onChange={(event) => update(key, event.target.value as never)} /></Row>)}</Card>
+    <Card title="快捷键">{rows.map(([key, title, description]) => <Row key={key} title={title} description={description}><input className="shortcut-input" value={String(form[key])} onChange={(event) => update(key, event.target.value as never)} /></Row>)}</Card>
     <button className="secondary-button reset-shortcuts" onClick={() => rows.forEach(([key]) => update(key, DEFAULTS[key] as never))}><Undo2 size={14} /> 重置快捷键</button>
   </>;
 }
@@ -827,12 +824,9 @@ function UsagePage({ usage }: { usage: UsageSummary | null }) {
   </>;
 }
 
-function AgentPage({ form, update, onOpenModels }: { form: AppSettings; update: Update; onOpenModels: () => void }) {
+function AgentPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="配置" description="设置新聊天的工作模式、审批策略和本地 Agent 能力。" />
-    <Card title="默认模型">
-      <Row title="默认模型和推理等级" description="已移到「模型」页，与提供商连接放在一起。"><button className="secondary-button" onClick={onOpenModels}>打开模型设置<ChevronRight size={14} /></button></Row>
-    </Card>
+    <PageHeading title="Agent 与安全" description="设置新聊天的工作模式、审批策略和本地 Agent 能力。" />
     <Card title="权限">
       <Row title="默认工作模式" description="执行可修改代码；计划和问答仅使用只读工具。"><select value={form.agentMode} onChange={(event) => update("agentMode", event.target.value as AppSettings["agentMode"])}><option value="agent">执行</option><option value="plan">计划</option><option value="ask">问答</option></select></Row>
       <Row title="审批与文件访问" description="控制 Pi 何时请求确认，以及允许访问的文件范围。"><select value={form.permissionMode} onChange={(event) => update("permissionMode", event.target.value as AppSettings["permissionMode"])}><option value="read-only">只读</option><option value="ask">先询问</option><option value="workspace-write">工作区写入</option><option value="full-access">完全访问</option></select></Row>
@@ -1035,15 +1029,6 @@ function ComputerPage({ form, update }: { form: AppSettings; update: Update }) {
   </>;
 }
 
-function CodeReviewPage({ form, update }: { form: AppSettings; update: Update }) {
-  return <>
-    <PageHeading title="代码审查" description="设置审查结果如何回到你的工作流。" />
-    <Card>
-      <Row title="审查结果位置" description="在当前聊天中继续，或为审查结果创建独立聊天。"><select value={form.reviewDelivery} onChange={(event) => update("reviewDelivery", event.target.value as AppSettings["reviewDelivery"])}><option value="inline">当前聊天</option><option value="detached">独立聊天</option></select></Row>
-    </Card>
-  </>;
-}
-
 function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
     <PageHeading title="环境" description="配置新聊天的工作环境和集成终端。" />
@@ -1059,8 +1044,14 @@ function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }
 
 function GitPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="Git" description="设置分支、提交和拉取请求行为。" />
-    <Card>
+    <PageHeading title="Git 与审查" description="设置代码分支、审查结果呈现以及提交说明生成规范。" />
+    <Card title="分支与审查">
+      <Row title="代码审查呈现方式" description="审查完成后在当前对话继续，或为审查结果创建独立会话。">
+        <select value={form.reviewDelivery} onChange={(event) => update("reviewDelivery", event.target.value as AppSettings["reviewDelivery"])}>
+          <option value="inline">当前对话 (Inline)</option>
+          <option value="detached">独立对话 (Detached)</option>
+        </select>
+      </Row>
       <Row title="分支前缀"><input value={form.branchPrefix} onChange={(event) => update("branchPrefix", event.target.value)} placeholder="pi/" /></Row>
       <Row title="允许强制推送" description="允许重写远程分支的工作流。"><Switch label="允许强制推送" checked={form.allowForcePush} onChange={(value) => update("allowForcePush", value)} /></Row>
     </Card>

@@ -74,7 +74,7 @@ import { usePiStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import type { SettingsPage } from "./components/SettingsModal";
-import { PetAvatar, PetCompanion } from "./components/PetCompanion";
+import { PetCompanion } from "./components/PetCompanion";
 import {
   DESKTOP_PET_EVENT,
   DESKTOP_PET_DISABLE_EVENT,
@@ -243,25 +243,6 @@ export default function App() {
   const draftBranch = draftGit?.isRepository ? draftGit.branch || "" : "";
   const [registeredProjects, setRegisteredProjects] = useState<ProjectConfig[]>([]);
   const [quickChat, setQuickChat] = useState(false);
-  const [homeLayout, setHomeLayout] = useState<"studio" | "classic">(() => {
-    const saved = window.localStorage.getItem("pid-desktop:claude-home-layout");
-    return saved === "classic" ? "classic" : "studio";
-  });
-  const toggleHomeLayout = useCallback((next: "studio" | "classic") => {
-    setHomeLayout(next);
-    try {
-      window.localStorage.setItem("pid-desktop:claude-home-layout", next);
-    } catch {
-      // ignore storage failure
-    }
-  }, []);
-  const heroGreeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return "早上好，今天想构建什么？";
-    if (hour >= 12 && hour < 18) return "下午好，接下来做什么？";
-    if (hour >= 18 && hour < 23) return "晚上好，要开始新任务吗？";
-    return "夜深了，还在攻克难题吗？";
-  }, []);
   const [goalEditPrefill, setGoalEditPrefill] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ messageId: string } | null>(null);
 
@@ -1710,6 +1691,7 @@ export default function App() {
 
   const renderComposer = (variant: "task-start" | "follow-up") => (
     <Composer
+      pet={activePet}
       variant={variant}
       isStreaming={isStreaming}
       isSwitchingModel={isSwitchingModel}
@@ -2016,50 +1998,8 @@ export default function App() {
               </>
             )}
           </div>
-          {!newTask && !hubView && (
-            <div className="dsh-claude-topbar-center" data-tauri-drag-region>
-              <div className="dsh-claude-view-tabs" data-dsh-view-tabs="" role="tablist" aria-label="对话详细程度">
-                {TRANSCRIPT_DENSITY_ORDER.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="tab"
-                    aria-selected={transcriptDensity === value}
-                    className={`dsh-claude-view-tab ${transcriptDensity === value ? "active" : ""}`}
-                    onClick={() => setTranscriptDensity(value)}
-                  >
-                    {TRANSCRIPT_DENSITY_LABELS[value]}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {newTask && !hubView && (
-            <div className="dsh-claude-topbar-center" data-tauri-drag-region>
-              <div className="dsh-claude-view-tabs is-always-visible" data-dsh-view-tabs="" role="tablist" aria-label="首页版面">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={homeLayout === "studio"}
-                  className={`dsh-claude-view-tab ${homeLayout === "studio" ? "active" : ""}`}
-                  onClick={() => toggleHomeLayout("studio")}
-                >
-                  工作室
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={homeLayout === "classic"}
-                  className={`dsh-claude-view-tab ${homeLayout === "classic" ? "active" : ""}`}
-                  onClick={() => toggleHomeLayout("classic")}
-                >
-                  经典
-                </button>
-              </div>
-            </div>
-          )}
           <div className="topbar-right" data-tauri-drag-region>
-            {!hubView && (
+            {!hubView && !newTask && (
               <div className="panel-toggles codex-layout-chrome">
                 <div className="main-pane-controls">
                   {reviewFileCount > 0 && (
@@ -2178,28 +2118,18 @@ export default function App() {
           >
             <div className={`conversation ${newTask ? "new-task-conversation" : ""} ${!newTask ? `density-${transcriptDensity}` : ""}`}>
               {newTask ? (
-                <div
-                  className={`new-task-screen codex-home vetta-home dsh-claude-home is-${homeLayout}`}
-                  data-dsh-claude-home-layout={homeLayout}
-                >
+                <div className="new-task-screen codex-home vetta-home dsh-claude-home">
                   <div className="vetta-home-intro dsh-claude-hero-headline">
-                    <span className="dsh-claude-hero-pet" aria-hidden="true">
-                      <PetAvatar pet={activePet} busy={petBusy} state={petActivity} />
-                    </span>
                     <h1 className="new-task-heading">
-                      {homeLayout === "studio"
-                        ? (quickChat ? "接下来聊些什么？" : `接下来在 ${taskWorkspaceName} 做什么？`)
-                        : heroGreeting}
+                      {quickChat ? "接下来聊些什么？" : `接下来在 ${taskWorkspaceName} 做什么？`}
                     </h1>
                   </div>
                   {store.lastError && <p className="new-task-error">{store.lastError}</p>}
 
-                  {homeLayout === "studio" && (
-                    <ClaudeHomeDashboard
-                      sessions={sessions}
-                      currentModelId={model?.id}
-                    />
-                  )}
+                  <ClaudeHomeDashboard
+                    sessions={sessions}
+                    currentModelId={model?.id}
+                  />
 
                   <div className="dsh-claude-home-composer-wrap">
                     {renderComposer("task-start")}
