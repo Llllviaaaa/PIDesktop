@@ -243,17 +243,6 @@ export default function App() {
   const draftBranch = draftGit?.isRepository ? draftGit.branch || "" : "";
   const [registeredProjects, setRegisteredProjects] = useState<ProjectConfig[]>([]);
   const [quickChat, setQuickChat] = useState(false);
-  const [homeLayout] = useState<"studio" | "classic">(() => {
-    const saved = window.localStorage.getItem("pid-desktop:claude-home-layout");
-    return saved === "classic" ? "classic" : "studio";
-  });
-  const heroGreeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return "早上好，今天想构建什么？";
-    if (hour >= 12 && hour < 18) return "下午好，接下来做什么？";
-    if (hour >= 18 && hour < 23) return "晚上好，要开始新任务吗？";
-    return "夜深了，还在攻克难题吗？";
-  }, []);
   const [goalEditPrefill, setGoalEditPrefill] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ messageId: string } | null>(null);
 
@@ -2129,25 +2118,18 @@ export default function App() {
           >
             <div className={`conversation ${newTask ? "new-task-conversation" : ""} ${!newTask ? `density-${transcriptDensity}` : ""}`}>
               {newTask ? (
-                <div
-                  className={`new-task-screen codex-home vetta-home dsh-claude-home is-${homeLayout}`}
-                  data-dsh-claude-home-layout={homeLayout}
-                >
+                <div className="new-task-screen codex-home vetta-home dsh-claude-home">
                   <div className="vetta-home-intro dsh-claude-hero-headline">
                     <h1 className="new-task-heading">
-                      {homeLayout === "studio"
-                        ? (quickChat ? "接下来聊些什么？" : `接下来在 ${taskWorkspaceName} 做什么？`)
-                        : heroGreeting}
+                      {quickChat ? "接下来聊些什么？" : `接下来在 ${taskWorkspaceName} 做什么？`}
                     </h1>
                   </div>
                   {store.lastError && <p className="new-task-error">{store.lastError}</p>}
 
-                  {homeLayout === "studio" && (
-                    <ClaudeHomeDashboard
-                      sessions={sessions}
-                      currentModelId={model?.id}
-                    />
-                  )}
+                  <ClaudeHomeDashboard
+                    sessions={sessions}
+                    currentModelId={model?.id}
+                  />
 
                   <div className="dsh-claude-home-composer-wrap">
                     {renderComposer("task-start")}

@@ -1,10 +1,10 @@
 /*
- * DSH + Claude Style port: new-session home (Studio & Classic), usage dashboard,
+ * DSH + Claude Style port: new-session home, usage dashboard,
  * 16-bit pixel pet companion, permission segments, and DSH-native InputBar card
  * (with zero gradient masks over the composer or transcript).
  */
 
-/* ── Home page layouts (`dsh-claude-home` Studio & Classic) ─────────── */
+/* ── Home page layout (`dsh-claude-home`) ───────────────────────────── */
 
 .codex-shot .new-task-screen.dsh-claude-home {
   position: relative;
@@ -12,77 +12,28 @@
   box-sizing: border-box;
   width: 100%;
   max-width: 748px;
+  min-height: 100%;
   margin: 0 auto;
   padding: 20px 16px 18px;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
   gap: 14px;
 }
 
-.codex-shot .new-task-screen.dsh-claude-home.is-classic {
-  min-height: 100%;
-  justify-content: center;
-  align-items: stretch;
-  padding: 36px 16px 48px;
-}
-
-.codex-shot .new-task-screen.dsh-claude-home.is-studio {
-  min-height: 100%;
-  justify-content: flex-start;
-  align-items: stretch;
-}
-
-/* Headline & Pixel Pet badge */
+/* Headline */
 .codex-shot .dsh-claude-hero-headline {
   display: flex;
   align-items: center;
-  width: 100%;
-  margin: 0;
-  padding: 0;
-}
-
-.codex-shot .dsh-claude-home.is-classic .dsh-claude-hero-headline {
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.codex-shot .dsh-claude-home.is-studio .dsh-claude-hero-headline {
   justify-content: flex-start;
   gap: 10px;
-  padding-top: 8px;
-  margin-bottom: 8px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 8px 0 0;
 }
 
-.codex-shot .dsh-claude-hero-pet {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.codex-shot .dsh-claude-home.is-classic .dsh-claude-hero-pet {
-  width: 48px;
-  height: 44px;
-}
-
-.codex-shot .dsh-claude-home.is-studio .dsh-claude-hero-pet {
-  width: 32px;
-  height: 30px;
-}
-
-.codex-shot .dsh-claude-home.is-classic .new-task-heading {
-  margin: 0;
-  color: var(--text);
-  font-family: var(--font-serif);
-  font-size: 36px;
-  font-weight: 500;
-  line-height: 46px;
-  letter-spacing: -0.015em;
-  text-align: center;
-}
-
-.codex-shot .dsh-claude-home.is-studio .new-task-heading {
+.codex-shot .dsh-claude-home .new-task-heading {
   margin: 0;
   color: var(--text);
   font-family: var(--font-ui);
@@ -97,9 +48,6 @@
   position: relative;
   z-index: 30;
   width: 100%;
-}
-
-.codex-shot .dsh-claude-home.is-studio .dsh-claude-home-composer-wrap {
   margin-top: auto;
 }
 
