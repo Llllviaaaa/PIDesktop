@@ -130,6 +130,30 @@ export const usePiStore = create<PiState>((set, get) => {
   // Before the first turn a pick belongs to the task, not to the runtime it happens to be on.
   const taskNotStarted = () => get().messages.length === 0;
 
+  // The last model and thinking level the user picked become the defaults new tasks start with.
+  const rememberForNewTasks = (patch: Partial<Pick<AppSettings, "provider" | "model" | "thinkingLevel">>) => {
+    const settings = get().settings;
+    if (!settings) return;
+    const next = { ...settings, ...patch };
+    if (
+      next.provider === settings.provider
+      && next.model === settings.model
+      && next.thinkingLevel === settings.thinkingLevel
+    ) return;
+    void get().saveSettings(next).catch((error) => {
+      get().appendLog(`保存默认模型失败：${describeError(error)}`);
+    });
+  };
+
+  // A runtime warmed before the default changed still runs the old one. Only a model
+  // the catalog lists is applied, so a disconnected provider does not fail every new task.
+  const newTaskDefaultModel = (): ModelInfo | null => {
+    const { settings, model, availableModels } = get();
+    if (!settings?.provider || !settings.model) return null;
+    if (model?.provider === settings.provider && model.id === settings.model) return null;
+    return availableModels.find((item) => item.provider === settings.provider && item.id === settings.model) ?? null;
+  };
+
   const rollbackOptimisticPrompt = (runtimeId: string) => {
     const pending = pendingOptimisticPrompt;
     if (!pending || pending.runtimeId !== runtimeId) return;
@@ -598,8 +622,9 @@ export const usePiStore = create<PiState>((set, get) => {
           }
           await syncSession(connectVersion, true);
           if (connectVersion !== connectionVersion) return;
-          const queuedModel = queuedModelSelection;
-          const queuedLevel = queuedThinkingLevel;
+          // A new task without a pick of its own starts from the remembered defaults.
+          const queuedModel = queuedModelSelection ?? (sessionFile ? null : newTaskDefaultModel());
+          const queuedLevel = queuedThinkingLevel ?? (sessionFile ? null : get().settings?.thinkingLevel || null);
           // A saved session takes a pick once. A task that has not started keeps it, because
           // sending can still move the task to another runtime (worktree, quick chat, project).
           if (sessionFile) {
@@ -1481,6 +1506,7 @@ export const usePiStore = create<PiState>((set, get) => {
           availableThinkingLevels: levels.data?.levels ?? ["off"],
         });
         persistCurrentModelCatalog();
+        rememberForNewTasks({ provider: confirmed.provider, model: confirmed.id });
       });
 
       pendingModelChange = { runtimeId, promise: change };
@@ -1529,6 +1555,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新设置推理等级");
       await sendCommand(runtimeId, "set_thinking_level", { level });
       set({ thinkingLevel: level });
+      rememberForNewTasks({ thinkingLevel: level });
       if (taskNotStarted()) queuedThinkingLevel = level;
     },
 

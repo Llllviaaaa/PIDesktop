@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, test, vi } from "vitest";
-import type { ModelInfo } from "../src/types.ts";
+import type { AppSettings, ModelInfo } from "../src/types.ts";
 
 // The store reads window at import time and talks to Pi over a Tauri event channel.
 const transport = vi.hoisted(() => {
@@ -118,6 +118,12 @@ async function until(condition: () => boolean) {
 }
 
 const store = () => usePiStore.getState();
+const defaults = (model: ModelInfo, thinkingLevel: string) =>
+  ({ provider: model.provider, model: model.id, thinkingLevel }) as AppSettings;
+const savedDefault = () => {
+  const { provider, model, thinkingLevel } = store().settings ?? ({} as AppSettings);
+  return { provider, model, thinkingLevel };
+};
 const runtimeIn = (cwd: string) => {
   const runtime = runtimes.filter((item) => item.cwd === cwd).pop();
   assert.ok(runtime, `no runtime was started in ${cwd}`);
@@ -168,7 +174,15 @@ pi.gitSnapshot = async () => null as never;
 beforeEach(async () => {
   await store().disconnect();
   store().prepareNewTask();
-  usePiStore.setState({ model: DEFAULT_MODEL, thinkingLevel: "medium", toasts: [] });
+  usePiStore.setState({
+    model: DEFAULT_MODEL,
+    thinkingLevel: "medium",
+    toasts: [],
+    // The catalog the picker lists; the new-task default is only applied when it is in here.
+    availableModels: [DEFAULT_MODEL, PICKED_MODEL],
+    availableThinkingLevels: ["off", "medium", "high"],
+    settings: defaults(DEFAULT_MODEL, "medium"),
+  });
   runtimes.length = 0;
   startGate = Promise.resolve();
   bootOnStart = true;
@@ -200,7 +214,7 @@ test("a model picked before Pi has started is used by a prompt sent while Pi is 
   assert.ok(!shown.includes(DEFAULT_MODEL.id), "the composer must not fall back to the default model while Pi starts");
 });
 
-test("a model picked while a saved session is still opening is applied to that session only", async () => {
+test("a model picked while a saved session is still opening is applied to it and kept for new tasks", async () => {
   const start = gate();
   const connecting = store().connect(PROJECT, SAVED_SESSION);
   await store().setModel(PICKED_MODEL);
@@ -209,10 +223,11 @@ test("a model picked while a saved session is still opening is applied to that s
 
   assert.equal(runtimeIn(PROJECT).model.id, PICKED_MODEL.id);
   assert.equal(store().model?.id, PICKED_MODEL.id);
+  assert.deepEqual(savedDefault(), { provider: PICKED_MODEL.provider, model: PICKED_MODEL.id, thinkingLevel: "medium" });
 
   store().prepareNewTask();
   await store().connect(WORKTREE);
-  assert.equal(runtimeIn(WORKTREE).model.id, DEFAULT_MODEL.id, "a pick made for a saved session must not leak into the next new task");
+  assert.equal(runtimeIn(WORKTREE).model.id, PICKED_MODEL.id, "a pick made in a saved session should carry into the next new task");
 });
 
 test("the model and thinking level picked on the new-task page follow the task to the runtime that runs it", async () => {
@@ -231,11 +246,39 @@ test("the model and thinking level picked on the new-task page follow the task t
     { message: "hello", model: PICKED_MODEL.id, thinkingLevel: "high" },
   ]);
 
-  // Once the task has started, the pick belongs to it and the next new task starts from the default.
+  // The next new task starts from the last pick, even on a runtime that booted with the old default.
+  assert.deepEqual(savedDefault(), { provider: PICKED_MODEL.provider, model: PICKED_MODEL.id, thinkingLevel: "high" });
   store().prepareNewTask();
   await store().connect(PROJECT);
-  assert.equal(runtimeIn(PROJECT).model.id, DEFAULT_MODEL.id);
-  assert.equal(store().model?.id, DEFAULT_MODEL.id);
+  const next = runtimeIn(PROJECT);
+  assert.equal(next.model.id, PICKED_MODEL.id);
+  assert.equal(next.thinkingLevel, "high");
+  assert.equal(store().model?.id, PICKED_MODEL.id);
+  assert.equal(store().thinkingLevel, "high");
+});
+
+test("a new task applies the saved default to a runtime warmed with an older one; a saved session keeps its own", async () => {
+  usePiStore.setState({ settings: defaults(PICKED_MODEL, "high") });
+
+  await store().connect(PROJECT, SAVED_SESSION);
+  assert.deepEqual(runtimeIn(PROJECT).setModelRequests, [], "opening a saved session must not switch its model");
+  assert.equal(runtimeIn(PROJECT).thinkingLevel, "medium");
+
+  store().prepareNewTask();
+  await store().connect(WORKTREE);
+  assert.deepEqual(runtimeIn(WORKTREE).setModelRequests, [PICKED_MODEL.id]);
+  assert.equal(runtimeIn(WORKTREE).thinkingLevel, "high");
+  assert.equal(await store().sendMessage("hello"), true);
+  assert.deepEqual(runtimeIn(WORKTREE).prompts, [
+    { message: "hello", model: PICKED_MODEL.id, thinkingLevel: "high" },
+  ]);
+});
+
+test("a saved default the catalog does not list is not forced onto new tasks", async () => {
+  usePiStore.setState({ settings: defaults(REMOVED_MODEL, "medium") });
+  await store().connect(PROJECT);
+  assert.deepEqual(runtimeIn(PROJECT).setModelRequests, []);
+  assert.equal(store().toasts.length, 0, "a disconnected default must not raise an error on every new task");
 });
 
 test("a model picked while another task is still attached goes to the task being opened", async () => {
@@ -260,6 +303,7 @@ test("a picked model that Pi rejects is reported once and not retried on the nex
 
   assert.equal(store().model?.id, DEFAULT_MODEL.id, "the composer shows the model Pi is really using");
   assert.match(store().toasts[0]?.message ?? "", /切换模型失败/);
+  assert.equal(savedDefault().model, DEFAULT_MODEL.id, "a rejected pick must not become the default");
 
   await store().connect(WORKTREE);
   assert.deepEqual(runtimeIn(WORKTREE).setModelRequests, []);
