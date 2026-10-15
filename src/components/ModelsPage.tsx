@@ -416,7 +416,7 @@ function DefaultModelCard({ providers, hidden, form, update }: { providers: Prov
       <div className="models-default-row">
         <span>
           <strong>默认模型</strong>
-          <small>{staleDefault ? "当前默认模型的提供商尚未连接，新任务会改用 Pi 的默认值。" : "新任务使用的模型；已打开的任务可在输入框中单独切换。"}</small>
+          <small>{staleDefault ? "当前默认模型的提供商尚未连接，新任务会改用 Pi 的默认值。" : "新任务使用的模型；在输入框中切换模型后，这里会更新为最后一次的选择。"}</small>
         </span>
         <ModelCombobox
           groups={options}
@@ -432,7 +432,7 @@ function DefaultModelCard({ providers, hidden, form, update }: { providers: Prov
       <div className="models-default-row">
         <span>
           <strong>推理等级</strong>
-          <small>模型支持时生效，也可以在输入框中临时调整。</small>
+          <small>模型支持时生效；在输入框中调整后，新任务也会沿用。</small>
         </span>
         <select value={form.thinkingLevel} onChange={(event) => update("thinkingLevel", event.target.value)}>
           {THINKING_LEVELS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
