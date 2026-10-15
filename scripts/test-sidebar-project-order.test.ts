@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  reconcileSidebarOrder,
   reconcileSidebarSessionOrder,
   sortSidebarProjectGroups,
   sortSidebarSessions,
+  type SidebarOrder,
   type SidebarProjectGroup,
 } from "../src/lib/sidebarProjectOrder.ts";
 import type { ProjectConfig, SessionInfo } from "../src/types.ts";
@@ -77,4 +79,65 @@ test("sidebar project order", async () => {
     [alpha.cwd, beta.cwd],
     "sorting must not mutate the source group order",
   );
+});
+
+test("archiving a session does not reorder projects", () => {
+  function session(file: string, cwd: string): SessionInfo {
+    return { file, sessionId: file, cwd, messageCount: 1 };
+  }
+  function groupsOf(sessions: SessionInfo[], emptyProjects: string[] = []): SidebarProjectGroup[] {
+    const result = new Map<string, SessionInfo[]>();
+    for (const item of sessions) result.set(item.cwd, [...(result.get(item.cwd) ?? []), item]);
+    for (const path of emptyProjects) if (!result.has(path)) result.set(path, []);
+    return [...result.entries()];
+  }
+  function projectOrder(order: SidebarOrder, sessions: SessionInfo[], emptyProjects: string[] = []): string[] {
+    return sortSidebarProjectGroups(groupsOf(sessions, emptyProjects), [], order.sessions, order.workspaces)
+      .map(([workspace]) => workspace);
+  }
+
+  const alphaNew = session("alpha-new", "D:\\alpha");
+  const beta = session("beta", "D:\\beta");
+  const alphaOld = session("alpha-old", "D:\\alpha");
+  const listed = [alphaNew, beta, alphaOld];
+
+  // An order saved before projects were remembered: projects follow their newest session.
+  const upgraded = reconcileSidebarOrder({ sessions: listed.map((item) => item.file), workspaces: [] }, listed);
+  assert.deepEqual(projectOrder(upgraded, listed), ["D:\\alpha", "D:\\beta"], "existing order should carry over");
+  assert.deepEqual(reconcileSidebarOrder(upgraded, listed), upgraded, "reconciling should be idempotent");
+
+  const afterArchive = reconcileSidebarOrder(upgraded, [beta, alphaOld]);
+  assert.deepEqual(
+    projectOrder(afterArchive, [beta, alphaOld]),
+    ["D:\\alpha", "D:\\beta"],
+    "archiving a project's newest session must not move the project",
+  );
+
+  const afterArchivingAll = reconcileSidebarOrder(afterArchive, [beta]);
+  assert.deepEqual(
+    projectOrder(afterArchivingAll, [beta], ["D:\\alpha"]),
+    ["D:\\alpha", "D:\\beta"],
+    "a project whose chats are all archived should keep its slot",
+  );
+
+  const betaNew = session("beta-new", "D:\\beta");
+  const afterNewChat = reconcileSidebarOrder(afterArchive, [betaNew, beta, alphaOld]);
+  assert.deepEqual(
+    projectOrder(afterNewChat, [betaNew, beta, alphaOld]),
+    ["D:\\beta", "D:\\alpha"],
+    "a new chat should still bring its project to the top",
+  );
+
+  assert.equal(
+    reconcileSidebarOrder(afterNewChat, []),
+    afterNewChat,
+    "an empty list (sessions not loaded yet) must not wipe the remembered order",
+  );
+
+  const fresh = reconcileSidebarOrder({ sessions: [], workspaces: [] }, listed);
+  assert.deepEqual(fresh.sessions, listed.map((item) => item.file), "a first run should take Pi's order");
+  assert.deepEqual(projectOrder(fresh, listed), ["D:\\alpha", "D:\\beta"], "a first run should list projects by newest chat");
+
+  const caseShifted = reconcileSidebarOrder(afterArchive, [session("BETA", "d:\\BETA"), session("ALPHA-OLD", "d:\\ALPHA")]);
+  assert.deepEqual(caseShifted.workspaces, afterArchive.workspaces, "paths should match case-insensitively");
 });

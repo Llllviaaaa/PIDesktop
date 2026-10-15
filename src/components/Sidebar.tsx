@@ -41,9 +41,10 @@ import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import type { AppNotification, ProjectConfig, SessionInfo } from "../types";
 import { sessionTitle } from "../lib/sessionTitle";
 import {
-  reconcileSidebarSessionOrder,
+  reconcileSidebarOrder,
   sortSidebarProjectGroups,
   sortSidebarSessions,
+  type SidebarOrder,
 } from "../lib/sidebarProjectOrder";
 import { sameLocalPath } from "../lib/pathIdentity";
 
@@ -103,6 +104,7 @@ function sameOrder(left: readonly string[], right: readonly string[]): boolean {
 
 const COLLAPSED_PROJECTS_KEY = "pid-desktop:collapsed-projects";
 const SIDEBAR_SESSION_ORDER_KEY = "pid-desktop:sidebar-session-order";
+const SIDEBAR_PROJECT_ORDER_KEY = "pid-desktop:sidebar-project-order";
 
 function readStringList(key: string): string[] {
   try {
@@ -209,7 +211,10 @@ export function Sidebar({
     window.localStorage.setItem(COLLAPSED_PROJECTS_KEY, JSON.stringify(collapsedProjectPaths));
   }, [collapsedProjectPaths]);
   const [pinnedSessionFiles, setPinnedSessionFiles] = useState(() => readStringList(PINNED_SESSIONS_KEY));
-  const [persistedSessionOrder, setPersistedSessionOrder] = useState(() => readStringList(SIDEBAR_SESSION_ORDER_KEY));
+  const [persistedOrder, setPersistedOrder] = useState<SidebarOrder>(() => ({
+    sessions: readStringList(SIDEBAR_SESSION_ORDER_KEY),
+    workspaces: readStringList(SIDEBAR_PROJECT_ORDER_KEY),
+  }));
   const [projectMenu, setProjectMenu] = useState<PositionedProjectMenu | null>(null);
   const [threadPreview, setThreadPreview] = useState<PositionedThreadPreview | null>(null);
   const [branchByWorkspace, setBranchByWorkspace] = useState<Record<string, string>>({});
@@ -238,19 +243,24 @@ export function Sidebar({
   );
   // The session whose project was last auto-expanded; see the sync further down.
   const [expandedForSession, setExpandedForSession] = useState<string | null>(null);
-  const stableSessionOrder = useMemo(
-    () => reconcileSidebarSessionOrder(persistedSessionOrder, sessions),
-    [persistedSessionOrder, sessions],
+  const sidebarOrder = useMemo(
+    () => reconcileSidebarOrder(persistedOrder, sessions),
+    [persistedOrder, sessions],
   );
+  const stableSessionOrder = sidebarOrder.sessions;
 
-  // Remember the reconciled order so new sessions keep their slot across restarts.
-  useSyncOnChange([stableSessionOrder], () => {
-    if (sameOrder(stableSessionOrder, persistedSessionOrder)) return;
-    setPersistedSessionOrder(stableSessionOrder);
+  // Remember the reconciled order so sessions and projects keep their slots across restarts.
+  useSyncOnChange([sidebarOrder], () => {
+    if (
+      sameOrder(sidebarOrder.sessions, persistedOrder.sessions)
+      && sameOrder(sidebarOrder.workspaces, persistedOrder.workspaces)
+    ) return;
+    setPersistedOrder(sidebarOrder);
   });
   useEffect(() => {
-    window.localStorage.setItem(SIDEBAR_SESSION_ORDER_KEY, JSON.stringify(persistedSessionOrder));
-  }, [persistedSessionOrder]);
+    window.localStorage.setItem(SIDEBAR_SESSION_ORDER_KEY, JSON.stringify(persistedOrder.sessions));
+    window.localStorage.setItem(SIDEBAR_PROJECT_ORDER_KEY, JSON.stringify(persistedOrder.workspaces));
+  }, [persistedOrder]);
 
   const projectConfig = (workspace: string): ProjectConfig => projectConfigs.find((project) => pathsEqual(project.path, workspace)) ?? {
     path: workspace,
@@ -291,8 +301,8 @@ export function Sidebar({
     for (const [key, chats] of result) {
       result.set(key, sortSidebarSessions(chats, pinnedSessionFiles, stableSessionOrder));
     }
-    return sortSidebarProjectGroups([...result.entries()], projectConfigs, stableSessionOrder);
-  }, [pinnedSessionFiles, projectConfigs, query, sessions, stableSessionOrder]);
+    return sortSidebarProjectGroups([...result.entries()], projectConfigs, stableSessionOrder, sidebarOrder.workspaces);
+  }, [pinnedSessionFiles, projectConfigs, query, sessions, sidebarOrder.workspaces, stableSessionOrder]);
 
   const unreadNotificationCount = useMemo(
     () => notifications.reduce((count, item) => count + Number(!item.read), 0),
