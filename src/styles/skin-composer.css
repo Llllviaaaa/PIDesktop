@@ -11,7 +11,8 @@
   isolation: isolate;
   box-sizing: border-box;
   width: 100%;
-  max-width: 748px;
+  /* 748px at the 760px reading floor; widens with the chat column. */
+  max-width: calc(var(--chat-reading-width, 760px) - 12px);
   min-height: 100%;
   margin: 0 auto;
   padding: 20px 16px 18px;
@@ -49,6 +50,12 @@
   z-index: 30;
   width: 100%;
   margin-top: auto;
+}
+
+/* The home column sets the width; drop the legacy 720px composer cap. */
+.codex-shot .dsh-claude-home-composer-wrap > .composer-area.codex-composer.task-start-composer {
+  width: 100%;
+  max-width: none;
 }
 
 /* ── Studio Usage Dashboard (`.dsh-claude-home-panel`) ─────────────── */
@@ -468,7 +475,7 @@
 
 .codex-shot .main-stage > .composer-dock > .composer-area.codex-composer {
   width: 100%;
-  max-width: 780px;
+  max-width: calc(var(--chat-reading-width, 760px) + 20px);
   margin: 0 auto;
 }
 
