@@ -41,9 +41,7 @@ import {
   Menu,
   Minus,
   MoreHorizontal,
-  PanelBottom,
   PanelLeft,
-  PanelRight,
   Square,
   X,
 } from "lucide-react";
@@ -99,6 +97,7 @@ import { ReviewPanel, type PendingReviewComment, type ReviewFilter, type ReviewT
 import { WorkspaceFileOpenContext } from "./components/Markdown";
 import { FileActionsProvider, OpenInMenu } from "./components/WorkspaceOpeners";
 import { GitActionButton } from "./components/GitActionButton";
+import { PanelToggles } from "./components/PanelToggles";
 import { CommitDialog, type CommitOutcome } from "./components/CommitDialog";
 import { preferredEditorFor, rememberProjectEditor } from "./lib/workspaceEditors";
 import { isLocalWebAddress } from "./lib/webAccess";
@@ -2017,7 +2016,8 @@ export default function App() {
             )}
           </div>
           <div className="topbar-right" data-tauri-drag-region>
-            {!hubView && !newTask && (
+            {/* Same controls on a new task as in a running one, so nothing moves when it starts. */}
+            {!hubView && (
               <div className="panel-toggles codex-layout-chrome">
                 <div className="main-pane-controls">
                   {reviewFileCount > 0 && (
@@ -2057,29 +2057,14 @@ export default function App() {
                   )}
                 </div>
                 <div className="workspace-pane-controls">
-                  <button
-                    type="button"
-                    className={`panel-toggle terminal-toggle ${bottomPanel ? "active" : ""}`}
-                    title={terminalToggleTitle}
-                    aria-label={terminalToggleTitle}
-                    aria-pressed={bottomPanel}
-                    onClick={() => setBottomPanel((value) => !value)}
-                  >
-                    <PanelBottom size={15} strokeWidth={1.75} />
-                    {showBackgroundTerminals && (
-                      <i className={`panel-toggle-dot ${backgroundTerminals.unseenOutput ? "unseen" : ""}`} aria-hidden />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    className={`panel-toggle ${workspaceSidebarVisible ? "active" : ""}`}
-                    title="侧边栏：摘要、审查、浏览器、文件 (Ctrl+Alt+B)"
-                    aria-label="切换侧边栏"
-                    aria-pressed={workspaceSidebarVisible}
-                    onClick={toggleWorkspaceSidebar}
-                  >
-                    <PanelRight size={15} strokeWidth={1.75} />
-                  </button>
+                  <PanelToggles
+                    terminalOpen={bottomPanel}
+                    terminalTitle={terminalToggleTitle}
+                    backgroundTerminals={showBackgroundTerminals ? (backgroundTerminals.unseenOutput ? "unseen" : "seen") : "none"}
+                    onToggleTerminal={() => setBottomPanel((value) => !value)}
+                    activeTool={workspaceSidebarVisible ? workspaceTool : null}
+                    onToggleTool={toggleWorkspaceTool}
+                  />
                 </div>
               </div>
             )}

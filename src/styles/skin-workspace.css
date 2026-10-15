@@ -287,43 +287,100 @@
   font-size: 12px;
 }
 
-/* The main button names the editor it opens; the topbar drops the name when narrow. */
+/* Open in: the editor's icon and a caret, borderless like the panel icons;
+   each half lights up on its own, since they do different things. */
 .codex-shot .topbar-branch-control.workspace-launch-control {
   width: auto;
+  min-width: 0;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.codex-shot .topbar-branch-control.workspace-launch-control:hover {
+  background: transparent;
 }
 
 .codex-shot .workspace-launch-control .workspace-open-trigger {
   width: auto;
+  height: 28px;
   flex: 0 0 auto;
-  gap: 6px;
-  padding: 0 4px;
+  padding: 0 2px 0 6px;
+  border-radius: 6px 0 0 6px;
 }
 
-.codex-shot .workspace-open-label {
-  max-width: 96px;
-  overflow: hidden;
+.codex-shot .workspace-launch-control .workspace-tools-trigger {
+  width: 18px;
+  height: 28px;
+  flex: 0 0 18px;
+  padding: 0 4px 0 0;
+  border-radius: 0 6px 6px 0;
+  color: var(--text-2);
+}
+
+.codex-shot .workspace-launch-control button:hover:not(:disabled),
+.codex-shot .workspace-launch-control.active .workspace-tools-trigger {
+  background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
-  font-size: 12.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.codex-shot .stage-canvas:has(.work-split.workspace-sidebar-open:not(.workspace-focus)) .workspace-open-label {
+/* ── Topbar right: changes, Git, open in │ panel icons ──────────────── */
+
+.codex-shot .panel-toggles.codex-layout-chrome,
+.codex-shot .main-pane-controls {
+  gap: 4px;
+}
+
+.codex-shot .main-pane-controls:empty {
   display: none;
 }
 
-@media (max-width: 1100px) {
-  .codex-shot .workspace-open-label {
-    display: none;
-  }
+.codex-shot .workspace-pane-controls {
+  gap: 2px;
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
 }
 
-/* ── Topbar change count and terminal indicator ─────────────────────── */
+.codex-shot .main-pane-controls:not(:empty) + .workspace-pane-controls::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px 0 2px;
+  background: var(--dsh-claude-border-l1, var(--border));
+}
+
+.codex-shot .panel-toggle {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.codex-shot .panel-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.codex-shot .panel-more-popover {
+  width: 200px;
+}
+
+.codex-shot .panel-more-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 
 .codex-shot .topbar-diff-chip {
   flex: 0 0 auto;
-  height: 30px;
+  height: 26px;
+  padding: 0 8px;
   gap: 5px;
+  border-radius: 7px;
   color: var(--text-2);
   font-size: 12px;
 }
@@ -349,8 +406,8 @@
 /* Hidden terminals are still running; the accent dot means they printed since you last looked. */
 .codex-shot .panel-toggle-dot {
   position: absolute;
-  top: 5px;
-  right: 5px;
+  top: 4px;
+  right: 4px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -821,14 +878,16 @@
 
 /* ── Git: topbar button and commit dialog ───────────────────────────── */
 
+/* The one outlined control in the topbar: the next Git step. */
 .codex-shot .git-action-control {
-  height: 30px;
+  height: 28px;
   display: inline-flex;
   align-items: stretch;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 8px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: 7px;
   background: var(--panel);
+  box-shadow: 0 1px 2px rgba(20, 20, 19, 0.04);
 }
 
 .codex-shot .git-action-control button {

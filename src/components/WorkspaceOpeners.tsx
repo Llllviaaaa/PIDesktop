@@ -119,9 +119,8 @@ export function OpenInMenu({
 }: OpenInMenuProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  // The topbar shows only the app's icon; the tooltip and the menu name it.
   const label = preferredEditor ? `在 ${preferredEditor.name} 中打开` : "在文件资源管理器中打开";
-  // "Visual Studio Code" would crowd the topbar; the menu keeps full names.
-  const shortName = preferredEditor ? (preferredEditor.id === "vscode" ? "VS Code" : preferredEditor.name) : "资源管理器";
 
   useEffect(() => {
     if (!open) return;
@@ -158,7 +157,6 @@ export function OpenInMenu({
           <span className={`workspace-tools-mark workspace-editor-${preferredEditor?.id ?? "explorer"}`} aria-hidden>
             <WorkspaceEditorIcon editorId={preferredEditor?.id} size={18} />
           </span>
-          <span className="workspace-open-label">{shortName}</span>
         </button>
         <button
           type="button"
