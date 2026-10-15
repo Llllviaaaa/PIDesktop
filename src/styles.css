@@ -1557,7 +1557,7 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 /* Running goal strip */
 .active-goal-card {
   width: calc(100% - 36px);
-  max-width: 804px;
+  max-width: calc(var(--chat-reading-width, 760px) + 44px);
   margin: 0 auto 6px;
 }
 .active-goal-card {
@@ -8052,7 +8052,6 @@ body,
 
 /* DEEIX-inspired chat reading rhythm. Keep this scoped to the primary conversation. */
 .codex-shot {
-  --chat-reading-width: 760px;
   --chat-body-size: 15px;
   --chat-body-line: 32px;
   --chat-user-surface: color-mix(in srgb, var(--hover) 72%, var(--panel-soft));
@@ -8065,7 +8064,15 @@ body,
   padding: 20px 24px 18px;
 }
 
+/*
+ * The reading column follows the chat area instead of a fixed width (DSH's
+ * conversation body does the same): 64% of `.main-stage`, never narrower than
+ * the old 760px, and capped near 72 characters of the 对话字号 so lines stay
+ * readable on large screens. `cqw` resolves at each use site against this
+ * container, so the token only belongs to elements inside `.main-stage`.
+ */
 .codex-shot .main-stage {
+  --chat-reading-width: clamp(760px, 64cqw, calc(var(--dsh-content-font-size, 15px) * 72));
   container-name: primary-chat;
   container-type: inline-size;
 }
