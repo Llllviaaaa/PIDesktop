@@ -340,30 +340,9 @@ pub(crate) fn git_generate_commit_message(
         .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .clone();
     let pi_binary = effective_pi_binary(&settings, &state);
-    let mut args = [
-        "--no-session",
-        "--no-tools",
-        "--no-extensions",
-        "--no-skills",
-        "--no-prompt-templates",
-        "--no-themes",
-        "--no-context-files",
-        "--thinking",
-        "off",
-    ]
-    .map(str::to_string)
-    .to_vec();
-    if let (Some(provider), Some(model)) = (
-        provider.filter(|value| !value.trim().is_empty()),
-        model.filter(|value| !value.trim().is_empty()),
-    ) {
-        args.extend([
-            "--provider".to_string(),
-            provider,
-            "--model".to_string(),
-            model,
-        ]);
-    }
+    let provider = provider.filter(|value| !value.trim().is_empty());
+    let model = model.filter(|value| !value.trim().is_empty());
+    let args = pi::launch::toolless_args(provider.as_deref(), model.as_deref());
     let cancelled = AtomicBool::new(false);
     let output = run_pi_print(
         &pi_binary,

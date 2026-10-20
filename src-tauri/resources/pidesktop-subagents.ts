@@ -74,6 +74,8 @@ async function runChild(
   if (!guard) return { ...task, ok: false, output: "", error: "Pi Desktop guard extension is unavailable" };
   const tools = permission === "workspace-write" ? "read,grep,find,ls,edit,write" : "read,grep,find,ls";
   const args = ["--mode", "json", "--print", "--no-session", "--no-extensions", "-e", guard, "--tools", tools];
+  // Provider, model, and thinking come from LaunchPlan via the parent environment.
+  // Permission stays per task: a read-only worker must not inherit a write-enabled parent.
   const provider = process.env.PIDESKTOP_SUBAGENT_PROVIDER;
   const model = process.env.PIDESKTOP_SUBAGENT_MODEL;
   const thinking = process.env.PIDESKTOP_SUBAGENT_THINKING;

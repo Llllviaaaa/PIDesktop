@@ -39,218 +39,6 @@ pub(crate) fn effective_pi_binary(settings: &AppSettings, state: &AppState) -> S
     configured
 }
 
-pub(crate) struct PiLaunchConfig {
-    pub(crate) extra_args: Vec<String>,
-    pub(crate) environment: Vec<(String, String)>,
-    pub(crate) sensitive_values: Vec<String>,
-}
-
-pub(crate) fn build_pi_launch_config(
-    settings: &AppSettings,
-    cwd: &str,
-    permission_mode: &str,
-    is_quick_chat: bool,
-) -> Result<PiLaunchConfig, AppError> {
-    let guard_extension = ensure_guard_extension()?;
-    let browser_extension = settings
-        .browser_enabled
-        .then(ensure_browser_extension)
-        .transpose()?;
-    let computer_extension = settings
-        .computer_enabled
-        .then(ensure_computer_extension)
-        .transpose()?;
-    let mcp_extension = settings
-        .mcp_enabled
-        .then(ensure_mcp_extension)
-        .transpose()?;
-    let plan_extension = settings
-        .plan_tracking_enabled
-        .then(ensure_plan_extension)
-        .transpose()?;
-    let hooks_extension = settings
-        .hooks_enabled
-        .then(ensure_hooks_extension)
-        .transpose()?;
-    let subagents_extension = settings
-        .subagents_enabled
-        .then(ensure_subagents_extension)
-        .transpose()?;
-    let memory_extension = settings
-        .memory_enabled
-        .then(ensure_memory_extension)
-        .transpose()?;
-    let mcp_config = if settings.mcp_enabled {
-        let mut raw = serde_json::to_vec(&settings.mcp_servers).map_err(|err| {
-            AppError::Other(format!("failed to serialize MCP runtime config: {err}"))
-        })?;
-        let encoded = base64::engine::general_purpose::STANDARD.encode(&raw);
-        raw.fill(0);
-        encoded
-    } else {
-        String::new()
-    };
-    let hooks_config = if settings.hooks_enabled {
-        base64::engine::general_purpose::STANDARD.encode(
-            serde_json::to_vec(&settings.hooks).map_err(|err| {
-                AppError::Other(format!("failed to serialize hooks runtime config: {err}"))
-            })?,
-        )
-    } else {
-        String::new()
-    };
-    let tool_rules_config =
-        base64::engine::general_purpose::STANDARD
-            .encode(serde_json::to_vec(&settings.tool_rules).map_err(|err| {
-                AppError::Other(format!("failed to serialize tool rules: {err}"))
-            })?);
-    let mut sensitive_values = runtime_secret_values(settings);
-    if !mcp_config.is_empty() {
-        sensitive_values.push(mcp_config.clone());
-    }
-    if !hooks_config.is_empty() {
-        sensitive_values.push(hooks_config.clone());
-    }
-    let extra_args = settings.rpc_extra_args(
-        &guard_extension,
-        browser_extension.as_deref(),
-        computer_extension.as_deref(),
-        mcp_extension.as_deref(),
-        plan_extension.as_deref(),
-        hooks_extension.as_deref(),
-        subagents_extension.as_deref(),
-        memory_extension.as_deref(),
-    );
-    let environment = vec![
-        (
-            "PIDESKTOP_PERMISSION_MODE".to_string(),
-            permission_mode.to_string(),
-        ),
-        (
-            "PIDESKTOP_AGENT_MODE".to_string(),
-            settings.agent_mode.clone(),
-        ),
-        ("PIDESKTOP_WORKSPACE_ROOT".to_string(), cwd.to_string()),
-        (
-            "PIDESKTOP_RULE_ALWAYS_CONFIRM_SHELL".to_string(),
-            if settings.always_confirm_shell {
-                "1"
-            } else {
-                "0"
-            }
-            .to_string(),
-        ),
-        (
-            "PIDESKTOP_RULE_BLOCK_OUTSIDE_WRITE".to_string(),
-            if settings.block_write_outside_workspace {
-                "1"
-            } else {
-                "0"
-            }
-            .to_string(),
-        ),
-        (
-            "PIDESKTOP_RULE_SHELL_ALLOWLIST".to_string(),
-            settings.shell_allow_prefixes.clone(),
-        ),
-        ("PIDESKTOP_TOOL_RULES_B64".to_string(), tool_rules_config),
-        (
-            "PIDESKTOP_QUICK_CHAT".to_string(),
-            if is_quick_chat { "1" } else { "0" }.to_string(),
-        ),
-        (
-            "PIDESKTOP_BROWSER_HEADLESS".to_string(),
-            if settings.browser_headless { "1" } else { "0" }.to_string(),
-        ),
-        (
-            "PIDESKTOP_BROWSER_PROFILE_DIR".to_string(),
-            if settings.browser_profile_mode == "persistent" {
-                app_config_dir()
-                    .join("browser-profile")
-                    .to_string_lossy()
-                    .to_string()
-            } else {
-                String::new()
-            },
-        ),
-        (
-            "PIDESKTOP_BROWSER_CONFIRM".to_string(),
-            if settings.browser_confirm_actions {
-                "1"
-            } else {
-                "0"
-            }
-            .to_string(),
-        ),
-        (
-            "PIDESKTOP_BROWSER_EXECUTABLE".to_string(),
-            settings.browser_executable.clone(),
-        ),
-        (
-            "PIDESKTOP_COMPUTER_CONFIRM".to_string(),
-            if settings.computer_confirm_actions {
-                "1"
-            } else {
-                "0"
-            }
-            .to_string(),
-        ),
-        (
-            "PIDESKTOP_COMPUTER_HELPER".to_string(),
-            std::env::current_exe()
-                .map_err(|err| {
-                    AppError::Other(format!("failed to locate Pi Desktop executable: {err}"))
-                })?
-                .to_string_lossy()
-                .to_string(),
-        ),
-        ("PIDESKTOP_MCP_CONFIG_B64".to_string(), mcp_config),
-        ("PIDESKTOP_HOOKS_CONFIG_B64".to_string(), hooks_config),
-        (
-            "PIDESKTOP_HOOKS_INHERIT_ENV".to_string(),
-            if settings.hooks_inherit_environment {
-                "1"
-            } else {
-                "0"
-            }
-            .to_string(),
-        ),
-        (
-            "PIDESKTOP_GUARD_EXTENSION".to_string(),
-            guard_extension.to_string_lossy().to_string(),
-        ),
-        (
-            "PIDESKTOP_SUBAGENT_CONCURRENCY".to_string(),
-            settings.subagent_max_concurrency.clamp(1, 4).to_string(),
-        ),
-        (
-            "PIDESKTOP_SUBAGENT_PROVIDER".to_string(),
-            settings.provider.clone(),
-        ),
-        (
-            "PIDESKTOP_SUBAGENT_MODEL".to_string(),
-            settings.model.clone(),
-        ),
-        (
-            "PIDESKTOP_SUBAGENT_THINKING".to_string(),
-            settings.thinking_level.clone(),
-        ),
-        (
-            "PIDESKTOP_MEMORY_FILE".to_string(),
-            local_memory_path().to_string_lossy().to_string(),
-        ),
-        (
-            "PIDESKTOP_MCP_CONFIRM".to_string(),
-            if settings.mcp_confirm_tools { "1" } else { "0" }.to_string(),
-        ),
-    ];
-    Ok(PiLaunchConfig {
-        extra_args,
-        environment,
-        sensitive_values,
-    })
-}
-
 #[tauri::command(async)]
 pub(crate) fn pi_start(
     app: AppHandle,
@@ -267,55 +55,29 @@ pub(crate) fn pi_start(
     }
 
     let is_isolated = isolated.unwrap_or(false);
+    // Side chats fork their own session and must not take over a primary runtime.
     if !is_isolated {
         let mut runtimes = state
             .runtimes
             .lock()
             .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?;
         runtimes.retain(|_, runtime| runtime.client.is_running());
-        if let Some(ref requested_session) = session_file {
-            if let Some((runtime_id, _)) = runtimes.iter().find(|(_, runtime)| {
-                runtime.session_file.as_ref() == Some(requested_session)
-                    && paths_equal(&runtime.cwd, &cwd)
-            }) {
-                return Ok(PiStartResult {
-                    runtime_id: runtime_id.clone(),
-                    session_loaded: true,
-                    session_forked: false,
-                });
-            }
-            if let Some((runtime_id, _)) = runtimes.iter().find(|(_, runtime)| {
-                paths_equal(&runtime.cwd, &cwd)
-                    && runtime.session_file.is_none()
-                    && !runtime.client.is_streaming()
-                    && runtime.client.pending_extension().is_none()
-            }) {
-                return Ok(PiStartResult {
-                    runtime_id: runtime_id.clone(),
-                    session_loaded: false,
-                    session_forked: false,
-                });
-            }
-            if let Some((runtime_id, _)) = runtimes.iter().find(|(_, runtime)| {
-                paths_equal(&runtime.cwd, &cwd)
-                    && !runtime.client.is_streaming()
-                    && runtime.client.pending_extension().is_none()
-            }) {
-                return Ok(PiStartResult {
-                    runtime_id: runtime_id.clone(),
-                    session_loaded: false,
-                    session_forked: false,
-                });
-            }
-        } else if let Some((runtime_id, _)) = runtimes.iter().find(|(_, runtime)| {
-            paths_equal(&runtime.cwd, &cwd)
-                && runtime.session_file.is_none()
-                && !runtime.client.is_streaming()
-                && runtime.client.pending_extension().is_none()
-        }) {
-            return Ok(PiStartResult {
+        let snapshots = runtimes
+            .iter()
+            .map(|(runtime_id, runtime)| pi::claim::RuntimeSnapshot {
                 runtime_id: runtime_id.clone(),
-                session_loaded: false,
+                cwd: runtime.cwd.clone(),
+                session_file: runtime.session_file.clone(),
+                is_streaming: runtime.client.is_streaming(),
+                has_pending_extension: runtime.client.pending_extension().is_some(),
+            })
+            .collect::<Vec<_>>();
+        if let Some(claimed) =
+            pi::claim::claim_primary(&snapshots, &cwd, session_file.as_deref())
+        {
+            return Ok(PiStartResult {
+                runtime_id: claimed.runtime_id,
+                session_loaded: claimed.session_loaded,
                 session_forked: false,
             });
         }
@@ -353,14 +115,14 @@ pub(crate) fn pi_start(
                 session_dir: dir.to_string_lossy().to_string(),
                 ..settings.clone()
             };
-            build_pi_launch_config(
+            pi::launch::interactive(
                 &launch_settings,
                 &cwd,
                 &settings.permission_mode,
                 is_quick_chat,
             )?
         }
-        None => build_pi_launch_config(&settings, &cwd, &settings.permission_mode, is_quick_chat)?,
+        None => pi::launch::interactive(&settings, &cwd, &settings.permission_mode, is_quick_chat)?,
     };
     let mut initial_session_file = None;
     let mut session_loaded = false;
@@ -555,11 +317,6 @@ pub(crate) fn list_pi_runtimes(state: State<'_, AppState>) -> Result<Vec<Runtime
             pending_extension: runtime.client.pending_extension(),
         })
         .collect())
-}
-
-pub(crate) fn paths_equal(left: &str, right: &str) -> bool {
-    let normalize = |value: &str| value.trim_end_matches(['/', '\\']).to_lowercase();
-    normalize(left) == normalize(right)
 }
 
 pub(crate) fn runtime_secret_values(settings: &AppSettings) -> Vec<String> {

@@ -2,12 +2,8 @@ import { create } from "zustand";
 import { describeError } from "./lib/errors";
 import { pi, respondToExtension, sendCommand } from "./lib/pi";
 import { redactSensitiveText } from "./lib/redact";
-import {
-  appendNotification,
-  persistNotifications,
-  readStoredNotifications,
-  type NotificationDraft,
-} from "./lib/notificationCenter";
+import { readStoredNotifications } from "./lib/notificationCenter";
+import { createNotices } from "./notifications";
 import { updateToolCall } from "./lib/piToolCalls";
 import type { PiState, RuntimeState } from "./storeTypes";
 import {
@@ -24,7 +20,6 @@ import {
   completionNotification,
   isSilentUiRequest,
   uiRequestNotification,
-  type NotificationPlan,
 } from "./lib/eventNotifications";
 import {
   buildForkCommand,
@@ -62,7 +57,6 @@ import type {
   ModelInfo,
   SessionMessageTiming,
   SessionStats,
-  Toast,
   ToolResultMessage,
   UiMessage,
   UiToolCall,
@@ -117,7 +111,23 @@ export const usePiStore = create<PiState>((set, get) => {
   const managedFollowUpsByRuntime = new Map<string, ManagedQueuedMessage[]>();
   const managedDrainInFlight = new Set<string>();
   const suppressManagedDrainFor = new Set<string>();
-  const systemNotifications = new Map<string, Notification>();
+  const notices = createNotices({
+    get,
+    set,
+    dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),
+    sessionIsBeingViewed: (sessionFile) => Boolean(
+      sessionFile
+      && viewedSessionFile
+      && sameLocalPath(sessionFile, viewedSessionFile)
+      && typeof document !== "undefined"
+      && document.visibilityState !== "hidden"
+      && document.hasFocus(),
+    ),
+  });
+  const toast = notices.showToast;
+  const pushNotification = notices.addNotification;
+  const raise = notices.raise;
+  const removeNotifications = notices.removeNotifications;
   let viewedSessionFile: string | null = null;
 
   const persistCurrentModelCatalog = () => {
@@ -272,84 +282,6 @@ export const usePiStore = create<PiState>((set, get) => {
         applyAssistantDelta({ ...pending, textDelta: "", toolCalls: [] });
       }
     }, 32);
-  };
-
-  const toast = (message: string, kind: Toast["kind"] = "info") => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const safeMessage = redactSensitiveText(message);
-    let added = false;
-    set((state) => {
-      if (state.toasts.some((item) => item.kind === kind && item.message === safeMessage)) return state;
-      added = true;
-      return { toasts: [...state.toasts.slice(-3), { id, message: safeMessage, kind }] };
-    });
-    if (added) window.setTimeout(() => get().dismissToast(id), 5500);
-  };
-
-  const sessionIsBeingViewed = (sessionFile: string | null) => Boolean(
-    sessionFile
-    && viewedSessionFile
-    && sameLocalPath(sessionFile, viewedSessionFile)
-    && typeof document !== "undefined"
-    && document.visibilityState !== "hidden"
-    && document.hasFocus(),
-  );
-
-  const closeSystemNotification = (id: string) => {
-    systemNotifications.get(id)?.close();
-    systemNotifications.delete(id);
-  };
-
-  const removeNotifications = (predicate: (notification: NotificationDraft) => boolean) => {
-    const removedIds: string[] = [];
-    set((state) => {
-      const notifications = state.notifications.filter((item) => {
-        if (!predicate(item)) return true;
-        removedIds.push(item.id);
-        return false;
-      });
-      if (notifications.length === state.notifications.length) return state;
-      persistNotifications(notifications);
-      return { notifications };
-    });
-    removedIds.forEach(closeSystemNotification);
-  };
-
-  const pushNotification = (notification: NotificationDraft): boolean => {
-    if (sessionIsBeingViewed(notification.sessionFile)) return false;
-    let added = false;
-    set((state) => {
-      const notifications = appendNotification(state.notifications, {
-        ...notification,
-        title: redactSensitiveText(notification.title),
-        body: redactSensitiveText(notification.body),
-      });
-      if (notifications === state.notifications) return state;
-      added = true;
-      persistNotifications(notifications);
-      return { notifications };
-    });
-    return added;
-  };
-
-  const notify = (id: string, title: string, body: string, approval = false) => {
-    const settings = get().settings;
-    if (!settings?.notificationsEnabled) return;
-    if (approval ? !settings.notifyOnApproval : !settings.notifyOnCompletion) return;
-    if (settings.notifyOnlyWhenUnfocused && document.hasFocus()) return;
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
-    closeSystemNotification(id);
-    const notification = new Notification(redactSensitiveText(title), { body: redactSensitiveText(body) });
-    systemNotifications.set(id, notification);
-    notification.onclose = () => systemNotifications.delete(id);
-  };
-
-  /** Record a planned notification and, if it is new, surface it to the OS. */
-  const raise = (plan: NotificationPlan | null) => {
-    if (!plan) return;
-    if (pushNotification(plan.draft)) {
-      notify(plan.draft.id, plan.osTitle, plan.osBody, plan.requiresApproval);
-    }
   };
 
   const command = (
@@ -678,14 +610,7 @@ export const usePiStore = create<PiState>((set, get) => {
       preferredWarmupKey = key;
       const pending = workspaceWarmups.get(key);
       if (pending) return pending;
-      const reusable = Object.values(get().runtimes).find((runtime) =>
-        workspaceKey(runtime.cwd) === key
-        && runtime.sessionFile === null
-        && runtime.status === "running"
-        && !runtime.isStreaming
-        && !runtime.extensionRequest
-      );
-      if (reusable) return;
+      // Reuse is decided by the host claim. This map only tracks the in-flight request.
 
       const warmup = pi.start(cwd)
         .then((started) => {
@@ -698,13 +623,6 @@ export const usePiStore = create<PiState>((set, get) => {
               });
             });
           }
-          const staleWarmups = Object.values(get().runtimes).filter((runtime) =>
-            runtime.runtimeId !== started.runtimeId
-            && runtime.runtimeId !== get().runtimeId
-            && runtime.sessionFile === null
-            && !runtime.isStreaming
-            && !runtime.extensionRequest
-          );
           set((state) => {
             const current = state.runtimes[started.runtimeId];
             return {
@@ -722,16 +640,6 @@ export const usePiStore = create<PiState>((set, get) => {
               },
             };
           });
-          if (staleWarmups.length > 0) {
-            void Promise.allSettled(staleWarmups.map((runtime) => pi.stop(runtime.runtimeId)))
-              .then(() => {
-                set((state) => {
-                  const runtimes = { ...state.runtimes };
-                  for (const runtime of staleWarmups) delete runtimes[runtime.runtimeId];
-                  return { runtimes };
-                });
-              });
-          }
         })
         .catch((error) => {
           get().appendLog(`Workspace prewarm skipped: ${describeError(error)}`);
