@@ -8,6 +8,7 @@ mod pi;
 mod platform;
 mod scheduler;
 mod secret_store;
+mod sidebar_host;
 mod terminal;
 mod workspace_files;
 
@@ -249,6 +250,7 @@ pub fn run() {
             terminal_sessions: Mutex::new(HashMap::new()),
             provider_service: Mutex::new(None),
         })
+        .manage(sidebar_host::SidebarHost::default())
         .setup(|app| {
             initialize_tray(app)?;
             if let Err(error) = initialize_scheduled_runner(app.handle()) {
@@ -351,6 +353,7 @@ pub fn run() {
             terminal::terminal_write,
             terminal::terminal_resize,
             terminal::terminal_close,
+            sidebar_host::sidebar_host_base,
             pi_package_action,
             usage_summary,
             list_pull_requests,

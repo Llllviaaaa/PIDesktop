@@ -5,72 +5,7 @@
 
 /* ── Right-hand dock: dsh-claude-style floating card (`margin: 8px; border-radius: 16px`) ── */
 
-.codex-shot .workspace-dock {
-  position: relative;
-  z-index: 1;
-  flex: 0 0 clamp(320px, var(--workspace-panel-width, 420px), calc(100% - 360px));
-  width: clamp(320px, var(--workspace-panel-width, 420px), calc(100% - 360px));
-  min-width: 320px;
-  min-height: 0;
-  align-self: stretch;
-  display: flex;
-  flex-direction: column;
-  margin: 8px 8px 8px 0;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 16px;
-  background: var(--dsh-claude-card, var(--app));
-  color: var(--text);
-  box-shadow:
-    0 4px 18px rgba(20, 20, 19, 0.08),
-    0 1px 3px rgba(20, 20, 19, 0.04);
-  overflow: hidden;
-}
-
-:root[data-theme="dark"] .codex-shot .workspace-dock {
-  border-color: var(--dsh-claude-border-l2, var(--border-strong));
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.3),
-    0 1px 3px rgba(0, 0, 0, 0.14);
-}
-
-.codex-shot .workspace-dock[hidden],
-.codex-shot .workspace-dock [hidden] {
-  display: none !important;
-}
-
-.codex-shot .work-split.workspace-focus > .workspace-dock {
-  flex: 1 1 auto;
-  width: auto;
-}
-
-@media (max-width: 720px) {
-  .codex-shot .work-split.workspace-sidebar-open > .workspace-dock {
-    flex: 1 1 100%;
-    width: 100%;
-    min-width: 0;
-  }
-}
-
-.codex-shot .workspace-dock-tabs {
-  flex: 0 0 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px 0 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-}
-
 /* The tabs may scroll; the close button never scrolls away. */
-.codex-shot .workspace-dock-tab-list {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
 
 .codex-shot .visually-hidden {
   position: absolute;
@@ -81,116 +16,7 @@
   white-space: nowrap;
 }
 
-.codex-shot .workspace-dock-tab {
-  flex: 0 0 auto;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 9px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-2);
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: background-color .15s, color .15s;
-}
-
-.codex-shot .workspace-dock-tab:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.codex-shot .workspace-dock-tab.active {
-  border-color: color-mix(in srgb, var(--border) 80%, transparent);
-  background: var(--panel);
-  color: var(--text);
-  font-weight: 500;
-}
-
-.codex-shot .workspace-dock-tab.active > svg {
-  color: var(--accent);
-}
-
-.codex-shot .workspace-dock-tab small {
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 999px;
-  display: inline-grid;
-  place-items: center;
-  background: var(--active);
-  color: var(--text-2);
-  font: 600 10px/1 var(--code-font);
-}
-
-.codex-shot .workspace-dock-tab.busy > svg {
-  animation: dock-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes dock-pulse {
-  50% { opacity: .35; }
-}
-
-.codex-shot .workspace-dock-action {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  display: inline-grid;
-  place-items: center;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-3);
-  cursor: pointer;
-}
-
-.codex-shot .workspace-dock-action:hover,
-.codex-shot .workspace-dock-action[aria-pressed="true"] {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.codex-shot .workspace-dock-body {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.codex-shot .workspace-dock-slot {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
 /* Panels used to size themselves as columns of .work-split; inside the dock they fill it. */
-.codex-shot .workspace-dock-body .inspector-panel.workspace-dock-panel,
-.codex-shot .workspace-dock-body .review-workspace-panel,
-.codex-shot .workspace-dock-body .files-pane,
-.codex-shot .workspace-dock-body .document-pane,
-.codex-shot .workspace-dock-body .workspace-browser-pane,
-.codex-shot .workspace-dock-body .side-chat-pane {
-  position: relative;
-  inset: auto;
-  flex: 1 1 auto;
-  width: auto;
-  min-width: 0;
-  max-width: none;
-  height: auto;
-  min-height: 0;
-  margin: 0;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.codex-shot .workspace-dock-body .summary-dock-panel {
-  background: var(--app);
-}
 
 /* ── File-path menu (portaled to <body>, so it is not scoped to .codex-shot) ── */
 
@@ -365,16 +191,6 @@
   height: 16px;
 }
 
-.codex-shot .panel-more-popover {
-  width: 200px;
-}
-
-.codex-shot .panel-more-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .codex-shot .topbar-diff-chip {
   flex: 0 0 auto;
   height: 26px;
@@ -399,10 +215,6 @@
   color: var(--red);
 }
 
-.codex-shot .terminal-toggle {
-  position: relative;
-}
-
 /* Hidden terminals are still running; the accent dot means they printed since you last looked. */
 .codex-shot .panel-toggle-dot {
   position: absolute;
@@ -420,140 +232,9 @@
   background: var(--accent);
 }
 
-.codex-shot .terminal-tab-unseen {
-  flex: 0 0 auto;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
 /* ── Terminal ───────────────────────────────────────────────────────── */
 
-.codex-shot .terminal-tab-body .terminal-surface {
-  width: 100%;
-  height: 100%;
-}
-
-.codex-shot .terminal-tab.status-exited > span,
-.codex-shot .terminal-tab.status-error > span {
-  color: var(--text-3);
-}
-
-.codex-shot .terminal-tab-state {
-  color: var(--text-3);
-  font: 10.5px var(--font-ui, sans-serif);
-  font-style: normal;
-}
-
-.codex-shot .terminal-shell-menu-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.codex-shot .terminal-shell-trigger {
-  width: 16px;
-  margin-left: -2px;
-}
-
 /* Opens downward over the terminal body: the dock clips anything above its header. */
-.codex-shot .terminal-shell-menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 180px;
-  padding: 4px;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 10px;
-  background: var(--popover);
-  box-shadow: 0 12px 32px -8px hsl(var(--shadow-color) / 0.32);
-}
-
-.codex-shot .terminal-shell-menu button {
-  width: 100%;
-  height: 30px;
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text);
-  font-size: 12.5px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.codex-shot .terminal-shell-menu button:hover {
-  background: var(--hover);
-}
-
-.codex-shot .terminal-shell-menu small {
-  color: var(--text-3);
-  font-size: 10.5px;
-}
-
-.codex-shot .terminal-header-actions {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.codex-shot .terminal-panel-close:disabled {
-  opacity: .4;
-  cursor: default;
-}
-
-.codex-shot .terminal-search {
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 3px 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
-  color: var(--text-3);
-}
-
-.codex-shot .terminal-search.miss {
-  border-color: color-mix(in srgb, var(--red, #d33) 60%, var(--border));
-}
-
-.codex-shot .terminal-search input {
-  width: 150px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font: 12px var(--font-ui, sans-serif);
-}
-
-.codex-shot .terminal-search button {
-  width: 20px;
-  height: 20px;
-  display: inline-grid;
-  place-items: center;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-}
-
-.codex-shot .terminal-search button:hover:not(:disabled) {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.codex-shot .terminal-search button:disabled {
-  opacity: .4;
-}
 
 /* ── Review: hunk actions, scopes, pending comments ─────────────────── */
 

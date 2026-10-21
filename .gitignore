@@ -57,4 +57,5 @@ docs/codex-ui-refs/live-compare/
 /src-tauri/resources/pi-runtime/*
 !/src-tauri/resources/pi-runtime/.gitkeep
 /src-tauri/resources/.pi-runtime-staging-*/
+/src-tauri/resources/sidebar-host/
 coverage/

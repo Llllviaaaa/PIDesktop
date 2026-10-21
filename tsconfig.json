@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
 
@@ -18,8 +18,58 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* DeepSeek Harness packages carried under src/dsh (see dsh-aliases.ts) */
+    "paths": {
+      /* Type-check cordis against a curated declaration (see the file); runtime is the npm package. */
+      "@deepseek-ai/cordis": ["./src/dsh-host/types/cordis.d.ts"],
+      /* better-sidebar's sources type-check upstream against DSH's host types; the host sees its entry points. */
+      "dsh-better-sidebar/*": ["./src/dsh-host/types/better-sidebar.d.ts"],
+      "@deepseek-ai/dsh-client-ui-primitives": ["./src/dsh/primitives/index.ts"],
+      "@deepseek-ai/dsh-client-ui-dockkit": ["./src/dsh/dockkit/index.ts"],
+      "@deepseek-ai/dsh-client-store": ["./src/dsh/store/index.ts"],
+      "@deepseek-ai/dsh-brand": ["./src/dsh/brand/index.ts"],
+      "@deepseek-ai/dsh-util-code-language": ["./src/dsh/code-language/index.ts"],
+      "@deepseek-ai/dsh-util-workspace-path": ["./src/dsh/workspace-path/index.ts"],
+      "@deepseek-ai/dsh-util-values": ["./src/dsh/util-values/index.ts"],
+      "@deepseek-ai/dsh-util-crypto": ["./src/dsh/util-crypto/index.ts"],
+      "@deepseek-ai/dsh-client-ui-slots": ["./src/dsh/slots/index.ts"],
+      "@deepseek-ai/dsh-client-ui-renderer/client": ["./src/dsh/renderer/client/index.ts"],
+      "@deepseek-ai/dsh-client-resources/client": ["./src/dsh/resources/client/index.ts"],
+      "@deepseek-ai/dsh-client-ui-session/client": ["./src/dsh/ui-session/client/index.ts"],
+      "@deepseek-ai/dsh-client-ui-sidebar-right/client": ["./src/dsh/sidebar-right/client/index.ts"],
+      "@deepseek-ai/dsh-client-ui-sidebar-terminal/client": ["./src/dsh/sidebar-terminal/client/index.ts"],
+      "@deepseek-ai/dsh-api-terminal-controller/client": ["./src/dsh/terminal-controller/client/index.ts"],
+      "@deepseek-ai/dsh-api-terminal-controller/types": ["./src/dsh/terminal-controller/types.ts"],
+      "@deepseek-ai/dsh-deque": ["./src/dsh/deque/index.ts"],
+      "@deepseek-ai/dsh-api-gateway/client": ["./src/dsh-host/modules/gateway/index.ts"],
+      "@deepseek-ai/dsh-client-connection/client": ["./src/dsh-host/modules/connection.ts"],
+      "@deepseek-ai/dsh-api-terminal-controller/remote": ["./src/dsh-host/modules/terminals.ts"],
+      "@deepseek-ai/dsh-session/types": ["./src/dsh-host/modules/session-types.ts"],
+      "@deepseek-ai/dsh-typert-protocol": ["./src/dsh-host/modules/typert-protocol.ts"],
+      "@deepseek-ai/dsh-api-remotes/client": ["./src/dsh-host/modules/remotes.ts"],
+      "@deepseek-ai/dsh-api-remote-access/client": ["./src/dsh-host/modules/remote-access.ts"],
+      "@deepseek-ai/dsh-api-session-controller/client": ["./src/dsh-host/modules/session-controller.ts"],
+      "@deepseek-ai/dsh-client-locale/client": ["./src/dsh-host/modules/locale.ts"],
+      "@deepseek-ai/dsh-client-shortcuts/client": ["./src/dsh-host/modules/shortcuts.ts"],
+      "@deepseek-ai/dsh-client-ui-theme/client": ["./src/dsh-host/modules/theme.ts"],
+      "@deepseek-ai/dsh-client-ui-layout/client": ["./src/dsh-host/modules/layout.ts"],
+      "@deepseek-ai/dsh-client-ui-conversation/client": ["./src/dsh-host/modules/conversation.ts"],
+      "@deepseek-ai/dsh-api-workspace-controller/client": ["./src/dsh-host/modules/workspace-controller.ts"]
+    }
   },
   "include": ["src"],
+  /* Copied in but not wired up yet; each comes off this list as it is connected. */
+  "exclude": [
+    "src/better-sidebar",
+    "src/dsh/slots",
+    "src/dsh/renderer",
+    "src/dsh/resources",
+    "src/dsh/sidebar-right",
+    "src/dsh/sidebar-terminal",
+    "src/dsh/sidebar-browser",
+    "src/dsh/sidebar-documentpreview"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

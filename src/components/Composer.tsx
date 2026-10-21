@@ -401,6 +401,8 @@ export const Composer = memo(function Composer({
             rows={1}
             disabled={disabled}
             className="composer-input"
+            // DSH's composer marker: better-sidebar inserts file references at this textarea's caret.
+            data-phase={isStreaming ? "streaming" : "idle"}
             placeholder={disabled ? "正在准备…" : isStreaming ? "继续指示…" : "发消息，用 / 调用命令，@ 引用文件…"}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {

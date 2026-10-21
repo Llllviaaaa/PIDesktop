@@ -1,0 +1,11 @@
+{
+  "//": "Read by esbuild for every file in the sidecar bundle (scripts/prepare-sidebar-host.mjs), in place of the nearest tsconfig: the app's maps @deepseek-ai/cordis to a declaration file.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "useDefineForClassFields": true,
+    "allowImportingTsExtensions": true,
+    "strict": true
+  }
+}
