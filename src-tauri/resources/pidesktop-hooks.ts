@@ -89,7 +89,12 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.on("session_start", async (event, ctx) => { await run("session_start", event, ctx); });
-  pi.on("before_agent_start", async (event, ctx) => { await run("before_agent_start", { prompt: event.prompt }, ctx); });
+  pi.on("before_agent_start", async (event, ctx) => {
+    const payload = event.messageType === "user"
+      ? { messageType: event.messageType, prompt: event.prompt }
+      : { messageType: event.messageType, message: event.message };
+    await run("before_agent_start", payload, ctx);
+  });
   pi.on("agent_end", async (event, ctx) => { await run("agent_end", { messageCount: event.messages.length }, ctx); });
   pi.on("agent_settled", async (event, ctx) => { await run("agent_settled", event, ctx); });
   pi.on("tool_call", async (event, ctx) => {
