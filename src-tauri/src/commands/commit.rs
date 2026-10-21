@@ -38,7 +38,7 @@ pub(crate) struct GitPushResult {
     pub(crate) set_upstream: bool,
 }
 
-fn workspace_root(cwd: &str) -> Result<PathBuf, AppError> {
+pub(crate) fn workspace_root(cwd: &str) -> Result<PathBuf, AppError> {
     let root = PathBuf::from(cwd);
     if !root.is_dir() {
         return Err(AppError::NotFound("workspace no longer exists".to_string()));
@@ -46,21 +46,38 @@ fn workspace_root(cwd: &str) -> Result<PathBuf, AppError> {
     Ok(root)
 }
 
-/// `run_git` for commands that take stdin, need a deadline or write to a
-/// remote. Git's own message is the error, so hook output reaches the user.
-fn run_git_process(
-    root: &Path,
-    args: &[&str],
+/// What a finished process printed.
+pub(crate) struct Captured {
+    pub(crate) success: bool,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
+}
+
+impl Captured {
+    /// stderr, then stdout: tools print the reason for a failure on either.
+    pub(crate) fn failure_detail(&self, fallback: impl FnOnce() -> String) -> String {
+        let detail = [self.stderr.trim(), self.stdout.trim()]
+            .into_iter()
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if detail.is_empty() {
+            fallback()
+        } else {
+            detail
+        }
+    }
+}
+
+/// Runs `command` with optional stdin and a deadline and collects its output.
+/// `label` names it in the timeout error ("git push", "gh pr view").
+pub(crate) fn run_captured(
+    mut command: Command,
     input: Option<&str>,
     timeout: Option<Duration>,
-) -> Result<String, AppError> {
-    let mut command = hidden_command("git");
+    label: &str,
+) -> Result<Captured, AppError> {
     command
-        .args(["-c", "core.quotePath=false"])
-        .args(args)
-        .current_dir(root)
-        // Never wait on a terminal prompt nobody can see; credential helpers still show their own windows.
-        .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(if input.is_some() {
             Stdio::piped()
         } else {
@@ -70,11 +87,11 @@ fn run_git_process(
         .stderr(Stdio::piped());
     let mut child = command
         .spawn()
-        .map_err(|err| AppError::Process(format!("failed to run git: {err}")))?;
+        .map_err(|err| AppError::Process(format!("无法运行 {label}：{err}")))?;
     if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
         stdin
             .write_all(input.as_bytes())
-            .map_err(|err| AppError::Process(format!("failed to write to git: {err}")))?;
+            .map_err(|err| AppError::Process(format!("failed to write to {label}: {err}")))?;
     }
     let mut stdout = child.stdout.take();
     let mut stderr = child.stderr.take();
@@ -98,35 +115,53 @@ fn run_git_process(
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) => {}
-            Err(err) => return Err(AppError::Process(format!("failed to wait for git: {err}"))),
+            Err(err) => {
+                return Err(AppError::Process(format!(
+                    "failed to wait for {label}: {err}"
+                )))
+            }
         }
-        if timeout.is_some_and(|limit| started.elapsed() >= limit) {
+        if let Some(limit) = timeout.filter(|limit| started.elapsed() >= *limit) {
             let _ = kill_process_tree(child.id());
             let _ = child.kill();
             let _ = child.wait();
             return Err(AppError::Network(format!(
-                "git {} 超过 {} 秒没有完成，已停止。检查网络和远程仓库的登录状态后再试。",
-                args.first().copied().unwrap_or_default(),
-                timeout.map(|limit| limit.as_secs()).unwrap_or_default()
+                "{label} 超过 {} 秒没有完成，已停止。检查网络和登录状态后再试。",
+                limit.as_secs()
             )));
         }
         std::thread::sleep(Duration::from_millis(40));
     };
-    let stdout = stdout_reader.join().unwrap_or_default();
-    let stderr = stderr_reader.join().unwrap_or_default();
-    if status.success() {
-        return Ok(stdout);
+    Ok(Captured {
+        success: status.success(),
+        stdout: stdout_reader.join().unwrap_or_default(),
+        stderr: stderr_reader.join().unwrap_or_default(),
+    })
+}
+
+/// `run_git` for commands that take stdin, need a deadline or write to a
+/// remote. Git's own message is the error, so hook output reaches the user.
+fn run_git_process(
+    root: &Path,
+    args: &[&str],
+    input: Option<&str>,
+    timeout: Option<Duration>,
+) -> Result<String, AppError> {
+    let mut command = hidden_command("git");
+    command
+        .args(["-c", "core.quotePath=false"])
+        .args(args)
+        .current_dir(root)
+        // Never wait on a terminal prompt nobody can see; credential helpers still show their own windows.
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let label = format!("git {}", args.first().copied().unwrap_or_default());
+    let output = run_captured(command, input, timeout, &label)?;
+    if output.success {
+        return Ok(output.stdout);
     }
-    let detail = [stderr.trim(), stdout.trim()]
-        .into_iter()
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    Err(AppError::Git(if detail.is_empty() {
+    Err(AppError::Git(output.failure_detail(|| {
         format!("git {} failed", args.join(" "))
-    } else {
-        detail
-    }))
+    })))
 }
 
 fn has_staged_changes(root: &Path) -> Result<bool, AppError> {
@@ -136,7 +171,7 @@ fn has_staged_changes(root: &Path) -> Result<bool, AppError> {
 }
 
 /// `origin` when it exists, otherwise the first remote.
-fn primary_remote(root: &Path) -> Option<String> {
+pub(crate) fn primary_remote(root: &Path) -> Option<String> {
     let remotes = run_git(root, &["remote"]).ok()?;
     let names = remotes
         .lines()
@@ -150,7 +185,7 @@ fn primary_remote(root: &Path) -> Option<String> {
         .map(|name| name.to_string())
 }
 
-fn current_branch(root: &Path) -> Result<String, AppError> {
+pub(crate) fn current_branch(root: &Path) -> Result<String, AppError> {
     Ok(run_git(root, &["rev-parse", "--abbrev-ref", "HEAD"])?
         .trim()
         .to_string())
@@ -159,10 +194,13 @@ fn current_branch(root: &Path) -> Result<String, AppError> {
 /// The branch the remote treats as default (`origin/HEAD`), else a local `main` or `master`.
 #[tauri::command(async)]
 pub(crate) fn git_default_branch(cwd: String) -> Result<Option<String>, AppError> {
-    let root = workspace_root(&cwd)?;
-    if let Some(remote) = primary_remote(&root) {
+    Ok(default_branch(&workspace_root(&cwd)?))
+}
+
+pub(crate) fn default_branch(root: &Path) -> Option<String> {
+    if let Some(remote) = primary_remote(root) {
         let head = run_git(
-            &root,
+            root,
             &[
                 "symbolic-ref",
                 "--quiet",
@@ -175,14 +213,14 @@ pub(crate) fn git_default_branch(cwd: String) -> Result<Option<String>, AppError
                 .strip_prefix(&format!("{remote}/"))
                 .map(str::to_string)
         }) {
-            return Ok(Some(name));
+            return Some(name);
         }
     }
-    Ok(["main", "master"]
+    ["main", "master"]
         .into_iter()
         .find(|name| {
             run_git(
-                &root,
+                root,
                 &[
                     "show-ref",
                     "--verify",
@@ -192,7 +230,7 @@ pub(crate) fn git_default_branch(cwd: String) -> Result<Option<String>, AppError
             )
             .is_ok()
         })
-        .map(str::to_string))
+        .map(str::to_string)
 }
 
 /// Commits what is staged, or, with `paths`, exactly those files when nothing
@@ -334,12 +372,41 @@ pub(crate) fn git_generate_commit_message(
     let recent = run_git(&root, &["log", "-8", "--format=%s"]).unwrap_or_default();
     let input = commit_message_input(&recent, &changes);
 
+    let output = draft_with_pi(
+        &state,
+        &cwd,
+        MESSAGE_REQUEST,
+        &input,
+        provider,
+        model,
+        "提交说明",
+    )?;
+    let message = clean_commit_message(&output);
+    if message.is_empty() {
+        return Err(AppError::Process("Pi 返回了空的提交说明".to_string()));
+    }
+    Ok(message)
+}
+
+/// Runs a one-shot Pi prompt without tools, extensions, session or context
+/// files, with the thread's model and thinking off, and returns what it
+/// printed. `input` travels on stdin; `request` must stay short and ASCII.
+/// `what` names the result in errors ("提交说明").
+pub(crate) fn draft_with_pi(
+    state: &AppState,
+    cwd: &str,
+    request: &str,
+    input: &str,
+    provider: Option<String>,
+    model: Option<String>,
+    what: &str,
+) -> Result<String, AppError> {
     let settings = state
         .settings
         .lock()
         .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
         .clone();
-    let pi_binary = effective_pi_binary(&settings, &state);
+    let pi_binary = effective_pi_binary(&settings, state);
     let mut args = [
         "--no-session",
         "--no-tools",
@@ -367,38 +434,34 @@ pub(crate) fn git_generate_commit_message(
     let cancelled = AtomicBool::new(false);
     let output = run_pi_print(
         &pi_binary,
-        &cwd,
+        cwd,
         &args,
         &[],
         PiPrintPrompt {
-            text: MESSAGE_REQUEST,
-            stdin: Some(&input),
+            text: request,
+            stdin: Some(input),
         },
         &cancelled,
         PiPrintLimits {
             timeout: MESSAGE_TIMEOUT,
-            output_bytes: 16 * 1024,
+            output_bytes: 32 * 1024,
         },
     )?;
     if output.timed_out {
         return Err(AppError::Process(format!(
-            "Pi 在 {} 秒内没有写完提交说明",
+            "Pi 在 {} 秒内没有写完{what}",
             MESSAGE_TIMEOUT.as_secs()
         )));
     }
     if !output.status.is_some_and(|status| status.success()) {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(AppError::Process(if stderr.is_empty() {
-            "Pi 没能生成提交说明".to_string()
+            format!("Pi 没能生成{what}")
         } else {
-            format!("Pi 没能生成提交说明：{stderr}")
+            format!("Pi 没能生成{what}：{stderr}")
         }));
     }
-    let message = clean_commit_message(&String::from_utf8_lossy(&output.stdout));
-    if message.is_empty() {
-        return Err(AppError::Process("Pi 返回了空的提交说明".to_string()));
-    }
-    Ok(message)
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// The diff (and new files' contents) of what the commit would contain.
@@ -451,7 +514,7 @@ fn preview_new_file(path: &Path) -> String {
     preview
 }
 
-fn truncate_for_prompt(mut text: String, limit: usize) -> String {
+pub(crate) fn truncate_for_prompt(mut text: String, limit: usize) -> String {
     if text.len() <= limit {
         return text;
     }
@@ -490,7 +553,7 @@ fn commit_message_input(recent_subjects: &str, changes: &str) -> String {
 }
 
 /// Models sometimes wrap the answer in a code fence or quotes anyway.
-fn clean_commit_message(output: &str) -> String {
+pub(crate) fn clean_commit_message(output: &str) -> String {
     let lines = output
         .trim()
         .lines()
