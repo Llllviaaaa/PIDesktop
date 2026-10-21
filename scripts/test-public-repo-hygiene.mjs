@@ -49,6 +49,16 @@ assert.equal(
   "pi-runtime/",
   "the generated Pi runtime must be included in desktop bundles",
 );
+assert.equal(
+  tauriConfig.bundle?.resources?.["resources/sidebar-host/"],
+  "sidebar-host/",
+  "the generated sidebar host must be included in desktop bundles",
+);
+assert.equal(
+  existsSync("src-tauri/resources/sidebar-host/.gitkeep"),
+  true,
+  "the sidebar host resource directory must exist in a clean checkout",
+);
 assert.match(thirdPartyNotices, /@earendil-works\/pi-coding-agent/, "bundled Pi must have redistribution notices");
 assert.match(thirdPartyNotices, /Bun runtime/, "bundled Bun runtime must have redistribution notices");
 const mcpVersions = [...mcpExtension.matchAll(/clientInfo: \{ name: "Pi Desktop", version: "([^"]+)" \}/g)].map((match) => match[1]);

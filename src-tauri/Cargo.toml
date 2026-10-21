@@ -36,6 +36,12 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 ureq = { version = "2.12", features = ["json"] }
 urlencoding = "2"
+# RUSTSEC-2026-0382. rustls 0.23.46 accepts rustls-webpki ^0.103.14.
+rustls-webpki = "=0.103.16"
+# RUSTSEC-2026-0381. The 1.x package is the patched root store. ureq still
+# requires the 0.26 name; the patch below supplies that name from a local
+# re-export of this exact release.
+webpki-roots = "=1.0.10"
 
 [target.'cfg(windows)'.dependencies]
 png = "0.17"
@@ -54,3 +60,10 @@ windows-sys = { version = "0.61", features = [
 
 [target.'cfg(not(windows))'.dependencies]
 libc = "0.2"
+
+[patch.crates-io]
+# RUSTSEC-2026-0381. crates.io has no patched webpki-roots 0.26 release, and
+# ureq 2.12.1 will not accept 1.0.10 under its ^0.26 requirement. The local
+# crate keeps that name and version, then re-exports TLS_SERVER_ROOTS from
+# the patched 1.0.10 package pinned above.
+webpki-roots = { path = "../vendor/webpki-roots-compat" }

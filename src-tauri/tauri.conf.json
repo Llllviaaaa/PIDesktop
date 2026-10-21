@@ -4,9 +4,9 @@
   "version": "0.2.29",
   "identifier": "io.github.llllviaaaa.pidesktop",
   "build": {
-    "beforeDevCommand": "npm run prepare:pi-runtime && npm run dev",
+    "beforeDevCommand": "npm run prepare:pi-runtime && npm run prepare:sidebar-host && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run prepare:pi-runtime && npm run build",
+    "beforeBuildCommand": "npm run prepare:pi-runtime && npm run prepare:sidebar-host && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -41,7 +41,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src data: blob:; object-src 'none'; base-uri 'self'; form-action 'none'"
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' asset: http://asset.localhost data: blob: https: http://127.0.0.1:*; media-src 'self' data: blob: https: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src data: blob: http: https:; object-src 'none'; base-uri 'self'; form-action 'none'"
     }
   },
   "bundle": {
@@ -55,7 +55,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/pi-runtime/": "pi-runtime/"
+      "resources/pi-runtime/": "pi-runtime/",
+      "resources/sidebar-host/": "sidebar-host/"
     }
   }
 }

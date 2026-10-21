@@ -1,0 +1,89 @@
+/*
+ * DSH's theme, as its ui-theme plugin installs it (src/dsh/theme), for the
+ * DSH UI PIDesktop hosts. The token sheets only declare custom properties
+ * (light on body, dark on body[data-ds-dark-theme]) and load as they are.
+ *
+ * Two upstream sheets style every element of the document; PIDesktop applies
+ * them to DSH's seats only (`.dsh-root`), so its own UI keeps its look:
+ * corner-shape.css (superellipse corners) and focus.css (focus ring). The
+ * scrollbar skin is left out: PIDesktop's own covers the whole window.
+ */
+@import "../dsh/theme/base.css";
+@import "../dsh/theme/design-platform.css";
+@import "../dsh/theme/gradient-shadow-text.css";
+@import "../dsh/theme/shiki.css";
+
+/* corner-shape.css, scoped. */
+@supports (corner-shape: superellipse(1.5)) {
+  .dsh-root {
+    --dsw-corner-shape: superellipse(1.5);
+  }
+
+  .dsh-root *,
+  .dsh-root *::before,
+  .dsh-root *::after {
+    corner-shape: var(--dsw-corner-shape);
+  }
+}
+
+/* focus.css, scoped. */
+.dsh-root {
+  --dsw-focus-ring-width: 2px;
+}
+
+.dsh-root :focus-visible {
+  outline-color: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-width: var(--dsw-focus-ring-width);
+}
+
+/* DSH's frame column (ui-layout AppFrame.module.css `.rightbarCol`): the right
+   Sidebar positions itself inside it, at its right edge. */
+.dsh-rightbar-col {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: visible;
+  transition: width var(--ds-transition-duration-slow, 0.3s) var(--ds-ease-in-out, ease-in-out);
+}
+
+.dsh-rightbar-col[data-dragging] {
+  transition: none;
+}
+
+.dsh-corner {
+  display: contents;
+}
+
+/* The frame's resize handle on the column's left edge (DSH's DragHandle). */
+.dsh-rightbar-resizer {
+  position: relative;
+  z-index: 45;
+  flex: 0 0 0;
+  width: 0;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.dsh-rightbar-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+}
+
+.dsh-rightbar-resizer:hover::before,
+.dsh-rightbar-resizer:focus-visible::before,
+body.workspace-is-resizing .dsh-rightbar-resizer::before {
+  content: "";
+  position: absolute;
+  inset: 0 -1px;
+  background: var(--dsw-alias-interactive-bg-hover-accent, var(--accent));
+}
+
+.dsh-rightbar-resizer:focus-visible {
+  outline: none;
+}
+
+/* A DSH slot host inside PIDesktop's layout: present for lookups, transparent to layout. */
+.dsh-slot-host {
+  display: contents;
+}

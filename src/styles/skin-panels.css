@@ -7,17 +7,12 @@
 
 .codex-shot .workspace-panel,
 .codex-shot .workspace-dock-panel,
-.codex-shot .workspace-launcher,
 .codex-shot .document-pane,
 .codex-shot .side-chat-pane,
 .codex-shot .workspace-browser-pane,
 .codex-shot .review-workspace-panel {
   background: var(--app);
   color: var(--text);
-}
-
-.codex-shot .workspace-split-resizer {
-  background: var(--border);
 }
 
 /* Headers: one quiet row with a medium-weight title and ghost icon buttons. */
@@ -42,18 +37,14 @@
 
 .codex-shot .workspace-pane-actions .icon-button,
 .codex-shot .document-pane-actions .icon-button,
-.codex-shot .workspace-browser-toolbar .icon-button,
-.codex-shot .terminal-panel-close,
-.codex-shot .terminal-tab-add {
+.codex-shot .workspace-browser-toolbar .icon-button {
   border-radius: 8px;
   color: var(--text-2);
 }
 
 .codex-shot .workspace-pane-actions .icon-button:hover,
 .codex-shot .document-pane-actions .icon-button:hover,
-.codex-shot .workspace-browser-toolbar .icon-button:hover:not(:disabled),
-.codex-shot .terminal-panel-close:hover,
-.codex-shot .terminal-tab-add:hover {
+.codex-shot .workspace-browser-toolbar .icon-button:hover:not(:disabled) {
   background: var(--hover);
   color: var(--text);
 }
@@ -96,17 +87,12 @@
 
 /* ── Tabs (review, documents, terminal) ────────────────────────────── */
 
-.codex-shot .review-workspace-tabs,
-.codex-shot .document-tabs,
-.codex-shot .bottom-terminal-header,
-.codex-shot .terminal-tabs {
+.codex-shot .review-workspace-tabs {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   background: transparent;
 }
 
-.codex-shot .review-active-tab,
-.codex-shot .document-tab,
-.codex-shot .terminal-tab {
+.codex-shot .review-active-tab {
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
@@ -115,37 +101,23 @@
   transition: background-color .15s, color .15s;
 }
 
-.codex-shot .document-tab:hover,
-.codex-shot .terminal-tab:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.codex-shot .review-active-tab,
-.codex-shot .document-tab.active,
-.codex-shot .terminal-tab.active {
+.codex-shot .review-active-tab {
   border-color: color-mix(in srgb, var(--border) 80%, transparent);
   background: var(--panel);
   color: var(--text);
   font-weight: 500;
 }
 
-.codex-shot .review-active-tab > svg,
-.codex-shot .document-tab.active > svg,
-.codex-shot .terminal-tab.active > svg {
+.codex-shot .review-active-tab > svg {
   color: var(--accent);
 }
 
-.codex-shot .review-active-tab button,
-.codex-shot .document-tab-close,
-.codex-shot .terminal-tab-close {
+.codex-shot .review-active-tab button {
   border-radius: 6px;
   color: var(--text-3);
 }
 
-.codex-shot .review-active-tab button:hover,
-.codex-shot .document-tab-close:hover,
-.codex-shot .terminal-tab-close:hover {
+.codex-shot .review-active-tab button:hover {
   background: var(--active);
   color: var(--text);
 }
@@ -180,36 +152,6 @@
 }
 
 /* ── Tool launcher (empty side panel) ──────────────────────────────── */
-
-.codex-shot .workspace-launcher-item {
-  min-height: 44px;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text);
-  font-size: 14px;
-  transition: background-color .15s;
-}
-
-.codex-shot .workspace-launcher-item:hover {
-  background: var(--hover);
-}
-
-.codex-shot .workspace-launcher-item svg {
-  color: var(--text-2);
-}
-
-.codex-shot .workspace-launcher-item:hover svg {
-  color: var(--accent);
-}
-
-.codex-shot .workspace-launcher-item kbd {
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--text-3);
-  font-family: var(--code-font);
-  font-size: 11px;
-}
 
 /* ── Review ────────────────────────────────────────────────────────── */
 
@@ -295,32 +237,6 @@
 }
 
 /* ── Bottom terminal ───────────────────────────────────────────────── */
-
-.codex-shot .bottom-terminal,
-.codex-shot .bottom-terminal-dock,
-.codex-shot .terminal-tab-bodies,
-.codex-shot .terminal-tab-body,
-.codex-shot .terminal-console {
-  background: var(--app);
-}
-
-.codex-shot .bottom-terminal-dock {
-  border-top: 1px solid var(--border);
-}
-
-.codex-shot .bottom-panel-resizer {
-  background: transparent;
-}
-
-.codex-shot .terminal-workspace-path {
-  color: var(--text-2);
-}
-
-.codex-shot .terminal-tab-body .xterm,
-.codex-shot .terminal-tab-body .xterm-viewport,
-.codex-shot .terminal-tab-body .xterm-scrollable-element {
-  background: var(--app) !important;
-}
 
 /* ── Inspector ─────────────────────────────────────────────────────── */
 

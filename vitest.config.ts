@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { DSH_ALIASES } from "./dsh-aliases";
 
 /**
  * The assertion suites under scripts/ used to be 46 standalone tsx processes
@@ -11,6 +12,7 @@ import { defineConfig } from "vitest/config";
  * bundled runtime rather than this codebase's units.
  */
 export default defineConfig({
+  resolve: { alias: DSH_ALIASES },
   test: {
     include: ["scripts/**/*.test.ts", "scripts/**/*.test.tsx"],
     environment: "node",

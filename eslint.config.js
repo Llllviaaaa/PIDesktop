@@ -18,6 +18,10 @@ export default tseslint.config(
       "src-tauri/resources/pi-runtime/**",
       // Vendored tooling, not project source.
       ".gitnexus/**",
+      // DeepSeek Harness packages kept as they are upstream (MIT); see dsh-aliases.ts.
+      "src/dsh/**",
+      // dsh-better-sidebar (MIT, © 2026 dsh-external), kept as it is upstream.
+      "src/better-sidebar/**",
     ],
   },
 

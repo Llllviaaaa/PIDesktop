@@ -1952,10 +1952,6 @@
   pointer-events: auto;
 }
 
-.codex-shot .work-split.workspace-sidebar-open .dsh-claude-turn-rail {
-  right: calc(var(--workspace-panel-width, 420px) + 18px);
-}
-
 @media (max-width: 900px) {
   .codex-shot .dsh-claude-turn-rail {
     display: none;
