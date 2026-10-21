@@ -1,15 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  AgentMessage,
   AppSettings,
   AttachmentPayload,
   ExtensionUIRequest,
-  GitBranchInfo,
-  GitCommitInfo,
-  GitCommitResult,
-  GitPushResult,
-  GitSnapshot,
   ModelProviderCheckResult,
   ModelProviderConfig,
   ModelProviderInput,
@@ -21,12 +15,6 @@ import type {
   PullRequestCollection,
   ResourceItem,
   RpcResponse,
-  SessionHistory,
-  SessionInfo,
-  SessionMessageTiming,
-  ScheduledRunRecord,
-  ScheduledRunResult,
-  ScheduledTask,
   UsageSummary,
   WorkspaceDirEntry,
   TerminalAppInfo,
@@ -35,29 +23,12 @@ import type {
   WorktreeInfo,
 } from "../types";
 import { rejectRuntimeCommands, sendPiCommand, subscribePiEvents } from "./piTransport";
+import { gitClient } from "./gitClient";
+import { scheduleClient } from "./scheduleClient";
+import { sessionClient } from "./sessionClient";
 
-let sessionsRequest: Promise<SessionInfo[]> | null = null;
-const gitSnapshotRequests = new Map<string, Promise<GitSnapshot>>();
 const packageSearchCache = new Map<string, PackageCatalogPage>();
 const packageDetailCache = new Map<string, PackageCatalogDetail>();
-
-function listSessions(): Promise<SessionInfo[]> {
-  if (!sessionsRequest) {
-    sessionsRequest = invoke<SessionInfo[]>("list_sessions_cmd")
-      .finally(() => { sessionsRequest = null; });
-  }
-  return sessionsRequest;
-}
-
-function gitSnapshot(cwd: string): Promise<GitSnapshot> {
-  const key = cwd.replace(/[\\/]+$/, "").toLowerCase();
-  const pending = gitSnapshotRequests.get(key);
-  if (pending) return pending;
-  const request = invoke<GitSnapshot>("git_snapshot", { cwd })
-    .finally(() => { gitSnapshotRequests.delete(key); });
-  gitSnapshotRequests.set(key, request);
-  return request;
-}
 
 async function searchPackages(query: string, page = 0, pageSize = 30): Promise<PackageCatalogPage> {
   const key = `${query.trim().toLowerCase()}\u0000${page}\u0000${pageSize}`;
@@ -94,23 +65,21 @@ export const pi = {
   registerProject: (path: string) => invoke<ProjectConfig>("register_project_cmd", { path }),
   saveProject: (project: ProjectConfig) => invoke<ProjectConfig>("save_project_cmd", { project }),
   removeLocalProject: (path: string) => invoke<void>("remove_local_project_cmd", { path }),
-  listScheduledTasks: () => invoke<ScheduledTask[]>("list_scheduled_tasks_cmd"),
-  listScheduledRuns: (taskId?: string, limit = 80) =>
-    invoke<ScheduledRunRecord[]>("list_scheduled_runs_cmd", { taskId: taskId || null, limit }),
-  saveScheduledTask: (task: ScheduledTask) => invoke<ScheduledTask>("save_scheduled_task_cmd", { task }),
-  deleteScheduledTask: (id: string) => invoke<void>("delete_scheduled_task_cmd", { id }),
-  runScheduledTask: (id: string, nextRunAt?: number | null) =>
-    invoke<ScheduledRunResult>("run_scheduled_task_cmd", { id, nextRunAt: nextRunAt ?? null }),
-  cancelScheduledTask: (id: string) => invoke<void>("cancel_scheduled_task_cmd", { id }),
-  listSessions,
-  sessionHistory: (file: string) => invoke<SessionHistory>("session_history_cmd", { file }),
-  exportSessionMarkdown: (file: string, destination: string) => invoke<string>("export_session_markdown", { file, destination }),
-  sessionMessageTimings: (file: string) => invoke<SessionMessageTiming[]>("session_message_timings_cmd", { file }),
-  sessionMessages: (file: string) => invoke<AgentMessage[]>("session_messages_cmd", { file }),
-  listArchivedSessions: () => invoke<SessionInfo[]>("list_archived_sessions_cmd"),
-  archiveSession: (file: string) => invoke<void>("archive_session_cmd", { file }),
-  restoreSession: (file: string) => invoke<void>("restore_session_cmd", { file }),
-  deleteSession: (file: string) => invoke<void>("delete_session_cmd", { file }),
+  listScheduledTasks: scheduleClient.list,
+  listScheduledRuns: scheduleClient.listRuns,
+  saveScheduledTask: scheduleClient.save,
+  deleteScheduledTask: scheduleClient.delete,
+  runScheduledTask: scheduleClient.run,
+  cancelScheduledTask: scheduleClient.cancel,
+  listSessions: sessionClient.list,
+  sessionHistory: sessionClient.history,
+  exportSessionMarkdown: sessionClient.exportMarkdown,
+  sessionMessageTimings: sessionClient.messageTimings,
+  sessionMessages: sessionClient.messages,
+  listArchivedSessions: sessionClient.listArchived,
+  archiveSession: sessionClient.archive,
+  restoreSession: sessionClient.restore,
+  deleteSession: sessionClient.delete,
   getSettings: () => invoke<AppSettings>("get_settings"),
   setSettings: (settings: AppSettings) => invoke<void>("set_settings", { settings }),
   getLocalMemory: () => invoke<string>("get_local_memory"),
@@ -123,38 +92,23 @@ export const pi = {
   deleteModelProvider: (id: string) => invoke<void>("delete_model_provider", { id }),
   checkModelProvider: (id: string) => invoke<ModelProviderCheckResult>("check_model_provider", { id }),
   readAttachment: (file: string) => invoke<AttachmentPayload>("read_attachment", { file }),
-  gitSnapshot,
-  gitRepositoryRoot: (cwd: string) => invoke<string | null>("git_repository_root", { cwd }),
-  gitRestoreFiles: (cwd: string, paths: string[]) => invoke<void>("git_restore_files", { cwd, paths }),
-  gitStageFiles: (cwd: string, paths: string[]) => invoke<void>("git_stage_files", { cwd, paths }),
-  gitUnstageFiles: (cwd: string, paths: string[]) => invoke<void>("git_unstage_files", { cwd, paths }),
-  gitListBranches: (cwd: string) => invoke<GitBranchInfo[]>("git_list_branches", { cwd }),
-  gitCheckoutBranch: (cwd: string, branch: string) => invoke<void>("git_checkout_branch", { cwd, branch }),
-  gitCompare: (cwd: string, base: string) => invoke<GitSnapshot>("git_compare", { cwd, base }),
-  gitReviewSnapshot: (cwd: string, filter: "uncommitted" | "unstaged" | "staged") =>
-    invoke<GitSnapshot>("git_review_snapshot", { cwd, filter }),
-  gitListCommits: (cwd: string, limit = 50) => invoke<GitCommitInfo[]>("git_list_commits", { cwd, limit }),
-  gitCommitSnapshot: (cwd: string, commit: string) => invoke<GitSnapshot>("git_commit_snapshot", { cwd, commit }),
-  gitDefaultBranch: (cwd: string) => invoke<string | null>("git_default_branch", { cwd }),
-  /** Commits the staged changes, or exactly `paths` when nothing is staged; `newBranch` switches first. */
-  gitCommit: (cwd: string, message: string, options: { paths?: string[]; newBranch?: string } = {}) =>
-    invoke<GitCommitResult>("git_commit", { cwd, message, paths: options.paths ?? null, newBranch: options.newBranch ?? null }),
-  /** Pushes to the upstream, or publishes the branch to the primary remote. */
-  gitPush: (cwd: string) => invoke<GitPushResult>("git_push", { cwd }),
-  /** Drafts a message for what `gitCommit` would commit with the same `paths`, using a one-shot Pi prompt. */
-  gitGenerateCommitMessage: (cwd: string, options: { paths?: string[]; provider?: string; model?: string } = {}) =>
-    invoke<string>("git_generate_commit_message", {
-      cwd,
-      paths: options.paths ?? null,
-      provider: options.provider ?? null,
-      model: options.model ?? null,
-    }),
-  /** `cached` stages/unstages; without it the patch lands in the working tree. */
-  gitApplyPatch: (cwd: string, patch: string, options: { cached: boolean; reverse: boolean }) =>
-    invoke<void>("git_apply_patch", { cwd, patch, cached: options.cached, reverse: options.reverse }),
-  /** What the latest agent turn changed, or null before any turn recorded a checkpoint. */
-  gitLastTurnSnapshot: (cwd: string) =>
-    invoke<(GitSnapshot & { startedAt: number }) | null>("git_last_turn_snapshot", { cwd }),
+  gitSnapshot: gitClient.snapshot,
+  gitRepositoryRoot: gitClient.repositoryRoot,
+  gitRestoreFiles: gitClient.restoreFiles,
+  gitStageFiles: gitClient.stageFiles,
+  gitUnstageFiles: gitClient.unstageFiles,
+  gitListBranches: gitClient.listBranches,
+  gitCheckoutBranch: gitClient.checkoutBranch,
+  gitCompare: gitClient.compare,
+  gitReviewSnapshot: gitClient.reviewSnapshot,
+  gitListCommits: gitClient.listCommits,
+  gitCommitSnapshot: gitClient.commitSnapshot,
+  gitDefaultBranch: gitClient.defaultBranch,
+  gitCommit: gitClient.commit,
+  gitPush: gitClient.push,
+  gitGenerateCommitMessage: gitClient.generateCommitMessage,
+  gitApplyPatch: gitClient.applyPatch,
+  gitLastTurnSnapshot: gitClient.lastTurnSnapshot,
   listPullRequests: (cwd: string) => invoke<PullRequestCollection>("list_pull_requests", { cwd }),
   checkoutPullRequest: (cwd: string, number: number) => invoke<void>("checkout_pull_request", { cwd, number }),
   listResources: (cwd: string) => invoke<ResourceItem[]>("list_resources", { cwd }),

@@ -30,7 +30,7 @@ pub(crate) fn default_scheduled_permission_mode() -> String {
 }
 
 pub(crate) fn is_safe_scheduled_permission_mode(mode: &str) -> bool {
-    matches!(mode, "read-only" | "ask" | "workspace-write")
+    pi::launch::is_safe_unattended_permission(mode)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -189,14 +189,9 @@ pub(crate) fn execute_scheduled_task(
     }
     let _ = app.emit("scheduled-run-updated", &run);
 
-    let permission_mode = if is_safe_scheduled_permission_mode(&task.permission_mode) {
-        task.permission_mode.as_str()
-    } else {
-        "ask"
-    };
     let execution = match running_task_result {
         Ok(_) => (|| {
-            let launch = build_pi_launch_config(&settings, &task.cwd, permission_mode, false)?;
+            let launch = pi::launch::unattended(&settings, &task.cwd, &task.permission_mode)?;
             run_pi_print(
                 &pi_binary,
                 &task.cwd,

@@ -7,7 +7,7 @@ import type { TaskPlanSummary } from "../lib/envSources";
 import { foldThinking } from "../lib/thinkingDisplay";
 import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
 import { presentToolCall, type ToolDiffLine, type ToolKind } from "../lib/toolPresentation";
-import { usePiStore } from "../store";
+import { showToast } from "../notifications";
 import { isGoalToolCall } from "../lib/activeGoal";
 import { ConversationPlan } from "./ConversationPlan";
 import { Markdown } from "./Markdown";
@@ -910,12 +910,12 @@ export const Message = memo(function Message({
     const share = (navigator as Navigator & { share?: (data: ShareData) => Promise<void> }).share;
     if (typeof share === "function") {
       void share({ text }).catch(() => {
-        void navigator.clipboard.writeText(text).then(() => usePiStore.getState().showToast("已复制回复，可粘贴分享", "info"));
+        void navigator.clipboard.writeText(text).then(() => showToast("已复制回复，可粘贴分享", "info"));
       });
       return;
     }
     void navigator.clipboard.writeText(text).then(() => {
-      usePiStore.getState().showToast("已复制回复，可粘贴分享", "info");
+      showToast("已复制回复，可粘贴分享", "info");
     }).catch(() => undefined);
   };
 
@@ -924,7 +924,7 @@ export const Message = memo(function Message({
     node?.scrollIntoView({ behavior: "smooth", block: "center" });
     const url = `${window.location.href.split("#")[0]}#message-${message.id}`;
     void navigator.clipboard.writeText(url).then(() => {
-      usePiStore.getState().showToast("已复制消息定位", "info");
+      showToast("已复制消息定位", "info");
     }).catch(() => undefined);
   };
 
