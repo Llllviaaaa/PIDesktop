@@ -49,12 +49,7 @@ use commands::usage::*;
 use commands::workspace::*;
 use config::*;
 use error::AppError;
-use extensions::{
-    ensure_browser_extension, ensure_computer_extension, ensure_guard_extension,
-    ensure_hooks_extension, ensure_mcp_extension, ensure_memory_extension,
-    ensure_personal_instructions, ensure_plan_extension, ensure_providers_extension,
-    ensure_subagents_extension,
-};
+use extensions::{ensure_personal_instructions, ensure_providers_extension};
 use pi::process::{apply_pi_config, run_pi_print, PiPrintLimits, PiPrintPrompt};
 use pi::rpc::PiRpcClient;
 use pi::sessions::{list_sessions, validate_session_path};

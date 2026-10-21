@@ -4,11 +4,13 @@
 //! keeps `full-access`. `toolless` drafts a commit message. `subagent_spec`
 //! only publishes the values the extension already reads before it spawns.
 
+use base64::Engine;
+
 use crate::error::AppError;
 use crate::extensions::{
     ensure_browser_extension, ensure_computer_extension, ensure_guard_extension,
-    ensure_hooks_extension, ensure_mcp_extension, ensure_memory_extension,
-    ensure_plan_extension, ensure_subagents_extension,
+    ensure_hooks_extension, ensure_mcp_extension, ensure_memory_extension, ensure_plan_extension,
+    ensure_subagents_extension,
 };
 use crate::{app_config_dir, local_memory_path, runtime_secret_values, AppSettings};
 
@@ -271,10 +273,7 @@ fn build(
             "PIDESKTOP_SUBAGENT_PROVIDER".to_string(),
             spec.provider.clone(),
         ),
-        (
-            "PIDESKTOP_SUBAGENT_MODEL".to_string(),
-            spec.model.clone(),
-        ),
+        ("PIDESKTOP_SUBAGENT_MODEL".to_string(), spec.model.clone()),
         (
             "PIDESKTOP_SUBAGENT_THINKING".to_string(),
             spec.thinking.clone(),
@@ -294,4 +293,3 @@ fn build(
         sensitive_values,
     })
 }
-

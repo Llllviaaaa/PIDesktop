@@ -25,22 +25,22 @@ pub(crate) fn claim_primary(
     session_file: Option<&str>,
 ) -> Option<Claimed> {
     let same_cwd = |runtime: &&RuntimeSnapshot| paths_equal(&runtime.cwd, cwd);
-    let idle = |runtime: &&RuntimeSnapshot| {
-        !runtime.is_streaming && !runtime.has_pending_extension
-    };
+    let idle = |runtime: &&RuntimeSnapshot| !runtime.is_streaming && !runtime.has_pending_extension;
 
     if let Some(requested) = session_file {
-        if let Some(runtime) = runtimes.iter().find(|runtime| {
-            same_cwd(runtime) && runtime.session_file.as_deref() == Some(requested)
-        }) {
+        if let Some(runtime) = runtimes
+            .iter()
+            .find(|runtime| same_cwd(runtime) && runtime.session_file.as_deref() == Some(requested))
+        {
             return Some(Claimed {
                 runtime_id: runtime.runtime_id.clone(),
                 session_loaded: true,
             });
         }
-        if let Some(runtime) = runtimes.iter().find(|runtime| {
-            same_cwd(runtime) && runtime.session_file.is_none() && idle(runtime)
-        }) {
+        if let Some(runtime) = runtimes
+            .iter()
+            .find(|runtime| same_cwd(runtime) && runtime.session_file.is_none() && idle(runtime))
+        {
             return Some(Claimed {
                 runtime_id: runtime.runtime_id.clone(),
                 session_loaded: false,
@@ -69,6 +69,7 @@ pub(crate) fn claim_primary(
 
 /// Empty idle runtimes that a newer warmup made redundant.
 /// The current primary and the runtime just started are kept.
+#[allow(dead_code)]
 pub(crate) fn stale_warmups<'a>(
     runtimes: &'a [RuntimeSnapshot],
     started_runtime_id: &str,

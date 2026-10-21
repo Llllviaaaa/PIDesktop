@@ -72,9 +72,7 @@ pub(crate) fn pi_start(
                 has_pending_extension: runtime.client.pending_extension().is_some(),
             })
             .collect::<Vec<_>>();
-        if let Some(claimed) =
-            pi::claim::claim_primary(&snapshots, &cwd, session_file.as_deref())
-        {
+        if let Some(claimed) = pi::claim::claim_primary(&snapshots, &cwd, session_file.as_deref()) {
             return Ok(PiStartResult {
                 runtime_id: claimed.runtime_id,
                 session_loaded: claimed.session_loaded,
