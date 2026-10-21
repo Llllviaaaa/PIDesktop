@@ -43,7 +43,11 @@ fn locate_sidebar_host() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Ok(executable) = std::env::current_exe() {
         if let Some(directory) = executable.parent() {
-            candidates.push(directory.join("sidebar-host").join("better-sidebar-host.exe"));
+            candidates.push(
+                directory
+                    .join("sidebar-host")
+                    .join("better-sidebar-host.exe"),
+            );
         }
     }
     #[cfg(debug_assertions)]
@@ -112,11 +116,15 @@ fn start(app: &AppHandle) -> Result<Running, AppError> {
         Ok(Ok(line)) => line,
         Ok(Err(error)) => {
             let _ = child.kill();
-            return Err(AppError::Process(format!("the sidebar host did not start: {error}")));
+            return Err(AppError::Process(format!(
+                "the sidebar host did not start: {error}"
+            )));
         }
         Err(_) => {
             let _ = child.kill();
-            return Err(AppError::Process("the sidebar host did not start in time".to_string()));
+            return Err(AppError::Process(
+                "the sidebar host did not start in time".to_string(),
+            ));
         }
     };
     let port = serde_json::from_str::<serde_json::Value>(line.trim())

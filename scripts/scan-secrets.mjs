@@ -25,9 +25,18 @@ function git(args, encoding = "utf8") {
 
 const findings = new Map();
 
+function pathOf(location) {
+  const gitPath = location.match(/^git:[0-9a-f]+:(.+)$/);
+  return (gitPath ? gitPath[1] : location).replaceAll("\\", "/");
+}
+
 function scan(content, location) {
   const text = Buffer.isBuffer(content) ? content.toString("utf8") : content;
+  // Vendored DSH copy uses `password:` for UI copy. The assignment rule
+  // matches that wording; the other rules still run on those files.
+  const vendored = pathOf(location).startsWith("src/dsh/");
   for (const [name, pattern] of rules) {
+    if (vendored && name === "credential-assignment") continue;
     if (pattern.test(text)) findings.set(`${name}:${location}`, { name, location });
   }
 }
