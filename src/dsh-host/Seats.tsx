@@ -81,7 +81,13 @@ export function DshRightbarColumn({ width, viewportWidth, resize }: RightbarColu
           onKeyDown={resize.onKeyDown}
         />
       )}
-      <div ref={ref} className="dsh-rightbar-col dsh-root" style={{ width: track }} data-rightbar-col />
+      <div
+        ref={ref}
+        className="dsh-rightbar-col dsh-root"
+        style={state.fullscreen ? undefined : { width: track }}
+        data-rightbar-col
+        data-rightbar-fullscreen={state.fullscreen || undefined}
+      />
     </>
   )
 }

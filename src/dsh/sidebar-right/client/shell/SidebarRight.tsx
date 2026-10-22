@@ -307,8 +307,8 @@ function SidebarPanel(panel: PanelProps & { width: number; panelRef: RefObject<H
     <div
       ref={panelRef}
       className={css.panel}
-      style={{ width: fullscreen ? '100vw' : width,
-        '--dsh-sidebar-width': fullscreen ? '100vw' : `${width}px` } as CSSProperties}
+      style={{ width: fullscreen ? '100%' : width,
+        '--dsh-sidebar-width': fullscreen ? '100%' : `${width}px` } as CSSProperties}
       data-sidebar-right-session={sessionId}
       data-sidebar-right-panel={fullscreen ? 'fullscreen' : 'push'}
       data-sidebar-right-open={expanded || undefined}

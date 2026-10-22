@@ -40,8 +40,11 @@
    Sidebar positions itself inside it, at its right edge. */
 .dsh-rightbar-col {
   position: relative;
+  align-self: stretch;
   flex: 0 0 auto;
   min-width: 0;
+  min-height: 0;
+  height: auto;
   overflow: visible;
   transition: width var(--ds-transition-duration-slow, 0.3s) var(--ds-ease-in-out, ease-in-out);
 }
@@ -50,13 +53,29 @@
   transition: none;
 }
 
+/* Fullscreen covers the conversation instead of sitting beside it. The panel
+   is positioned inside this column, so the column itself has to cover the row;
+   taking flow width would push the stage off the window. */
+.dsh-rightbar-col[data-rightbar-fullscreen] {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  z-index: 30;
+}
+
 .dsh-corner {
   display: contents;
+}
+
+/* Session-header seats portal in after boot, inside the topbar drag region. */
+.dsh-corner :is(button, [role="button"], [data-dsh-bottom-toggle], [data-sidebar-right-expand]) {
+  -webkit-app-region: no-drag;
 }
 
 /* The frame's resize handle on the column's left edge (DSH's DragHandle). */
 .dsh-rightbar-resizer {
   position: relative;
+  align-self: stretch;
   z-index: 45;
   flex: 0 0 0;
   width: 0;
