@@ -308,7 +308,10 @@ export default function App() {
   });
   const appWindow = isTauri ? getCurrentWindow() : null;
   const sidebarRendered = sidebarVisible || sidebarHoverPreview;
-  // DSH's frame needs the width beside the left sidebar: the right Sidebar's fullscreen covers it.
+  // DSH's frame asks whether a panel can sit beside the conversation. That
+  // question is about the whole row: measuring the conversation column instead
+  // shrinks the reading once the panel opens, the fit test fails, and the
+  // panel closes again.
   const [workSurfaceWidth, setWorkSurfaceWidth] = useState(0);
   const workSurfaceObserver = useRef<ResizeObserver | null>(null);
   const workSurfaceRef = useCallback((node: HTMLDivElement | null) => {

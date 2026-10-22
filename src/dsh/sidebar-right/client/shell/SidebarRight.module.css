@@ -63,6 +63,10 @@
 
 .panel[data-sidebar-right-panel='fullscreen'] {
   --dsh-dockkit-dock-layer: 40;
+  /* The column covers the row in fullscreen. A 100vw panel would run past the
+     left sidebar and get clipped by the window. */
+  width: 100% !important;
+  max-width: none !important;
 }
 
 /* No whole-box subtraction here: Electron drag regions are window geometry,
@@ -71,10 +75,9 @@
    ui-web base.css subtracts interactive elements and portalled overlays. A
    panel-wide no-drag would trade that drag affordance away. */
 
-/* Windows keeps caption controls above fullscreen file and terminal panels. */
-:global([data-windows-titlebar]) .panel[data-sidebar-right-panel='fullscreen'] {
-  max-width: calc(100vw - var(--dsh-windows-sidebar-width));
-}
+/* Windows caption clearance used to cap the panel at the viewport minus the
+   left sidebar. The column now stops at the sidebar, so the cap would shrink
+   the panel inside an already-correct box. */
 
 :global([data-windows-titlebar]) .panel[data-sidebar-right-panel='fullscreen'] :global([data-dockkit-column='0'][data-dockkit-pane]) {
   border-radius: var(--dsh-windows-content-radius) 0 0 0;
@@ -125,6 +128,7 @@
   border: none;
   border-radius: var(--dsw-radius-sm);
   cursor: pointer;
+  -webkit-app-region: no-drag;
 }
 
 .iconButton svg {

@@ -4,6 +4,8 @@
   width: 28px;
   padding: 0;
   color: var(--dsw-alias-label-secondary);
+  /* The header is a Tauri drag region; without this the packaged click becomes a window drag. */
+  -webkit-app-region: no-drag;
 }
 
 .button svg {
