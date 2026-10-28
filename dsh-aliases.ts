@@ -45,9 +45,21 @@ export const DSH_PACKAGES: Record<string, string> = {
   "@deepseek-ai/dsh-api-terminal-controller/remote": "./src/dsh-host/modules/terminals.ts",
 };
 
+/**
+ * The DSH host packages better-sidebar's host half imports, mapped to the
+ * Harness Host's stand-ins (packages/host/src/better-sidebar/shims). The host
+ * bundle (scripts/prepare-harness-host.mjs) and vitest resolve them the same way.
+ */
+export const BETTER_SIDEBAR_HOST_SHIMS: Record<string, string> = Object.fromEntries(
+  ["dsh-tools", "dsh-settings", "dsh-llm", "dsh-agent", "dsh-subagent"].map((name) => [
+    `@deepseek-ai/${name}`,
+    `./packages/host/src/better-sidebar/shims/${name}.ts`,
+  ]),
+);
+
 /** Exact-name matches, so a deep import of another package is never rewritten. */
 export const DSH_ALIASES = [
-  ...Object.entries(DSH_PACKAGES).map(([name, path]) => ({
+  ...Object.entries({ ...DSH_PACKAGES, ...BETTER_SIDEBAR_HOST_SHIMS }).map(([name, path]) => ({
     find: new RegExp(`^${name.replace(/[/\\-]/g, "\\$&")}$`),
     replacement: at(path),
   })),

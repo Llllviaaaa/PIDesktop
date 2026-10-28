@@ -1,5 +1,5 @@
 {
-  "//": "Read by esbuild for every file in the sidecar bundle (scripts/prepare-sidebar-host.mjs), in place of the nearest tsconfig: the app's maps @deepseek-ai/cordis to a declaration file.",
+  "//": "Read by esbuild for every file in the host bundle (scripts/prepare-harness-host.mjs), in place of the nearest tsconfig: the app's maps @deepseek-ai/cordis to a declaration file.",
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",

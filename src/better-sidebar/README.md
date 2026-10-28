@@ -4,14 +4,14 @@
 at commit `454afaf` (MIT, © 2026 dsh-external; see `LICENSE`): the plugin's
 `src/`, laid out as upstream. `client/` is the client half PIDesktop loads into
 DSH's UI (`src/dsh-host/better-sidebar.ts`); the files beside it are the host
-half, which `sidecar/better-sidebar-host` runs as its own process, plus the
-modules both halves share.
+half, which the Harness Host loads as one of its plugins
+(`packages/host/src/better-sidebar`), plus the modules both halves share.
 
 ## Changes from upstream
 
-- `client/desktop-env.ts`: `hostHttpBase()` takes the sidecar's base from
+- `client/desktop-env.ts`: `hostHttpBase()` takes the Harness Host's base from
   `__DSH_TRANSPORT__.httpBaseUrl` first. The routes live on a different origin
-  from PIDesktop's page, and the sidecar answers CORS for it.
+  from PIDesktop's page, and the host answers CORS for it.
 - `client/layout.css`: the `prefers-reduced-motion` block closes after its one
   rule. Upstream leaves it open, so browsers close it at the end of the file
   and the submenu rules below it apply only under reduced motion; Tailwind's

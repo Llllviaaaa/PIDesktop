@@ -16,8 +16,8 @@ run unchanged; this directory supplies what DSH's own client framework would:
   resolve through (the chunks themselves are split out by Vite), `connection`,
   `remote.session` (open in app / reveal, through PIDesktop's openers) and the
   composer draft (`conversation`, through the composer's textarea). Its routes
-  are served by the sidecar under `sidecar/better-sidebar-host`, whose base the
-  Tauri command `sidebar_host_base` hands out; the client reaches it through
+  are served by the Harness Host (`packages/host`), whose base the Tauri
+  command `sidebar_host_base` hands out; the client reaches it through
   `__DSH_TRANSPORT__`.
 - `modules/terminals.ts`: the terminal controller's Host half (`remote.terminal`)
   over Tauri's PTY commands, mirroring each shell into a headless xterm the

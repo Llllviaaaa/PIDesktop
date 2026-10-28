@@ -50,14 +50,14 @@ assert.equal(
   "the generated Pi runtime must be included in desktop bundles",
 );
 assert.equal(
-  tauriConfig.bundle?.resources?.["resources/sidebar-host/"],
-  "sidebar-host/",
-  "the generated sidebar host must be included in desktop bundles",
+  tauriConfig.bundle?.resources?.["resources/harness/"],
+  "harness/",
+  "the generated Harness Host must be included in desktop bundles",
 );
 assert.equal(
-  existsSync("src-tauri/resources/sidebar-host/.gitkeep"),
+  existsSync("src-tauri/resources/harness/.gitkeep"),
   true,
-  "the sidebar host resource directory must exist in a clean checkout",
+  "the Harness Host resource directory must exist in a clean checkout",
 );
 assert.match(thirdPartyNotices, /@earendil-works\/pi-coding-agent/, "bundled Pi must have redistribution notices");
 assert.match(thirdPartyNotices, /Bun runtime/, "bundled Bun runtime must have redistribution notices");
