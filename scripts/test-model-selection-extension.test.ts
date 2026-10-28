@@ -1,6 +1,25 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import modelGuard, { PIDESKTOP_RICH_CONTENT_INSTRUCTIONS } from "../src-tauri/resources/pidesktop-guard.ts";
-import { test } from "vitest";
+import { afterAll, beforeAll, test } from "vitest";
+
+// before_agent_start checkpoints the workspace the guard was created in, which
+// defaults to process.cwd(): this repository. Point it at an empty directory so
+// the test leaves no refs/pidesktop/checkpoints/* snapshots behind.
+let workspace = "";
+let previousWorkspace: string | undefined;
+beforeAll(() => {
+  workspace = mkdtempSync(join(tmpdir(), "pidesktop-model-selection-"));
+  previousWorkspace = process.env.PIDESKTOP_WORKSPACE_ROOT;
+  process.env.PIDESKTOP_WORKSPACE_ROOT = workspace;
+});
+afterAll(() => {
+  if (previousWorkspace === undefined) delete process.env.PIDESKTOP_WORKSPACE_ROOT;
+  else process.env.PIDESKTOP_WORKSPACE_ROOT = previousWorkspace;
+  rmSync(workspace, { recursive: true, force: true });
+});
 
 test("model selection extension", async () => {
   type Handler = (event: Record<string, unknown>, context: Record<string, unknown>) => unknown;
