@@ -4,8 +4,8 @@
  *
  * DSH loads the plugin's client bundle into its page and serves the plugin's
  * routes from its own host process. PIDesktop serves those routes from the
- * better-sidebar host sidecar (sidecar/better-sidebar-host), so this module
- * points the client's transport at it, hands the client's lazy chunks to
+ * Harness Host (packages/host, which loads the plugin's host half), so this
+ * module points the client's transport at it, hands the client's lazy chunks to
  * Vite's code splitting, provides the client services DSH's page would
  * (module table, connection, the remote session namespace, the composer
  * draft), and then loads the plugin unchanged.
@@ -36,7 +36,7 @@ const MODULES: Record<string, () => Promise<unknown>> = {
   '@deepseek-ai/dsh-client-ui-primitives': () => import('@deepseek-ai/dsh-client-ui-primitives'),
 }
 
-/** Where the Vite dev server's page finds a sidecar started by hand (scripts/prepare-sidebar-host.mjs). */
+/** Where the Vite dev server's page finds a Harness Host started by hand (scripts/prepare-harness-host.mjs). */
 const DEV_SIDECAR = 'http://127.0.0.1:47100/'
 
 async function sidecarBase(): Promise<string | undefined> {

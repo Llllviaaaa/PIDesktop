@@ -12,9 +12,11 @@
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { SettingsConflictError } from '@deepseek-ai/dsh-settings'
-import { PrefsSchema } from '../../src/better-sidebar/config.ts'
-import type { SidebarSettingsService } from '../../src/better-sidebar/context-types.ts'
+// The same file the bundle maps `@deepseek-ai/dsh-settings` to, so the plugin's
+// `instanceof SettingsConflictError` sees this class.
+import { SettingsConflictError } from './shims/dsh-settings.ts'
+import { PrefsSchema } from 'dsh-better-sidebar/config.ts'
+import type { SidebarSettingsService } from 'dsh-better-sidebar/context-types.ts'
 
 /** The Loader entry id better-sidebar's own bundle mounts the package under. */
 export const SIDEBAR_ENTRY_ID = 'better-sidebar'
