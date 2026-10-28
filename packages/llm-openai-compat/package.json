@@ -1,0 +1,14 @@
+{
+  "name": "@pid/llm-openai-compat",
+  "version": "0.0.0",
+  "private": true,
+  "description": "LLM adapter for OpenAI-compatible Chat Completions endpoints (OpenAI, DeepSeek, OpenRouter, Ollama, ...)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/llm": "*"
+  }
+}

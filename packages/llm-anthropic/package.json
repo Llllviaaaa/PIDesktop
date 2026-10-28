@@ -1,0 +1,14 @@
+{
+  "name": "@pid/llm-anthropic",
+  "version": "0.0.0",
+  "private": true,
+  "description": "LLM adapter for the Anthropic Messages API",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/llm": "*"
+  }
+}

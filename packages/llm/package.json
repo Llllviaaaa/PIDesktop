@@ -1,0 +1,13 @@
+{
+  "name": "@pid/llm",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Provider-neutral LLM vocabulary and the llm service (ADR 0007)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
+  }
+}

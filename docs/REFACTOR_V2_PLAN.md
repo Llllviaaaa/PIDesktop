@@ -1,6 +1,6 @@
 # V2 重构方案：自研 Agent Harness（cordis 插件化），移除 Pi 运行时
 
-> 状态：方向已确认（全自研，决策见第 7 节）。P0 已完成（#73），P1 进行中。允许破坏性调整。
+> 状态：方向已确认（全自研，决策见第 7 节）。P0（#73）、P1（#76）已完成，P2 进行中。允许破坏性调整。
 > 参考：DeepSeek Harness（DSH）的 cordis 插件架构（`@deepseek-ai/dsh-*`，MIT / BSD-3-Clause）。
 
 ## 1. 目标与非目标

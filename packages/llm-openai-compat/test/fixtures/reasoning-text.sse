@@ -1,0 +1,18 @@
+: hand-written from the DeepSeek reasoner stream format (reasoning_content, prompt_cache_hit_tokens)
+
+data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":""},"finish_reason":null}]}
+
+data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"The user wants "},"finish_reason":null}]}
+
+data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"a greeting."},"finish_reason":null}]}
+
+data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":"Hello","reasoning_content":null},"finish_reason":null}]}
+
+data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":" there!","reasoning_content":null},"finish_reason":null}]}
+
+data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":""},"finish_reason":"stop"}]}
+
+data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[],"usage":{"prompt_tokens":120,"completion_tokens":18,"total_tokens":138,"prompt_cache_hit_tokens":100,"prompt_cache_miss_tokens":20}}
+
+data: [DONE]
+

@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
@@ -17,6 +17,9 @@ const appVersion = (await import("../package.json", { with: { type: "json" } }))
 const pageOrigin = "http://tauri.localhost";
 const token = randomBytes(32).toString("base64url");
 const dataDir = mkdtempSync(join(tmpdir(), "pidesktop-harness-test-"));
+writeFileSync(join(dataDir, "providers.json"), JSON.stringify({
+  providers: [{ api: "openai-compat", id: "smoke", baseUrl: "http://127.0.0.1:9/v1", apiKey: { env: "PID_SMOKE_KEY" } }],
+}));
 
 const child = spawn(executable, ["--data-dir", dataDir, "--port", "0", "--page-origin", pageOrigin, "--exit-with-stdin"], {
   env: { ...process.env, PID_HARNESS_TOKEN: token },
@@ -60,6 +63,10 @@ try {
   assert.equal(init.result?.host?.version, appVersion, "the bundle must carry the app version");
   const info = await call(2, "host.info", {});
   assert.equal(info.result?.protocolVersion, "1.0");
+  const providers = await call(3, "provider.list", {});
+  assert.deepEqual(providers.result?.providers?.map((provider) => [provider.id, provider.api, provider.keySource]), [
+    ["smoke", "openai-compat", "environment variable PID_SMOKE_KEY"],
+  ], "the bundled LLM adapters must load the providers file");
   socket.close();
 
   const sidebar = await fetch(`http://127.0.0.1:${port}/sidebar/api/settings.get`, {
@@ -78,4 +85,4 @@ try {
   rmSync(dataDir, { recursive: true, force: true });
 }
 
-console.log(`harness-host: pid-harness ${appVersion} RPC, better-sidebar and stdin shutdown passed`);
+console.log(`harness-host: pid-harness ${appVersion} RPC, providers, better-sidebar and stdin shutdown passed`);

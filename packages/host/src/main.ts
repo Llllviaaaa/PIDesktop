@@ -10,9 +10,12 @@
  * nothing else there; logs go to stderr.
  */
 import { randomBytes } from "node:crypto";
+import { join } from "node:path";
 import { Logger, type Exporter } from "@deepseek-ai/cordis";
+import { Credentials, LlmService } from "@pid/llm";
 import * as betterSidebar from "./better-sidebar/index.ts";
 import { createHost } from "./host.ts";
+import * as providers from "./providers.ts";
 import { RpcGateway } from "./rpc.ts";
 import { WebServer } from "./web-server.ts";
 
@@ -67,6 +70,9 @@ export async function main(argv: readonly string[]): Promise<void> {
     plugins: [
       [WebServer, { pageOrigins: options.pageOrigins }],
       [RpcGateway, { token }],
+      [Credentials],
+      [LlmService],
+      [providers, { file: join(options.dataDir, "providers.json") }],
       [betterSidebar, { dataDir: options.dataDir }],
     ],
   });

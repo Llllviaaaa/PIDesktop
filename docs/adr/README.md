@@ -10,6 +10,7 @@ V2 重构（[REFACTOR_V2_PLAN.md](../REFACTOR_V2_PLAN.md)）期间的架构决�
 | [0004](0004-session-format.md) | 会话格式（事件溯源 JSONL） | 已接受 |
 | [0005](0005-repository-layout.md) | 仓库布局与包约定 | 已接受 |
 | [0006](0006-better-sidebar-in-host.md) | better-sidebar 宿主端并入 Host（边界例外） | 已接受 |
+| [0007](0007-llm-layer.md) | LLM 层：统一词汇、适配器与密钥引用 | 已接受 |
 
 ## 模板
 
