@@ -52,7 +52,8 @@ describe("harnessClient", () => {
     connection.close();
   });
 
-  it("rejects when the host refuses the token", async () => {
+  // A short timeout: a refusal the client never notices should fail here, not hang the suite.
+  it("rejects when the host refuses the token", { timeout: 10_000 }, async () => {
     const baseUrl = await startHost();
     await expect(connectHarness({ baseUrl, token: Buffer.alloc(32, 9).toString("base64url") }, { name: "t", version: "0" }))
       .rejects.toThrow("refused");

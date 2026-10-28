@@ -96,9 +96,14 @@ export function connectHarness(
       else request.resolve(message.result);
     });
 
+    // A refused handshake reports `error`, then `close`; the first one settles.
+    const refused = () => {
+      if (!opened) reject(new Error("Harness Host refused the connection"));
+    };
+    socket.addEventListener("error", refused);
     socket.addEventListener("close", () => {
       failAll(new HarnessRpcError({ code: ErrorCode.Aborted, message: "Harness connection closed" }));
-      if (!opened) reject(new Error("Harness Host refused the connection"));
+      refused();
     });
 
     socket.addEventListener("open", () => {

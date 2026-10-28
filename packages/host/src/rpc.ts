@@ -131,6 +131,10 @@ export class RpcGateway extends Service {
   private upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
     const offered = readOfferedSubprotocols(req.headers["sec-websocket-protocol"]);
     if (!offered.speaksProtocol || offered.token === undefined || !sameToken(offered.token, this.config.token)) {
+      // Close both directions once the response is out, as ws does when it
+      // refuses a handshake: after a bare end() Node 22's built-in WebSocket
+      // kept waiting and never reported the failure.
+      socket.once("finish", () => socket.destroy());
       socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
       return;
     }
