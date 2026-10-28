@@ -14,14 +14,15 @@ import { DSH_ALIASES } from "./dsh-aliases";
 export default defineConfig({
   resolve: { alias: DSH_ALIASES },
   test: {
-    include: ["scripts/**/*.test.ts", "scripts/**/*.test.tsx"],
+    // packages/ holds the Harness packages of the V2 refactor (docs/adr/0005).
+    include: ["scripts/**/*.test.ts", "scripts/**/*.test.tsx", "packages/*/test/**/*.test.ts"],
     environment: "node",
     // Several suites start a local HTTP server or spawn a child process.
     testTimeout: 60_000,
     hookTimeout: 60_000,
     coverage: {
       provider: "v8",
-      include: ["src/lib/**", "src/hooks/**", "src-tauri/resources/pidesktop-*.ts"],
+      include: ["src/lib/**", "src/hooks/**", "src-tauri/resources/pidesktop-*.ts", "packages/*/src/**"],
       exclude: ["src-tauri/resources/pi-runtime/**"],
       reporter: ["text-summary", "lcov"],
     },

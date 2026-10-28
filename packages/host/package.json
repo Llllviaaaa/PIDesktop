@@ -1,0 +1,14 @@
+{
+  "name": "@pid/host",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Harness Host: the cordis root that loads Pi Desktop's agent plugins (ADR 0001, 0003)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/protocol": "*"
+  }
+}

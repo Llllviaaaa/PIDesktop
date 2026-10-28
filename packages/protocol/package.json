@@ -1,0 +1,10 @@
+{
+  "name": "@pid/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wire protocol between the Pi Desktop UI and the Harness Host (ADR 0002)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
