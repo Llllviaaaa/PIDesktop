@@ -16,10 +16,13 @@
   "engines": {
     "node": ">=22"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json --noEmit && tsc -p tsconfig.packages.json --noEmit",
     "lint": "eslint .",
     "prepare:pi-runtime": "node scripts/prepare-pi-runtime.mjs",
     "prepare:sidebar-host": "node scripts/prepare-sidebar-host.mjs",

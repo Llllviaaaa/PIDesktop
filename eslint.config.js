@@ -4,9 +4,10 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 /**
- * Three environments live in this repository and they do not share globals:
- * the Vite renderer under src/, the assertion scripts under scripts/, and the
- * Pi extensions under src-tauri/resources/ that run inside the Pi runtime.
+ * Four environments live in this repository and they do not share globals:
+ * the Vite renderer under src/, the assertion scripts under scripts/, the
+ * Pi extensions under src-tauri/resources/ that run inside the Pi runtime,
+ * and the Harness packages under packages/ that run in the Harness Host.
  */
 export default tseslint.config(
   {
@@ -78,6 +79,14 @@ export default tseslint.config(
     },
     rules: {
       "no-console": "off",
+    },
+  },
+
+  {
+    // Harness packages (docs/adr/0005) run in the Bun-compiled host, never in the page.
+    files: ["packages/**/*.ts"],
+    languageOptions: {
+      globals: { ...globals.node },
     },
   },
 );

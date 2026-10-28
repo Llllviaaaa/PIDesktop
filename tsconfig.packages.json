@@ -1,0 +1,22 @@
+{
+  "//": "Type-checks the Harness packages under packages/ (ADR 0005). Unlike tsconfig.json it has no paths: @deepseek-ai/cordis resolves to the real package types, not the renderer's curated declaration.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["packages/*/src", "packages/*/test"]
+}
