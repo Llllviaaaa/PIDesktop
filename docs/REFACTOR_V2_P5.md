@@ -43,6 +43,8 @@ P0–P4 完成后，Harness Host 已经具备 Pi 引擎的全部能力：
 
 ### 3.1 设置同步（Rust → Host）
 
+> **实施时的调整（P5a，见 ADR 0013 和 #85）**：设置到 `harness.json` 的映射改为在 Host 里用 TypeScript 实现（`desktop-settings.ts`），`models.json` 的导入也放在 Host 里（`pi-import.ts`）。Rust 只负责把公开设置作为一行 `{"desktop": …}` 写进 Host 的 stdin。下面原来的 Rust 方案保留作对照。
+
 `AppSettings` 中与 agent 相关的字段，由 Rust 的一个纯函数 `harness_config(&AppSettings) -> serde_json::Value` 转成 `harness.json` 的各段：
 
 | AppSettings | harness.json |
