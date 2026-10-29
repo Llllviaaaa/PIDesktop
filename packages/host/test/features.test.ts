@@ -174,7 +174,7 @@ describe("harness.json", () => {
     dir = mkdtempSync(join(tmpdir(), "pid-harness-config-"));
     const file = join(dir, "harness.json");
     expect(readHarnessConfig(file)).toEqual({
-      config: { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true }, computer: { enabled: true }, schedule: { enabled: true } },
+      config: { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true }, computer: { enabled: true }, browser: { enabled: true }, schedule: { enabled: true } },
       problems: [],
     });
     writeFileSync(file, JSON.stringify({ permissions: { defaultPermission: "full-access" }, hooks: "nope", memory: { enabled: false } }));
