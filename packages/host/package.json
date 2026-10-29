@@ -9,6 +9,9 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/llm": "*",
+    "@pid/llm-anthropic": "*",
+    "@pid/llm-openai-compat": "*",
     "@pid/protocol": "*",
     "ws": "^8.18.3"
   }
