@@ -29,17 +29,35 @@ import type { Config as SubagentsConfig } from "@pid/subagents";
 export interface HarnessConfig {
   permissions: PermissionsConfig;
   hooks: HooksConfig;
-  memory: { enabled: boolean };
+  /** `file` defaults to `<dataDir>/memory.md`; the desktop points it at its own memory file. */
+  memory: { enabled: boolean; file?: string };
+  /** AGENTS.md / CLAUDE.md in the system prompt. */
+  contextFiles: { enabled: boolean };
   plan: { enabled: boolean };
-  mcp: McpConfig;
+  /** `secretsFile`: the desktop's DPAPI-protected MCP env and headers, merged in memory. */
+  mcp: McpConfig & { secretsFile?: string };
   subagents: SubagentsConfig & { enabled: boolean };
   computer: ComputerConfig & { enabled: boolean };
   browser: BrowserConfig & { enabled: boolean };
   schedule: { enabled: boolean };
+  /** The user's personality and custom instructions, as one system prompt section. */
+  prompt: { instructions: string };
 }
 
 export function defaultHarnessConfig(): HarnessConfig {
-  return { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true }, computer: { enabled: true }, browser: { enabled: true }, schedule: { enabled: true } };
+  return {
+    permissions: {},
+    hooks: { hooks: [] },
+    memory: { enabled: true },
+    contextFiles: { enabled: true },
+    plan: { enabled: true },
+    mcp: { servers: [] },
+    subagents: { enabled: true },
+    computer: { enabled: true },
+    browser: { enabled: true },
+    schedule: { enabled: true },
+    prompt: { instructions: "" },
+  };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -77,12 +95,20 @@ export function readHarnessConfig(file: string): { config: HarnessConfig; proble
     config.hooks = { hooks: Array.isArray(hooks.hooks) ? (hooks.hooks as HooksConfig["hooks"]) : [], inheritEnvironment: hooks.inheritEnvironment === true };
   }
   const memory = section("memory");
-  if (memory !== undefined) config.memory = { enabled: memory.enabled !== false };
+  if (memory !== undefined) config.memory = { enabled: memory.enabled !== false, ...(typeof memory.file === "string" ? { file: memory.file } : {}) };
+  const contextFiles = section("contextFiles");
+  if (contextFiles !== undefined) config.contextFiles = { enabled: contextFiles.enabled !== false };
+  const prompt = section("prompt");
+  if (prompt !== undefined) config.prompt = { instructions: typeof prompt.instructions === "string" ? prompt.instructions : "" };
   const plan = section("plan");
   if (plan !== undefined) config.plan = { enabled: plan.enabled !== false };
   const mcp = section("mcp");
   if (mcp !== undefined) {
-    config.mcp = { servers: Array.isArray(mcp.servers) ? (mcp.servers as McpConfig["servers"]) : [], confirmTools: mcp.confirmTools !== false };
+    config.mcp = {
+      servers: Array.isArray(mcp.servers) ? (mcp.servers as McpConfig["servers"]) : [],
+      confirmTools: mcp.confirmTools !== false,
+      ...(typeof mcp.secretsFile === "string" ? { secretsFile: mcp.secretsFile } : {}),
+    };
   }
   const subagents = section("subagents");
   if (subagents !== undefined) config.subagents = { ...(subagents as SubagentsConfig), enabled: subagents.enabled !== false };
