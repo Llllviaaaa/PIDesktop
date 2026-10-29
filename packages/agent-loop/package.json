@@ -1,0 +1,21 @@
+{
+  "name": "@pid/agent-loop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The agent loop: the only package that drives model calls and tools (ADR 0003, 0008)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/agent": "*",
+    "@pid/llm": "*",
+    "@pid/session": "*",
+    "@pid/system-prompt": "*",
+    "@pid/tools": "*"
+  },
+  "devDependencies": {
+    "@pid/testkit": "*"
+  }
+}

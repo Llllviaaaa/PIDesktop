@@ -1,0 +1,156 @@
+/**
+ * The feature plugins through the host: a permission prompt answered over
+ * the WebSocket, the permission, plan and checkpoint methods, and harness.json.
+ */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import WebSocket from "ws";
+import { AgentLoop } from "@pid/agent-loop";
+import * as checkpoints from "@pid/checkpoints";
+import { LlmService } from "@pid/llm";
+import { Permissions } from "@pid/permissions";
+import * as plan from "@pid/plan";
+import { PROTOCOL_VERSION, clientSubprotocols, ErrorCode } from "@pid/protocol";
+import { Sessions } from "@pid/session";
+import { SystemPrompt } from "@pid/system-prompt";
+import { ScriptedProvider, textReply, toolReply, useScriptedProvider } from "@pid/testkit";
+import * as toolFs from "@pid/tool-fs";
+import { Tools } from "@pid/tools";
+import { Ui } from "@pid/ui";
+import * as featuresRpc from "../src/features-rpc.ts";
+import { readHarnessConfig } from "../src/harness-config.ts";
+import { RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
+import * as sessionsRpc from "../src/sessions-rpc.ts";
+import * as uiRpc from "../src/ui-rpc.ts";
+
+/** Parsed wire JSON; the assertions check its shape. */
+type Json = ReturnType<typeof JSON.parse>;
+
+const token = Buffer.alloc(32, 5).toString("base64url");
+let host: Host | undefined;
+let dir = "";
+
+afterEach(async () => {
+  await host?.stop();
+  host = undefined;
+  rmSync(dir, { recursive: true, force: true });
+});
+
+async function start(provider: ScriptedProvider) {
+  dir = mkdtempSync(join(tmpdir(), "pid-host-features-"));
+  host = createHost({
+    version: "0",
+    dataDir: dir,
+    plugins: [
+      [WebServer, { pageOrigins: [] }],
+      [RpcGateway, { token }],
+      [LlmService, { maxAttempts: 1 }],
+      [Sessions],
+      [Ui],
+      [Tools],
+      [SystemPrompt],
+      [Permissions, {}],
+      [toolFs],
+      [plan],
+      [AgentLoop],
+      [checkpoints],
+      [sessionsRpc, { defaultModel: { provider: "scripted", model: "m" } }],
+      [uiRpc],
+      [featuresRpc],
+      [{ name: "scripted", inject: ["llm"], apply: (ctx: never) => useScriptedProvider(ctx, provider) }],
+    ],
+  });
+  await host.start();
+  const port = await host.ctx.webServer.listen(0);
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/rpc`, clientSubprotocols(token));
+  await new Promise((resolve, reject) => socket.once("open", resolve).once("error", reject));
+  const pending = new Map<number, (message: Json) => void>();
+  const notifications: Array<{ method: string; params: Json }> = [];
+  const waiters: Array<() => void> = [];
+  socket.on("message", (data) => {
+    const message = JSON.parse(data.toString());
+    if (typeof message.id === "number") pending.get(message.id)?.(message);
+    else {
+      notifications.push(message);
+      for (const waiter of waiters.splice(0)) waiter();
+    }
+  });
+  let next = 0;
+  const call = (method: string, params?: unknown): Promise<Json> => new Promise((done) => {
+    const id = ++next;
+    pending.set(id, done);
+    socket.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+  });
+  const until = async (match: (n: { method: string; params: Json }) => boolean) => {
+    while (!notifications.some(match)) await new Promise<void>((resolve) => waiters.push(resolve));
+    return notifications.find(match) as { method: string; params: Json };
+  };
+  await call("initialize", { protocolVersion: PROTOCOL_VERSION, client: { name: "test", version: "1" } });
+  return { call, until, notifications };
+}
+
+const settled = (n: { method: string; params: Json }) => n.method === "session/delta" && n.params.delta.type === "agent-end";
+
+describe("feature plugins in the host", () => {
+  it("asks the client before a file change and runs it once allowed", async () => {
+    const provider = new ScriptedProvider([
+      toolReply([{ id: "c1", name: "write", args: { path: "note.txt", content: "hi" } }]),
+      textReply("Written."),
+    ]);
+    const { call, until, notifications } = await start(provider);
+    const sessionId = (await call("session.create", { cwd: dir })).result.session.id;
+    await call("session.subscribe", { sessionId });
+    expect((await call("permission.get", { sessionId })).result).toEqual({ permission: "ask", agentMode: "agent", effective: "ask" });
+
+    await call("session.prompt", { sessionId, content: "write a note" });
+    const request = await until((n) => n.method === "ui/request");
+    expect(request.params).toMatchObject({ sessionId, kind: "confirm", title: "Allow file change?" });
+    expect((await call("ui.pending")).result.requests).toHaveLength(1);
+    expect((await call("ui.respond", { requestId: request.params.requestId, value: true })).result).toEqual({});
+    expect((await call("ui.respond", { requestId: request.params.requestId, value: true })).error?.code).toBe(ErrorCode.InvalidParams);
+    await until(settled);
+    const result = notifications.find((n) => n.method === "session/event" && n.params.event.type === "tool-result");
+    expect(result?.params.event.data).toMatchObject({ isError: false });
+    expect(notifications.some((n) => n.method === "ui/cancel")).toBe(true);
+  });
+
+  it("switches modes, reads the plan and lists checkpoints", async () => {
+    const provider = new ScriptedProvider([
+      toolReply([{ id: "c1", name: "update_plan", args: { items: [{ id: "a", text: "Look around", status: "in_progress" }] } }]),
+      textReply("Planned."),
+    ]);
+    const { call, until } = await start(provider);
+    const sessionId = (await call("session.create", { cwd: dir })).result.session.id;
+    await call("session.subscribe", { sessionId });
+    expect((await call("permission.set", { sessionId, agentMode: "plan" })).result.seq).toBeGreaterThan(0);
+    expect((await call("permission.get", { sessionId })).result).toMatchObject({ agentMode: "plan", effective: "read-only" });
+    expect((await call("permission.set", { sessionId, permission: "root" })).error?.code).toBe(ErrorCode.InvalidParams);
+
+    await call("session.prompt", { sessionId, content: "plan it" });
+    await until(settled);
+    expect((await call("plan.get", { sessionId })).result.plan.items).toEqual([{ id: "a", text: "Look around", status: "in_progress" }]);
+    expect(provider.requests[0]?.system).toContain("PIDesktop mode: Plan.");
+    expect(provider.requests[0]?.system).toContain("pidesktop-rich");
+    // Read-only run, and not a git repository either: no checkpoint.
+    expect((await call("checkpoint.list", { sessionId })).result).toEqual({ checkpoints: [] });
+    expect((await call("checkpoint.restore", { sessionId, userSeq: 1 })).error?.code).toBe(ErrorCode.InvalidParams);
+  });
+});
+
+describe("harness.json", () => {
+  it("reads sections and reports the ones it ignores", () => {
+    dir = mkdtempSync(join(tmpdir(), "pid-harness-config-"));
+    const file = join(dir, "harness.json");
+    expect(readHarnessConfig(file)).toEqual({ config: { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true } }, problems: [] });
+    writeFileSync(file, JSON.stringify({ permissions: { defaultPermission: "full-access" }, hooks: "nope", memory: { enabled: false } }));
+    const { config, problems } = readHarnessConfig(file);
+    expect(config.permissions).toEqual({ defaultPermission: "full-access" });
+    expect(config.memory.enabled).toBe(false);
+    expect(config.hooks).toEqual({ hooks: [] });
+    expect(problems).toEqual(["hooks must be an object; using its defaults"]);
+    writeFileSync(file, "{");
+    expect(readHarnessConfig(file).problems[0]).toMatch(/not valid JSON/);
+  });
+});

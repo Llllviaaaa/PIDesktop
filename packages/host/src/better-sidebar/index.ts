@@ -6,9 +6,11 @@
  * the GUI. This plugin provides the services it injects that the Harness Host
  * does not have yet: the Loader row it looks itself up by, `webRuntime`, a
  * `settings` service over one JSON file, and empty `sessions` and `tools`.
- * Pi still owns sessions and tools until P3, so each request's working
- * directory comes from the client's own session summary, and the plugin's
- * optional `sidebar_open` tool has no model to reach.
+ * Those two are isolated to this plugin's scope: the host's own `sessions`
+ * and `tools` (P3) have a different shape than the DSH services the plugin
+ * was written for. Pi still owns the desktop's sessions until P5, so each
+ * request's working directory comes from the client's own session summary,
+ * and the plugin's optional `sidebar_open` tool has no model to reach.
  */
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -25,6 +27,12 @@ export interface Config {
 }
 
 export function apply(ctx: Context, config: Config): void {
+  // Isolated where the inner plugin is loaded: a service provided under a name
+  // isolated inside a running plugin never reached that plugin's children.
+  ctx.isolate('sessions').isolate('tools').plugin({ name: `${name}/scope`, apply: (scoped: Context) => mount(scoped, config) })
+}
+
+function mount(ctx: Context, config: Config): void {
   const entry: { options: { id: string; name: string }; fiber: unknown; disabled: boolean } = {
     options: { id: SIDEBAR_ENTRY_ID, name: sidebarHost.name },
     fiber: undefined,

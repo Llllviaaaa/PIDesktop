@@ -47,6 +47,8 @@ export class RpcError extends Error {
 export interface RpcCall {
   /** Aborted when the connection that sent the request closes. */
   signal: AbortSignal;
+  /** Send a notification to the connection that sent the request, while it is open. */
+  notify(method: string, params?: unknown): void;
 }
 
 export type RpcHandler = (params: unknown, call: RpcCall) => unknown;
@@ -59,6 +61,10 @@ interface Connection {
   socket: WebSocket;
   initialized: boolean;
   closed: AbortController;
+}
+
+function notification(method: string, params?: unknown): unknown {
+  return params === undefined ? { jsonrpc: "2.0", method } : { jsonrpc: "2.0", method, params };
 }
 
 function sameToken(offered: string, expected: string): boolean {
@@ -122,7 +128,7 @@ export class RpcGateway extends Service {
 
   /** Send a notification to every initialized connection. */
   broadcast(method: string, params?: unknown): void {
-    const frame = JSON.stringify(params === undefined ? { jsonrpc: "2.0", method } : { jsonrpc: "2.0", method, params });
+    const frame = JSON.stringify(notification(method, params));
     for (const connection of this.connections) {
       if (connection.initialized && connection.socket.readyState === WebSocket.OPEN) connection.socket.send(frame);
     }
@@ -197,7 +203,8 @@ export class RpcGateway extends Service {
       return;
     }
     try {
-      const result = await handler(message.params, { signal: connection.closed.signal });
+      const notify = (method: string, params?: unknown) => this.send(connection, notification(method, params));
+      const result = await handler(message.params, { signal: connection.closed.signal, notify });
       this.send(connection, success(message.id, result ?? null));
     } catch (error) {
       if (error instanceof RpcError) {

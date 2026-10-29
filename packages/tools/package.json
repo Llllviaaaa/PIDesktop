@@ -1,0 +1,14 @@
+{
+  "name": "@pid/tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tool registry and the pre-execute / execute / result pipeline (ADR 0003, 0008)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/llm": "*"
+  }
+}
