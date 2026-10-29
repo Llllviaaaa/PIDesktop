@@ -6,7 +6,11 @@
  * A key written out moves to secrets.dat as `{ secret: "provider/<id>" }`; a
  * pure `$VAR` / `${VAR}` reference becomes `{ env }`. What cannot be carried
  * over (other APIs, `!command` keys) is reported, not guessed at.
+ *
+ * Keys of Pi's built-in providers live in `auth.json` instead; those move
+ * once too, for the built-ins the harness can reach (pi-builtins.ts).
  */
+import { PI_BUILTINS } from "./pi-builtins.ts";
 import type { ProviderEntry } from "./providers.ts";
 
 export interface PiImport {
@@ -40,6 +44,49 @@ function models(value: unknown): NonNullable<ProviderEntry["models"]> {
   });
 }
 
+/** Set `entry.apiKey` from a Pi key: `$VAR` stays a reference, a written key moves to the secrets. */
+function takeKey(entry: ProviderEntry, raw: string, result: PiImport): void {
+  const key = raw.trim();
+  const env = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/.exec(key);
+  if (env?.[1] !== undefined) {
+    entry.apiKey = { env: env[1] };
+  } else if (key.startsWith("!")) {
+    result.problems.push(`${entry.id}: the key comes from a command, which the harness does not run; enter the key again`);
+  } else if (key !== "") {
+    const secretId = `provider/${entry.id}`;
+    result.secrets[secretId] = key;
+    entry.apiKey = { secret: secretId };
+  }
+}
+
+/**
+ * The built-in providers Pi has an API key for in `auth.json`, as providers.json
+ * entries. `existing` providers are left alone: what providers.json already
+ * says wins. OAuth logins do not carry over and are reported.
+ */
+export function importPiAuth(authJson: unknown, existing: ReadonlySet<string>): PiImport {
+  const result: PiImport = { providers: [], secrets: {}, problems: [] };
+  if (typeof authJson !== "object" || authJson === null || Array.isArray(authJson)) return result;
+  for (const [id, raw] of Object.entries(authJson as Record<string, unknown>)) {
+    if (existing.has(id)) continue;
+    const credential = raw as { type?: unknown; key?: unknown } | null;
+    if (credential?.type === "oauth") {
+      result.problems.push(`${id}: signed in with OAuth, which the harness does not support; add an API key instead`);
+      continue;
+    }
+    if (credential?.type !== "api_key" || typeof credential.key !== "string" || credential.key.trim() === "") continue;
+    const builtin = PI_BUILTINS[id];
+    if (builtin === undefined) {
+      result.problems.push(`${id}: not a built-in provider the harness can reach`);
+      continue;
+    }
+    const entry: ProviderEntry = { api: builtin.api, id, name: builtin.name, baseUrl: builtin.baseUrl };
+    takeKey(entry, credential.key, result);
+    if (entry.apiKey !== undefined) result.providers.push(entry);
+  }
+  return result;
+}
+
 export function importPiModels(modelsJson: unknown): PiImport {
   const result: PiImport = { providers: [], secrets: {}, problems: [] };
   const entries = (modelsJson as { providers?: unknown } | null)?.providers;
@@ -62,17 +109,7 @@ export function importPiModels(modelsJson: unknown): PiImport {
     }
     const entry: ProviderEntry = { api, id, ...(typeof source.name === "string" ? { name: source.name } : {}) };
     if (/^https?:\/\//.test(baseUrl)) entry.baseUrl = baseUrl;
-    const key = typeof source.apiKey === "string" ? source.apiKey.trim() : "";
-    const env = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/.exec(key);
-    if (env?.[1] !== undefined) {
-      entry.apiKey = { env: env[1] };
-    } else if (key.startsWith("!")) {
-      result.problems.push(`${id}: the key comes from a command, which the harness does not run; enter the key again`);
-    } else if (key !== "") {
-      const secretId = `provider/${id}`;
-      result.secrets[secretId] = key;
-      entry.apiKey = { secret: secretId };
-    }
+    takeKey(entry, typeof source.apiKey === "string" ? source.apiKey : "", result);
     if (typeof source.headers === "object" && source.headers !== null && Object.values(source.headers).every((value) => typeof value === "string")) {
       entry.headers = source.headers as Record<string, string>;
     }
