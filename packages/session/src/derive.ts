@@ -181,3 +181,17 @@ export function latestCustom<T = unknown>(events: readonly SessionEvent[], ns: s
 export function customEvents(events: readonly SessionEvent[], ns: string): Array<Extract<SessionEvent, { type: "custom" }>> {
   return currentBranch(events).filter((event): event is Extract<SessionEvent, { type: "custom" }> => event.type === "custom" && event.data.ns === ns);
 }
+
+/**
+ * The current branch as Markdown: each user and assistant message's text
+ * under a heading, the format the desktop has always exported.
+ */
+export function sessionMarkdown(events: readonly SessionEvent[]): string {
+  let output = "# PIDesktop conversation\n\n";
+  for (const event of currentBranch(events)) {
+    if (event.type !== "user" && event.type !== "assistant") continue;
+    const text = event.data.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("").trim();
+    if (text !== "") output += `## ${event.type === "user" ? "User" : "Assistant"}\n\n${text}\n\n`;
+  }
+  return output;
+}

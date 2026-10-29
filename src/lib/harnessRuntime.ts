@@ -18,6 +18,8 @@ import type {
   SessionDeltaNotification,
   SessionEventNotification,
   SessionGetResult,
+  SessionInfo as HostSessionInfo,
+  SessionListResult,
   SessionResult,
   SessionSubscribeResult,
   UiRequestNotification,
@@ -110,6 +112,24 @@ export class HarnessRuntimes {
   async respond(request: ExtensionUIRequest, response: { value?: string; confirmed?: boolean; cancelled?: true }): Promise<void> {
     const value = response.cancelled ? null : response.confirmed ?? response.value ?? null;
     await (await this.rpc()).call("ui.respond", { requestId: request.id, value });
+  }
+
+  /** One Host RPC, for the session list and other calls outside a runtime. */
+  async call<T>(method: string, params?: Record<string, unknown>): Promise<T> {
+    return (await this.rpc()).call<T>(method, params);
+  }
+
+  /** The Host's sessions, newest first. Subagent sessions are left out: they belong to their parent's tool call. */
+  async listSessions(): Promise<HostSessionInfo[]> {
+    const { sessions } = await this.call<SessionListResult>("session.list");
+    return sessions.filter((session) => session.parent === undefined);
+  }
+
+  /** A session's whole log, without leaving a subscription behind unless a runtime watches it. */
+  async readEvents(sessionId: string): Promise<PersistedEvent[]> {
+    const { events } = await this.call<SessionSubscribeResult>("session.subscribe", { sessionId, afterSeq: 0 });
+    if (this.runtimesOf(sessionId).length === 0) await this.call("session.unsubscribe", { sessionId }).catch(() => undefined);
+    return events;
   }
 
   /** Answer one Pi RPC command the store sends. Unknown commands fail like Pi's would. */

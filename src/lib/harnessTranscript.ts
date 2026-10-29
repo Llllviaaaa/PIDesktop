@@ -7,12 +7,14 @@
  * function or a small stateful translator, so it is tested against the
  * loop's golden logs.
  */
-import type { LiveDelta, PersistedEvent } from "@pid/protocol";
+import type { LiveDelta, PersistedEvent, SessionInfo as HostSessionInfo } from "@pid/protocol";
 import type {
   AgentMessage,
   AssistantMessage,
   ImageContent,
   PiEvent,
+  SessionInfo,
+  SessionMessageTiming,
   TextContent,
   ThinkingContent,
   ToolCallContent,
@@ -260,4 +262,28 @@ function parseArguments(json: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/** A Host session as a sidebar entry; its file is `harness:<id>`. */
+export function sessionInfoFromHost(session: HostSessionInfo): SessionInfo {
+  const updatedAt = Date.parse(session.updatedAt);
+  return {
+    file: `harness:${session.id}`,
+    sessionId: session.id,
+    cwd: session.cwd,
+    ...(session.title === undefined ? {} : { name: session.title }),
+    ...(session.firstMessage === undefined ? {} : { firstMessage: session.firstMessage }),
+    messageCount: session.messageCount,
+    createdAt: session.createdAt,
+    ...(Number.isFinite(updatedAt) ? { updatedAt } : {}),
+  };
+}
+
+/** When each user and assistant message on the current branch was written, as Pi's session reader reports it. */
+export function messageTimingsOf(events: readonly PersistedEvent[]): SessionMessageTiming[] {
+  return currentBranch(events).flatMap((event): SessionMessageTiming[] => (
+    event.type === "user" || event.type === "assistant"
+      ? [{ role: event.type, messageTimestamp: Date.parse(event.ts) || 0, entryTimestamp: event.ts }]
+      : []
+  ));
 }

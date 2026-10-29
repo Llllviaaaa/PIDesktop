@@ -43,6 +43,8 @@ export interface SessionStorage {
   flush(header: SessionHeader): Promise<void>;
   load(id: string): Promise<{ header: SessionHeader; events: SessionEvent[] } | undefined>;
   list(): Promise<SessionSummary[]>;
+  /** Remove the log for good; false when there was none. */
+  delete(id: string): Promise<boolean>;
 }
 
 /** Keeps logs in memory; the default until a persistence plugin registers. */
@@ -66,6 +68,10 @@ export class MemoryStorage implements SessionStorage {
 
   async list(): Promise<SessionSummary[]> {
     return [...this.logs.values()].map(({ header, events }) => summarize(header, events));
+  }
+
+  async delete(id: string): Promise<boolean> {
+    return this.logs.delete(id);
   }
 }
 
@@ -206,6 +212,12 @@ export class Sessions extends Service {
     const stored = new Map((await this.storage.list()).map((summary) => [summary.id, summary]));
     for (const session of this.open.values()) stored.set(session.id, session.summary());
     return [...stored.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  /** Delete a session's log. The caller makes sure nothing is running in it. */
+  async delete(id: string): Promise<boolean> {
+    this.open.delete(id);
+    return this.storage.delete(id);
   }
 
   /** A new session holding `source`'s current branch up to `atSeq` (default: all of it). */

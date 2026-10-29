@@ -75,3 +75,15 @@ describe("JSONL session storage", () => {
     expect(() => parseLog("")).toThrow("empty");
   });
 });
+
+describe("deleting", () => {
+  it("removes the file so the session no longer lists or loads", async () => {
+    const storage = await start();
+    const session = storage.sessions.create({ cwd: "/w" });
+    session.append("user", { content: text("bye") });
+    expect(await storage.sessions.delete(session.id)).toBe(true);
+    expect(await storage.sessions.list()).toEqual([]);
+    expect(await storage.sessions.get(session.id)).toBeUndefined();
+    expect(await storage.sessions.delete(session.id)).toBe(false);
+  });
+});

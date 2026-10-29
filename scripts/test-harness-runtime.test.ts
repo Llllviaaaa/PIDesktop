@@ -22,6 +22,7 @@ import * as uiRpc from "../packages/host/src/ui-rpc";
 import { Mcp } from "@pid/mcp";
 import { connectHarness } from "../src/lib/harnessClient";
 import { HarnessRuntimes } from "../src/lib/harnessRuntime";
+import { messageTimingsOf, sessionInfoFromHost, toAgentMessages } from "../src/lib/harnessTranscript";
 import type { ExtensionUIRequest, PiEvent } from "../src/types";
 
 const token = Buffer.alloc(32, 3).toString("base64url");
@@ -119,6 +120,15 @@ describe("harness runtimes", () => {
     // Reopening the session from its sessionFile shows the same history.
     const reopened = await runtimes.start(dir, String(state?.sessionFile));
     expect(((await runtimes.command(reopened.runtimeId, "get_messages")).data?.messages ?? []).length).toBe(6);
+
+    // The sidebar's view of it: listed with its first message, history readable without a runtime.
+    const sessionId = String(state?.sessionId);
+    const listed = await runtimes.listSessions();
+    expect(listed.map((session) => [session.id, session.firstMessage])).toEqual([[sessionId, "Copy a.txt"]]);
+    expect(sessionInfoFromHost(listed[0] as never)).toMatchObject({ file: `harness:${sessionId}`, cwd: dir, firstMessage: "Copy a.txt", messageCount: 4 });
+    const logged = await runtimes.readEvents(sessionId);
+    expect(toAgentMessages(logged)).toHaveLength(6);
+    expect(messageTimingsOf(logged).map((timing) => timing.role)).toEqual(["user", "assistant", "assistant", "assistant"]);
   });
 
   it("switch modes through Pi's slash commands and report what it cannot do", async () => {
