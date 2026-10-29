@@ -129,7 +129,25 @@ export function summarize(header: SessionHeader, events: readonly SessionEvent[]
     usage,
     ...(header.forkedFrom === undefined ? {} : { forkedFrom: header.forkedFrom }),
     ...(header.parent === undefined ? {} : { parent: header.parent }),
+    ...(header.side === true ? { side: true as const } : {}),
   };
+}
+
+/**
+ * The latest seq at or before `atSeq` on the current branch where no tool
+ * call is waiting for its result: where a side chat of a running session can
+ * start without a dangling call.
+ */
+export function settledSeq(events: readonly SessionEvent[], atSeq: number): number {
+  const open = new Set<string>();
+  let settled = 0;
+  for (const event of currentBranch(events)) {
+    if (event.seq > atSeq) break;
+    if (event.type === "tool-call") open.add(event.data.callId);
+    else if (event.type === "tool-result") open.delete(event.data.callId);
+    if (open.size === 0) settled = event.seq;
+  }
+  return settled;
 }
 
 /**

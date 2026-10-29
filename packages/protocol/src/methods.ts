@@ -83,6 +83,8 @@ export interface SessionInfo {
   usage: TokenUsage;
   forkedFrom?: { sessionId: string; seq: number };
   parent?: { sessionId: string; callId: string };
+  /** A side chat of `forkedFrom.sessionId`; session lists leave it out. */
+  side?: true;
 }
 
 /** One persisted event, as stored in the session log. */

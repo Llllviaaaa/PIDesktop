@@ -16,6 +16,14 @@ export const name: string | undefined
 export const inject: string[]
 export function apply(ctx: unknown): void
 
+/** The host's own Side Chat view (`client/host-sidechat.ts`). */
+export interface HostSideChatProps {
+  sessionId: string
+  tabId: string
+  visible: boolean
+}
+export function setHostSideChat(render: ((props: HostSideChatProps) => import('react').ReactNode) | undefined): void
+
 /** Chunk loader (`client/chunk-loader.ts`). */
 export type ChunkName = 'editor' | 'mermaid' | 'locale' | 'terminal'
 export type ChunkExports = Record<string, unknown>

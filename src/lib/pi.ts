@@ -80,12 +80,12 @@ function clearPackageCatalogCache() {
 
 // With the harness engine (settings.engine), task runtimes are the Harness
 // Host's sessions behind `harnessRuntimes`, whose ids start with `harness:`
-// (docs/adr/0014-frontend-harness-adapter.md). Isolated runtimes (side
-// chats) stay on Pi until P5c.
+// (docs/adr/0014-frontend-harness-adapter.md). An isolated runtime (a side
+// chat) runs where its parent session lives.
 export const pi = {
   // A Host session reopens on the Host whichever engine new tasks use.
   start: (cwd: string, sessionFile?: string, isolated = false) => ((harnessRuntimes.getEngine() === "harness" && !isolated) || isHarnessSessionFile(sessionFile)
-    ? harnessRuntimes.start(cwd, sessionFile)
+    ? harnessRuntimes.start(cwd, sessionFile, isolated)
     : invoke<PiStartResult>("pi_start", { cwd, sessionFile, isolated })),
   stop: (runtimeId: string) => (isHarnessRuntime(runtimeId) ? harnessRuntimes.stop(runtimeId) : invoke<void>("pi_stop", { runtimeId })),
   sendRaw: (runtimeId: string, line: string) => invoke<void>("pi_send", { runtimeId, line }),

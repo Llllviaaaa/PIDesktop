@@ -79,7 +79,7 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
 - **P5b 还缺的**：
   - Harness 会话**不会出现在侧边栏的会话列表里**，因为列表仍由 Rust 读取 Pi 的会话文件；
   - 没有 fork、回退、导出；
-  - side chat 仍然走 Pi。
+  - side chat 仍然走 Pi（P5c 已改，见下文“side chat”）。
 
   这些属于 P5c。在此之前，`engine=harness` 只是一个实验开关，默认仍然是 Pi。
 - 这层模拟让 Harness 迁就 Pi 的数据形状，有少量信息损失：
@@ -147,3 +147,14 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
 - 改名时一并迁移已存的密钥和默认模型；删除 provider 时也删掉它的密钥。保存或删除之后 Host 立即重新加载，适配器不必重启。
 - “发现模型”只用输入的密钥或已存的密钥临时连接一次，不写任何文件。
 - Host 没有内置 provider 和 OAuth 登录，这些仍然是 Pi 的功能；在 harness 上，所有 provider 都按自定义 provider 显示。
+
+## P5c 补充：side chat
+
+- 右侧边栏的 Side Chat 标签页原来用 better-sidebar 自带的视图，它的 `sidechat.*` 路由依赖 DSH 的 agent registry，Host 里没有，所以两个引擎下都用不了。现在改为显示桌面端自己的侧边聊天面板（`src/components/SideChatPanel.tsx`，#66 之前就有，这次恢复）。
+  - better-sidebar 客户端只加了一个接缝 `setHostSideChat`（`src/better-sidebar/client/host-sidechat.ts`），由桌面端注册。
+  - 每个标签页是一个侧边聊天，关闭标签页就结束它。
+- 面板仍然通过 `pi.start(cwd, 父会话, isolated)` 启动独立的 runtime，由父会话决定在哪里运行：
+  - Pi 会话：与以前一样，`pi --fork` 到临时目录；
+  - Harness 会话：`session.fork` 带上 `side: true`，生成一个隐藏的分叉。会话头记为 `side`，侧边栏的会话列表不显示它。
+- 父会话正在运行时也可以开 side chat：分叉截止到最后一个没有未完成工具调用的位置（`settledSeq`），不会带上悬空的调用。
+- side chat 是临时的：runtime 停止时，适配器中止并删除这个隐藏会话，与 Pi 清理临时目录的做法一致。

@@ -8,6 +8,7 @@ import {
   currentBranch,
   deriveState,
   forkEvents,
+  settledSeq,
   summarize,
   uuidv7,
   type SessionEvent,
@@ -102,6 +103,19 @@ describe("derivation", () => {
     const forked = forkEvents(events, 5);
     expect(forked.map((event) => [event.seq, event.type])).toEqual([[1, "user"], [2, "assistant"], [3, "compaction"]]);
     expect(forked[2]?.data).toEqual({ throughSeq: 2, summary: "S" });
+  });
+
+  it("finds where a side chat can start without a dangling tool call", () => {
+    const events = log(() => [
+      ev("user", { content: text("a") }),                                     // 1
+      assistant(text("A")),                                                    // 2
+      ev("tool-call", { callId: "c", name: "bash", args: {} }),               // 3
+      ev("tool-result", { callId: "c", name: "bash", content: [], isError: false }), // 4
+      ev("tool-call", { callId: "d", name: "bash", args: {} }),               // 5
+    ]);
+    expect(settledSeq(events, 5)).toBe(4);
+    expect(settledSeq(events, 3)).toBe(2);
+    expect(settledSeq(events, 1)).toBe(1);
   });
 
   it("finds the compaction point", () => {
