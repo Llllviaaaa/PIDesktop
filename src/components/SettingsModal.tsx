@@ -81,7 +81,8 @@ const DEFAULTS: AppSettings = {
   separatePiConfig: false,
   agentMode: "agent",
   permissionMode: "ask",
-  engine: "pi",
+  engine: "harness",
+  harnessPromptSeen: false,
   alwaysConfirmShell: true,
   blockWriteOutsideWorkspace: true,
   shellAllowPrefixes: "",
@@ -835,7 +836,7 @@ function AgentPage({ form, update }: { form: AppSettings; update: Update }) {
       <Row title="审批与文件访问" description="控制 Pi 何时请求确认，以及允许访问的文件范围。"><select value={form.permissionMode} onChange={(event) => update("permissionMode", event.target.value as AppSettings["permissionMode"])}><option value="read-only">只读</option><option value="ask">先询问</option><option value="workspace-write">工作区写入</option><option value="full-access">完全访问</option></select></Row>
     </Card>
     <Card title="实验">
-      <Row title="Agent 引擎" description="新任务使用的引擎。Harness 是正在开发的自研引擎（V2 重构），会话暂时只在它自己的列表中保存；已打开的任务不受影响。"><select value={form.engine} onChange={(event) => update("engine", event.target.value as AppSettings["engine"])}><option value="pi">Pi</option><option value="harness">Harness（实验）</option></select></Row>
+      <Row title="Agent 引擎" description="新任务使用的引擎。Harness 是 Pi Desktop 的自研引擎，也是默认引擎；Pi 引擎暂时保留，供需要时切回，之后的版本会移除。已打开的任务不受影响。"><select value={form.engine} onChange={(event) => update("engine", event.target.value as AppSettings["engine"])}><option value="harness">Harness</option><option value="pi">Pi（旧版）</option></select></Row>
     </Card>
     <Card title="计划跟踪">
       <Row title="启用持久计划" description="为新任务提供 update_plan 工具；步骤状态随会话分支保存，并显示在对话中。"><Switch label="启用持久计划" checked={form.planTrackingEnabled} onChange={(value) => update("planTrackingEnabled", value)} /></Row>
@@ -1084,11 +1085,14 @@ function WorktreesPage({ cwd, worktrees, loading, onCreated }: { cwd: string; wo
 
 function DebugPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="调试" description="查看并配置 Pi 进程、会话和诊断选项。" />
-    <Card title="Pi 进程">
+    <PageHeading title="调试" description={form.engine === "pi" ? "查看并配置 Pi 进程、会话和诊断选项。" : "诊断选项。"} />
+    {/* The Pi process settings only matter on the Pi engine (P5d). */}
+    <Card title={form.engine === "pi" ? "Pi 进程" : "诊断"}>
+      {form.engine === "pi" && <>
       <Row title="可执行程序" description="默认使用安装包内置 Pi；填写 PATH 命令或绝对路径可覆盖。"><input value={form.piBinary} onChange={(event) => update("piBinary", event.target.value)} placeholder="pi（内置）" /></Row>
       <Row title="会话目录" description="留空则使用 ~/.pi/agent/sessions。"><input value={form.sessionDir} onChange={(event) => update("sessionDir", event.target.value)} placeholder="~/.pi/agent/sessions" /></Row>
       <Row title="独立的 Pi 配置" description="开启后应用使用自己的配置目录（%APPDATA%/pid-desktop/pi-agent），不再加载为终端 pi 安装的扩展、包和技能。首次开启会复制模型提供商、密钥和基础设置，之后两边各自维护；任务历史不受影响。"><Switch label="独立的 Pi 配置" checked={form.separatePiConfig} onChange={(value) => update("separatePiConfig", value)} /></Row>
+      </>}
       <Row title="日志等级"><select value={form.logLevel} onChange={(event) => update("logLevel", event.target.value as AppSettings["logLevel"])}><option value="error">错误</option><option value="warn">警告</option><option value="info">信息</option><option value="debug">调试</option></select></Row>
     </Card>
     <div className="settings-info"><MonitorCog size={17} /><span>进程、模型、系统提示词和权限更改会在重新连接工作区后生效。</span></div>

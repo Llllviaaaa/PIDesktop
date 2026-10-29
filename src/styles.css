@@ -8561,3 +8561,13 @@ body,
     scroll-behavior: auto;
   }
 }
+
+/* The one-time Pi → Harness offer (src/components/HarnessOffer.tsx). */
+.harness-offer { width: min(480px, 94vw); display: flex; flex-direction: column; gap: 10px; padding: 18px 20px 16px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--panel-soft); color: var(--text); box-shadow: 0 24px 90px rgba(0,0,0,.36); font-size: 13px; line-height: 1.55; }
+.harness-offer > header { display: flex; align-items: center; gap: 8px; }
+.harness-offer h2 { margin: 0; font-size: 16px; }
+.harness-offer p, .harness-offer ul { margin: 0; color: var(--text-2); }
+.harness-offer ul { padding-left: 18px; display: grid; gap: 4px; }
+.harness-offer .harness-offer-warning { color: var(--warning, #b7791f); }
+.harness-offer .harness-offer-note { color: var(--text-3); font-size: 12px; }
+.harness-offer > footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }

@@ -158,3 +158,19 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
   - Harness 会话：`session.fork` 带上 `side: true`，生成一个隐藏的分叉。会话头记为 `side`，侧边栏的会话列表不显示它。
 - 父会话正在运行时也可以开 side chat：分叉截止到最后一个没有未完成工具调用的位置（`settledSeq`），不会带上悬空的调用。
 - side chat 是临时的：runtime 停止时，适配器中止并删除这个隐藏会话，与 Pi 清理临时目录的做法一致。
+
+## P5d：默认引擎改为 Harness
+
+- **默认值**：`engine` 的默认值改为 `harness`，全新安装直接使用 Harness。
+  - 已有的设置文件如果没有 `engine` 字段（P5b 之前的安装），读取时按 `pi` 处理，不会被悄悄切换（`config.rs` 的 `predates_engine_setting`）。
+- **一次性的切换提示**：引擎为 Pi 且 `harnessPromptSeen` 为 false 时，启动后弹出“切换到 Harness 引擎”（`src/components/HarnessOffer.tsx`）。提示内容在切换前读取：
+  - Host 已从 Pi 的 `models.json` 导入了几个 provider；
+  - 哪些在 Pi 里配置过的 provider 不会迁移：OAuth 订阅登录，以及密钥保存在 Pi `auth.json` 里的内置 provider，需要在模型设置里用 API key 重新添加；
+  - 会迁移几个定时任务。
+
+  无论选择切换还是继续用 Pi，都记下 `harnessPromptSeen`，不再询问。之后仍可以在设置里切换。
+- **会话在创建它的引擎上重新打开**：`pi.start` 只让新任务（没有会话文件）跟随设置；Pi 的会话文件始终用 Pi 打开，`harness:` 会话始终用 Host 打开。这样升级后旧的 Pi 任务仍然可以继续。
+- **隐藏 Pi 专属界面**：引擎为 Harness 时：
+  - 不显示管理 Pi 包的“插件”页面；
+  - 调试页不显示 Pi 进程的设置（可执行程序、会话目录、独立 Pi 配置）。
+- **已知缺口**（P6 之前补上）：`auth.json` 中内置 provider 的密钥还不会自动导入。

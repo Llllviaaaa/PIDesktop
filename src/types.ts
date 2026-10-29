@@ -281,8 +281,10 @@ export interface AppSettings {
   separatePiConfig: boolean;
   agentMode: "agent" | "plan" | "ask";
   permissionMode: "read-only" | "ask" | "workspace-write" | "full-access";
-  /** Which engine new tasks run on; "harness" is the V2 Harness Host (P5, experimental). */
+  /** Which engine new tasks run on: the V2 Harness Host (the default since P5d), or Pi until P6. */
   engine: "pi" | "harness";
+  /** The one-time offer to move from Pi to the Harness has been shown. */
+  harnessPromptSeen: boolean;
   /** Shell/bash/exec always requires confirmation (unless full-access). */
   alwaysConfirmShell: boolean;
   /** Block model writes outside the workspace without prompting. */
