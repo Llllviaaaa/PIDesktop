@@ -16,6 +16,7 @@ V2 重构（[REFACTOR_V2_PLAN.md](../REFACTOR_V2_PLAN.md)）期间的架构决�
 | [0010](0010-subagents-mcp-usage.md) | 能力迁移（二）：子 agent、MCP、标题与用量 | 已接受 |
 | [0011](0011-computer-and-schedule.md) | 能力迁移（三）：computer use 与定时任务 | 已接受 |
 | [0012](0012-browser.md) | 能力迁移（四）：内置浏览器 | 已接受 |
+| [0013](0013-desktop-settings-and-secrets.md) | 桌面端设置、密钥与热重载 | 已接受 |
 
 ## 模板
 

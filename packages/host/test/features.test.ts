@@ -22,7 +22,7 @@ import * as toolFs from "@pid/tool-fs";
 import { Tools } from "@pid/tools";
 import { Ui } from "@pid/ui";
 import * as featuresRpc from "../src/features-rpc.ts";
-import { readHarnessConfig } from "../src/harness-config.ts";
+import { defaultHarnessConfig, readHarnessConfig } from "../src/harness-config.ts";
 import { RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
 import * as scheduleRpc from "../src/schedule-rpc.ts";
 import * as sessionsRpc from "../src/sessions-rpc.ts";
@@ -173,10 +173,7 @@ describe("harness.json", () => {
   it("reads sections and reports the ones it ignores", () => {
     dir = mkdtempSync(join(tmpdir(), "pid-harness-config-"));
     const file = join(dir, "harness.json");
-    expect(readHarnessConfig(file)).toEqual({
-      config: { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true }, computer: { enabled: true }, browser: { enabled: true }, schedule: { enabled: true } },
-      problems: [],
-    });
+    expect(readHarnessConfig(file)).toEqual({ config: defaultHarnessConfig(), problems: [] });
     writeFileSync(file, JSON.stringify({ permissions: { defaultPermission: "full-access" }, hooks: "nope", memory: { enabled: false } }));
     const { config, problems } = readHarnessConfig(file);
     expect(config.permissions).toEqual({ defaultPermission: "full-access" });

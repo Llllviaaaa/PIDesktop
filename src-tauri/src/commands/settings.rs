@@ -14,6 +14,7 @@ pub(crate) fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, Ap
 #[tauri::command(async)]
 pub(crate) fn set_settings(
     state: State<'_, AppState>,
+    host: State<'_, crate::harness_host::HarnessHost>,
     mut settings: AppSettings,
 ) -> Result<(), AppError> {
     let current = state
@@ -179,10 +180,12 @@ pub(crate) fn set_settings(
         }
         return Err(error);
     }
+    let saved = settings.clone();
     *state
         .settings
         .lock()
         .map_err(|_| AppError::Locked("state lock poisoned".to_string()))? = settings;
+    crate::harness_host::push_settings(&host, &saved);
     if pi_config_changed {
         // The provider service still has the previous directory's providers and keys loaded.
         provider_service_stop(state)?;

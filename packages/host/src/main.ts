@@ -11,18 +11,22 @@
  * nothing else there; logs go to stderr.
  */
 import { randomBytes } from "node:crypto";
+import { createInterface } from "node:readline";
 import { join } from "node:path";
-import { Logger, type Exporter } from "@deepseek-ai/cordis";
-import { agentPlugins } from "./agent-plugins.ts";
+import { Logger, type Context, type Exporter } from "@deepseek-ai/cordis";
+import { corePlugins, featureEntries } from "./agent-plugins.ts";
 import * as betterSidebar from "./better-sidebar/index.ts";
 import { runHeadless } from "./headless.ts";
 import { createHost } from "./host.ts";
 import { readDefaultModel } from "./providers.ts";
+import { applyDesktopMessage, parseControlLine } from "./control.ts";
 import * as featuresRpc from "./features-rpc.ts";
 import { readHarnessConfig } from "./harness-config.ts";
+import { ReloadablePlugins } from "./reloadable.ts";
 import { RpcGateway } from "./rpc.ts";
 import * as scheduleRpc from "./schedule-rpc.ts";
 import * as sessionsRpc from "./sessions-rpc.ts";
+import { dpapiCodec } from "./secrets.ts";
 import * as uiRpc from "./ui-rpc.ts";
 import { WebServer } from "./web-server.ts";
 
@@ -77,30 +81,49 @@ export async function main(argv: readonly string[]): Promise<void> {
     process.stderr.write(`[harness] PID_HARNESS_TOKEN not set; generated ${token}\n`);
   }
 
-  const providersFile = join(options.dataDir, "providers.json");
-  const defaultModel = readDefaultModel(providersFile);
-  const { config, problems } = readHarnessConfig(join(options.dataDir, "harness.json"));
+  const { dataDir } = options;
+  const providersFile = join(dataDir, "providers.json");
+  const defaultModel = () => readDefaultModel(providersFile);
+  const codec = await dpapiCodec();
+  let reload: () => Promise<string[]> = async () => [];
   const host = createHost({
     version: HOST_VERSION,
-    dataDir: options.dataDir,
+    dataDir,
     plugins: [
       [WebServer, { pageOrigins: options.pageOrigins }],
       [RpcGateway, { token }],
-      ...agentPlugins(options.dataDir, {
-        config,
-        scheduler: defaultModel === undefined ? {} : { defaultModel },
-        ...(process.env.PID_COMPUTER_HELPER ? { computerHelper: process.env.PID_COMPUTER_HELPER } : {}),
-      }),
-      [sessionsRpc, defaultModel === undefined ? {} : { defaultModel }],
+      ...corePlugins(dataDir, codec === undefined ? {} : { codec }),
+      [sessionsRpc, { defaultModel }],
       [uiRpc],
       [featuresRpc],
       [scheduleRpc],
-      [betterSidebar, { dataDir: options.dataDir }],
+      [{
+        name: "pid-config-rpc",
+        inject: ["rpc"],
+        apply: (ctx: Context) => ctx.effect(() => ctx.rpc.method("config.reload", async () => ({ reloaded: await reload() })), "config.reload"),
+      }],
+      [betterSidebar, { dataDir }],
     ],
   });
   host.ctx.logger.exporter(stderrExporter);
-  for (const problem of problems) host.ctx.logger("harness").warn("%s", problem);
   await host.start();
+
+  // The feature plugins follow harness.json and providers.json (ADR 0013).
+  const features = new ReloadablePlugins(host.ctx);
+  const logger = host.ctx.logger("harness");
+  reload = async () => {
+    const { config, problems } = readHarnessConfig(join(dataDir, "harness.json"));
+    for (const problem of problems) logger.warn("%s", problem);
+    const changed = await features.apply(featureEntries(dataDir, config, {
+      scheduler: { defaultModel },
+      ...(process.env.PID_COMPUTER_HELPER ? { computerHelper: process.env.PID_COMPUTER_HELPER } : {}),
+      ...(codec === undefined ? {} : { codec }),
+    }));
+    if (changed.length > 0) logger.info("loaded %s", changed.join(", "));
+    return changed;
+  };
+  await reload();
+
   const port = await host.ctx.webServer.listen(options.port);
   process.stdout.write(`${JSON.stringify({ port })}\n`);
 
@@ -113,9 +136,21 @@ export async function main(argv: readonly string[]): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
   if (options.exitWithStdin) {
-    // The desktop app holds our stdin; when it exits, however it exits, the pipe closes.
+    // The desktop app holds our stdin; when it exits, however it exits, the pipe
+    // closes. Until then it sends control commands there, one JSON per line.
+    const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+    let pending = Promise.resolve();
+    lines.on("line", (line) => {
+      pending = pending.then(async () => {
+        const command = parseControlLine(line);
+        if (command === undefined) return;
+        if ("desktop" in command) {
+          for (const note of applyDesktopMessage(dataDir, command.desktop, codec)) logger.info("%s", note);
+        }
+        await reload();
+      }).catch((error: unknown) => logger.error("control command failed: %s", error));
+    });
+    lines.on("close", shutdown);
     process.stdin.on("end", shutdown);
-    process.stdin.on("close", shutdown);
-    process.stdin.resume();
   }
 }
