@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { UsageSummaryResult } from "@pid/protocol";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppSettings,
@@ -27,6 +28,26 @@ import { gitClient } from "./gitClient";
 import { harnessRuntimes, isHarnessRuntime, isHarnessSessionFile } from "./harnessRuntime";
 import { scheduleClient } from "./scheduleClient";
 import { sessionClient } from "./sessionClient";
+
+/** Pi's usage from its session files, plus the Harness Host's sessions when it can be reached (costs are not computed there). */
+async function usageSummary(): Promise<UsageSummary> {
+  const [pi, host] = await Promise.all([
+    invoke<UsageSummary>("usage_summary"),
+    harnessRuntimes.call<UsageSummaryResult>("usage.summary").catch(() => null),
+  ]);
+  if (host === null) return pi;
+  const { usage } = host;
+  return {
+    ...pi,
+    sessions: pi.sessions + host.sessions,
+    messages: pi.messages + host.messages,
+    inputTokens: pi.inputTokens + usage.inputTokens,
+    outputTokens: pi.outputTokens + usage.outputTokens,
+    cacheReadTokens: pi.cacheReadTokens + usage.cacheReadTokens,
+    cacheWriteTokens: pi.cacheWriteTokens + usage.cacheWriteTokens,
+    totalTokens: pi.totalTokens + usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+  };
+}
 
 const packageSearchCache = new Map<string, PackageCatalogPage>();
 const packageDetailCache = new Map<string, PackageCatalogDetail>();
@@ -149,7 +170,7 @@ export const pi = {
   listWorktrees: (cwd: string) => invoke<WorktreeInfo[]>("list_worktrees", { cwd }),
   createWorktree: (cwd: string, base?: string) => invoke<WorktreeInfo>("create_worktree", { cwd, base }),
   packageAction: (action: "install" | "remove" | "update", source?: string, cwd?: string, scope: "user" | "project" = "user") => invoke<string>("pi_package_action", { action, source, cwd, scope }),
-  usageSummary: () => invoke<UsageSummary>("usage_summary"),
+  usageSummary,
 };
 
 export interface PiStartResult {

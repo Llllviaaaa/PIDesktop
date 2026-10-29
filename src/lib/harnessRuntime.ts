@@ -70,6 +70,8 @@ export class HarnessRuntimes {
   private catalog: { at: number; models: Promise<ModelInfo[]> } | undefined;
   private nextRuntime = 0;
   private lastActive: string | undefined;
+  /** Listeners for Host notifications outside sessions (schedule updates), by method. */
+  private readonly notificationListeners = new Map<string, Set<(params: unknown) => void>>();
   /** Questions the adapter asks itself (rewinding files), answered through the same dialog. */
   private readonly localQuestions = new Map<string, (confirmed: boolean) => void>();
 
@@ -77,6 +79,25 @@ export class HarnessRuntimes {
 
   setEngine(engine: RuntimeEngine | undefined): void {
     this.engine = engine === "harness" ? "harness" : "pi";
+    if (this.engine === "harness" && this.notificationListeners.size > 0) void this.rpc().catch(() => undefined);
+  }
+
+  /**
+   * Hear a Host notification such as `schedule/run`. On the harness engine
+   * this connects at once, so updates arrive before anything is asked.
+   */
+  onNotification(method: string, listener: (params: unknown) => void): () => void {
+    let listeners = this.notificationListeners.get(method);
+    if (listeners === undefined) {
+      listeners = new Set();
+      this.notificationListeners.set(method, listeners);
+    }
+    listeners.add(listener);
+    if (this.engine === "harness") void this.rpc().catch(() => undefined);
+    return () => {
+      listeners?.delete(listener);
+      if (listeners?.size === 0) this.notificationListeners.delete(method);
+    };
   }
 
   getEngine(): RuntimeEngine {
@@ -421,6 +442,7 @@ export class HarnessRuntimes {
   }
 
   private notify(method: string, params: unknown): void {
+    for (const listener of this.notificationListeners.get(method) ?? []) listener(params);
     if (method === "session/event") {
       const { sessionId, event } = params as SessionEventNotification;
       for (const runtime of this.runtimesOf(sessionId)) {

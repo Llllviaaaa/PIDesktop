@@ -118,3 +118,20 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
 - **`clone`**：完整复制当前会话。
 - **`new_session`**：清空 runtime，等下一条消息发送时再创建会话。
 - **会话树**：由整个日志构建（`get_tree`）。每条消息挂在它所在分支的上一条消息下面；`rewind` 从 `toSeq` 处开出新的分支，被回退掉的那几轮作为旁支保留在树里。
+
+## P5c 补充：定时任务与用量
+
+- **同一时间只有一个调度器在跑**：
+  - Host 的调度器只在桌面端 `engine=harness` 时启用：`harness.json` 的 `schedule.enabled` 由设置消息里的 engine 决定；
+  - 此时 Rust 的 `run_due_scheduled_tasks` 直接跳过；
+  - 切回 Pi 后，两者对调。
+- **任务迁移**：第一次以 Harness 引擎启动时，Host 把桌面端的 `scheduled-tasks.json` 一次性导入为自己的 `schedules.json`。
+  - 字段一一对应，下次运行时间不导入，由 Host 重新计算；
+  - 导入时仍处于运行中的任务记为 `interrupted`；
+  - `schedules.json` 已经存在就不再导入。
+- **前端 `scheduleClient` 按当前引擎选择后端**：
+  - Harness 下调用 Host 的 `schedule.*`；
+  - 运行记录里缺少的工作目录、提示词和权限，从任务里补上；
+  - 运行对应的会话显示为 `harness:<id>`。
+  - 更新事件由 `onTaskUpdated` 和 `onRunUpdated` 同时监听两个来源：Rust 的 Tauri 事件和 Host 的 `schedule/*` 通知。App 的完成提醒和定时任务页面都改为通过这两个方法监听。
+- **用量页**：Pi 会话的统计加上 Host 的 `usage.summary`。Host 连不上时只显示 Pi 的统计。Host 不计算费用。

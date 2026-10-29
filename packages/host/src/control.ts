@@ -17,6 +17,29 @@ import { harnessFromDesktop, type DesktopMessage } from "./desktop-settings.ts";
 import { importPiModels } from "./pi-import.ts";
 import { readSecretFile, writeSecretFile, type SecretCodec } from "./secrets.ts";
 
+/** The fields a desktop scheduled task shares with the host's (`@pid/schedule`). */
+const TASK_FIELDS = ["id", "name", "prompt", "cwd", "frequency", "hour", "minute", "weekday", "permissionMode", "enabled", "lastRunAt", "lastStatus", "lastMessage"] as const;
+
+/**
+ * The desktop's scheduled tasks in the host's format. The next run is left
+ * out so the host computes it, and a task the desktop was running counts as
+ * interrupted.
+ */
+export function importDesktopTasks(tasks: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(tasks)) return [];
+  return tasks.flatMap((value) => {
+    const task = value as Record<string, unknown>;
+    if (typeof task?.id !== "string" || typeof task.prompt !== "string" || typeof task.cwd !== "string") return [];
+    const imported: Record<string, unknown> = {};
+    for (const field of TASK_FIELDS) if (task[field] !== undefined && task[field] !== null) imported[field] = task[field];
+    if (typeof task.timeoutMinutes === "number") imported.timeoutMinutes = task.timeoutMinutes;
+    if (imported.lastStatus === "running") imported.lastStatus = "interrupted";
+    imported.lastStatus ??= "";
+    imported.lastMessage ??= "";
+    return [imported];
+  });
+}
+
 export type ControlCommand = { desktop: DesktopMessage } | { reload: true };
 
 export function parseControlLine(line: string): ControlCommand | undefined {
@@ -78,5 +101,20 @@ export function applyDesktopMessage(dataDir: string, message: DesktopMessage, co
     providers.defaultModel = defaultModel;
   }
   if (!existsSync(providersFile) || JSON.stringify(readJson(providersFile)) !== JSON.stringify(providers)) writeJson(providersFile, providers);
+
+  // The first time the desktop runs on the harness, its scheduled tasks move here once.
+  const schedulesFile = join(dataDir, "schedules.json");
+  if (config.schedule.enabled && !existsSync(schedulesFile)) {
+    const desktopFile = join(message.configDir, "scheduled-tasks.json");
+    let desktopTasks: unknown;
+    try {
+      desktopTasks = existsSync(desktopFile) ? JSON.parse(readFileSync(desktopFile, "utf8")) : undefined;
+    } catch {
+      notes.push(`${desktopFile} is not valid JSON; no scheduled tasks imported`);
+    }
+    const tasks = importDesktopTasks(desktopTasks);
+    writeJson(schedulesFile, tasks);
+    if (tasks.length > 0) notes.push(`imported ${tasks.length} scheduled task(s) from ${desktopFile}`);
+  }
   return notes;
 }

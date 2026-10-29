@@ -476,6 +476,15 @@ pub(crate) fn initialize_scheduled_runner(app: &AppHandle) -> Result<(), AppErro
 
 pub(crate) fn run_due_scheduled_tasks(app: &AppHandle) {
     let state = app.state::<AppState>();
+    // On the harness engine the Harness Host runs the (imported) tasks.
+    if state
+        .settings
+        .lock()
+        .map(|settings| settings.engine == "harness")
+        .unwrap_or(false)
+    {
+        return;
+    }
     let available = state
         .running_scheduled_tasks
         .lock()

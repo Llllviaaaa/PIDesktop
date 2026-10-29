@@ -117,7 +117,8 @@ export function harnessFromDesktop(message: DesktopMessage): DesktopHarness {
       confirmActions: bool(settings.computerConfirmActions, true),
       ...(executable ? { helper: executable } : {}),
     },
-    schedule: { enabled: true },
+    // One scheduler at a time: the desktop's own keeps running the Pi engine's tasks.
+    schedule: { enabled: str(settings.engine) === "harness" },
     prompt: { instructions: personalInstructions(settings) },
   };
   return { config, ...(defaultModel === undefined ? {} : { defaultModel }) };

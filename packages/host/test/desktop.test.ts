@@ -14,7 +14,7 @@ import { SystemPrompt } from "@pid/system-prompt";
 import { Tools, textOutput } from "@pid/tools";
 import { Ui } from "@pid/ui";
 import { featureEntries, withMcpSecrets } from "../src/agent-plugins.ts";
-import { applyDesktopMessage, parseControlLine } from "../src/control.ts";
+import { applyDesktopMessage, importDesktopTasks, parseControlLine } from "../src/control.ts";
 import { effortFromThinking, harnessFromDesktop, personalInstructions } from "../src/desktop-settings.ts";
 import { defaultHarnessConfig, readHarnessConfig } from "../src/harness-config.ts";
 import { importPiModels } from "../src/pi-import.ts";
@@ -221,5 +221,37 @@ describe("reloadable plugins", () => {
     expect(changed).toEqual(["permissions"]);
     expect(await run()).toEqual(textOutput("ran"));
     await ctx.fiber.dispose();
+  });
+});
+
+describe("scheduled tasks on the harness", () => {
+  it("run on the host only when the desktop's engine is the harness", () => {
+    expect(harnessFromDesktop({ settings: { engine: "pi" }, configDir: "/c" }).config.schedule).toEqual({ enabled: false });
+    expect(harnessFromDesktop({ settings: { engine: "harness" }, configDir: "/c" }).config.schedule).toEqual({ enabled: true });
+  });
+
+  it("import the desktop's tasks, letting the host compute the next run", () => {
+    expect(importDesktopTasks([
+      { id: "t", name: "Nightly", prompt: "report", cwd: "/w", frequency: "daily", hour: 2, minute: 0, weekday: 1, permissionMode: "ask", timeoutMinutes: null, enabled: true, lastRunAt: 5, nextRunAt: 9, lastStatus: "running", lastMessage: "" },
+      { id: "broken" },
+    ])).toEqual([
+      { id: "t", name: "Nightly", prompt: "report", cwd: "/w", frequency: "daily", hour: 2, minute: 0, weekday: 1, permissionMode: "ask", enabled: true, lastRunAt: 5, lastStatus: "interrupted", lastMessage: "" },
+    ]);
+    expect(importDesktopTasks(undefined)).toEqual([]);
+  });
+
+  it("move the tasks over once, the first time the harness engine is on", () => {
+    dir = mkdtempSync(join(tmpdir(), "pid-control-"));
+    const configDir = join(dir, "cfg");
+    mkdirSync(configDir);
+    writeFileSync(join(configDir, "scheduled-tasks.json"), JSON.stringify([{ id: "t", name: "N", prompt: "p", cwd: dir, frequency: "hourly", hour: 0, minute: 5, weekday: 1, permissionMode: "read-only", enabled: true, lastStatus: "", lastMessage: "" }]));
+    const dataDir = join(dir, "data");
+    expect(applyDesktopMessage(dataDir, { settings: { engine: "pi" }, configDir }, codec)).toEqual([]);
+    const notes = applyDesktopMessage(dataDir, { settings: { engine: "harness" }, configDir }, codec);
+    expect(notes).toEqual([`imported 1 scheduled task(s) from ${join(configDir, "scheduled-tasks.json")}`]);
+    expect(JSON.parse(readFileSync(join(dataDir, "schedules.json"), "utf8"))).toMatchObject([{ id: "t", permissionMode: "read-only" }]);
+    writeFileSync(join(configDir, "scheduled-tasks.json"), "[]");
+    expect(applyDesktopMessage(dataDir, { settings: { engine: "harness" }, configDir }, codec)).toEqual([]);
+    expect(JSON.parse(readFileSync(join(dataDir, "schedules.json"), "utf8"))).toHaveLength(1);
   });
 });
