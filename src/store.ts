@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { describeError } from "./lib/errors";
 import { pi, respondToExtension, sendCommand } from "./lib/pi";
+import { harnessRuntimes } from "./lib/harnessRuntime";
 import { redactSensitiveText } from "./lib/redact";
 import { readStoredNotifications } from "./lib/notificationCenter";
 import { createNotices } from "./notifications";
@@ -1602,3 +1603,6 @@ export const usePiStore = create<PiState>((set, get) => {
     dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),
   };
 });
+
+// New tasks start on the engine the settings name (docs/adr/0014-frontend-harness-adapter.md).
+usePiStore.subscribe((state) => harnessRuntimes.setEngine(state.settings?.engine));

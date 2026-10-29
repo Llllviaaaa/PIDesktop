@@ -72,6 +72,8 @@ P0–P4 完成后，Harness Host 已经具备 Pi 引擎的全部能力：
 
 ### 3.3 前端：`agentClient` 与 transcript 适配
 
+> **实施时的调整（P5b，见 ADR 0014）**：没有在 store 里抽 `RuntimeAdapter`，而是在传输层模拟 Pi runtime（`src/lib/harnessRuntime.ts`）：Pi 命令换成 Host 的 RPC，Host 的通知翻译成 Pi 事件。store 和界面因此基本不用改，store 的拆分推迟到 P6。下面的原方案保留作对照。
+
 - 新增 `src/lib/agentClient.ts`：在 `harnessClient` 之上，按 `@pid/protocol` 的类型封装 session、model、permission、plan、checkpoint、schedule、ui、usage 各类方法，并负责断线重连后用 `session.subscribe { afterSeq }` 续上。
 - 新增 `src/lib/harnessTranscript.ts`，**纯函数**：把持久化事件和实时增量转成前端现有的 transcript 结构（`AgentMessage` 等）。
   - 渲染组件（消息、工具卡片、计划、rich content）不需要修改。

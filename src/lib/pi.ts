@@ -24,6 +24,7 @@ import type {
 } from "../types";
 import { rejectRuntimeCommands, sendPiCommand, subscribePiEvents } from "./piTransport";
 import { gitClient } from "./gitClient";
+import { harnessRuntimes, isHarnessRuntime, isHarnessSessionFile } from "./harnessRuntime";
 import { scheduleClient } from "./scheduleClient";
 import { sessionClient } from "./sessionClient";
 
@@ -53,12 +54,19 @@ function clearPackageCatalogCache() {
   packageDetailCache.clear();
 }
 
+// With the harness engine (settings.engine), task runtimes are the Harness
+// Host's sessions behind `harnessRuntimes`, whose ids start with `harness:`
+// (docs/adr/0014-frontend-harness-adapter.md). Isolated runtimes (side
+// chats) stay on Pi until P5c.
 export const pi = {
-  start: (cwd: string, sessionFile?: string, isolated = false) => invoke<PiStartResult>("pi_start", { cwd, sessionFile, isolated }),
-  stop: (runtimeId: string) => invoke<void>("pi_stop", { runtimeId }),
+  // A Host session reopens on the Host whichever engine new tasks use.
+  start: (cwd: string, sessionFile?: string, isolated = false) => ((harnessRuntimes.getEngine() === "harness" && !isolated) || isHarnessSessionFile(sessionFile)
+    ? harnessRuntimes.start(cwd, sessionFile)
+    : invoke<PiStartResult>("pi_start", { cwd, sessionFile, isolated })),
+  stop: (runtimeId: string) => (isHarnessRuntime(runtimeId) ? harnessRuntimes.stop(runtimeId) : invoke<void>("pi_stop", { runtimeId })),
   sendRaw: (runtimeId: string, line: string) => invoke<void>("pi_send", { runtimeId, line }),
-  isRunning: (runtimeId: string) => invoke<boolean>("pi_is_running", { runtimeId }),
-  bindSession: (runtimeId: string, sessionFile: string) => invoke<void>("pi_bind_session", { runtimeId, sessionFile }),
+  isRunning: (runtimeId: string) => (isHarnessRuntime(runtimeId) ? Promise.resolve(harnessRuntimes.isRunning(runtimeId)) : invoke<boolean>("pi_is_running", { runtimeId })),
+  bindSession: (runtimeId: string, sessionFile: string) => (isHarnessRuntime(runtimeId) ? Promise.resolve() : invoke<void>("pi_bind_session", { runtimeId, sessionFile })),
   listRuntimes: () => invoke<PiRuntimeInfo[]>("list_pi_runtimes"),
   quickChatDir: () => invoke<string>("quick_chat_dir"),
   listProjects: () => invoke<ProjectConfig[]>("list_projects_cmd"),
@@ -179,6 +187,7 @@ export interface PiListeners {
 
 export async function subscribeToPi(listeners: PiListeners): Promise<UnlistenFn> {
   const unlisteners = await Promise.all([
+    harnessRuntimes.subscribe(listeners.onEvent),
     subscribePiEvents({ onEvent: listeners.onEvent, onProtocolError: listeners.onProtocolError }),
     listen<PiRuntimeStatus>(
       "pi-status",
@@ -200,6 +209,13 @@ export async function sendCommand(
   payload: Record<string, unknown> = {},
   timeoutMs = 30_000,
 ): Promise<RpcResponse> {
+  if (isHarnessRuntime(runtimeId)) {
+    // Failures reject, as Pi's response router does.
+    return harnessRuntimes.command(runtimeId, command, payload).then((response) => {
+      if (!response.success) throw new Error(response.error || `Pi command '${command}' failed`);
+      return response;
+    });
+  }
   return sendPiCommand(pi.sendRaw, runtimeId, command, payload, timeoutMs);
 }
 
@@ -208,6 +224,7 @@ export function respondToExtension(
   request: ExtensionUIRequest,
   response: { value?: string; confirmed?: boolean; cancelled?: true },
 ): Promise<void> {
+  if (isHarnessRuntime(runtimeId)) return harnessRuntimes.respond(request, response);
   return pi.sendRaw(
     runtimeId,
     JSON.stringify({
