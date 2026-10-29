@@ -10,9 +10,9 @@ interface HarnessOfferProps {
 }
 
 interface Carryover {
-  /** Providers the Host already has (imported from Pi's models.json at startup). */
+  /** Providers the Host already has (imported from Pi's models.json and auth.json at startup). */
   hostProviders?: number;
-  /** Providers set up in Pi that the Host does not have: OAuth logins and built-in ones keyed in Pi's auth.json. */
+  /** Providers set up in Pi that the Host does not have: OAuth logins and built-ins the harness cannot reach. */
   left?: string[];
   /** Scheduled tasks that move to the Host on the switch. */
   tasks?: number;

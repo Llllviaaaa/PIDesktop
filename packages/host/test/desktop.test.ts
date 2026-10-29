@@ -17,7 +17,7 @@ import { featureEntries, withMcpSecrets } from "../src/agent-plugins.ts";
 import { applyDesktopMessage, importDesktopTasks, parseControlLine } from "../src/control.ts";
 import { effortFromThinking, harnessFromDesktop, personalInstructions } from "../src/desktop-settings.ts";
 import { defaultHarnessConfig, readHarnessConfig } from "../src/harness-config.ts";
-import { importPiModels } from "../src/pi-import.ts";
+import { importPiAuth, importPiModels } from "../src/pi-import.ts";
 import { readDefaultModel } from "../src/providers.ts";
 import { ReloadablePlugins } from "../src/reloadable.ts";
 import { fileSecretResolver, readSecretFile, writeSecretFile, type SecretCodec } from "../src/secrets.ts";
@@ -122,6 +122,30 @@ describe("Pi provider import", () => {
   });
 });
 
+describe("Pi built-in provider keys", () => {
+  it("carry over the built-ins the harness can reach, and say why the others do not", () => {
+    const imported = importPiAuth({
+      deepseek: { type: "api_key", key: "sk-2" },
+      anthropic: { type: "api_key", key: "$ANTHROPIC_API_KEY" },
+      groq: { type: "api_key", key: "!op read groq" },
+      "github-copilot": { type: "oauth", access: "a", refresh: "r", expires: 1 },
+      "amazon-bedrock": { type: "api_key", key: "k" },
+      openrouter: { type: "api_key", key: "sk-or" },
+    }, new Set(["openrouter"]));
+    expect(imported.providers).toEqual([
+      { api: "openai-compat", id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com", apiKey: { secret: secretId("deepseek") } },
+      { api: "anthropic", id: "anthropic", name: "Anthropic", baseUrl: "https://api.anthropic.com", apiKey: { env: "ANTHROPIC_API_KEY" } },
+    ]);
+    expect(imported.secrets).toEqual({ [secretId("deepseek")]: "sk-2" });
+    expect(imported.problems).toEqual([
+      "groq: the key comes from a command, which the harness does not run; enter the key again",
+      "github-copilot: signed in with OAuth, which the harness does not support; add an API key instead",
+      "amazon-bedrock: not a built-in provider the harness can reach",
+    ]);
+    expect(importPiAuth("not an object", new Set()).providers).toEqual([]);
+  });
+});
+
 describe("secrets at rest", () => {
   it("round-trip through the codec and never sit in the file as plaintext", async () => {
     dir = mkdtempSync(join(tmpdir(), "pid-secrets-"));
@@ -170,6 +194,30 @@ describe("control channel", () => {
     const providers = JSON.parse(readFileSync(join(dataDir, "providers.json"), "utf8"));
     expect(providers.providers.map((entry: { id: string }) => entry.id)).toEqual(["deepseek"]);
     expect(providers.defaultModel).toEqual({ provider: "deepseek", model: "deepseek-reasoner" });
+  });
+
+  it("adds built-in providers from auth.json once, after providers.json exists", () => {
+    dir = mkdtempSync(join(tmpdir(), "pid-control-"));
+    const dataDir = join(dir, "data");
+    const piAgentDir = join(dir, "pi");
+    mkdirSync(piAgentDir);
+    const message = { settings: {}, configDir: join(dir, "cfg"), piAgentDir };
+    // An install from before this import: providers.json is there, the marker is not.
+    mkdirSync(dataDir);
+    writeFileSync(join(dataDir, "providers.json"), JSON.stringify({ providers: [{ api: "openai-compat", id: "mine", baseUrl: "https://mine.example/v1" }] }));
+    writeFileSync(join(piAgentDir, "auth.json"), JSON.stringify({ deepseek: { type: "api_key", key: "sk-3" }, mine: { type: "api_key", key: "sk-x" } }));
+
+    expect(applyDesktopMessage(dataDir, message, codec)).toEqual([`imported 1 built-in provider(s) from ${join(piAgentDir, "auth.json")}`]);
+    const ids = () => JSON.parse(readFileSync(join(dataDir, "providers.json"), "utf8")).providers.map((entry: { id: string }) => entry.id);
+    expect(ids()).toEqual(["mine", "deepseek"]);
+    expect(readSecretFile(join(dataDir, "secrets.dat"), codec)).toEqual({ [secretId("deepseek")]: "sk-3" });
+    expect(readFileSync(join(dataDir, "providers.json"), "utf8")).not.toContain("sk-3");
+
+    // Once only: a provider the user removes afterwards does not come back.
+    const file = JSON.parse(readFileSync(join(dataDir, "providers.json"), "utf8"));
+    writeFileSync(join(dataDir, "providers.json"), JSON.stringify({ ...file, providers: file.providers.slice(0, 1) }));
+    expect(applyDesktopMessage(dataDir, message, codec)).toEqual([]);
+    expect(ids()).toEqual(["mine"]);
   });
 
   it("keeps imported providers but not their keys without a secret store", () => {

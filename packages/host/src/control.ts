@@ -4,7 +4,8 @@
  *
  * - `{"desktop": DesktopMessage}`: the desktop's settings changed (or the
  *   host just started). harness.json is rewritten from them, Pi's
- *   models.json is imported into providers.json the first time, the default
+ *   models.json is imported into providers.json the first time, the keys of
+ *   its built-in providers in auth.json once (pi-import.json records it), the default
  *   model follows the desktop's, and the plugins reload.
  * - `{"reload": true}`: reload from the files as they are.
  *
@@ -14,7 +15,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { harnessFromDesktop, type DesktopMessage } from "./desktop-settings.ts";
-import { importPiModels } from "./pi-import.ts";
+import { importPiAuth, importPiModels, type PiImport } from "./pi-import.ts";
 import { readSecretFile, writeSecretFile, type SecretCodec } from "./secrets.ts";
 
 /** The fields a desktop scheduled task shares with the host's (`@pid/schedule`). */
@@ -68,6 +69,22 @@ function readJson(file: string): Record<string, unknown> | undefined {
   }
 }
 
+/**
+ * Keep the keys of `imported` in secrets.dat. Without a secret store (not
+ * Windows) the providers stay and their written keys are dropped rather than
+ * written out.
+ */
+function storeImportedKeys(dataDir: string, imported: PiImport, codec: SecretCodec | undefined, notes: string[]): void {
+  if (Object.keys(imported.secrets).length === 0) return;
+  if (codec === undefined) {
+    for (const entry of imported.providers) if (entry.apiKey !== undefined && "secret" in entry.apiKey) delete entry.apiKey;
+    notes.push("Pi provider keys were not imported: no secret store is available on this platform");
+    return;
+  }
+  const file = join(dataDir, "secrets.dat");
+  writeSecretFile(file, { ...readSecretFile<Record<string, string>>(file, codec), ...imported.secrets }, codec);
+}
+
 /** Write what a desktop message says into `dataDir`; returns notes for the log. */
 export function applyDesktopMessage(dataDir: string, message: DesktopMessage, codec: SecretCodec | undefined): string[] {
   const notes: string[] = [];
@@ -83,19 +100,32 @@ export function applyDesktopMessage(dataDir: string, message: DesktopMessage, co
     if (models !== undefined) {
       const imported = importPiModels(models);
       notes.push(...imported.problems.map((problem) => `Pi provider not imported: ${problem}`));
-      const secretIds = Object.keys(imported.secrets);
-      if (secretIds.length > 0 && codec === undefined) {
-        // No DPAPI here: keep the providers, drop the keys rather than write them out.
-        for (const entry of imported.providers) if (entry.apiKey !== undefined && "secret" in entry.apiKey) delete entry.apiKey;
-        notes.push("Pi provider keys were not imported: no secret store is available on this platform");
-      } else if (secretIds.length > 0 && codec !== undefined) {
-        const file = join(dataDir, "secrets.dat");
-        writeSecretFile(file, { ...readSecretFile<Record<string, string>>(file, codec), ...imported.secrets }, codec);
-      }
+      storeImportedKeys(dataDir, imported, codec, notes);
       providers.providers = imported.providers;
       notes.push(`imported ${imported.providers.length} provider(s) from ${modelsFile}`);
     }
   }
+  // Built-in providers keyed in Pi's auth.json move once; providers.json may already exist by then.
+  const markerFile = join(dataDir, "pi-import.json");
+  const marker = readJson(markerFile) ?? {};
+  if (marker.auth === undefined && message.piAgentDir !== undefined) {
+    const authFile = join(message.piAgentDir, "auth.json");
+    const auth = readJson(authFile);
+    if (auth !== undefined) {
+      const entries: unknown[] = Array.isArray(providers.providers) ? providers.providers : [];
+      const existing = new Set(entries.flatMap((entry) => {
+        const id = (entry as { id?: unknown } | null)?.id;
+        return typeof id === "string" ? [id] : [];
+      }));
+      const imported = importPiAuth(auth, existing);
+      notes.push(...imported.problems.map((problem) => `Pi provider not imported: ${problem}`));
+      storeImportedKeys(dataDir, imported, codec, notes);
+      providers.providers = [...entries, ...imported.providers];
+      if (imported.providers.length > 0) notes.push(`imported ${imported.providers.length} built-in provider(s) from ${authFile}`);
+    }
+    writeJson(markerFile, { ...marker, auth: new Date().toISOString() });
+  }
+
   const current = providers.defaultModel as { provider?: unknown; model?: unknown } | undefined;
   if (defaultModel !== undefined && (current?.provider !== defaultModel.provider || current?.model !== defaultModel.model)) {
     providers.defaultModel = defaultModel;

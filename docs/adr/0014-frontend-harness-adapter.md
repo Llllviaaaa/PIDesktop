@@ -165,7 +165,7 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
   - 已有的设置文件如果没有 `engine` 字段（P5b 之前的安装），读取时按 `pi` 处理，不会被悄悄切换（`config.rs` 的 `predates_engine_setting`）。
 - **一次性的切换提示**：引擎为 Pi 且 `harnessPromptSeen` 为 false 时，启动后弹出“切换到 Harness 引擎”（`src/components/HarnessOffer.tsx`）。提示内容在切换前读取：
   - Host 已从 Pi 的 `models.json` 导入了几个 provider；
-  - 哪些在 Pi 里配置过的 provider 不会迁移：OAuth 订阅登录，以及密钥保存在 Pi `auth.json` 里的内置 provider，需要在模型设置里用 API key 重新添加；
+  - 哪些在 Pi 里配置过的 provider 不会迁移：OAuth 订阅登录，以及 Harness 连不上的内置 provider（例如 Bedrock、Vertex），需要在模型设置里用 API key 重新添加；
   - 会迁移几个定时任务。
 
   无论选择切换还是继续用 Pi，都记下 `harnessPromptSeen`，不再询问。之后仍可以在设置里切换。
@@ -173,4 +173,8 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
 - **隐藏 Pi 专属界面**：引擎为 Harness 时：
   - 不显示管理 Pi 包的“插件”页面；
   - 调试页不显示 Pi 进程的设置（可执行程序、会话目录、独立 Pi 配置）。
-- **已知缺口**（P6 之前补上）：`auth.json` 中内置 provider 的密钥还不会自动导入。
+- **内置 provider 的密钥**：Pi 把内置 provider 的 API key 存在 `auth.json`，不在 `models.json`。Host 一次性导入这些 key，规则如下：
+  - 只导入 Harness 适配器能连上的内置 provider。它们的地址和协议列在 `packages/host/src/pi-builtins.ts`，取自 Pi 的模型目录；在 Pi 移除之前，`scripts/test-pi-builtins.test.ts` 会对照这份目录检查。
+  - `providers.json` 里已有的同名 provider 不会被覆盖。
+  - key 的处理与 `models.json` 相同：写明的 key 存入 `secrets.dat`，`$VAR` 写成环境变量引用，`!命令` 不导入。
+  - 导入过一次后记在 `pi-import.json`。之后即使用户删掉了导入的 provider，也不会再导入。
