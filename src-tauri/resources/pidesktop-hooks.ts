@@ -41,12 +41,15 @@ function executeHook(
   return new Promise((resolve) => {
     const windows = process.platform === "win32";
     const executable = windows ? (process.env.ComSpec || "cmd.exe") : "/bin/sh";
-    const args = windows ? ["/d", "/s", "/c", hook.command] : ["-lc", hook.command];
+    // cmd.exe does not understand the \" escaping Node applies to arguments,
+    // so the command line goes through verbatim; /s strips the outer quotes.
+    const args = windows ? ["/d", "/s", "/c", `"${hook.command}"`] : ["-lc", hook.command];
     const child = spawn(executable, args, {
       cwd,
       env: hookEnvironment(inheritEnvironment, event, cwd),
       shell: false,
       windowsHide: true,
+      windowsVerbatimArguments: windows,
       stdio: ["pipe", "pipe", "pipe"],
     });
     let output = "";
