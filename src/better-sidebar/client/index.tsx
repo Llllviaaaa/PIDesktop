@@ -46,6 +46,8 @@ import './layout.css'
  *  (`ctx.get('remote').session`) against the inject list, and a missing
  *  entry throws `cannot get property "remote.session" without inject` —
  *  which, thrown from a render path, blanks the whole sidebar panel. */
+export { setHostSideChat, type HostSideChatProps } from './host-sidechat.ts'
+
 export const inject = ['slots', 'sessions', 'locale', 'modules', 'connection', 'remote', 'remote.session']
 
 /**

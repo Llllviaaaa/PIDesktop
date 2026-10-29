@@ -11,10 +11,12 @@
  * draft), and then loads the plugin unchanged.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { createElement } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { openPath } from '@tauri-apps/plugin-opener'
 import * as betterSidebar from 'dsh-better-sidebar/client/index.tsx'
 import { setChunkScriptLoaderForTests, type ChunkExports, type ChunkName } from 'dsh-better-sidebar/client/chunk-loader.ts'
+import { SideChatTab } from '../components/SideChatTab'
 import { pi } from '../lib/pi'
 
 /** Each lazy chunk's entry, split out by Vite. */
@@ -147,6 +149,9 @@ export function startBetterSidebar(root: Context, remote: object): () => void {
   provide('connection', connection)
   provide('conversation', conversation)
   installChunkLoader()
+  // The Side Chat tab shows the desktop's own side chat (src/components/SideChatPanel.tsx).
+  betterSidebar.setHostSideChat(({ sessionId, tabId, visible }) => createElement(SideChatTab, { key: tabId, sessionFile: sessionId, tabId, visible }))
+  disposers.push(() => betterSidebar.setHostSideChat(undefined))
 
   let disposed = false
   void sidecarBase().then((base) => {

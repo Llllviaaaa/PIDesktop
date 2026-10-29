@@ -23,7 +23,7 @@ import {
   type SessionResult,
   type SessionSubscribeResult,
 } from "@pid/protocol";
-import { sessionMarkdown, type Session } from "@pid/session";
+import { sessionMarkdown, settledSeq, type Session } from "@pid/session";
 import { RpcError, type RpcCall } from "./rpc.ts";
 
 export const name = "pid-sessions-rpc";
@@ -210,6 +210,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       const source = await session(p);
       const seq = optionalSeq(p, "seq") ?? source.lastSeq;
       if (seq > source.lastSeq) throw new RpcError(ErrorCode.InvalidParams, `seq ${seq} is past the end (${source.lastSeq})`);
+      // A side chat may start while its source runs: it copies up to the last settled point.
+      if (p.side === true) return { session: ctx.sessions.fork(source, settledSeq(source.events, seq), { side: true }).summary() };
       return { session: ctx.sessions.fork(source, seq).summary() };
     },
 

@@ -58,6 +58,8 @@ interface Runtime {
   model?: { provider: string; model: string };
   title?: string;
   streaming: boolean;
+  /** A side chat's own fork, deleted when the runtime stops. */
+  side?: boolean;
 }
 
 const MODEL_CATALOG_TTL_MS = 60_000;
@@ -109,16 +111,26 @@ export class HarnessRuntimes {
     return () => this.listeners.delete(listener);
   }
 
-  async start(cwd: string, sessionFile?: string): Promise<{ runtimeId: string; sessionLoaded: boolean; sessionForked: boolean }> {
+  /**
+   * A runtime on `sessionFile`, or on a new session. With `side` it runs on a
+   * hidden fork of `sessionFile` instead, as Pi's isolated side chats do; the
+   * fork goes when the runtime stops.
+   */
+  async start(cwd: string, sessionFile?: string, side = false): Promise<{ runtimeId: string; sessionLoaded: boolean; sessionForked: boolean }> {
     this.nextRuntime += 1;
     const id = `${HARNESS_RUNTIME_PREFIX}${Date.now().toString(36)}-${this.nextRuntime}`;
     const runtime: Runtime = { id, cwd, lastSeq: 0, streaming: false, translator: new HarnessEventTranslator(() => runtime.model) };
-    this.runtimes.set(id, runtime);
     if (isHarnessSessionFile(sessionFile)) {
       runtime.sessionId = (sessionFile as string).slice(HARNESS_SESSION_PREFIX.length);
-      await this.attach(runtime);
+      if (side) {
+        const forked = await (await this.rpc()).call<SessionResult>("session.fork", { sessionId: runtime.sessionId, side: true });
+        runtime.sessionId = forked.session.id;
+        runtime.side = true;
+      }
     }
-    return { runtimeId: id, sessionLoaded: true, sessionForked: false };
+    this.runtimes.set(id, runtime);
+    if (runtime.sessionId !== undefined) await this.attach(runtime);
+    return { runtimeId: id, sessionLoaded: true, sessionForked: runtime.side === true };
   }
 
   async stop(runtimeId: string): Promise<void> {
@@ -126,7 +138,13 @@ export class HarnessRuntimes {
     this.runtimes.delete(runtimeId);
     if (runtime?.sessionId === undefined || this.connection === undefined) return;
     const stillWatched = [...this.runtimes.values()].some((other) => other.sessionId === runtime.sessionId);
-    if (!stillWatched) await (await this.connection).call("session.unsubscribe", { sessionId: runtime.sessionId }).catch(() => undefined);
+    if (stillWatched) return;
+    const rpc = await this.connection;
+    await rpc.call("session.unsubscribe", { sessionId: runtime.sessionId }).catch(() => undefined);
+    if (runtime.side === true) {
+      await rpc.call("session.abort", { sessionId: runtime.sessionId }).catch(() => undefined);
+      await rpc.call("session.delete", { sessionId: runtime.sessionId }).catch(() => undefined);
+    }
   }
 
   isRunning(runtimeId: string): boolean {
@@ -150,10 +168,10 @@ export class HarnessRuntimes {
     return (await this.rpc()).call<T>(method, params);
   }
 
-  /** The Host's sessions, newest first. Subagent sessions are left out: they belong to their parent's tool call. */
+  /** The Host's sessions, newest first. Subagent sessions belong to their parent's tool call and side chats to their panel, so both are left out. */
   async listSessions(): Promise<HostSessionInfo[]> {
     const { sessions } = await this.call<SessionListResult>("session.list");
-    return sessions.filter((session) => session.parent === undefined);
+    return sessions.filter((session) => session.parent === undefined && session.side !== true);
   }
 
   /** A session's whole log, without leaving a subscription behind unless a runtime watches it. */

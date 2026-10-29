@@ -228,6 +228,36 @@ describe("rewinding and forking", () => {
   });
 });
 
+describe("side chats", () => {
+  it("run on a hidden fork of the conversation that goes when the side chat stops", async () => {
+    const { runtimes, events, until } = await start(new ScriptedProvider([textReply("Main answer."), textReply("Side answer.")]));
+    const main = await runtimes.start(dir);
+    await runtimes.command(main.runtimeId, "prompt", { message: "Main question" });
+    await until((event) => event.type === "agent_settled");
+    const parentFile = String((await runtimes.command(main.runtimeId, "get_state")).data?.sessionFile);
+
+    const side = await runtimes.start(dir, parentFile, true);
+    expect(side.sessionForked).toBe(true);
+    const sideFile = String((await runtimes.command(side.runtimeId, "get_state")).data?.sessionFile);
+    expect(sideFile).not.toBe(parentFile);
+    expect(((await runtimes.command(side.runtimeId, "get_messages")).data?.messages ?? []).map((message) => message.role)).toEqual(["user", "assistant"]);
+    events.length = 0;
+    await runtimes.command(side.runtimeId, "prompt", { message: "Side question" });
+    await until((event) => event.type === "agent_settled");
+    const sideMessages = (await runtimes.command(side.runtimeId, "get_messages")).data?.messages ?? [];
+    expect(sideMessages.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(JSON.stringify(sideMessages.at(-1))).toContain("Side answer.");
+
+    // The sidebar never lists it, and the parent keeps only its own turn.
+    expect((await runtimes.listSessions()).map((session) => `harness:${session.id}`)).toEqual([parentFile]);
+    expect(((await runtimes.command(main.runtimeId, "get_messages")).data?.messages ?? [])).toHaveLength(2);
+
+    await runtimes.stop(side.runtimeId);
+    const all = await runtimes.call<{ sessions: Array<{ id: string }> }>("session.list");
+    expect(all.sessions.map((session) => `harness:${session.id}`)).toEqual([parentFile]);
+  });
+});
+
 describe("scheduled tasks through the adapter", () => {
   it("map tasks and runs, and hear the Host's run updates", async () => {
     const { runtimes } = await start(new ScriptedProvider([textReply("Report ready.")]));

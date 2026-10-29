@@ -145,6 +145,7 @@ export interface CreateSessionOptions {
   cwd: string;
   forkedFrom?: SessionHeader["forkedFrom"];
   parent?: SessionHeader["parent"];
+  side?: boolean;
   /** Events the session starts with, numbered from 1 (a fork's copy). */
   events?: SessionEvent[];
 }
@@ -181,6 +182,7 @@ export class Sessions extends Service {
       cwd: options.cwd,
       ...(options.forkedFrom === undefined ? {} : { forkedFrom: options.forkedFrom }),
       ...(options.parent === undefined ? {} : { parent: options.parent }),
+      ...(options.side === true ? { side: true as const } : {}),
     };
     const events = options.events ?? [];
     this.storage.create(header, events);
@@ -221,9 +223,10 @@ export class Sessions extends Service {
   }
 
   /** A new session holding `source`'s current branch up to `atSeq` (default: all of it). */
-  fork(source: Session, atSeq = source.lastSeq): Session {
+  fork(source: Session, atSeq = source.lastSeq, options: { side?: boolean } = {}): Session {
     return this.create({
       cwd: source.header.cwd,
+      ...(options.side === true ? { side: true } : {}),
       forkedFrom: { sessionId: source.id, seq: atSeq },
       events: forkEvents(source.events, atSeq),
     });

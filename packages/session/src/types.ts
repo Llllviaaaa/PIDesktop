@@ -18,6 +18,8 @@ export interface SessionHeader {
   cwd: string;
   forkedFrom?: { sessionId: string; seq: number };
   parent?: { sessionId: string; callId: string };
+  /** A side chat: a fork the session list hides, shown beside its source. */
+  side?: true;
 }
 
 export interface ModelRef {
@@ -82,4 +84,5 @@ export interface SessionSummary {
   usage: Usage;
   forkedFrom?: SessionHeader["forkedFrom"];
   parent?: SessionHeader["parent"];
+  side?: true;
 }

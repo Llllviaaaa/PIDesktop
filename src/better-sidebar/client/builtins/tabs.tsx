@@ -31,6 +31,7 @@ import { ChangesTab, opCountOf } from '../changes/ChangesTab.tsx'
 import { DiffTab } from '../DiffTab.tsx'
 import { SubagentView } from '../SubagentView.tsx'
 import { consumeSidechatSeed, SideChatView, sidechatThreadIdOf } from '../SideChatView.tsx'
+import { getHostSideChat } from '../host-sidechat.ts'
 import { LazyTerminalBottom } from '../terminal-lazy.tsx'
 import { INSTANCE_FIELD, closeBottomTerminal, webTerminals } from '../terminal-client.ts'
 import { api } from '../api.ts'
@@ -235,9 +236,12 @@ export function builtinTabs(ctx: Context): readonly TabDescriptor[] {
           void api.sidechatDispose(threadId).catch(() => {})
         }
       },
-      component: ({ ctx, scope, tab, visible }) => (
-        <SideChatView ctx={ctx} scope={scope} tab={tab} visible={visible} />
-      ),
+      // PIDesktop: the host's side chat when it registered one (host-sidechat.ts).
+      component: ({ ctx, scope, tab, visible }) => {
+        const hostView = getHostSideChat()
+        if (hostView !== undefined) return hostView({ sessionId: scope.sessionId, tabId: tab.id, visible })
+        return <SideChatView ctx={ctx} scope={scope} tab={tab} visible={visible} />
+      },
     },
     {
       // The bottom workbench's terminal (#774). NOT the host's right-Sidebar
