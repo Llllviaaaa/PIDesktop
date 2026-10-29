@@ -2,19 +2,28 @@
  * Headless runs: one prompt, no window, no RPC.
  *
  * Usage: pid-harness run [--data-dir <dir>] [--cwd <dir>] [--model <provider>/<model>]
- *                        [--effort off|low|medium|high] [--session <id>] [--json] <prompt...>
+ *                        [--effort off|low|medium|high] [--permission <mode>] [--session <id>]
+ *                        [--json] <prompt...>
  *
  * The reply streams to stdout and tool activity to stderr; with `--json`
  * stdout gets each persisted session event as one JSON line instead. The
  * session is saved like any other, so `--session <id>` continues it. Exits 0
  * when the run finished normally, 1 otherwise. Ctrl+C aborts the run.
+ *
+ * Nobody can answer a confirmation here, so a tool call that needs one is
+ * denied. The permission mode is `--permission`, else harness.json's
+ * `defaultPermission`, else `workspace-write`: file changes inside the
+ * working directory go through, shell commands need `full-access` or an
+ * allow-listed prefix.
  */
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { Logger, type Exporter } from "@deepseek-ai/cordis";
 import type { Effort } from "@pid/llm";
 import type { AgentDelta, RunOutcome } from "@pid/agent";
+import type { PermissionMode } from "@pid/permissions";
 import { agentPlugins } from "./agent-plugins.ts";
+import { readHarnessConfig } from "./harness-config.ts";
 import { createHost } from "./host.ts";
 import { readDefaultModel } from "./providers.ts";
 
@@ -23,12 +32,14 @@ export interface HeadlessOptions {
   cwd: string;
   model?: { provider: string; model: string };
   effort?: Effort;
+  permission?: PermissionMode;
   sessionId?: string;
   json: boolean;
   prompt: string;
 }
 
 const EFFORTS = ["off", "low", "medium", "high"];
+const PERMISSIONS = ["read-only", "ask", "workspace-write", "full-access"];
 
 export function parseHeadlessOptions(argv: readonly string[], cwd = process.cwd()): HeadlessOptions {
   const options: HeadlessOptions = { dataDir: join(homedir(), ".pid"), cwd, json: false, prompt: "" };
@@ -54,6 +65,10 @@ export function parseHeadlessOptions(argv: readonly string[], cwd = process.cwd(
       const effort = value();
       if (!EFFORTS.includes(effort)) throw new Error(`--effort must be one of ${EFFORTS.join(", ")}`);
       options.effort = effort as Effort;
+    } else if (flag === "--permission") {
+      const permission = value();
+      if (!PERMISSIONS.includes(permission)) throw new Error(`--permission must be one of ${PERMISSIONS.join(", ")}`);
+      options.permission = permission as PermissionMode;
     } else if (flag === "--") {
       words.push(...argv.slice(index + 1));
       break;
@@ -83,7 +98,11 @@ export async function runHeadless(argv: readonly string[], out: NodeJS.WritableS
     return 2;
   }
 
-  const host = createHost({ version: "headless", dataDir: options.dataDir, plugins: agentPlugins(options.dataDir) });
+  const { config, problems } = readHarnessConfig(join(options.dataDir, "harness.json"));
+  const permission = options.permission ?? config.permissions.defaultPermission ?? "workspace-write";
+  const host = createHost({ version: "headless", dataDir: options.dataDir, plugins: agentPlugins(options.dataDir, { config, permission }) });
+  for (const problem of problems) err.write(`[warn] ${problem}
+`);
   const exporter: Exporter = {
     colors: false,
     export(message) {

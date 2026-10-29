@@ -1,0 +1,15 @@
+{
+  "name": "@pid/plan",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The update_plan tool and session plan state (ADR 0009)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/session": "*",
+    "@pid/tools": "*"
+  }
+}
