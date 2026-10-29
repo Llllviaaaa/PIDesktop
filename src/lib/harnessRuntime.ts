@@ -12,6 +12,8 @@
  * `harness:<sessionId>`, which `pi.start` accepts to reopen it.
  */
 import type {
+  CheckpointDiffResult,
+  CheckpointListResult,
   ModelListResult,
   PersistedEvent,
   ProviderListResult,
@@ -26,7 +28,7 @@ import type {
 } from "@pid/protocol";
 import type { ExtensionUIRequest, ModelInfo, PiEvent, RpcData, RpcResponse } from "../types";
 import { connectHarness, harnessEndpoint, type HarnessConnection } from "./harnessClient";
-import { HARNESS_THINKING_LEVELS, HarnessEventTranslator, effortForLevel, toAgentMessages } from "./harnessTranscript";
+import { HARNESS_THINKING_LEVELS, HarnessEventTranslator, effortForLevel, forkPointsOf, sessionTreeOf, toAgentMessages } from "./harnessTranscript";
 
 export type RuntimeEngine = "pi" | "harness";
 
@@ -68,6 +70,8 @@ export class HarnessRuntimes {
   private catalog: { at: number; models: Promise<ModelInfo[]> } | undefined;
   private nextRuntime = 0;
   private lastActive: string | undefined;
+  /** Questions the adapter asks itself (rewinding files), answered through the same dialog. */
+  private readonly localQuestions = new Map<string, (confirmed: boolean) => void>();
 
   constructor(private readonly connect: Connect = async () => connectHarness(await harnessEndpoint(), { name: "pi-desktop", version: "1" })) {}
 
@@ -110,6 +114,12 @@ export class HarnessRuntimes {
 
   /** Answer a confirm, select or input the Host asked through `ui/request`. */
   async respond(request: ExtensionUIRequest, response: { value?: string; confirmed?: boolean; cancelled?: true }): Promise<void> {
+    const local = this.localQuestions.get(request.id);
+    if (local !== undefined) {
+      this.localQuestions.delete(request.id);
+      local(response.confirmed === true);
+      return;
+    }
     const value = response.cancelled ? null : response.confirmed ?? response.value ?? null;
     await (await this.rpc()).call("ui.respond", { requestId: request.id, value });
   }
@@ -156,6 +166,11 @@ export class HarnessRuntimes {
           await rpc.call("permission.set", { sessionId: runtime.sessionId, ...(slash[1] === "pidesktop-mode" ? { agentMode: slash[2] } : { permission: slash[2] }) });
           return undefined;
         }
+        const rewind = /^\/pidesktop-rewind\s+(\d+)\s*$/.exec(message);
+        if (rewind !== null) {
+          await this.rewind(runtime, Number(rewind[1]));
+          return undefined;
+        }
         // Pi's internal slash commands (the provider service) have no Host counterpart.
         if (message.startsWith("/pidesktop-")) return undefined;
         await this.ensureSession(runtime);
@@ -182,9 +197,32 @@ export class HarnessRuntimes {
       case "get_available_thinking_levels":
         return { levels: HARNESS_THINKING_LEVELS };
       case "get_commands":
-        return { commands: [] };
+        // The store checks for the rewind command before offering rewind and edit.
+        return { commands: [{ name: "pidesktop-rewind", description: "Rewind to before a message", source: "extension" }] };
       case "get_fork_messages":
-        return { messages: [] };
+        // Pi sends fork points in the `messages` field, which the store reads as ForkPoint[].
+        return { messages: (runtime.sessionId === undefined ? [] : forkPointsOf(await this.readEvents(runtime.sessionId))) as unknown as RpcData["messages"] };
+      case "get_tree":
+        if (runtime.sessionId === undefined) return { tree: [], leafId: null };
+        return { ...sessionTreeOf(await this.readEvents(runtime.sessionId)) };
+      case "fork": {
+        if (runtime.sessionId === undefined) throw new Error("任务尚未开始");
+        const seq = Number(payload.entryId);
+        const entry = (await this.readEvents(runtime.sessionId)).find((event) => event.seq === seq);
+        if (entry === undefined) throw new Error("找不到要分叉的消息");
+        // From a user message the fork stops before it, as Pi does; from a reply it keeps the reply.
+        await this.switchTo(runtime, await rpc.call<SessionResult>("session.fork", { sessionId: runtime.sessionId, seq: entry.type === "user" ? seq - 1 : seq }));
+        return { cancelled: false };
+      }
+      case "clone":
+        if (runtime.sessionId === undefined) throw new Error("任务尚未开始");
+        await this.switchTo(runtime, await rpc.call<SessionResult>("session.fork", { sessionId: runtime.sessionId }));
+        return { cancelled: false };
+      case "new_session":
+        runtime.sessionId = undefined;
+        runtime.lastSeq = 0;
+        runtime.title = undefined;
+        return { cancelled: false };
       case "set_model": {
         const model = { provider: String(payload.provider ?? ""), model: String(payload.modelId ?? "") };
         if (runtime.sessionId === undefined) runtime.pendingModel = model;
@@ -211,6 +249,46 @@ export class HarnessRuntimes {
       default:
         throw new Error(`Harness 引擎暂不支持 ${command}`);
     }
+  }
+
+  /** Point the runtime at another session (a fork or clone), as Pi's runtime switches to it. */
+  private async switchTo(runtime: Runtime, created: SessionResult): Promise<void> {
+    const previous = runtime.sessionId;
+    runtime.sessionId = created.session.id;
+    runtime.lastSeq = 0;
+    runtime.title = created.session.title;
+    await this.attach(runtime);
+    if (previous !== undefined && this.runtimesOf(previous).length === 0) await this.call("session.unsubscribe", { sessionId: previous }).catch(() => undefined);
+  }
+
+  /**
+   * Rewind to before the user message at `userSeq`, as the Pi guard's rewind
+   * command does: when the files changed since its checkpoint, ask before
+   * restoring them, then continue the session from just before the message.
+   */
+  private async rewind(runtime: Runtime, userSeq: number): Promise<void> {
+    if (runtime.sessionId === undefined) throw new Error("任务尚未开始");
+    const rpc = await this.rpc();
+    const sessionId = runtime.sessionId;
+    const { checkpoints } = await rpc.call<CheckpointListResult>("checkpoint.list", { sessionId });
+    if (checkpoints.some((checkpoint) => checkpoint.userSeq === userSeq)) {
+      const diff = await rpc.call<CheckpointDiffResult>("checkpoint.diff", { sessionId, userSeq });
+      if (diff.changed) {
+        const fileSummary = diff.files.length > 0 ? `${diff.files.length} 个文件将恢复到此消息发送前的状态。` : "Git 暂存区将恢复到此消息发送前的状态。";
+        const confirmed = await this.askLocally(runtime.id, "回退消息和工作区？", `${fileSummary}\n\n此操作不会删除已有对话分支，你之后仍可从会话树切回。`);
+        if (!confirmed) throw new Error("PIDesktop message rewind was cancelled");
+        await rpc.call("checkpoint.restore", { sessionId, userSeq });
+      }
+    }
+    await rpc.call("session.rewind", { sessionId, toSeq: userSeq - 1, reason: "rewind to before a message" });
+  }
+
+  private askLocally(runtimeId: string, title: string, message: string): Promise<boolean> {
+    const id = `harness-local-${Date.now().toString(36)}-${this.localQuestions.size}`;
+    return new Promise((resolve) => {
+      this.localQuestions.set(id, resolve);
+      this.emit(runtimeId, [{ type: "extension_ui_request", id, method: "confirm", title, message }]);
+    });
   }
 
   private async state(runtime: Runtime): Promise<RpcData> {

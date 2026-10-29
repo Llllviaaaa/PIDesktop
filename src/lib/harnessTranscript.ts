@@ -287,3 +287,56 @@ export function messageTimingsOf(events: readonly PersistedEvent[]): SessionMess
       : []
   ));
 }
+
+/** The user messages on the current branch, as Pi's fork points (`entryId` is the event's seq). */
+export function forkPointsOf(events: readonly PersistedEvent[]): Array<{ entryId: string; text: string }> {
+  return currentBranch(events).flatMap((event) => {
+    if (event.type !== "user") return [];
+    const text = userContent((event.data as { content?: unknown }).content)
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join("");
+    return [{ entryId: String(event.seq), text }];
+  });
+}
+
+export interface HarnessTreeNode {
+  entry: { type: "message"; id: string; parentId: string | null; timestamp: string; message: { role: string; content: unknown } };
+  children: HarnessTreeNode[];
+}
+
+/**
+ * The whole log as Pi's session tree: each user or assistant message hangs
+ * off the previous message of its branch, and a rewind starts a new branch
+ * from the last message at or before its `toSeq`. Returns the roots and the
+ * id of the current branch's last message.
+ */
+export function sessionTreeOf(events: readonly PersistedEvent[]): { tree: HarnessTreeNode[]; leafId: string | null } {
+  const roots: HarnessTreeNode[] = [];
+  const nodes = new Map<number, HarnessTreeNode>();
+  const path: number[] = [];
+  for (const event of events) {
+    if (event.type === "rewind") {
+      const toSeq = (event.data as { toSeq?: number }).toSeq ?? 0;
+      while (path.length > 0 && (path.at(-1) as number) > toSeq) path.pop();
+      continue;
+    }
+    if (event.type !== "user" && event.type !== "assistant") continue;
+    const parentSeq = path.at(-1);
+    const node: HarnessTreeNode = {
+      entry: {
+        type: "message",
+        id: String(event.seq),
+        parentId: parentSeq === undefined ? null : String(parentSeq),
+        timestamp: event.ts,
+        message: { role: event.type, content: (event.data as { content?: unknown }).content },
+      },
+      children: [],
+    };
+    nodes.set(event.seq, node);
+    if (parentSeq === undefined) roots.push(node);
+    else nodes.get(parentSeq)?.children.push(node);
+    path.push(event.seq);
+  }
+  const leaf = path.at(-1);
+  return { tree: roots, leafId: leaf === undefined ? null : String(leaf) };
+}
