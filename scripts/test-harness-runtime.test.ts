@@ -1,11 +1,13 @@
 // The frontend's harness adapter (src/lib/harnessRuntime.ts) against a real
 // Harness Host in this process: the store's Pi commands and events over the
 // real WebSocket client, with a scripted model.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentLoop } from "@pid/agent-loop";
+import * as checkpoints from "@pid/checkpoints";
 import { LlmService } from "@pid/llm";
 import { Permissions } from "@pid/permissions";
 import * as plan from "@pid/plan";
@@ -38,6 +40,15 @@ afterEach(async () => {
 async function start(provider: ScriptedProvider) {
   dir = mkdtempSync(join(tmpdir(), "pid-harness-runtime-"));
   writeFileSync(join(dir, "a.txt"), "hello\n");
+  // A git repository, so runs take workspace checkpoints to rewind to.
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, windowsHide: true });
+  git("init", "-q");
+  git("config", "user.email", "test@example.com");
+  git("config", "user.name", "Test");
+  git("config", "commit.gpgsign", "false");
+  git("config", "core.autocrlf", "false");
+  git("add", "a.txt");
+  git("commit", "-q", "-m", "init");
   host = createHost({
     version: "0",
     dataDir: dir,
@@ -53,6 +64,7 @@ async function start(provider: ScriptedProvider) {
       [toolFs],
       [plan],
       [AgentLoop],
+      [checkpoints],
       [Mcp, {}],
       [sessionsRpc, { defaultModel: { provider: "scripted", model: "m" } }],
       [uiRpc],
@@ -142,5 +154,70 @@ describe("harness runtimes", () => {
     expect((await runtimes.command(runtimeId, "get_available_thinking_levels")).data?.levels).toEqual(["off", "low", "medium", "high"]);
     await runtimes.stop(runtimeId);
     expect(await runtimes.command(runtimeId, "get_state")).toMatchObject({ success: false });
+  });
+});
+
+describe("rewinding and forking", () => {
+  it("rewind a message and its file changes, fork, clone and show the tree", async () => {
+    const provider = new ScriptedProvider([
+      toolReply([{ id: "c1", name: "write", args: { path: "b.txt", content: "made" } }]),
+      textReply("Wrote it."),
+      textReply("Second answer."),
+    ]);
+    const { runtimes, events, until } = await start(provider);
+    const { runtimeId } = await runtimes.start(dir);
+    await runtimes.command(runtimeId, "prompt", { message: "/pidesktop-permission full-access" });
+    await runtimes.command(runtimeId, "prompt", { message: "Make b.txt" });
+    await until((event) => event.type === "agent_settled");
+    expect(readFileSync(join(dir, "b.txt"), "utf8")).toBe("made");
+
+    expect((await runtimes.command(runtimeId, "get_commands")).data?.commands?.map((command) => command.name)).toContain("pidesktop-rewind");
+    const points = (await runtimes.command(runtimeId, "get_fork_messages")).data?.messages as unknown as Array<{ entryId: string; text: string }>;
+    expect(points.map((point) => point.text)).toEqual(["Make b.txt"]);
+
+    // Rewinding asks before putting the files back, through the same dialog as Host questions.
+    const rewinding = runtimes.command(runtimeId, "prompt", { message: `/pidesktop-rewind ${points[0]?.entryId}` });
+    const question = await until((event) => event.type === "extension_ui_request" && event.method === "confirm" && event.title === "回退消息和工作区？") as ExtensionUIRequest;
+    expect(question).toMatchObject({ message: expect.stringContaining("1 个文件将恢复") });
+    await runtimes.respond(question, { confirmed: true });
+    expect((await rewinding).success).toBe(true);
+    expect(existsSync(join(dir, "b.txt"))).toBe(false);
+    expect((await runtimes.command(runtimeId, "get_messages")).data?.messages).toEqual([]);
+
+    // The rewound turn stays in the tree as a side branch.
+    events.length = 0;
+    await runtimes.command(runtimeId, "prompt", { message: "Just answer" });
+    await until((event) => event.type === "agent_settled");
+    const tree = (await runtimes.command(runtimeId, "get_tree")).data as { tree: Array<{ children: unknown[] }>; leafId: string };
+    expect(tree.tree).toHaveLength(2);
+    const before = String((await runtimes.command(runtimeId, "get_state")).data?.sessionId);
+
+    // Forking from the leaf (an assistant reply) keeps it; cloning copies everything.
+    expect((await runtimes.command(runtimeId, "fork", { entryId: tree.leafId })).data).toEqual({ cancelled: false });
+    const forked = (await runtimes.command(runtimeId, "get_state")).data;
+    expect(forked?.sessionId).not.toBe(before);
+    expect(((await runtimes.command(runtimeId, "get_messages")).data?.messages ?? []).map((message) => message.role)).toEqual(["user", "assistant"]);
+    await runtimes.command(runtimeId, "clone");
+    expect((await runtimes.command(runtimeId, "get_state")).data?.sessionId).not.toBe(forked?.sessionId);
+
+    // A new session starts empty and is created on its first prompt.
+    await runtimes.command(runtimeId, "new_session");
+    expect((await runtimes.command(runtimeId, "get_state")).data?.sessionId).toBeUndefined();
+  });
+
+  it("cancel a rewind the user declines", async () => {
+    const provider = new ScriptedProvider([toolReply([{ id: "c1", name: "write", args: { path: "b.txt", content: "made" } }]), textReply("Done.")]);
+    const { runtimes, until } = await start(provider);
+    const { runtimeId } = await runtimes.start(dir);
+    await runtimes.command(runtimeId, "prompt", { message: "/pidesktop-permission full-access" });
+    await runtimes.command(runtimeId, "prompt", { message: "Make b.txt" });
+    await until((event) => event.type === "agent_settled");
+    const points = (await runtimes.command(runtimeId, "get_fork_messages")).data?.messages as unknown as Array<{ entryId: string }>;
+    const rewinding = runtimes.command(runtimeId, "prompt", { message: `/pidesktop-rewind ${points[0]?.entryId}` });
+    const question = await until((event) => event.type === "extension_ui_request" && event.method === "confirm") as ExtensionUIRequest;
+    await runtimes.respond(question, { confirmed: false });
+    expect(await rewinding).toMatchObject({ success: false, error: "PIDesktop message rewind was cancelled" });
+    expect(readFileSync(join(dir, "b.txt"), "utf8")).toBe("made");
+    expect(((await runtimes.command(runtimeId, "get_messages")).data?.messages ?? []).length).toBeGreaterThan(0);
   });
 });

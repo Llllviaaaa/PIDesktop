@@ -103,3 +103,18 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
   - 删除：新增的 `session.delete`，运行中拒绝；
   - 导出 Markdown：新增的 `session.export`，格式与桌面端一直以来的导出相同。
 - 打开 Harness 会话时，首屏历史也通过 Host 读取，不必等 runtime 连上。
+
+## P5c 补充：fork 与回退
+
+- **分叉点**：当前分支上的 user 消息，`entryId` 就是事件的 seq。
+- **回退**：store 仍然发送 Pi guard 的 `/pidesktop-rewind <entryId>`，由适配器按同样的流程处理：
+  1. 查看这条消息之前拍的 checkpoint；
+  2. 如果文件有变化，弹出与原来相同的“回退消息和工作区？”确认，用的是同一个对话框（适配器自己发出的提问，回答在本地处理，不经过 Host）；
+  3. 用户确认后执行 `checkpoint.restore`；
+  4. 最后 `session.rewind` 到这条消息之前。
+
+  用户拒绝时什么都不改。“编辑后重发”复用这个流程。
+- **`fork`**：调用 `session.fork`。从 user 消息分叉时，新会话截止到这条消息之前，与 Pi 一致；从回复分叉时，保留这条回复。分叉后 runtime 切换到新会话，Pi 也是这样做的。
+- **`clone`**：完整复制当前会话。
+- **`new_session`**：清空 runtime，等下一条消息发送时再创建会话。
+- **会话树**：由整个日志构建（`get_tree`）。每条消息挂在它所在分支的上一条消息下面；`rewind` 从 `toSeq` 处开出新的分支，被回退掉的那几轮作为旁支保留在树里。

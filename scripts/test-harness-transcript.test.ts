@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { PersistedEvent } from "@pid/protocol";
-import { HarnessEventTranslator, currentBranch, effortForLevel, planWidgetLines, toAgentMessages } from "../src/lib/harnessTranscript";
+import { HarnessEventTranslator, currentBranch, effortForLevel, forkPointsOf, planWidgetLines, sessionTreeOf, toAgentMessages } from "../src/lib/harnessTranscript";
 
 const golden = (name: string): PersistedEvent[] => readFileSync(join(import.meta.dirname, "..", "packages", "agent-loop", "test", "golden", `${name}.jsonl`), "utf8")
   .trim()
@@ -81,5 +81,29 @@ describe("live progress as Pi events", () => {
     expect(planWidgetLines({ items: [] })).toEqual([]);
     expect(translator.delta({ type: "queue", steer: 2, followUp: 0 })).toEqual([{ type: "queue_update", steering: ["", ""], followUp: [] }]);
     expect(["off", "minimal", "medium", "xhigh"].map(effortForLevel)).toEqual(["off", "low", "medium", "high"]);
+  });
+});
+
+describe("fork points and the session tree", () => {
+  const events: PersistedEvent[] = [
+    { seq: 1, ts: "t", type: "model", data: { provider: "p", model: "m" } },
+    { seq: 2, ts: "t", type: "user", data: { content: [{ type: "text", text: "first" }] } },
+    { seq: 3, ts: "t", type: "assistant", data: { content: [{ type: "text", text: "A" }] } },
+    { seq: 4, ts: "t", type: "user", data: { content: [{ type: "text", text: "second" }] } },
+    { seq: 5, ts: "t", type: "assistant", data: { content: [{ type: "text", text: "B" }] } },
+    { seq: 6, ts: "t", type: "rewind", data: { toSeq: 3 } },
+    { seq: 7, ts: "t", type: "user", data: { content: [{ type: "text", text: "again" }] } },
+  ];
+
+  it("offer the current branch's user messages as fork points", () => {
+    expect(forkPointsOf(events)).toEqual([{ entryId: "2", text: "first" }, { entryId: "7", text: "again" }]);
+  });
+
+  it("keep rewound messages as a side branch of the tree", () => {
+    const { tree, leafId } = sessionTreeOf(events);
+    expect(leafId).toBe("7");
+    const ids = (nodes: typeof tree): unknown[] => nodes.map((node) => [node.entry.id, ids(node.children)]);
+    expect(ids(tree)).toEqual([["2", [["3", [["4", [["5", []]]], ["7", []]]]]]]);
+    expect(tree[0]?.entry).toMatchObject({ type: "message", parentId: null, message: { role: "user" } });
   });
 });
