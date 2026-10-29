@@ -8,7 +8,9 @@
  *   "memory": { "enabled": true },
  *   "plan": { "enabled": true },
  *   "mcp": { "servers": [], "confirmTools": true },
- *   "subagents": { "enabled": true, "concurrency": 3 }
+ *   "subagents": { "enabled": true, "concurrency": 3 },
+ *   "computer": { "enabled": true, "helper": "C:/.../Pi Desktop.exe", "confirmActions": true },
+ *   "schedule": { "enabled": true }
  * }
  * ```
  *
@@ -16,6 +18,7 @@
  * with a note, so one mistake does not disable everything.
  */
 import { readFileSync } from "node:fs";
+import type { Config as ComputerConfig } from "@pid/computer";
 import type { Config as HooksConfig } from "@pid/hooks";
 import type { Config as McpConfig } from "@pid/mcp";
 import type { Config as PermissionsConfig } from "@pid/permissions";
@@ -28,10 +31,12 @@ export interface HarnessConfig {
   plan: { enabled: boolean };
   mcp: McpConfig;
   subagents: SubagentsConfig & { enabled: boolean };
+  computer: ComputerConfig & { enabled: boolean };
+  schedule: { enabled: boolean };
 }
 
 export function defaultHarnessConfig(): HarnessConfig {
-  return { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true } };
+  return { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true }, computer: { enabled: true }, schedule: { enabled: true } };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -78,5 +83,15 @@ export function readHarnessConfig(file: string): { config: HarnessConfig; proble
   }
   const subagents = section("subagents");
   if (subagents !== undefined) config.subagents = { ...(subagents as SubagentsConfig), enabled: subagents.enabled !== false };
+  const computer = section("computer");
+  if (computer !== undefined) {
+    config.computer = {
+      enabled: computer.enabled !== false,
+      ...(typeof computer.helper === "string" ? { helper: computer.helper } : {}),
+      confirmActions: computer.confirmActions !== false,
+    };
+  }
+  const schedule = section("schedule");
+  if (schedule !== undefined) config.schedule = { enabled: schedule.enabled !== false };
   return { config, problems };
 }

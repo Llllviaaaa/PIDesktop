@@ -6,6 +6,7 @@
 import { join } from "node:path";
 import { AgentLoop } from "@pid/agent-loop";
 import * as checkpoints from "@pid/checkpoints";
+import * as computer from "@pid/computer";
 import * as hooks from "@pid/hooks";
 import { Credentials, LlmService } from "@pid/llm";
 import { Mcp } from "@pid/mcp";
@@ -13,6 +14,7 @@ import * as memory from "@pid/memory";
 import { Permissions, type PermissionMode } from "@pid/permissions";
 import * as plan from "@pid/plan";
 import * as promptContext from "@pid/prompt-context";
+import { Schedule } from "@pid/schedule";
 import { Sessions } from "@pid/session";
 import * as subagents from "@pid/subagents";
 import * as sessionJsonl from "@pid/session-jsonl";
@@ -29,6 +31,10 @@ export interface AgentPluginOptions {
   config: HarnessConfig;
   /** Overrides the configured default permission mode (headless `--permission`). */
   permission?: PermissionMode;
+  /** Run scheduled tasks: only the long-running host does, never a headless run. */
+  scheduler?: { defaultModel?: { provider: string; model: string } };
+  /** Where the computer helper is when harness.json does not say (`PID_COMPUTER_HELPER`). */
+  computerHelper?: string;
 }
 
 export function agentPlugins(dataDir: string, options: AgentPluginOptions): PluginEntry[] {
@@ -52,7 +58,17 @@ export function agentPlugins(dataDir: string, options: AgentPluginOptions): Plug
     [AgentLoop],
     ...(config.subagents.enabled ? [[subagents, config.subagents] as PluginEntry] : []),
     [Mcp, config.mcp],
+    ...(config.computer.enabled
+      ? [[computer, { ...config.computer, helper: config.computer.helper ?? options.computerHelper }] as PluginEntry]
+      : []),
     [checkpoints],
     [hooks, config.hooks],
+    ...(options.scheduler !== undefined && config.schedule.enabled
+      ? [[Schedule, {
+        tasksFile: join(dataDir, "schedules.json"),
+        runsFile: join(dataDir, "schedule-runs.jsonl"),
+        ...(options.scheduler.defaultModel === undefined ? {} : { defaultModel: options.scheduler.defaultModel }),
+      }] as PluginEntry]
+      : []),
   ];
 }

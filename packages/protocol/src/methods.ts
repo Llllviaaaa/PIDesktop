@@ -286,3 +286,50 @@ export interface UsageSummaryResult {
   messages: number;
   usage: TokenUsage;
 }
+
+// Scheduled tasks (ADR 0011).
+
+export interface ScheduledTaskInfo {
+  id: string;
+  name: string;
+  prompt: string;
+  cwd: string;
+  frequency: "hourly" | "daily" | "weekdays" | "weekly";
+  hour: number;
+  minute: number;
+  /** 0 = Sunday … 6 = Saturday. */
+  weekday: number;
+  permissionMode: "read-only" | "ask" | "workspace-write";
+  timeoutMinutes?: number;
+  model?: ModelChoice;
+  enabled: boolean;
+  lastRunAt?: number;
+  nextRunAt?: number;
+  lastStatus: string;
+  lastMessage: string;
+  running: boolean;
+}
+
+export interface ScheduledRunInfo {
+  id: string;
+  taskId: string;
+  taskName: string;
+  trigger: "scheduled" | "manual";
+  status: "running" | "success" | "error" | "cancelled" | "timed-out" | "interrupted";
+  startedAt: number;
+  finishedAt?: number;
+  durationMs?: number;
+  sessionId?: string;
+  output: string;
+}
+
+export interface ScheduleListResult {
+  tasks: ScheduledTaskInfo[];
+}
+
+export interface ScheduleRunsResult {
+  runs: ScheduledRunInfo[];
+}
+
+/** Notification `schedule/task`; `schedule/run` carries a `ScheduledRunInfo`. */
+export type ScheduleTaskNotification = { id: string; task: Omit<ScheduledTaskInfo, "running"> } | { id: string; deleted: true };

@@ -12,6 +12,7 @@ import * as checkpoints from "@pid/checkpoints";
 import { LlmService } from "@pid/llm";
 import { Mcp } from "@pid/mcp";
 import { Permissions } from "@pid/permissions";
+import { Schedule } from "@pid/schedule";
 import * as plan from "@pid/plan";
 import { PROTOCOL_VERSION, clientSubprotocols, ErrorCode } from "@pid/protocol";
 import { Sessions } from "@pid/session";
@@ -23,6 +24,7 @@ import { Ui } from "@pid/ui";
 import * as featuresRpc from "../src/features-rpc.ts";
 import { readHarnessConfig } from "../src/harness-config.ts";
 import { RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
+import * as scheduleRpc from "../src/schedule-rpc.ts";
 import * as sessionsRpc from "../src/sessions-rpc.ts";
 import * as uiRpc from "../src/ui-rpc.ts";
 
@@ -58,9 +60,11 @@ async function start(provider: ScriptedProvider) {
       [AgentLoop],
       [checkpoints],
       [Mcp, {}],
+      [Schedule, { tasksFile: join(dir, "schedules.json"), runsFile: join(dir, "schedule-runs.jsonl"), defaultModel: { provider: "scripted", model: "m" }, tickMs: 60_000 }],
       [sessionsRpc, { defaultModel: { provider: "scripted", model: "m" } }],
       [uiRpc],
       [featuresRpc],
+      [scheduleRpc],
       [{ name: "scripted", inject: ["llm"], apply: (ctx: never) => useScriptedProvider(ctx, provider) }],
     ],
   });
@@ -149,12 +153,28 @@ describe("feature plugins in the host", () => {
   });
 });
 
+describe("schedule methods", () => {
+  it("saves, runs and lists scheduled tasks, notifying clients", async () => {
+    const { call, notifications } = await start(new ScriptedProvider([textReply("Nightly report done.")]));
+    const task = { id: "nightly", name: "Nightly", prompt: "report", cwd: dir, frequency: "daily", hour: 2, minute: 0, permissionMode: "read-only" };
+    expect((await call("schedule.save", { task })).result.task).toMatchObject({ id: "nightly", enabled: true, running: false });
+    expect((await call("schedule.save", { task: { ...task, permissionMode: "full-access" } })).error?.code).toBe(ErrorCode.InvalidParams);
+    expect((await call("schedule.run", { id: "nightly" })).result.run).toMatchObject({ status: "success", output: "Nightly report done." });
+    expect((await call("schedule.list")).result.tasks).toMatchObject([{ id: "nightly", lastStatus: "success", running: false }]);
+    expect((await call("schedule.runs", { taskId: "nightly" })).result.runs).toHaveLength(1);
+    expect(notifications.filter((n) => n.method === "schedule/run").map((n) => n.params.status)).toEqual(["running", "success"]);
+    expect((await call("schedule.delete", { id: "nightly" })).result).toEqual({});
+    expect(notifications.at(-1)).toMatchObject({ method: "schedule/task", params: { id: "nightly", deleted: true } });
+    expect((await call("schedule.cancel", { id: "nightly" })).error?.code).toBe(ErrorCode.InvalidParams);
+  });
+});
+
 describe("harness.json", () => {
   it("reads sections and reports the ones it ignores", () => {
     dir = mkdtempSync(join(tmpdir(), "pid-harness-config-"));
     const file = join(dir, "harness.json");
     expect(readHarnessConfig(file)).toEqual({
-      config: { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true } },
+      config: { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true }, computer: { enabled: true }, schedule: { enabled: true } },
       problems: [],
     });
     writeFileSync(file, JSON.stringify({ permissions: { defaultPermission: "full-access" }, hooks: "nope", memory: { enabled: false } }));
