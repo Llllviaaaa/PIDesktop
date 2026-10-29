@@ -1,0 +1,15 @@
+{
+  "name": "@pid/testkit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Test helpers: a scripted LLM provider and golden session logs",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/llm": "*",
+    "@pid/session": "*"
+  }
+}

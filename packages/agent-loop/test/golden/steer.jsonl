@@ -1,0 +1,7 @@
+{"seq":1,"ts":"<ts>","type":"model","data":{"provider":"scripted","model":"test-model"}}
+{"seq":2,"ts":"<ts>","type":"user","data":{"content":[{"type":"text","text":"Start"}]}}
+{"seq":3,"ts":"<ts>","type":"assistant","data":{"content":[{"type":"tool-call","id":"call-1","name":"slow","arguments":{}}],"model":{"provider":"scripted","model":"test-model"},"usage":{"inputTokens":10,"outputTokens":5,"cacheReadTokens":0,"cacheWriteTokens":0},"stop":"tool-use"}}
+{"seq":4,"ts":"<ts>","type":"tool-call","data":{"callId":"call-1","name":"slow","args":{}}}
+{"seq":5,"ts":"<ts>","type":"tool-result","data":{"callId":"call-1","name":"slow","content":[{"type":"text","text":"released"}],"isError":false}}
+{"seq":6,"ts":"<ts>","type":"user","data":{"content":[{"type":"text","text":"Actually, stop"}]}}
+{"seq":7,"ts":"<ts>","type":"assistant","data":{"content":[{"type":"text","text":"Changed course."}],"model":{"provider":"scripted","model":"test-model"},"usage":{"inputTokens":10,"outputTokens":5,"cacheReadTokens":0,"cacheWriteTokens":0},"stop":"stop"}}

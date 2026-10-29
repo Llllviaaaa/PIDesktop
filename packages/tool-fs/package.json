@@ -1,0 +1,14 @@
+{
+  "name": "@pid/tool-fs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Built-in file tools: read, write, edit, ls, find, grep",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/tools": "*"
+  }
+}

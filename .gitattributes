@@ -25,3 +25,6 @@
 *.jpg binary
 *.png binary
 *.webp binary
+
+# Golden session logs of the loop tests compare byte for byte.
+packages/*/test/golden/*.jsonl text eol=lf

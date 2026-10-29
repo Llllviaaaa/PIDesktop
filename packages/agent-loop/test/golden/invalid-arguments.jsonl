@@ -1,0 +1,6 @@
+{"seq":1,"ts":"<ts>","type":"model","data":{"provider":"scripted","model":"test-model"}}
+{"seq":2,"ts":"<ts>","type":"user","data":{"content":[{"type":"text","text":"Echo a number"}]}}
+{"seq":3,"ts":"<ts>","type":"assistant","data":{"content":[{"type":"tool-call","id":"call-1","name":"echo","arguments":{"text":42}}],"model":{"provider":"scripted","model":"test-model"},"usage":{"inputTokens":10,"outputTokens":5,"cacheReadTokens":0,"cacheWriteTokens":0},"stop":"tool-use"}}
+{"seq":4,"ts":"<ts>","type":"tool-call","data":{"callId":"call-1","name":"echo","args":{"text":42}}}
+{"seq":5,"ts":"<ts>","type":"tool-result","data":{"callId":"call-1","name":"echo","content":[{"type":"text","text":"Invalid arguments for echo: argument \"text\" must be a string."}],"isError":true}}
+{"seq":6,"ts":"<ts>","type":"assistant","data":{"content":[{"type":"text","text":"Sorry."}],"model":{"provider":"scripted","model":"test-model"},"usage":{"inputTokens":10,"outputTokens":5,"cacheReadTokens":0,"cacheWriteTokens":0},"stop":"stop"}}

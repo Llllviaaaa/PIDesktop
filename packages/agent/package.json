@@ -1,0 +1,15 @@
+{
+  "name": "@pid/agent",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Agent interface: run events, live deltas and the agents service contract (ADR 0003, 0008)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/llm": "*",
+    "@pid/session": "*"
+  }
+}

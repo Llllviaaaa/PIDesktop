@@ -1,0 +1,15 @@
+{
+  "name": "@pid/session-jsonl",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Session logs as JSONL files under ~/.pid/sessions (ADR 0004)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/session": "*"
+  },
+  "devDependencies": {}
+}
