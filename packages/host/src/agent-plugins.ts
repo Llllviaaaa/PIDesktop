@@ -5,6 +5,7 @@
  */
 import { join } from "node:path";
 import { AgentLoop } from "@pid/agent-loop";
+import * as browser from "@pid/browser";
 import * as checkpoints from "@pid/checkpoints";
 import * as computer from "@pid/computer";
 import * as hooks from "@pid/hooks";
@@ -61,6 +62,7 @@ export function agentPlugins(dataDir: string, options: AgentPluginOptions): Plug
     ...(config.computer.enabled
       ? [[computer, { ...config.computer, helper: config.computer.helper ?? options.computerHelper }] as PluginEntry]
       : []),
+    ...(config.browser.enabled ? [[browser, config.browser] as PluginEntry] : []),
     [checkpoints],
     [hooks, config.hooks],
     ...(options.scheduler !== undefined && config.schedule.enabled

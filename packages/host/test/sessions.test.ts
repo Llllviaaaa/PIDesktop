@@ -222,7 +222,8 @@ describe("headless run", () => {
     const body = server.requests[1]?.body as { messages: Array<{ role: string }>; tools: Array<{ function: { name: string } }> };
     expect(body.messages.map((message) => message.role)).toEqual(["system", "user", "assistant", "tool"]);
     const toolNames = body.tools.map((tool) => tool.function.name);
-    expect(toolNames.filter((tool) => !tool.startsWith("computer_"))).toEqual(["bash", "delegate_task", "desktop_memory", "edit", "find", "grep", "ls", "read", "update_plan", "write"]);
+    expect(toolNames.filter((tool) => tool.startsWith("browser_"))).toHaveLength(11);
+    expect(toolNames.filter((tool) => !tool.startsWith("computer_") && !tool.startsWith("browser_"))).toEqual(["bash", "delegate_task", "desktop_memory", "edit", "find", "grep", "ls", "read", "update_plan", "write"]);
     expect(toolNames.filter((tool) => tool.startsWith("computer_"))).toHaveLength(11);
 
     const sessionId = /\[session ([0-9a-f-]+): done\]/.exec(err.text)?.[1];

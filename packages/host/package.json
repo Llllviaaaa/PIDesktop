@@ -11,6 +11,7 @@
     "@deepseek-ai/cordis": "^4.0.5",
     "@pid/agent": "*",
     "@pid/agent-loop": "*",
+    "@pid/browser": "*",
     "@pid/checkpoints": "*",
     "@pid/computer": "*",
     "@pid/hooks": "*",
