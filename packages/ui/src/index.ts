@@ -41,6 +41,8 @@ interface Waiting extends PendingUiRequest {
 export class Ui extends Service {
   private transport: UiTransport | undefined;
   private readonly waiting = new Map<string, Waiting>();
+  /** Sessions nobody is watching (scheduled runs): questions get no answer. */
+  private readonly unattendedSessions = new Set<string>();
   private nextId = 0;
 
   constructor(ctx: Context) {
@@ -51,6 +53,17 @@ export class Ui extends Service {
   /** Whether anyone can answer questions. */
   get available(): boolean {
     return this.transport !== undefined;
+  }
+
+  /** Whether a question about `sessionId` can reach someone. */
+  canAsk(sessionId: string | undefined): boolean {
+    return this.transport !== undefined && (sessionId === undefined || !this.unattendedSessions.has(sessionId));
+  }
+
+  /** Answer every question about `sessionId` with nothing, as for a run nobody watches. Returns the disposer. */
+  markUnattended(sessionId: string): () => void {
+    this.unattendedSessions.add(sessionId);
+    return () => void this.unattendedSessions.delete(sessionId);
   }
 
   /** Deliver requests through `transport`. Returns the disposer, which cancels what is pending. */
@@ -67,7 +80,7 @@ export class Ui extends Service {
   /** Ask, resolving to the answer, or undefined when nobody can answer or `signal` aborts. */
   ask(sessionId: string | undefined, request: UiRequest, signal?: AbortSignal): Promise<unknown> {
     const transport = this.transport;
-    if (transport === undefined || signal?.aborted) return Promise.resolve(undefined);
+    if (transport === undefined || !this.canAsk(sessionId) || signal?.aborted) return Promise.resolve(undefined);
     this.nextId += 1;
     const requestId = `ui-${this.nextId}`;
     return new Promise((resolve) => {

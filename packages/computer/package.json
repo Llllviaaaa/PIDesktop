@@ -1,0 +1,16 @@
+{
+  "name": "@pid/computer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Windows computer use through the desktop's native helper (ADR 0011)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/session": "*",
+    "@pid/tools": "*",
+    "@pid/ui": "*"
+  }
+}

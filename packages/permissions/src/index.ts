@@ -81,7 +81,7 @@ export class Permissions extends Service {
       const decision = evaluateToolPermission({ mode, rules: this.rules, workspace: env.cwd, toolName: call.name, input: call.args });
       if (decision.action === "allow") return undefined;
       if (decision.action === "block") return { deny: true, reason: decision.reason };
-      if (!ctx.ui.available) return { deny: true, reason: "Confirmation required but no UI is available" };
+      if (!ctx.ui.canAsk(env.sessionId)) return { deny: true, reason: "Confirmation required but no UI is available" };
       const allowed = await ctx.ui.confirm(env.sessionId, decision.title, decision.message, env.signal);
       return allowed ? undefined : { deny: true, reason: `${decision.title} denied by user` };
     });

@@ -66,3 +66,17 @@ describe("ui service", () => {
     expect(notes).toEqual(["error:Hook failed"]);
   });
 });
+
+describe("unattended sessions", () => {
+  it("answer nothing for a session nobody watches", async () => {
+    const { ctx, shown, attach } = await setup();
+    attach();
+    const done = ctx.ui.markUnattended("scheduled");
+    expect(ctx.ui.canAsk("scheduled")).toBe(false);
+    expect(ctx.ui.canAsk("other")).toBe(true);
+    expect(await ctx.ui.confirm("scheduled", "Allow?", "x")).toBe(false);
+    expect(shown).toEqual([]);
+    done();
+    expect(ctx.ui.canAsk("scheduled")).toBe(true);
+  });
+});

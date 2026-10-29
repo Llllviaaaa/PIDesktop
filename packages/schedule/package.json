@@ -1,0 +1,23 @@
+{
+  "name": "@pid/schedule",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Scheduled tasks run by the host as unattended sessions (ADR 0011)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/agent": "*",
+    "@pid/session": "*",
+    "@pid/ui": "*"
+  },
+  "devDependencies": {
+    "@pid/agent-loop": "*",
+    "@pid/llm": "*",
+    "@pid/system-prompt": "*",
+    "@pid/testkit": "*",
+    "@pid/tools": "*"
+  }
+}

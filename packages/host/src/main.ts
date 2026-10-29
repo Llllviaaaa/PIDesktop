@@ -21,6 +21,7 @@ import { readDefaultModel } from "./providers.ts";
 import * as featuresRpc from "./features-rpc.ts";
 import { readHarnessConfig } from "./harness-config.ts";
 import { RpcGateway } from "./rpc.ts";
+import * as scheduleRpc from "./schedule-rpc.ts";
 import * as sessionsRpc from "./sessions-rpc.ts";
 import * as uiRpc from "./ui-rpc.ts";
 import { WebServer } from "./web-server.ts";
@@ -85,10 +86,15 @@ export async function main(argv: readonly string[]): Promise<void> {
     plugins: [
       [WebServer, { pageOrigins: options.pageOrigins }],
       [RpcGateway, { token }],
-      ...agentPlugins(options.dataDir, { config }),
+      ...agentPlugins(options.dataDir, {
+        config,
+        scheduler: defaultModel === undefined ? {} : { defaultModel },
+        ...(process.env.PID_COMPUTER_HELPER ? { computerHelper: process.env.PID_COMPUTER_HELPER } : {}),
+      }),
       [sessionsRpc, defaultModel === undefined ? {} : { defaultModel }],
       [uiRpc],
       [featuresRpc],
+      [scheduleRpc],
       [betterSidebar, { dataDir: options.dataDir }],
     ],
   });
