@@ -22,6 +22,10 @@ import * as featuresRpc from "../packages/host/src/features-rpc";
 import * as sessionsRpc from "../packages/host/src/sessions-rpc";
 import * as uiRpc from "../packages/host/src/ui-rpc";
 import { Mcp } from "@pid/mcp";
+import { Schedule } from "@pid/schedule";
+import * as scheduleRpc from "../packages/host/src/schedule-rpc";
+import { runFromHost, taskFromHost, taskToHost } from "../src/lib/scheduleClient";
+import type { ScheduledRunInfo } from "@pid/protocol";
 import { connectHarness } from "../src/lib/harnessClient";
 import { HarnessRuntimes } from "../src/lib/harnessRuntime";
 import { messageTimingsOf, sessionInfoFromHost, toAgentMessages } from "../src/lib/harnessTranscript";
@@ -66,6 +70,8 @@ async function start(provider: ScriptedProvider) {
       [AgentLoop],
       [checkpoints],
       [Mcp, {}],
+      [Schedule, { tasksFile: join(dir, "schedules.json"), runsFile: join(dir, "schedule-runs.jsonl"), defaultModel: { provider: "scripted", model: "m" }, tickMs: 60_000 }],
+      [scheduleRpc],
       [sessionsRpc, { defaultModel: { provider: "scripted", model: "m" } }],
       [uiRpc],
       [featuresRpc],
@@ -219,5 +225,20 @@ describe("rewinding and forking", () => {
     expect(await rewinding).toMatchObject({ success: false, error: "PIDesktop message rewind was cancelled" });
     expect(readFileSync(join(dir, "b.txt"), "utf8")).toBe("made");
     expect(((await runtimes.command(runtimeId, "get_messages")).data?.messages ?? []).length).toBeGreaterThan(0);
+  });
+});
+
+describe("scheduled tasks through the adapter", () => {
+  it("map tasks and runs, and hear the Host's run updates", async () => {
+    const { runtimes } = await start(new ScriptedProvider([textReply("Report ready.")]));
+    const heard: ScheduledRunInfo[] = [];
+    const stop = runtimes.onNotification("schedule/run", (params) => void heard.push(params as ScheduledRunInfo));
+    const task = { id: "nightly", name: "Nightly", prompt: "report", cwd: dir, frequency: "daily" as const, hour: 2, minute: 0, weekday: 1, permissionMode: "read-only" as const, timeoutMinutes: null, enabled: true, lastStatus: "" as const, lastMessage: "" };
+    const saved = await runtimes.call<{ task: never }>("schedule.save", { task: taskToHost(task) });
+    expect(taskFromHost(saved.task)).toMatchObject({ id: "nightly", permissionMode: "read-only", timeoutMinutes: null, lastStatus: "", enabled: true });
+    const { run } = await runtimes.call<{ run: ScheduledRunInfo }>("schedule.run", { id: "nightly" });
+    expect(runFromHost(run, task)).toMatchObject({ taskName: "Nightly", cwd: dir, prompt: "report", permissionMode: "read-only", status: "success", output: "Report ready.", sessionFile: `harness:${run.sessionId}` });
+    expect(heard.map((item) => item.status)).toEqual(["running", "success"]);
+    stop();
   });
 });

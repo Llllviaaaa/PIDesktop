@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queries";
 import { describeError } from "../lib/errors";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { scheduleClient } from "../lib/scheduleClient";
 import {
   AlertCircle,
   CalendarClock,
@@ -167,8 +168,8 @@ export function ScheduledTasksPage({
       refreshTimer = window.setTimeout(() => void reload(), 100);
     };
     void Promise.all([
-      listen("scheduled-task-updated", queueRefresh),
-      listen<ScheduledRunRecord>("scheduled-run-updated", queueRefresh),
+      scheduleClient.onTaskUpdated(queueRefresh),
+      scheduleClient.onRunUpdated(queueRefresh),
     ]).then((listeners) => {
       if (disposed) listeners.forEach((stop) => stop());
       else unlisten = listeners;

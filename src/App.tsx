@@ -25,6 +25,7 @@ import { describeError } from "./lib/errors";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { scheduleClient } from "./lib/scheduleClient";
 import { getAllWindows, getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import type { ISidebarRight } from "@deepseek-ai/dsh-client-ui-sidebar-right/client";
@@ -88,7 +89,7 @@ import { dshHost, DshCorner, DshRightbarColumn, DshRoot, setDshHostCallbacks } f
 import { CommitDialog, type CommitOutcome } from "./components/CommitDialog";
 import { preferredEditorFor, rememberProjectEditor, resolveWorkspacePath } from "./lib/workspaceEditors";
 import type { CodeReviewScope } from "./lib/codeReview";
-import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, ScheduledRunRecord, SessionInfo, TerminalAppInfo, UiMessage, WorkspaceEditorInfo } from "./types";
+import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, SessionInfo, TerminalAppInfo, UiMessage, WorkspaceEditorInfo } from "./types";
 
 const SettingsModal = lazy(() => import("./components/SettingsModal").then((module) => ({ default: module.SettingsModal })));
 const PullRequestsPage = lazy(() => import("./components/PullRequestsPage").then((module) => ({ default: module.PullRequestsPage })));
@@ -547,22 +548,22 @@ export default function App() {
     if (!isTauri) return;
     let disposed = false;
     let unlisten: UnlistenFn | undefined;
-    void listen<ScheduledRunRecord>("scheduled-run-updated", (event) => {
-      if (event.payload.status === "running") return;
+    void scheduleClient.onRunUpdated((run) => {
+      if (run.status === "running") return;
       void usePiStore.getState().refreshSessions();
       usePiStore.getState().showToast(
-        event.payload.status === "success"
-          ? `计划任务“${event.payload.taskName}”已完成`
-          : `计划任务“${event.payload.taskName}”${event.payload.status === "interrupted" ? "已中断" : "失败"}`,
-        event.payload.status === "success" ? "info" : "error",
+        run.status === "success"
+          ? `计划任务“${run.taskName}”已完成`
+          : `计划任务“${run.taskName}”${run.status === "interrupted" ? "已中断" : "失败"}`,
+        run.status === "success" ? "info" : "error",
       );
       usePiStore.getState().addNotification({
-        id: `scheduled:${event.payload.id}:${event.payload.status}`,
+        id: `scheduled:${run.id}:${run.status}`,
         kind: "completion",
-        title: event.payload.status === "success" ? "计划任务已完成" : "计划任务未完成",
-        body: event.payload.taskName,
-        cwd: event.payload.cwd,
-        sessionFile: event.payload.sessionFile ?? null,
+        title: run.status === "success" ? "计划任务已完成" : "计划任务未完成",
+        body: run.taskName,
+        cwd: run.cwd,
+        sessionFile: run.sessionFile ?? null,
       });
     }).then((stop) => {
       if (disposed) stop();
