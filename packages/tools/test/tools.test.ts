@@ -74,3 +74,27 @@ describe("tools", () => {
     expect(ctx.tools.get("temp")).toBeUndefined();
   });
 });
+
+describe("per-session restrictions", () => {
+  it("hides and refuses tools outside a session's allow list until disposed", async () => {
+    const ctx = await setup();
+    const dispose = ctx.tools.restrict("child", ["shout"]);
+    expect(ctx.tools.schemas("child").map((schema) => schema.name)).toEqual(["shout"]);
+    expect(ctx.tools.schemas().map((schema) => schema.name)).toEqual(["boom", "shout"]);
+    const childEnv = { ...env(), sessionId: "child" };
+    expect(await ctx.tools.execute({ id: "1", name: "boom", args: {} }, childEnv)).toEqual(textOutput('Unknown tool "boom".', true));
+    dispose();
+    expect(ctx.tools.schemas("child").map((schema) => schema.name)).toEqual(["boom", "shout"]);
+  });
+
+  it("tells the tool which call it is executing", async () => {
+    const ctx = await setup();
+    let seen: string | undefined;
+    ctx.tools.register({ name: "who", description: "", parameters: { type: "object" }, execute: (_args, callEnv) => {
+      seen = callEnv.callId;
+      return textOutput("");
+    } });
+    await ctx.tools.execute({ id: "call-7", name: "who", args: {} }, env());
+    expect(seen).toBe("call-7");
+  });
+});

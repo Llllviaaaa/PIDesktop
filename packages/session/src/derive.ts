@@ -90,9 +90,26 @@ export function deriveState(events: readonly SessionEvent[]): SessionState {
   return state;
 }
 
+const FIRST_MESSAGE_CHARS = 200;
+
 export function summarize(header: SessionHeader, events: readonly SessionEvent[]): SessionSummary {
   let title: string | undefined;
   let archived = false;
+  let firstMessage: string | undefined;
+  let messageCount = 0;
+  const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  for (const event of events) {
+    if (event.type === "user") {
+      messageCount += 1;
+      if (firstMessage === undefined) {
+        const text = event.data.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join(" ").replace(/\s+/g, " ").trim();
+        if (text !== "") firstMessage = text.slice(0, FIRST_MESSAGE_CHARS);
+      }
+    } else if (event.type === "assistant") {
+      messageCount += 1;
+      for (const key of Object.keys(usage) as Array<keyof typeof usage>) usage[key] += event.data.usage[key] ?? 0;
+    }
+  }
   for (const event of currentBranch(events)) {
     if (event.type !== "label") continue;
     if (event.data.title !== undefined) title = event.data.title;
@@ -105,8 +122,11 @@ export function summarize(header: SessionHeader, events: readonly SessionEvent[]
     createdAt: header.createdAt,
     updatedAt: last?.ts ?? header.createdAt,
     ...(title === undefined ? {} : { title }),
+    ...(firstMessage === undefined ? {} : { firstMessage }),
     archived,
     lastSeq: last?.seq ?? 0,
+    messageCount,
+    usage,
     ...(header.forkedFrom === undefined ? {} : { forkedFrom: header.forkedFrom }),
     ...(header.parent === undefined ? {} : { parent: header.parent }),
   };

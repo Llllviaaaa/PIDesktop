@@ -5,6 +5,8 @@
  */
 import type { AssistantContent, Effort, FinishReason, LlmErrorInfo, ToolResultContent, Usage, UserContent } from "@pid/llm";
 
+export type { Usage };
+
 export const SESSION_FORMAT = "pid.session";
 export const SESSION_FORMAT_VERSION = 1;
 
@@ -70,8 +72,14 @@ export interface SessionSummary {
   createdAt: string;
   updatedAt: string;
   title?: string;
+  /** The first user message's text, clipped: what a list shows until there is a title. */
+  firstMessage?: string;
   archived: boolean;
   lastSeq: number;
+  /** User and assistant messages in the whole log, rewound ones included. */
+  messageCount: number;
+  /** Tokens of every model call in the log, rewound ones included: they were paid for. */
+  usage: Usage;
   forkedFrom?: SessionHeader["forkedFrom"];
   parent?: SessionHeader["parent"];
 }

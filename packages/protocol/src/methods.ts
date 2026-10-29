@@ -60,14 +60,27 @@ export interface ModelChoice {
 
 export type EffortLevel = "off" | "low" | "medium" | "high";
 
+export interface TokenUsage {
+  /** Input tokens not served from the provider's cache. */
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
 export interface SessionInfo {
   id: string;
   cwd: string;
   createdAt: string;
   updatedAt: string;
   title?: string;
+  /** The first user message's text, clipped; a list's label until there is a title. */
+  firstMessage?: string;
   archived: boolean;
   lastSeq: number;
+  messageCount: number;
+  /** Tokens of every model call in the session, rewound ones included. */
+  usage: TokenUsage;
   forkedFrom?: { sessionId: string; seq: number };
   parent?: { sessionId: string; callId: string };
 }
@@ -249,4 +262,27 @@ export interface CheckpointDiffResult {
   changed: boolean;
   files: string[];
   indexChanged: boolean;
+}
+
+export interface McpServerStatus {
+  id: string;
+  name: string;
+  transport: "stdio" | "http";
+  connected: boolean;
+  toolCount: number;
+  protocolVersion?: string;
+  resources: boolean;
+  prompts: boolean;
+  error?: string;
+}
+
+export interface McpStatusResult {
+  servers: McpServerStatus[];
+}
+
+/** Token totals over every session; costs are not computed yet. */
+export interface UsageSummaryResult {
+  sessions: number;
+  messages: number;
+  usage: TokenUsage;
 }

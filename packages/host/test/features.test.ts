@@ -10,6 +10,7 @@ import WebSocket from "ws";
 import { AgentLoop } from "@pid/agent-loop";
 import * as checkpoints from "@pid/checkpoints";
 import { LlmService } from "@pid/llm";
+import { Mcp } from "@pid/mcp";
 import { Permissions } from "@pid/permissions";
 import * as plan from "@pid/plan";
 import { PROTOCOL_VERSION, clientSubprotocols, ErrorCode } from "@pid/protocol";
@@ -56,6 +57,7 @@ async function start(provider: ScriptedProvider) {
       [plan],
       [AgentLoop],
       [checkpoints],
+      [Mcp, {}],
       [sessionsRpc, { defaultModel: { provider: "scripted", model: "m" } }],
       [uiRpc],
       [featuresRpc],
@@ -136,6 +138,14 @@ describe("feature plugins in the host", () => {
     // Read-only run, and not a git repository either: no checkpoint.
     expect((await call("checkpoint.list", { sessionId })).result).toEqual({ checkpoints: [] });
     expect((await call("checkpoint.restore", { sessionId, userSeq: 1 })).error?.code).toBe(ErrorCode.InvalidParams);
+
+    expect((await call("mcp.status")).result).toEqual({ servers: [] });
+    expect((await call("usage.summary")).result).toEqual({
+      sessions: 1,
+      messages: 3,
+      usage: { inputTokens: 20, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    });
+    expect((await call("session.list")).result.sessions[0]).toMatchObject({ firstMessage: "plan it", messageCount: 3 });
   });
 });
 
@@ -143,7 +153,10 @@ describe("harness.json", () => {
   it("reads sections and reports the ones it ignores", () => {
     dir = mkdtempSync(join(tmpdir(), "pid-harness-config-"));
     const file = join(dir, "harness.json");
-    expect(readHarnessConfig(file)).toEqual({ config: { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true } }, problems: [] });
+    expect(readHarnessConfig(file)).toEqual({
+      config: { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true } },
+      problems: [],
+    });
     writeFileSync(file, JSON.stringify({ permissions: { defaultPermission: "full-access" }, hooks: "nope", memory: { enabled: false } }));
     const { config, problems } = readHarnessConfig(file);
     expect(config.permissions).toEqual({ defaultPermission: "full-access" });

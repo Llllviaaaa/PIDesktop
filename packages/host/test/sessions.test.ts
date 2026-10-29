@@ -221,7 +221,7 @@ describe("headless run", () => {
     expect(out.text).toBe("Wrote out.txt.\n");
     const body = server.requests[1]?.body as { messages: Array<{ role: string }>; tools: Array<{ function: { name: string } }> };
     expect(body.messages.map((message) => message.role)).toEqual(["system", "user", "assistant", "tool"]);
-    expect(body.tools.map((tool) => tool.function.name)).toEqual(["bash", "desktop_memory", "edit", "find", "grep", "ls", "read", "update_plan", "write"]);
+    expect(body.tools.map((tool) => tool.function.name)).toEqual(["bash", "delegate_task", "desktop_memory", "edit", "find", "grep", "ls", "read", "update_plan", "write"]);
 
     const sessionId = /\[session ([0-9a-f-]+): done\]/.exec(err.text)?.[1];
     expect(sessionId).toBeDefined();

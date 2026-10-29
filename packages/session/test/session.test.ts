@@ -8,6 +8,7 @@ import {
   currentBranch,
   deriveState,
   forkEvents,
+  summarize,
   uuidv7,
   type SessionEvent,
 } from "../src/index.ts";
@@ -117,6 +118,23 @@ describe("derivation", () => {
   });
 });
 
+describe("summaries", () => {
+  it("count messages and tokens across rewinds and clip the first message", () => {
+    const events = log(() => [
+      ev("user", { content: text(`  first
+
+ line ${"x".repeat(300)}`) }),
+      ev("assistant", { content: text("A"), model, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 2, cacheWriteTokens: 0 }, stop: "stop" }),
+      ev("rewind", { toSeq: 1 }),
+      ev("assistant", { content: text("B"), model, usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 3 }, stop: "stop" }),
+    ]);
+    const summary = summarize({ format: "pid.session", version: 1, id: "s", createdAt: "c", cwd: "/w" }, events);
+    expect(summary.firstMessage).toBe(`first line ${"x".repeat(189)}`);
+    expect(summary.messageCount).toBe(3);
+    expect(summary.usage).toEqual({ inputTokens: 11, outputTokens: 6, cacheReadTokens: 2, cacheWriteTokens: 3 });
+  });
+});
+
 describe("sessions service", () => {
   it("appends, emits and forks", async () => {
     const ctx = new Context();
@@ -127,7 +145,7 @@ describe("sessions service", () => {
     session.append("user", { content: text("hi") });
     session.append("label", { title: "Greeting" });
     expect(seen).toEqual([1, 2]);
-    expect(session.summary()).toMatchObject({ id: session.id, cwd: "/w", title: "Greeting", lastSeq: 2, archived: false });
+    expect(session.summary()).toMatchObject({ id: session.id, cwd: "/w", title: "Greeting", firstMessage: "hi", lastSeq: 2, archived: false, messageCount: 1 });
 
     const fork = ctx.sessions.fork(session, 1);
     expect(fork.header.forkedFrom).toEqual({ sessionId: session.id, seq: 1 });

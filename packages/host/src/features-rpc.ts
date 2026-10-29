@@ -1,11 +1,12 @@
 /**
- * RPC methods of the feature plugins (ADR 0009): `permission.get` and
- * `permission.set`, `plan.get`, and `checkpoint.list`, `checkpoint.diff` and
- * `checkpoint.restore`. They live in the host so the plugins stay free of
- * the transport.
+ * RPC methods of the feature plugins (ADR 0009, 0010): `permission.get` and
+ * `permission.set`, `plan.get`, `checkpoint.list`, `checkpoint.diff` and
+ * `checkpoint.restore`, `mcp.status` and `usage.summary`. They live in the
+ * host so the plugins stay free of the transport.
  */
 import type { Context } from "@deepseek-ai/cordis";
 import "@pid/agent";
+import "@pid/mcp";
 import { checkpointFor, checkpointsOf, diffCheckpoint, restoreCheckpoint } from "@pid/checkpoints";
 import { normalizeAgentMode, normalizePermissionMode, type AgentMode, type PermissionMode } from "@pid/permissions";
 import { planOf } from "@pid/plan";
@@ -14,14 +15,16 @@ import {
   type AppendResult,
   type CheckpointDiffResult,
   type CheckpointListResult,
+  type McpStatusResult,
   type PermissionGetResult,
   type PlanGetResult,
+  type UsageSummaryResult,
 } from "@pid/protocol";
 import type { Session } from "@pid/session";
 import { RpcError } from "./rpc.ts";
 
 export const name = "pid-features-rpc";
-export const inject = ["rpc", "sessions", "agents", "permissions"];
+export const inject = ["rpc", "sessions", "agents", "permissions", "mcp"];
 
 const PERMISSIONS: readonly PermissionMode[] = ["read-only", "ask", "workspace-write", "full-access"];
 const AGENT_MODES: readonly AgentMode[] = ["agent", "plan", "ask"];
@@ -77,6 +80,34 @@ export function apply(ctx: Context): void {
       const record = checkpointFor(target, userSeq(p));
       if (record === undefined) throw new RpcError(ErrorCode.InvalidParams, "No checkpoint for that message");
       return restoreCheckpoint(record);
+    },
+
+    "mcp.status": async (): Promise<McpStatusResult> => {
+      await ctx.mcp.ready;
+      return {
+        servers: ctx.mcp.statuses().map(({ config, connected, toolCount, protocolVersion, hasResources, hasPrompts, error }) => ({
+          id: config.id,
+          name: config.name || config.id,
+          transport: config.transport,
+          connected,
+          toolCount,
+          ...(protocolVersion === undefined ? {} : { protocolVersion }),
+          resources: hasResources === true,
+          prompts: hasPrompts === true,
+          ...(error === undefined ? {} : { error }),
+        })),
+      };
+    },
+
+    "usage.summary": async (): Promise<UsageSummaryResult> => {
+      const sessions = await ctx.sessions.list();
+      const total = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+      let messages = 0;
+      for (const session of sessions) {
+        messages += session.messageCount;
+        for (const key of Object.keys(total) as Array<keyof typeof total>) total[key] += session.usage[key];
+      }
+      return { sessions: sessions.length, messages, usage: total };
     },
   };
 

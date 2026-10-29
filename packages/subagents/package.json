@@ -1,0 +1,20 @@
+{
+  "name": "@pid/subagents",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The delegate_task tool: subagents as in-process child sessions (ADR 0010)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/agent": "*",
+    "@pid/session": "*",
+    "@pid/tools": "*"
+  },
+  "devDependencies": {
+    "@pid/agent-loop": "*",
+    "@pid/testkit": "*"
+  }
+}
