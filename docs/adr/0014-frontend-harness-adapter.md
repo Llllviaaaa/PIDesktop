@@ -135,3 +135,15 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
   - 运行对应的会话显示为 `harness:<id>`。
   - 更新事件由 `onTaskUpdated` 和 `onRunUpdated` 同时监听两个来源：Rust 的 Tauri 事件和 Host 的 `schedule/*` 通知。App 的完成提醒和定时任务页面都改为通过这两个方法监听。
 - **用量页**：Pi 会话的统计加上 Host 的 `usage.summary`。Host 连不上时只显示 Pi 的统计。Host 不计算费用。
+
+## P5c 补充：模型 provider 设置
+
+- 引擎为 harness 时，设置页的 provider 列表、新增、编辑、删除、发现模型和连接检查都改由 Host 处理（`src/lib/harnessProviders.ts`），对应 Host 新增的 `provider.configs`、`provider.save`、`provider.delete`、`provider.discover`（`packages/host/src/provider-admin.ts`）。
+- 页面上的形状不变：Pi 的 `openai-completions` 对应 Host 的 `openai-compat`，`anthropic-messages` 对应 `anthropic`。其他协议在 harness 上直接报错，提示改用这两种。
+- 密钥不写进 `providers.json`：
+  - 在表单里输入的密钥存入 `secrets.dat`（DPAPI，ADR 0013），文件里只引用 `{ secret: "provider/<id>" }`；
+  - `$VAR` 写成 `{ env }`；
+  - `!命令` 形式的密钥被拒绝，Host 不执行命令取密钥。
+- 改名时一并迁移已存的密钥和默认模型；删除 provider 时也删掉它的密钥。保存或删除之后 Host 立即重新加载，适配器不必重启。
+- “发现模型”只用输入的密钥或已存的密钥临时连接一次，不写任何文件。
+- Host 没有内置 provider 和 OAuth 登录，这些仍然是 Pi 的功能；在 harness 上，所有 provider 都按自定义 provider 显示。

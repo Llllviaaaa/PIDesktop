@@ -9,6 +9,8 @@ import {
   type ProviderSummary,
 } from "../../src-tauri/resources/pidesktop-providers-core";
 import type { ExtensionUIRequest, PiEvent } from "../types";
+import { harnessProviders } from "./harnessProviders";
+import { harnessRuntimes } from "./harnessRuntime";
 import type { PiRuntimeStatus } from "./pi";
 import { rejectRuntimeCommands, sendPiCommand, subscribePiEvents } from "./piTransport";
 
@@ -138,9 +140,12 @@ async function call<T>(
 }
 
 export const providerService = {
-  list: () => call<{ providers: ProviderSummary[] }>("list").then((result) => result.providers),
+  // On the harness engine the list is the Host's providers; Pi's provider service is not involved.
+  list: () => (harnessRuntimes.getEngine() === "harness" ? harnessProviders.list() : call<{ providers: ProviderSummary[] }>("list").then((result) => result.providers)),
   /** Re-read models.json and credentials; `network` also refreshes remote model catalogs. */
-  refresh: (network = false) => call<{ refreshed: boolean }>("refresh", { network }, { timeoutMs: network ? 120_000 : 30_000 }),
+  refresh: (network = false) => (harnessRuntimes.getEngine() === "harness"
+    ? Promise.resolve({ refreshed: true })
+    : call<{ refreshed: boolean }>("refresh", { network }, { timeoutMs: network ? 120_000 : 30_000 })),
   login: (
     providerId: string,
     method: AuthMethod,
