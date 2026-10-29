@@ -10,7 +10,15 @@ import * as hooks from "../src/index.ts";
 import { hookEnvironment, type DesktopHookConfig } from "../src/index.ts";
 
 let dir = "";
-afterEach(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+afterEach(() => {
+  // A hook process can still hold the directory as its cwd for a moment after
+  // its output lands (EBUSY on Windows); a temp directory left behind is fine.
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch {
+    // Left for the OS to clean up.
+  }
+});
 
 const node = JSON.stringify(process.execPath);
 const hook = (overrides: Partial<DesktopHookConfig>): DesktopHookConfig => ({
