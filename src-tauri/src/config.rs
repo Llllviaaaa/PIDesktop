@@ -602,7 +602,11 @@ pub(crate) fn write_public_settings(settings: &AppSettings) -> Result<(), AppErr
 fn predates_engine_setting(raw: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(raw)
         .ok()
-        .and_then(|value| value.as_object().map(|object| !object.contains_key("engine")))
+        .and_then(|value| {
+            value
+                .as_object()
+                .map(|object| !object.contains_key("engine"))
+        })
         .unwrap_or(false)
 }
 
