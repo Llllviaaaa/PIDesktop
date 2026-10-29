@@ -333,3 +333,12 @@ export interface ScheduleRunsResult {
 
 /** Notification `schedule/task`; `schedule/run` carries a `ScheduledRunInfo`. */
 export type ScheduleTaskNotification = { id: string; task: Omit<ScheduledTaskInfo, "running"> } | { id: string; deleted: true };
+
+export interface SessionExportParams extends SessionRef {
+  /** Absolute path of the Markdown file to write. */
+  destination: string;
+}
+
+export interface SessionExportResult {
+  path: string;
+}

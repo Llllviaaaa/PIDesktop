@@ -5,7 +5,7 @@
  * Appends are synchronous so an event is on disk (in the OS cache) before it
  * is broadcast; `flush` fsyncs, which the loop does once per turn.
  */
-import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import {
@@ -125,6 +125,14 @@ export class JsonlStorage implements SessionStorage {
       }
     }
     return summaries;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const path = this.find(id);
+    if (path === undefined) return false;
+    rmSync(path, { force: true });
+    this.paths.delete(id);
+    return true;
   }
 
   private find(id: string): string | undefined {

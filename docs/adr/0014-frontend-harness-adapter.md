@@ -92,3 +92,14 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
 
 - **按原计划在 store 里加 `RuntimeAdapter` 并拆分 store**：要改动 store 的大部分 action，Pi 路径也得一起重写，而两套引擎并存期间回归风险最高。否决，store 的拆分推迟到 P6。
 - **新写一个 Harness 专用的 store 和界面**：会和现有界面重复，两边的功能也会逐渐不一致。否决。
+
+## P5c 补充：会话列表与管理
+
+- 侧边栏的会话列表和归档列表现在合并两个来源：Rust 读取的 Pi 会话，以及 Host 的 `session.list`。Host 连不上时只显示 Pi 的会话。
+- Host 的会话在列表里以 `harness:<id>` 作为文件标识；子 agent 的会话不显示，它们属于父会话的工具调用。
+- `sessionClient` 遇到 `harness:` 开头的文件，就改用 Host 处理：
+  - 读取历史：`session.subscribe` 重放日志，如果没有 runtime 正在观察这个会话，读完就退订；
+  - 归档和恢复：`session.archive`；
+  - 删除：新增的 `session.delete`，运行中拒绝；
+  - 导出 Markdown：新增的 `session.export`，格式与桌面端一直以来的导出相同。
+- 打开 Harness 会话时，首屏历史也通过 Host 读取，不必等 runtime 连上。

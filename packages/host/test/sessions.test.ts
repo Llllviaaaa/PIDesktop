@@ -194,6 +194,27 @@ function sse(...chunks: unknown[]): string {
   return [...chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`), "data: [DONE]\n\n"].join("");
 }
 
+describe("deleting and exporting", () => {
+  it("export the current branch as Markdown and delete idle sessions", async () => {
+    const provider = new ScriptedProvider([textReply("Hello there.")]);
+    const { port, cwd } = await startHost(provider);
+    const client = await connect(port);
+    const sessionId = (await client.call("session.create", { cwd })).result.session.id;
+    await client.call("session.subscribe", { sessionId });
+    await client.call("session.prompt", { sessionId, content: "Hi" });
+    await client.until(settled);
+
+    const destination = join(cwd, "out", "chat.md");
+    expect((await client.call("session.export", { sessionId, destination })).result).toEqual({ path: destination });
+    expect(readFileSync(destination, "utf8")).toBe("# PIDesktop conversation\n\n## User\n\nHi\n\n## Assistant\n\nHello there.\n\n");
+    expect((await client.call("session.export", { sessionId, destination: "relative.md" })).error?.code).toBe(ErrorCode.InvalidParams);
+
+    expect((await client.call("session.delete", { sessionId })).result).toEqual({});
+    expect((await client.call("session.list")).result.sessions).toEqual([]);
+    expect((await client.call("session.get", { sessionId })).error?.code).toBe(ErrorCode.SessionNotFound);
+  });
+});
+
 describe("headless run", () => {
   it("completes a task through a real adapter and continues the session", async () => {
     server = await startFakeProvider();

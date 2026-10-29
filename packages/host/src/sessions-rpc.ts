@@ -3,8 +3,8 @@
  * and the per-connection `session/event` and `session/delta` notifications
  * that `session.subscribe` starts.
  */
-import { existsSync, statSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { AgentBusyError, NoModelError } from "@pid/agent";
 import type { Effort, UserContent } from "@pid/llm";
@@ -15,6 +15,7 @@ import {
   type ModelChoice,
   type PromptContent,
   type SessionDeltaNotification,
+  type SessionExportResult,
   type SessionEventNotification,
   type SessionGetResult,
   type SessionListResult,
@@ -22,7 +23,7 @@ import {
   type SessionResult,
   type SessionSubscribeResult,
 } from "@pid/protocol";
-import type { Session } from "@pid/session";
+import { sessionMarkdown, type Session } from "@pid/session";
 import { RpcError, type RpcCall } from "./rpc.ts";
 
 export const name = "pid-sessions-rpc";
@@ -235,6 +236,23 @@ export function apply(ctx: Context, config: Config = {}): void {
     "session.archive": async (p): Promise<AppendResult> => {
       const target = await session(p);
       return { seq: target.append("label", { archived: p.archived !== false }).seq };
+    },
+
+    "session.delete": async (p) => {
+      const target = await session(p);
+      idle(target);
+      await ctx.sessions.delete(target.id);
+      subscribers.delete(target.id);
+      return {};
+    },
+
+    "session.export": async (p): Promise<SessionExportResult> => {
+      const target = await session(p);
+      const destination = str(p, "destination");
+      if (!isAbsolute(destination)) throw new RpcError(ErrorCode.InvalidParams, "destination must be an absolute path");
+      mkdirSync(dirname(destination), { recursive: true });
+      writeFileSync(destination, sessionMarkdown(target.events));
+      return { path: destination };
     },
 
     "model.set": async (p): Promise<AppendResult> => {
