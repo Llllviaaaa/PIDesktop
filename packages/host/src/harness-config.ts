@@ -10,6 +10,7 @@
  *   "mcp": { "servers": [], "confirmTools": true },
  *   "subagents": { "enabled": true, "concurrency": 3 },
  *   "computer": { "enabled": true, "helper": "C:/.../Pi Desktop.exe", "confirmActions": true },
+ *   "browser": { "enabled": true, "headless": true, "confirmActions": true, "profileDir": "…", "idleMinutes": 10 },
  *   "schedule": { "enabled": true }
  * }
  * ```
@@ -18,6 +19,7 @@
  * with a note, so one mistake does not disable everything.
  */
 import { readFileSync } from "node:fs";
+import type { Config as BrowserConfig } from "@pid/browser";
 import type { Config as ComputerConfig } from "@pid/computer";
 import type { Config as HooksConfig } from "@pid/hooks";
 import type { Config as McpConfig } from "@pid/mcp";
@@ -32,11 +34,12 @@ export interface HarnessConfig {
   mcp: McpConfig;
   subagents: SubagentsConfig & { enabled: boolean };
   computer: ComputerConfig & { enabled: boolean };
+  browser: BrowserConfig & { enabled: boolean };
   schedule: { enabled: boolean };
 }
 
 export function defaultHarnessConfig(): HarnessConfig {
-  return { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true }, computer: { enabled: true }, schedule: { enabled: true } };
+  return { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true }, computer: { enabled: true }, browser: { enabled: true }, schedule: { enabled: true } };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -89,6 +92,17 @@ export function readHarnessConfig(file: string): { config: HarnessConfig; proble
       enabled: computer.enabled !== false,
       ...(typeof computer.helper === "string" ? { helper: computer.helper } : {}),
       confirmActions: computer.confirmActions !== false,
+    };
+  }
+  const browser = section("browser");
+  if (browser !== undefined) {
+    config.browser = {
+      enabled: browser.enabled !== false,
+      headless: browser.headless !== false,
+      confirmActions: browser.confirmActions !== false,
+      ...(typeof browser.profileDir === "string" ? { profileDir: browser.profileDir } : {}),
+      ...(typeof browser.executable === "string" ? { executable: browser.executable } : {}),
+      ...(typeof browser.idleMinutes === "number" ? { idleMinutes: browser.idleMinutes } : {}),
     };
   }
   const schedule = section("schedule");
