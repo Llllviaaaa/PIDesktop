@@ -8,11 +8,13 @@ import { AgentLoop } from "@pid/agent-loop";
 import * as checkpoints from "@pid/checkpoints";
 import * as hooks from "@pid/hooks";
 import { Credentials, LlmService } from "@pid/llm";
+import { Mcp } from "@pid/mcp";
 import * as memory from "@pid/memory";
 import { Permissions, type PermissionMode } from "@pid/permissions";
 import * as plan from "@pid/plan";
 import * as promptContext from "@pid/prompt-context";
 import { Sessions } from "@pid/session";
+import * as subagents from "@pid/subagents";
 import * as sessionJsonl from "@pid/session-jsonl";
 import { SystemPrompt } from "@pid/system-prompt";
 import * as toolBash from "@pid/tool-bash";
@@ -48,6 +50,8 @@ export function agentPlugins(dataDir: string, options: AgentPluginOptions): Plug
     ...(config.plan.enabled ? [[plan] as PluginEntry] : []),
     ...(config.memory.enabled ? [[memory, { file: join(dataDir, "memory.md") }] as PluginEntry] : []),
     [AgentLoop],
+    ...(config.subagents.enabled ? [[subagents, config.subagents] as PluginEntry] : []),
+    [Mcp, config.mcp],
     [checkpoints],
     [hooks, config.hooks],
   ];

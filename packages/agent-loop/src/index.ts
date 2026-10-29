@@ -236,7 +236,7 @@ export class AgentLoop extends Service implements Agents {
   }
 
   private async call(session: Session, run: Run, model: ModelRef, signal: AbortSignal) {
-    const tools = this.ctx.tools.schemas();
+    const tools = this.ctx.tools.schemas(session.id);
     const system = await this.ctx.systemPrompt.build({ sessionId: session.id, cwd: session.header.cwd, model, tools });
     const state = session.state();
     const request: LlmRequest = {

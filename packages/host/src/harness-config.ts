@@ -6,7 +6,9 @@
  *   "permissions": { "defaultPermission": "ask", "shellAllowPrefixes": ["git status"], "toolRules": [] },
  *   "hooks": { "hooks": [], "inheritEnvironment": false },
  *   "memory": { "enabled": true },
- *   "plan": { "enabled": true }
+ *   "plan": { "enabled": true },
+ *   "mcp": { "servers": [], "confirmTools": true },
+ *   "subagents": { "enabled": true, "concurrency": 3 }
  * }
  * ```
  *
@@ -15,17 +17,21 @@
  */
 import { readFileSync } from "node:fs";
 import type { Config as HooksConfig } from "@pid/hooks";
+import type { Config as McpConfig } from "@pid/mcp";
 import type { Config as PermissionsConfig } from "@pid/permissions";
+import type { Config as SubagentsConfig } from "@pid/subagents";
 
 export interface HarnessConfig {
   permissions: PermissionsConfig;
   hooks: HooksConfig;
   memory: { enabled: boolean };
   plan: { enabled: boolean };
+  mcp: McpConfig;
+  subagents: SubagentsConfig & { enabled: boolean };
 }
 
 export function defaultHarnessConfig(): HarnessConfig {
-  return { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true } };
+  return { permissions: {}, hooks: { hooks: [] }, memory: { enabled: true }, plan: { enabled: true }, mcp: { servers: [] }, subagents: { enabled: true } };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -66,5 +72,11 @@ export function readHarnessConfig(file: string): { config: HarnessConfig; proble
   if (memory !== undefined) config.memory = { enabled: memory.enabled !== false };
   const plan = section("plan");
   if (plan !== undefined) config.plan = { enabled: plan.enabled !== false };
+  const mcp = section("mcp");
+  if (mcp !== undefined) {
+    config.mcp = { servers: Array.isArray(mcp.servers) ? (mcp.servers as McpConfig["servers"]) : [], confirmTools: mcp.confirmTools !== false };
+  }
+  const subagents = section("subagents");
+  if (subagents !== undefined) config.subagents = { ...(subagents as SubagentsConfig), enabled: subagents.enabled !== false };
   return { config, problems };
 }

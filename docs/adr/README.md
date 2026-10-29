@@ -13,6 +13,7 @@ V2 重构（[REFACTOR_V2_PLAN.md](../REFACTOR_V2_PLAN.md)）期间的架构决�
 | [0007](0007-llm-layer.md) | LLM 层：统一词汇、适配器与密钥引用 | 已接受 |
 | [0008](0008-agent-loop-and-sessions.md) | Agent loop、会话与工具管线 | 已接受 |
 | [0009](0009-feature-plugins.md) | 能力迁移（一）：交互、权限、checkpoint、计划、记忆、hooks | 已接受 |
+| [0010](0010-subagents-mcp-usage.md) | 能力迁移（二）：子 agent、MCP、标题与用量 | 已接受 |
 
 ## 模板
 

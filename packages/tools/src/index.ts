@@ -37,6 +37,8 @@ export interface ToolEnv {
   sessionId: string;
   cwd: string;
   signal: AbortSignal;
+  /** The call being executed; set by `Tools.execute`. */
+  callId?: string;
 }
 
 export type ToolDecision =
@@ -90,6 +92,8 @@ export function argumentProblem(parameters: ToolDefinition["parameters"], args: 
 
 export class Tools extends Service {
   private readonly definitions = new Map<string, ToolDefinition>();
+  /** sessionId → the only tools that session may see and call. */
+  private readonly restrictions = new Map<string, ReadonlySet<string>>();
 
   constructor(ctx: Context) {
     super(ctx, "tools");
@@ -109,9 +113,28 @@ export class Tools extends Service {
     return this.definitions.get(name);
   }
 
-  /** What the model is told about each tool, sorted by name for stable prompts. */
-  schemas(): ToolSchema[] {
+  /**
+   * Limit `sessionId` to the tools named in `names` (a subagent's toolbox).
+   * Returns the disposer.
+   */
+  restrict(sessionId: string, names: Iterable<string>): () => void {
+    const allowed = new Set(names);
+    this.restrictions.set(sessionId, allowed);
+    return () => {
+      if (this.restrictions.get(sessionId) === allowed) this.restrictions.delete(sessionId);
+    };
+  }
+
+  /** Whether `sessionId` may use `name`. */
+  allows(sessionId: string | undefined, name: string): boolean {
+    const allowed = sessionId === undefined ? undefined : this.restrictions.get(sessionId);
+    return allowed === undefined || allowed.has(name);
+  }
+
+  /** What the model is told about each tool (for `sessionId`, if given), sorted by name for stable prompts. */
+  schemas(sessionId?: string): ToolSchema[] {
     return [...this.definitions.values()]
+      .filter(({ name }) => this.allows(sessionId, name))
       .map(({ name, description, parameters }) => ({ name, description, parameters }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -123,7 +146,7 @@ export class Tools extends Service {
   }
 
   private async run(call: ToolCall, env: ToolEnv): Promise<ToolOutput> {
-    const definition = this.definitions.get(call.name);
+    const definition = this.allows(env.sessionId, call.name) ? this.definitions.get(call.name) : undefined;
     if (definition === undefined) return textOutput(`Unknown tool "${call.name}".`, true);
     if (env.signal.aborted) return textOutput("Aborted before the tool ran.", true);
     try {
@@ -131,7 +154,7 @@ export class Tools extends Service {
       if (decision !== undefined && "deny" in decision) return textOutput(`Denied: ${decision.reason}`, true);
       const problem = argumentProblem(definition.parameters, call.args);
       if (problem !== undefined) return textOutput(`Invalid arguments for ${call.name}: ${problem}.`, true);
-      return await this.ctx.waterfall("tools/execute", call, env, async () => definition.execute(call.args, env));
+      return await this.ctx.waterfall("tools/execute", call, env, async () => definition.execute(call.args, { ...env, callId: call.id }));
     } catch (error) {
       if (env.signal.aborted) return textOutput("Aborted.", true);
       return textOutput(`${call.name} failed: ${error instanceof Error ? error.message : String(error)}`, true);
