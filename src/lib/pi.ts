@@ -25,6 +25,7 @@ import type {
 } from "../types";
 import { rejectRuntimeCommands, sendPiCommand, subscribePiEvents } from "./piTransport";
 import { gitClient } from "./gitClient";
+import { harnessProviders } from "./harnessProviders";
 import { harnessRuntimes, isHarnessRuntime, isHarnessSessionFile } from "./harnessRuntime";
 import { scheduleClient } from "./scheduleClient";
 import { sessionClient } from "./sessionClient";
@@ -48,6 +49,8 @@ async function usageSummary(): Promise<UsageSummary> {
     totalTokens: pi.totalTokens + usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
   };
 }
+
+const onHarness = () => harnessRuntimes.getEngine() === "harness";
 
 const packageSearchCache = new Map<string, PackageCatalogPage>();
 const packageDetailCache = new Map<string, PackageCatalogDetail>();
@@ -115,11 +118,12 @@ export const pi = {
   setLocalMemory: (contents: string) => invoke<void>("set_local_memory", { contents }),
   exportLocalMemory: (destination: string) => invoke<string>("export_local_memory", { destination }),
   deleteLocalMemory: () => invoke<void>("delete_local_memory"),
-  listModelProviders: () => invoke<ModelProviderConfig[]>("list_model_providers"),
-  discoverModelProviderModels: (provider: ModelProviderInput) => invoke<ModelProviderModel[]>("discover_model_provider_models", { provider }),
-  saveModelProvider: (provider: ModelProviderInput) => invoke<void>("save_model_provider", { provider }),
-  deleteModelProvider: (id: string) => invoke<void>("delete_model_provider", { id }),
-  checkModelProvider: (id: string) => invoke<ModelProviderCheckResult>("check_model_provider", { id }),
+  // On the harness engine providers live in the Host's providers.json (src/lib/harnessProviders.ts).
+  listModelProviders: () => (onHarness() ? harnessProviders.configs() : invoke<ModelProviderConfig[]>("list_model_providers")),
+  discoverModelProviderModels: (provider: ModelProviderInput) => (onHarness() ? harnessProviders.discover(provider) : invoke<ModelProviderModel[]>("discover_model_provider_models", { provider })),
+  saveModelProvider: (provider: ModelProviderInput) => (onHarness() ? harnessProviders.save(provider) : invoke<void>("save_model_provider", { provider })),
+  deleteModelProvider: (id: string) => (onHarness() ? harnessProviders.delete(id) : invoke<void>("delete_model_provider", { id })),
+  checkModelProvider: (id: string) => (onHarness() ? harnessProviders.check(id) : invoke<ModelProviderCheckResult>("check_model_provider", { id })),
   readAttachment: (file: string) => invoke<AttachmentPayload>("read_attachment", { file }),
   gitSnapshot: gitClient.snapshot,
   gitRepositoryRoot: gitClient.repositoryRoot,

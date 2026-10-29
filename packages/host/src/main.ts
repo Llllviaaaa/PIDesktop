@@ -22,6 +22,7 @@ import { readDefaultModel } from "./providers.ts";
 import { applyDesktopMessage, parseControlLine } from "./control.ts";
 import * as featuresRpc from "./features-rpc.ts";
 import { readHarnessConfig } from "./harness-config.ts";
+import * as providerAdmin from "./provider-admin.ts";
 import { ReloadablePlugins } from "./reloadable.ts";
 import { RpcGateway } from "./rpc.ts";
 import * as scheduleRpc from "./schedule-rpc.ts";
@@ -102,6 +103,7 @@ export async function main(argv: readonly string[]): Promise<void> {
         inject: ["rpc"],
         apply: (ctx: Context) => ctx.effect(() => ctx.rpc.method("config.reload", async () => ({ reloaded: await reload() })), "config.reload"),
       }],
+      [providerAdmin, { file: providersFile, secretsFile: join(dataDir, "secrets.dat"), ...(codec === undefined ? {} : { codec }), reload: () => reload() }],
       [betterSidebar, { dataDir }],
     ],
   });
