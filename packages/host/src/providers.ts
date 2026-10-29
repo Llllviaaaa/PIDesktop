@@ -6,7 +6,7 @@
  * { "providers": [
  *   { "api": "openai-compat", "id": "deepseek", "baseUrl": "https://api.deepseek.com", "apiKey": { "env": "DEEPSEEK_API_KEY" } },
  *   { "api": "anthropic", "id": "anthropic", "apiKey": { "secret": "anthropic" } }
- * ] }
+ * ], "defaultModel": { "provider": "deepseek", "model": "deepseek-chat" } }
  * ```
  *
  * A missing file means no providers. A malformed entry is skipped with a
@@ -21,7 +21,7 @@ import { ErrorCode, type ModelListResult, type ProviderListResult } from "@pid/p
 import { RpcError } from "./rpc.ts";
 
 export const name = "pid-providers";
-export const inject = ["llm", "credentials", "rpc"];
+export const inject = ["llm", "credentials"];
 
 export interface Config {
   /** The providers file. */
@@ -61,6 +61,18 @@ export function entryProblem(value: unknown): string | undefined {
     return "models must be a list of { id, ... }";
   }
   return undefined;
+}
+
+/** The providers file's `defaultModel` ({ provider, model }), when it has a valid one. */
+export function readDefaultModel(file: string): { provider: string; model: string } | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return undefined;
+  }
+  const value = (parsed as { defaultModel?: { provider?: unknown; model?: unknown } } | null)?.defaultModel;
+  return typeof value?.provider === "string" && typeof value.model === "string" ? { provider: value.provider, model: value.model } : undefined;
 }
 
 /** Read the providers file; returns the usable entries and a note per skipped one. */
@@ -106,21 +118,24 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(anthropic, { providers: byApi("anthropic").map(({ api: _api, reasoningEffort: _effort, ...rest }) => rest) });
 
   const keys = new Map(entries.map((entry) => [entry.id, entry.apiKey]));
-  ctx.effect(() => ctx.rpc.method("provider.list", (): ProviderListResult => ({
-    providers: ctx.llm.listProviders().map((provider) => ({ ...provider, keySource: ctx.credentials.describe(keys.get(provider.id)) })),
-  })), "providers: provider.list");
+  // The RPC methods start once a gateway is there; a headless run has none.
+  ctx.inject(["rpc"], (ctx) => {
+    ctx.effect(() => ctx.rpc.method("provider.list", (): ProviderListResult => ({
+      providers: ctx.llm.listProviders().map((provider) => ({ ...provider, keySource: ctx.credentials.describe(keys.get(provider.id)) })),
+    })), "providers: provider.list");
 
-  ctx.effect(() => ctx.rpc.method("model.list", async (params, call): Promise<ModelListResult> => {
-    const provider = (params as { provider?: unknown } | undefined)?.provider;
-    if (typeof provider !== "string") throw new RpcError(ErrorCode.InvalidParams, "model.list needs { provider }");
-    if (!ctx.llm.listProviders().some((item) => item.id === provider)) {
-      throw new RpcError(ErrorCode.InvalidParams, `Unknown provider ${provider}`);
-    }
-    try {
-      return { models: await ctx.llm.listModels(provider, call.signal) };
-    } catch (error) {
-      if (error instanceof LlmError) throw new RpcError(ErrorCode.ProviderError, error.message, error.toInfo());
-      throw error;
-    }
-  }), "providers: model.list");
+    ctx.effect(() => ctx.rpc.method("model.list", async (params, call): Promise<ModelListResult> => {
+      const provider = (params as { provider?: unknown } | undefined)?.provider;
+      if (typeof provider !== "string") throw new RpcError(ErrorCode.InvalidParams, "model.list needs { provider }");
+      if (!ctx.llm.listProviders().some((item) => item.id === provider)) {
+        throw new RpcError(ErrorCode.InvalidParams, `Unknown provider ${provider}`);
+      }
+      try {
+        return { models: await ctx.llm.listModels(provider, call.signal) };
+      } catch (error) {
+        if (error instanceof LlmError) throw new RpcError(ErrorCode.ProviderError, error.message, error.toInfo());
+        throw error;
+      }
+    }), "providers: model.list");
+  });
 }

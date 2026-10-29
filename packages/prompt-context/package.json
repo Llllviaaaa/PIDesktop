@@ -1,0 +1,17 @@
+{
+  "name": "@pid/prompt-context",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Built-in system prompt sections: identity, guidelines, AGENTS.md/CLAUDE.md, skills, environment",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/system-prompt": "*"
+  },
+  "devDependencies": {
+    "@pid/system-prompt": "*"
+  }
+}

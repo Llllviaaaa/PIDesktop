@@ -1,0 +1,14 @@
+{
+  "name": "@pid/tool-bash",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The bash tool (Git Bash on Windows)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/tools": "*"
+  }
+}

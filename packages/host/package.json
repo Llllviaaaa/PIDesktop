@@ -9,10 +9,22 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/agent": "*",
+    "@pid/agent-loop": "*",
     "@pid/llm": "*",
     "@pid/llm-anthropic": "*",
     "@pid/llm-openai-compat": "*",
+    "@pid/prompt-context": "*",
     "@pid/protocol": "*",
+    "@pid/session": "*",
+    "@pid/session-jsonl": "*",
+    "@pid/system-prompt": "*",
+    "@pid/tool-bash": "*",
+    "@pid/tool-fs": "*",
+    "@pid/tools": "*",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@pid/testkit": "*"
   }
 }

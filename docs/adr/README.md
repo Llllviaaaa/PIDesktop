@@ -11,6 +11,7 @@ V2 重构（[REFACTOR_V2_PLAN.md](../REFACTOR_V2_PLAN.md)）期间的架构决�
 | [0005](0005-repository-layout.md) | 仓库布局与包约定 | 已接受 |
 | [0006](0006-better-sidebar-in-host.md) | better-sidebar 宿主端并入 Host（边界例外） | 已接受 |
 | [0007](0007-llm-layer.md) | LLM 层：统一词汇、适配器与密钥引用 | 已接受 |
+| [0008](0008-agent-loop-and-sessions.md) | Agent loop、会话与工具管线 | 已接受 |
 
 ## 模板
 

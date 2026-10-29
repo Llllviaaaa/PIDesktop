@@ -1,0 +1,14 @@
+{
+  "name": "@pid/system-prompt",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The system prompt as ordered sections (ADR 0003)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/llm": "*"
+  }
+}

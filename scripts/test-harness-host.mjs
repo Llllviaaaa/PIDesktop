@@ -1,11 +1,12 @@
 // Smoke test of the compiled Harness Host (scripts/prepare-harness-host.mjs):
 // start pid-harness.exe the way the desktop app does, read its port line, then
-// check the RPC gateway (token, initialize, host.info) and a better-sidebar
-// route, and that it exits once its stdin closes.
+// check the RPC gateway (token, initialize, host.info), sessions on disk, a
+// better-sidebar route, that it exits once its stdin closes, and that a
+// headless `run` without a model explains itself.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
@@ -67,6 +68,13 @@ try {
   assert.deepEqual(providers.result?.providers?.map((provider) => [provider.id, provider.api, provider.keySource]), [
     ["smoke", "openai-compat", "environment variable PID_SMOKE_KEY"],
   ], "the bundled LLM adapters must load the providers file");
+  const created = await call(4, "session.create", { cwd: dataDir, model: { provider: "smoke", model: "m" } });
+  const sessionId = created.result?.session?.id;
+  assert.equal(typeof sessionId, "string", `session.create must answer a session
+${JSON.stringify(created)}`);
+  const listed = await call(5, "session.list", {});
+  assert.deepEqual(listed.result?.sessions?.map((session) => session.id), [sessionId], "session.list must find the new session");
+  assert.ok(existsSync(join(dataDir, "sessions", created.result.session.createdAt.slice(0, 7), `${sessionId}.jsonl`)), "the session must be on disk");
   socket.close();
 
   const sidebar = await fetch(`http://127.0.0.1:${port}/sidebar/api/settings.get`, {
@@ -80,9 +88,14 @@ try {
   child.stdin.end();
   const [code] = await Promise.race([exited, new Promise((_, reject) => setTimeout(() => reject(new Error("host did not exit after stdin closed")), 10_000))]);
   assert.equal(code, 0, `host must exit cleanly when stdin closes\n${stderr}`);
+
+  const headless = spawnSync(executable, ["run", "--data-dir", dataDir, "--cwd", dataDir, "hello"], { encoding: "utf8", windowsHide: true, timeout: 20_000 });
+  assert.equal(headless.status, 2, `a headless run without a model must exit 2
+${headless.stderr}`);
+  assert.match(headless.stderr, /no model/);
 } finally {
   if (child.exitCode === null) child.kill();
   rmSync(dataDir, { recursive: true, force: true });
 }
 
-console.log(`harness-host: pid-harness ${appVersion} RPC, providers, better-sidebar and stdin shutdown passed`);
+console.log(`harness-host: pid-harness ${appVersion} RPC, providers, sessions, better-sidebar, stdin shutdown and headless run passed`);
