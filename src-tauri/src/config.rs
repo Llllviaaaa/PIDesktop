@@ -25,8 +25,11 @@ pub(crate) struct AppSettings {
     pub(crate) agent_mode: String,
     #[serde(alias = "permission_mode")]
     pub(crate) permission_mode: String,
-    /// The engine new tasks run on: "pi", or "harness" for the V2 Harness Host.
+    /// The engine new tasks run on: "harness" (the V2 Harness Host, the default
+    /// since P5d) or "pi" until P6 removes it.
     pub(crate) engine: String,
+    /// Whether the user has seen the one-time offer to move from Pi to the Harness.
+    pub(crate) harness_prompt_seen: bool,
     /// When true, shell/bash/exec always requires confirmation (unless full-access).
     pub(crate) always_confirm_shell: bool,
     /// When true, writes outside the workspace root are blocked without a confirm dialog.
@@ -211,7 +214,8 @@ impl Default for AppSettings {
             separate_pi_config: false,
             agent_mode: "agent".to_string(),
             permission_mode: "ask".to_string(),
-            engine: "pi".to_string(),
+            engine: "harness".to_string(),
+            harness_prompt_seen: false,
             always_confirm_shell: true,
             block_write_outside_workspace: true,
             shell_allow_prefixes: String::new(),
@@ -592,11 +596,29 @@ pub(crate) fn write_public_settings(settings: &AppSettings) -> Result<(), AppErr
     fs::write(path, raw).map_err(|err| AppError::Io(format!("failed to write settings: {err}")))
 }
 
-pub(crate) fn load_settings() -> AppSettings {
-    let mut settings = fs::read_to_string(settings_path())
+/// Settings written before the engine setting existed belong to an install that
+/// ran on Pi; it stays there until the user takes the Harness offer. Only new
+/// installs start on the Harness (P5d).
+fn predates_engine_setting(raw: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(raw)
         .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .and_then(|value| {
+            value
+                .as_object()
+                .map(|object| !object.contains_key("engine"))
+        })
+        .unwrap_or(false)
+}
+
+pub(crate) fn load_settings() -> AppSettings {
+    let raw = fs::read_to_string(settings_path()).ok();
+    let mut settings: AppSettings = raw
+        .as_deref()
+        .and_then(|raw| serde_json::from_str(raw).ok())
         .unwrap_or_default();
+    if raw.as_deref().is_some_and(predates_engine_setting) {
+        settings.engine = "pi".to_string();
+    }
     let legacy_secrets = collect_mcp_secrets(&settings);
     let mut secrets = match load_mcp_secrets() {
         Ok(secrets) => secrets,
@@ -805,6 +827,14 @@ pub(crate) fn load_models_config() -> Result<serde_json::Value, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_installs_start_on_the_harness_and_old_settings_stay_on_pi() {
+        assert_eq!(AppSettings::default().engine, "harness");
+        assert!(predates_engine_setting(r#"{"provider":"deepseek"}"#));
+        assert!(!predates_engine_setting(r#"{"engine":"pi"}"#));
+        assert!(!predates_engine_setting("not json"));
+    }
 
     #[test]
     fn permission_rule_env_flags_roundtrip_defaults() {

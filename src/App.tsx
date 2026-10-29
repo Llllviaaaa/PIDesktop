@@ -78,6 +78,7 @@ import {
   type DesktopPetWindowState,
 } from "./components/DesktopPetWindow";
 import { ExtensionDialog, extensionRequestHeadline } from "./components/ExtensionDialog";
+import { HarnessOffer } from "./components/HarnessOffer";
 import { ConversationMessages } from "./components/ConversationMessages";
 import { ClaudeHomeDashboard } from "./components/ClaudeHomeDashboard";
 import { ActiveGoalBar } from "./components/ActiveGoalBar";
@@ -161,6 +162,14 @@ export default function App() {
       return;
     }
     setLocalTranscriptDensity(density);
+  }, []);
+  // The one-time Pi → Harness offer (P5d): either answer is recorded and not asked again.
+  const answerHarnessOffer = useCallback((engine: AppSettings["engine"]) => {
+    const current = usePiStore.getState();
+    if (!current.settings) return;
+    void current.saveSettings({ ...current.settings, engine, harnessPromptSeen: true }).catch((error) => {
+      current.showToast(`保存引擎设置失败：${describeError(error)}`, "error");
+    });
   }, []);
   const cycleTranscriptDensity = useCallback(() => {
     setTranscriptDensity(nextTranscriptDensity(transcriptDensity));
@@ -1584,7 +1593,8 @@ export default function App() {
             onNewSession={() => navigateTo({ kind: "home", workspace: draftWorkspace || cwd })}
             onOpenPullRequests={() => navigateTo({ kind: "hub", view: "pull-requests" })}
             onOpenScheduled={() => navigateTo({ kind: "hub", view: "scheduled" })}
-            onOpenPlugins={() => navigateTo({ kind: "hub", view: "plugins" })}
+            // The plugins page manages Pi packages; the harness has none to manage yet (P5d).
+            onOpenPlugins={settings?.engine === "pi" ? () => navigateTo({ kind: "hub", view: "plugins" }) : undefined}
             onOpenSession={(session) => navigateTo({ kind: "session", cwd: session.cwd, file: session.file })}
             onOpenNotification={(notification) => {
               store.markNotificationRead(notification.id);
@@ -1813,7 +1823,7 @@ export default function App() {
               onOpenSession={(workspace, file) => navigateTo({ kind: "session", cwd: workspace, file })}
               onError={showErrorToast}
             />
-          ) : hubView === "plugins" ? (
+          ) : hubView === "plugins" && settings?.engine === "pi" ? (
             <PluginMarketplacePage cwd={draftWorkspace || cwd} />
           ) : hubView === "sites" ? (
             <div className="feature-hub">
@@ -1947,6 +1957,9 @@ export default function App() {
           onClose={() => setCommitDialog(null)}
           onDone={finishCommit}
         />
+      )}
+      {settings?.engine === "pi" && !settings.harnessPromptSeen && !settingsOpen && (
+        <HarnessOffer onSwitch={() => answerHarnessOffer("harness")} onStay={() => answerHarnessOffer("pi")} />
       )}
       {settingsOpen && <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}><SettingsModal initialPage={settingsPage} settings={settings} cwd={cwd} appearanceCatalog={appearanceCatalog} onReloadAppearance={reloadAppearanceCatalog} onSave={store.saveSettings} onClose={() => setSettingsOpen(false)} /></Suspense>}
 

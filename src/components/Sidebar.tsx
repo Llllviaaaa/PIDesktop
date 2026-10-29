@@ -62,7 +62,8 @@ interface SidebarProps {
   onNewSession: () => void;
   onOpenPullRequests: () => void;
   onOpenScheduled: () => void;
-  onOpenPlugins: () => void;
+  /** Absent when there is no plugins page (the harness engine). */
+  onOpenPlugins?: () => void;
   onOpenSession: (session: SessionInfo) => void;
   onOpenNotification: (notification: AppNotification) => void;
   onMarkAllNotificationsRead: () => void;
@@ -606,10 +607,12 @@ export function Sidebar({
             </span>
           )}
         </button>
-        <button type="button" className={`nav-item ${activeHub === "plugins" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenPlugins(); }}>
-          <AtSign size={14} strokeWidth={1.75} />
-          <span>插件</span>
-        </button>
+        {onOpenPlugins && (
+          <button type="button" className={`nav-item ${activeHub === "plugins" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenPlugins(); }}>
+            <AtSign size={14} strokeWidth={1.75} />
+            <span>插件</span>
+          </button>
+        )}
         <button type="button" className={`nav-item ${activeHub === "scheduled" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenScheduled(); }}>
           <Clock3 size={14} strokeWidth={1.75} />
           <span>定时任务</span>

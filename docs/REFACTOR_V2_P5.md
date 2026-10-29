@@ -100,6 +100,8 @@ P0–P4 完成后，Harness Host 已经具备 Pi 引擎的全部能力：
 | **P5c 会话与周边** | 会话列表、历史、归档、删除、导出、fork、回退（结合 checkpoint 恢复文件）、compact；`session.delete` 和 `session.export`；定时任务界面和任务表迁移；用量页；provider 设置界面改读写 `providers.json` | `CODEX_PARITY.md` 逐项核对，`engine=harness` 下全部功能可用 |
 | **P5d 切换默认引擎** | `engine` 默认改为 `harness`；首次启动时的迁移提示（provider、定时任务）；隐藏 Pi 专属的界面；更新文档 | 全新安装和从旧版本升级两种情况都能直接使用；保留切回 Pi 的出口，直到 P6 |
 
+> **P5d 实施时的调整**：见 ADR 0014 的“P5d”一节。已有的 Pi 会话始终用 Pi 打开，只有新任务跟随引擎设置。切换提示会列出不会迁移的 provider；`auth.json` 中内置 provider 的密钥导入留到 P6 之前补上。
+
 每个 PR 都要满足：CI 全绿、做过 GitNexus 影响分析、补齐相应的 ADR（P5a 的密钥与热重载、P5b 的前端适配层各写一篇）。
 
 ## 5. 风险

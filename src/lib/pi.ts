@@ -83,8 +83,9 @@ function clearPackageCatalogCache() {
 // (docs/adr/0014-frontend-harness-adapter.md). An isolated runtime (a side
 // chat) runs where its parent session lives.
 export const pi = {
-  // A Host session reopens on the Host whichever engine new tasks use.
-  start: (cwd: string, sessionFile?: string, isolated = false) => ((harnessRuntimes.getEngine() === "harness" && !isolated) || isHarnessSessionFile(sessionFile)
+  // A session reopens on the engine that created it, whichever engine new
+  // tasks use; only a new task (no session file) follows the setting.
+  start: (cwd: string, sessionFile?: string, isolated = false) => ((harnessRuntimes.getEngine() === "harness" && !isolated && !sessionFile) || isHarnessSessionFile(sessionFile)
     ? harnessRuntimes.start(cwd, sessionFile, isolated)
     : invoke<PiStartResult>("pi_start", { cwd, sessionFile, isolated })),
   stop: (runtimeId: string) => (isHarnessRuntime(runtimeId) ? harnessRuntimes.stop(runtimeId) : invoke<void>("pi_stop", { runtimeId })),
