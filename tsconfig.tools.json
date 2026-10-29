@@ -2,7 +2,7 @@
   "//": "Type-checks the code that ships outside the Vite bundle: the Pi extensions embedded into the Rust binary and the assertion scripts behind `npm run test:unit`. tsx only transpiles, so without this project those files reach users unchecked.",
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,

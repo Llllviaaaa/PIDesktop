@@ -34,6 +34,9 @@ pub(crate) fn set_settings(
     if !matches!(settings.agent_mode.as_str(), "agent" | "plan" | "ask") {
         return Err(AppError::InvalidInput("invalid agent mode".to_string()));
     }
+    if !matches!(settings.engine.as_str(), "pi" | "harness") {
+        return Err(AppError::InvalidInput("invalid engine".to_string()));
+    }
     if !matches!(
         settings.default_task_environment.as_str(),
         "local" | "worktree"

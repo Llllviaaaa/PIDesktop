@@ -25,6 +25,8 @@ pub(crate) struct AppSettings {
     pub(crate) agent_mode: String,
     #[serde(alias = "permission_mode")]
     pub(crate) permission_mode: String,
+    /// The engine new tasks run on: "pi", or "harness" for the V2 Harness Host.
+    pub(crate) engine: String,
     /// When true, shell/bash/exec always requires confirmation (unless full-access).
     pub(crate) always_confirm_shell: bool,
     /// When true, writes outside the workspace root are blocked without a confirm dialog.
@@ -209,6 +211,7 @@ impl Default for AppSettings {
             separate_pi_config: false,
             agent_mode: "agent".to_string(),
             permission_mode: "ask".to_string(),
+            engine: "pi".to_string(),
             always_confirm_shell: true,
             block_write_outside_workspace: true,
             shell_allow_prefixes: String::new(),

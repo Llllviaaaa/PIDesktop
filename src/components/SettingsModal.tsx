@@ -81,6 +81,7 @@ const DEFAULTS: AppSettings = {
   separatePiConfig: false,
   agentMode: "agent",
   permissionMode: "ask",
+  engine: "pi",
   alwaysConfirmShell: true,
   blockWriteOutsideWorkspace: true,
   shellAllowPrefixes: "",
@@ -832,6 +833,9 @@ function AgentPage({ form, update }: { form: AppSettings; update: Update }) {
     <Card title="权限">
       <Row title="默认工作模式" description="执行可修改代码；计划和问答仅使用只读工具。"><select value={form.agentMode} onChange={(event) => update("agentMode", event.target.value as AppSettings["agentMode"])}><option value="agent">执行</option><option value="plan">计划</option><option value="ask">问答</option></select></Row>
       <Row title="审批与文件访问" description="控制 Pi 何时请求确认，以及允许访问的文件范围。"><select value={form.permissionMode} onChange={(event) => update("permissionMode", event.target.value as AppSettings["permissionMode"])}><option value="read-only">只读</option><option value="ask">先询问</option><option value="workspace-write">工作区写入</option><option value="full-access">完全访问</option></select></Row>
+    </Card>
+    <Card title="实验">
+      <Row title="Agent 引擎" description="新任务使用的引擎。Harness 是正在开发的自研引擎（V2 重构），会话暂时只在它自己的列表中保存；已打开的任务不受影响。"><select value={form.engine} onChange={(event) => update("engine", event.target.value as AppSettings["engine"])}><option value="pi">Pi</option><option value="harness">Harness（实验）</option></select></Row>
     </Card>
     <Card title="计划跟踪">
       <Row title="启用持久计划" description="为新任务提供 update_plan 工具；步骤状态随会话分支保存，并显示在对话中。"><Switch label="启用持久计划" checked={form.planTrackingEnabled} onChange={(value) => update("planTrackingEnabled", value)} /></Row>
