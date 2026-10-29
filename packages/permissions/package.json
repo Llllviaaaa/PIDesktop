@@ -1,0 +1,17 @@
+{
+  "name": "@pid/permissions",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Permission modes, agent modes and tool rules on tools/pre-execute (ADR 0009)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/session": "*",
+    "@pid/system-prompt": "*",
+    "@pid/tools": "*",
+    "@pid/ui": "*"
+  }
+}

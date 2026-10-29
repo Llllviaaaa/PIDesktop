@@ -18,8 +18,11 @@ import * as betterSidebar from "./better-sidebar/index.ts";
 import { runHeadless } from "./headless.ts";
 import { createHost } from "./host.ts";
 import { readDefaultModel } from "./providers.ts";
+import * as featuresRpc from "./features-rpc.ts";
+import { readHarnessConfig } from "./harness-config.ts";
 import { RpcGateway } from "./rpc.ts";
 import * as sessionsRpc from "./sessions-rpc.ts";
+import * as uiRpc from "./ui-rpc.ts";
 import { WebServer } from "./web-server.ts";
 
 declare const PID_HOST_VERSION: string | undefined;
@@ -75,18 +78,22 @@ export async function main(argv: readonly string[]): Promise<void> {
 
   const providersFile = join(options.dataDir, "providers.json");
   const defaultModel = readDefaultModel(providersFile);
+  const { config, problems } = readHarnessConfig(join(options.dataDir, "harness.json"));
   const host = createHost({
     version: HOST_VERSION,
     dataDir: options.dataDir,
     plugins: [
       [WebServer, { pageOrigins: options.pageOrigins }],
       [RpcGateway, { token }],
-      ...agentPlugins(options.dataDir),
+      ...agentPlugins(options.dataDir, { config }),
       [sessionsRpc, defaultModel === undefined ? {} : { defaultModel }],
+      [uiRpc],
+      [featuresRpc],
       [betterSidebar, { dataDir: options.dataDir }],
     ],
   });
   host.ctx.logger.exporter(stderrExporter);
+  for (const problem of problems) host.ctx.logger("harness").warn("%s", problem);
   await host.start();
   const port = await host.ctx.webServer.listen(options.port);
   process.stdout.write(`${JSON.stringify({ port })}\n`);

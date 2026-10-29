@@ -189,3 +189,64 @@ export interface SessionDeltaNotification {
   liveSeq: number;
   delta: LiveDelta;
 }
+
+// Host-to-user requests (ADR 0002, 0009).
+
+/** Notification `ui/request`. `notify` needs no answer and has no `requestId`. */
+export type UiRequestNotification = { requestId?: string; sessionId?: string } & (
+  | { kind: "confirm"; title: string; message: string }
+  | { kind: "select"; title: string; options: string[] }
+  | { kind: "input"; title: string; placeholder?: string }
+  | { kind: "notify"; message: string; level: "info" | "warning" | "error" }
+);
+
+/** Params of `ui.respond`: `true`/`false` for confirm, an option for select, text for input. */
+export interface UiRespondParams {
+  requestId: string;
+  value: unknown;
+}
+
+export interface UiPendingResult {
+  requests: UiRequestNotification[];
+}
+
+// Feature plugins (ADR 0009).
+
+export type PermissionModeName = "read-only" | "ask" | "workspace-write" | "full-access";
+export type AgentModeName = "agent" | "plan" | "ask";
+
+export interface PermissionGetResult {
+  permission: PermissionModeName;
+  agentMode: AgentModeName;
+  /** What tool calls are judged by: read-only unless the agent mode is `agent`. */
+  effective: PermissionModeName;
+}
+
+export interface PermissionSetParams extends SessionRef {
+  permission?: PermissionModeName;
+  agentMode?: AgentModeName;
+}
+
+export interface PlanInfo {
+  explanation: string;
+  items: Array<{ id: string; text: string; status: "pending" | "in_progress" | "completed" }>;
+}
+
+export interface PlanGetResult {
+  plan: PlanInfo;
+}
+
+export interface CheckpointListResult {
+  checkpoints: Array<{ userSeq: number; root: string; createdAt: string }>;
+}
+
+export interface CheckpointParams extends SessionRef {
+  /** The user message whose run the checkpoint precedes. */
+  userSeq: number;
+}
+
+export interface CheckpointDiffResult {
+  changed: boolean;
+  files: string[];
+  indexChanged: boolean;
+}

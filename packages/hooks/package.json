@@ -1,0 +1,17 @@
+{
+  "name": "@pid/hooks",
+  "version": "0.0.0",
+  "private": true,
+  "description": "User shell hooks on agent and tool events (ADR 0009)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/agent": "*",
+    "@pid/session": "*",
+    "@pid/tools": "*",
+    "@pid/ui": "*"
+  }
+}

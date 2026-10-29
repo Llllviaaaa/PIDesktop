@@ -11,9 +11,14 @@
     "@deepseek-ai/cordis": "^4.0.5",
     "@pid/agent": "*",
     "@pid/agent-loop": "*",
+    "@pid/checkpoints": "*",
+    "@pid/hooks": "*",
     "@pid/llm": "*",
     "@pid/llm-anthropic": "*",
     "@pid/llm-openai-compat": "*",
+    "@pid/memory": "*",
+    "@pid/permissions": "*",
+    "@pid/plan": "*",
     "@pid/prompt-context": "*",
     "@pid/protocol": "*",
     "@pid/session": "*",
@@ -22,6 +27,7 @@
     "@pid/tool-bash": "*",
     "@pid/tool-fs": "*",
     "@pid/tools": "*",
+    "@pid/ui": "*",
     "ws": "^8.18.3"
   },
   "devDependencies": {

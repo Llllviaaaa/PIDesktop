@@ -146,3 +146,18 @@ export function compactionPoint(events: readonly SessionEvent[], keepLatestTurn 
   if (!earlierTurn) return branch.at(-1)?.seq;
   return branch[lastUser - 1]?.seq;
 }
+
+/** The data of the latest `custom` event of `ns` on the current branch: a plugin's session state. */
+export function latestCustom<T = unknown>(events: readonly SessionEvent[], ns: string): T | undefined {
+  const branch = currentBranch(events);
+  for (let index = branch.length - 1; index >= 0; index -= 1) {
+    const event = branch[index];
+    if (event?.type === "custom" && event.data.ns === ns) return event.data.data as T;
+  }
+  return undefined;
+}
+
+/** Every `custom` event of `ns` on the current branch, oldest first. */
+export function customEvents(events: readonly SessionEvent[], ns: string): Array<Extract<SessionEvent, { type: "custom" }>> {
+  return currentBranch(events).filter((event): event is Extract<SessionEvent, { type: "custom" }> => event.type === "custom" && event.data.ns === ns);
+}
