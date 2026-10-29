@@ -29,8 +29,8 @@ export const name = "pid-sessions-rpc";
 export const inject = ["rpc", "sessions", "agents", "llm"];
 
 export interface Config {
-  /** The model a new session gets when `session.create` names none. */
-  defaultModel?: ModelChoice;
+  /** The model a new session gets when `session.create` names none; a function is asked each time. */
+  defaultModel?: ModelChoice | (() => ModelChoice | undefined);
 }
 
 const EFFORTS: readonly Effort[] = ["off", "low", "medium", "high"];
@@ -134,7 +134,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (!isAbsolute(cwd) || !existsSync(cwd) || !statSync(cwd).isDirectory()) {
         throw new RpcError(ErrorCode.InvalidParams, "cwd must be the absolute path of an existing directory");
       }
-      const chosen = p.model === undefined ? config.defaultModel : model(params(p.model));
+      const fallback = config.defaultModel;
+      const chosen = p.model === undefined ? (typeof fallback === "function" ? fallback() : fallback) : model(params(p.model));
       const created = ctx.sessions.create({ cwd });
       if (chosen !== undefined) created.append("model", chosen);
       if (p.effort !== undefined) created.append("effort", { effort: effortOf(p.effort) });

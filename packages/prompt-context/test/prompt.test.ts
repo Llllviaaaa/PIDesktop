@@ -63,3 +63,17 @@ describe("context files and skills", () => {
     await ctx.fiber.dispose();
   });
 });
+
+describe("desktop settings", () => {
+  it("add the user's instructions and can leave context files out", async () => {
+    const { dataDir, pkg } = layout();
+    const ctx = new Context();
+    await ctx.plugin(SystemPrompt);
+    await ctx.plugin(promptContext, { dataDir, contextFiles: false, instructions: "  Answer in Chinese.  " });
+    const prompt = await ctx.systemPrompt.build({ sessionId: "s", cwd: pkg, model: { provider: "p", model: "m" }, tools: [] });
+    expect(prompt).toContain("The user's instructions:\nAnswer in Chinese.");
+    expect(prompt.indexOf("Answer in Chinese.")).toBeGreaterThan(prompt.indexOf(GUIDELINES));
+    expect(prompt).not.toContain("repo rules");
+    await ctx.fiber.dispose();
+  });
+});

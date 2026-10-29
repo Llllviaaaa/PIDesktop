@@ -9,10 +9,16 @@
 //! stdin and exits when that pipe closes, so it never outlives the app however
 //! the app ends. After a crash the next request restarts it with a growing
 //! delay, and five crashes within a minute stop the restarts.
+//!
+//! The host keeps its data in `~/.pid` (decision D4). Its stdin doubles as a
+//! control channel (docs/adr/0013-desktop-settings-and-secrets.md): right
+//! after it starts, and whenever the settings change, this process writes one
+//! `{"desktop": …}` line with the public settings (no MCP secrets) and the
+//! paths the host needs, and the host reloads its plugins to match.
 
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::sync::Mutex;
@@ -22,6 +28,7 @@ use base64::Engine;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
+use crate::config::{app_config_dir, pi_agent_dir, without_mcp_secrets, AppSettings};
 use crate::error::AppError;
 
 /// The page origins the host answers for: Tauri's on Windows (http, or
@@ -117,6 +124,79 @@ fn fill_random(buffer: &mut [u8]) -> Result<(), AppError> {
     Ok(())
 }
 
+/// `~/.pid`, where the host keeps sessions, providers and its own settings.
+pub(crate) fn harness_data_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".pid")
+}
+
+/// Copy better-sidebar's settings from the app data directory the host used
+/// before it moved to `~/.pid`, once.
+fn migrate_sidebar_settings(app: &AppHandle, data_dir: &Path) {
+    let Ok(previous) = app.path().app_data_dir() else {
+        return;
+    };
+    let from = previous.join("better-sidebar").join("settings.json");
+    let to = data_dir.join("better-sidebar").join("settings.json");
+    if to.exists() || !from.is_file() {
+        return;
+    }
+    let copied = to
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::copy(&from, &to));
+    if let Err(error) = copied {
+        eprintln!("failed to move better-sidebar settings: {error}");
+    }
+}
+
+/// The control line that hands the host the desktop's settings, without MCP
+/// secrets (the host reads those from their encrypted file), and where the
+/// desktop's files are.
+pub(crate) fn desktop_message(settings: &AppSettings) -> Result<String, AppError> {
+    let executable = std::env::current_exe()
+        .ok()
+        .map(|path| path.to_string_lossy().to_string());
+    let message = serde_json::json!({
+        "desktop": {
+            "settings": without_mcp_secrets(settings),
+            "configDir": app_config_dir().to_string_lossy(),
+            "piAgentDir": pi_agent_dir().to_string_lossy(),
+            "executable": executable,
+        }
+    });
+    let line = serde_json::to_string(&message)
+        .map_err(|error| AppError::Other(error.to_string()))?;
+    Ok(format!("{line}\n"))
+}
+
+fn send_settings(child: &mut Child, settings: &AppSettings) {
+    let Some(stdin) = child.stdin.as_mut() else {
+        return;
+    };
+    let result = desktop_message(settings).and_then(|line| {
+        stdin
+            .write_all(line.as_bytes())
+            .and_then(|()| stdin.flush())
+            .map_err(AppError::from)
+    });
+    if let Err(error) = result {
+        eprintln!("failed to send settings to the Harness Host: {error}");
+    }
+}
+
+/// Hand the running host the desktop's settings; a host that is not running
+/// gets them when it next starts.
+pub(crate) fn push_settings(host: &HarnessHost, settings: &AppSettings) {
+    let Ok(mut state) = host.0.lock() else {
+        return;
+    };
+    if let Some(running) = state.running.as_mut() {
+        send_settings(&mut running.child, settings);
+    }
+}
+
 /// A fresh RPC token: 32 random bytes as unpadded base64url.
 fn new_token() -> Result<String, AppError> {
     let mut bytes = [0u8; TOKEN_BYTES];
@@ -137,10 +217,9 @@ fn restart_delay(crashes: usize) -> Option<Duration> {
 fn start(app: &AppHandle) -> Result<Running, AppError> {
     let executable = locate_harness_host()
         .ok_or_else(|| AppError::NotFound("the Harness Host is not installed".to_string()))?;
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| AppError::Io(format!("no app data directory: {error}")))?;
+    let data_dir = harness_data_dir();
+    std::fs::create_dir_all(&data_dir)?;
+    migrate_sidebar_settings(app, &data_dir);
     let token = new_token()?;
 
     let mut command = Command::new(&executable);
@@ -213,6 +292,10 @@ fn start(app: &AppHandle) -> Result<Running, AppError> {
             line.trim()
         )));
     };
+    let state = app.state::<crate::AppState>();
+    if let Ok(settings) = state.settings.lock() {
+        send_settings(&mut child, &settings);
+    }
     Ok(Running {
         child,
         base: format!("http://127.0.0.1:{port}/"),
@@ -284,6 +367,33 @@ mod tests {
         assert_eq!(first.len(), 43);
         assert!(first.chars().all(base64url));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn desktop_message_keeps_mcp_secrets_out() {
+        use crate::config::McpServerConfig;
+        use std::collections::HashMap;
+
+        let mut env = HashMap::new();
+        env.insert("TOKEN".to_string(), "secret-value".to_string());
+        let mut settings = AppSettings::default();
+        settings.mcp_servers.push(McpServerConfig {
+            id: "fs".to_string(),
+            env,
+            ..McpServerConfig::default()
+        });
+        let line = desktop_message(&settings).expect("message");
+        assert!(line.ends_with('\n'));
+        assert!(!line.contains("secret-value"));
+        let value: serde_json::Value = serde_json::from_str(line.trim()).expect("json");
+        assert_eq!(value["desktop"]["settings"]["mcpServers"][0]["id"], "fs");
+        assert!(value["desktop"]["configDir"].is_string());
+        assert!(value["desktop"]["piAgentDir"].is_string());
+    }
+
+    #[test]
+    fn data_lives_in_dot_pid() {
+        assert!(harness_data_dir().ends_with(".pid"));
     }
 
     #[test]

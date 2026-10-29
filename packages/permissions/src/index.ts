@@ -74,6 +74,8 @@ export class Permissions extends Service {
     super(ctx, "permissions");
     this.rules = rulesFromConfig(config);
 
+    // Prepended, so permissions decide before hooks and other listeners even
+    // after a reload re-registers this plugin last.
     ctx.on("tools/pre-execute", async (call, env) => {
       applyDesktopToolDefaults(call.name, call.args);
       const session = await ctx.sessions.get(env.sessionId);
@@ -84,7 +86,7 @@ export class Permissions extends Service {
       if (!ctx.ui.canAsk(env.sessionId)) return { deny: true, reason: "Confirmation required but no UI is available" };
       const allowed = await ctx.ui.confirm(env.sessionId, decision.title, decision.message, env.signal);
       return allowed ? undefined : { deny: true, reason: `${decision.title} denied by user` };
-    });
+    }, true);
 
     ctx.effect(() => ctx.systemPrompt.section("agent-mode", async ({ sessionId }) => {
       const session = await ctx.sessions.get(sessionId);

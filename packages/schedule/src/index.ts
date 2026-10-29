@@ -46,8 +46,8 @@ export interface Config {
   tasksFile: string;
   /** `<dataDir>/schedule-runs.jsonl`. */
   runsFile: string;
-  /** Model for tasks that name none. */
-  defaultModel?: { provider: string; model: string };
+  /** Model for tasks that name none; a function is asked at each run, so the host's default can change. */
+  defaultModel?: { provider: string; model: string } | (() => { provider: string; model: string } | undefined);
   /** How often to look for due tasks. Default 30 s. */
   tickMs?: number;
   /** Runs at once. Default 2, as in the Rust scheduler. */
@@ -203,7 +203,8 @@ export class Schedule extends Service {
   }
 
   private async execute(task: ScheduledTask, handle: { cancelled: boolean; sessionId?: string }): Promise<{ status: RunStatus; output: string; sessionId?: string }> {
-    const model = task.model ?? this.config.defaultModel;
+    const fallback = this.config.defaultModel;
+    const model = task.model ?? (typeof fallback === "function" ? fallback() : fallback);
     if (model === undefined) return { status: "error", output: "No model: set the task's model or defaultModel in providers.json" };
     if (!existsSync(task.cwd)) return { status: "error", output: `The task's directory does not exist: ${task.cwd}` };
     const session = this.ctx.sessions.create({ cwd: task.cwd });

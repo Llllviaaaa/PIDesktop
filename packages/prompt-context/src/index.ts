@@ -16,6 +16,10 @@ export interface Config {
   dataDir: string;
   /** Override for "today", for tests. */
   now?: () => Date;
+  /** Include AGENTS.md / CLAUDE.md. Default true. */
+  contextFiles?: boolean;
+  /** The user's own instructions (personality, custom instructions), after the guidelines. */
+  instructions?: string;
 }
 
 export const IDENTITY = `You are a coding agent running in Pi Desktop on the user's computer. You help with software tasks by reading and changing files and running commands with the tools you are given.`;
@@ -93,7 +97,13 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => ctx.systemPrompt.section("identity", () => IDENTITY, { order: SectionOrder.identity }), `${name}: identity`);
   ctx.effect(() => ctx.systemPrompt.section("guidelines", () => GUIDELINES, { order: SectionOrder.guidelines }), `${name}: guidelines`);
 
+  const instructions = config.instructions?.trim();
+  if (instructions) {
+    ctx.effect(() => ctx.systemPrompt.section("instructions", () => `The user's instructions:\n${instructions}`, { order: SectionOrder.guidelines + 50 }), `${name}: instructions`);
+  }
+
   ctx.effect(() => ctx.systemPrompt.section("context-files", ({ cwd }: PromptEnv) => {
+    if (config.contextFiles === false) return undefined;
     const files = contextFiles(config.dataDir, cwd);
     if (files.length === 0) return undefined;
     return [

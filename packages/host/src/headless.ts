@@ -24,6 +24,7 @@ import type { AgentDelta, RunOutcome } from "@pid/agent";
 import type { PermissionMode } from "@pid/permissions";
 import { agentPlugins } from "./agent-plugins.ts";
 import { readHarnessConfig } from "./harness-config.ts";
+import { dpapiCodec } from "./secrets.ts";
 import { createHost } from "./host.ts";
 import { readDefaultModel } from "./providers.ts";
 
@@ -100,7 +101,12 @@ export async function runHeadless(argv: readonly string[], out: NodeJS.WritableS
 
   const { config, problems } = readHarnessConfig(join(options.dataDir, "harness.json"));
   const permission = options.permission ?? config.permissions.defaultPermission ?? "workspace-write";
-  const host = createHost({ version: "headless", dataDir: options.dataDir, plugins: agentPlugins(options.dataDir, { config, permission }) });
+  const codec = await dpapiCodec();
+  const host = createHost({
+    version: "headless",
+    dataDir: options.dataDir,
+    plugins: agentPlugins(options.dataDir, { config, permission, ...(codec === undefined ? {} : { codec }) }),
+  });
   for (const problem of problems) err.write(`[warn] ${problem}
 `);
   const exporter: Exporter = {
