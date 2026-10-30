@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, test, vi } from "vitest";
-import type { AppSettings, ModelInfo, RpcResponse } from "../src/types.ts";
+import type { AppSettings, ModelInfo } from "../src/types.ts";
 
 // The store reads window at import time.
 vi.hoisted(() => {
@@ -144,18 +144,31 @@ pi.start = async (cwd, sessionFile) => {
   runtimes.push(runtime);
   return { runtimeId: runtime.id, sessionLoaded: Boolean(sessionFile), sessionForked: false };
 };
-// Commands reach the runtime through the Host adapter; a runtime that has not booted yet answers once it has.
-vi.spyOn(harnessRuntimes, "command").mockImplementation((runtimeId, command, payload = {}) => new Promise<RpcResponse>((resolve) => {
-  const runtime = runtimes.find((item) => item.id === runtimeId);
-  assert.ok(runtime, `command sent to unknown runtime ${runtimeId}`);
-  const request: Record<string, unknown> = { ...payload, type: command };
-  const reply = () => {
-    const { data, error } = handle(runtime, request);
-    resolve({ type: "response", command, success: !error, data, error } as RpcResponse);
-  };
-  if (runtime.booted) queueMicrotask(reply);
-  else runtime.backlog.push(reply);
-}));
+/** Ask the fake runtime; one that has not booted yet answers once it has. */
+function ask<T>(runtimeId: string, request: Record<string, unknown>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const runtime = runtimes.find((item) => item.id === runtimeId);
+    assert.ok(runtime, `command sent to unknown runtime ${runtimeId}`);
+    const reply = () => {
+      const { data, error } = handle(runtime, request);
+      if (error) reject(new Error(error));
+      else resolve(data as T);
+    };
+    if (runtime.booted) queueMicrotask(reply);
+    else runtime.backlog.push(reply);
+  });
+}
+
+// The store calls the Host adapter's typed methods; each goes to the fake runtime.
+vi.spyOn(harnessRuntimes, "state").mockImplementation((id) => ask(id, { type: "get_state" }));
+vi.spyOn(harnessRuntimes, "messages").mockImplementation((id) => ask<{ messages: never[] }>(id, { type: "get_messages" }).then((data) => data.messages));
+vi.spyOn(harnessRuntimes, "forkPoints").mockImplementation((id) => ask(id, { type: "get_fork_messages" }).then(() => []));
+vi.spyOn(harnessRuntimes, "models").mockImplementation(async () => [DEFAULT_MODEL, PICKED_MODEL]);
+vi.spyOn(harnessRuntimes, "thinkingLevels").mockReturnValue(["off", "medium", "high"]);
+vi.spyOn(harnessRuntimes, "stats").mockRejectedValue(new Error("no stats in this test"));
+vi.spyOn(harnessRuntimes, "setModel").mockImplementation((id, provider, modelId) => ask(id, { type: "set_model", provider, modelId }));
+vi.spyOn(harnessRuntimes, "setThinkingLevel").mockImplementation((id, level) => ask(id, { type: "set_thinking_level", level }).then(() => undefined));
+vi.spyOn(harnessRuntimes, "prompt").mockImplementation((id, input) => ask(id, { type: "prompt", message: input.message }).then(() => undefined));
 pi.stop = async () => undefined;
 pi.bindSession = async () => undefined;
 pi.sessionHistory = async () => ({ messages: [], timings: [] }) as never;

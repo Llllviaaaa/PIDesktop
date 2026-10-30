@@ -7,7 +7,8 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle, MessageSquare, Plus, RotateCcw, Trash2, X } from "lucide-react";
-import { pi, respondToExtension, sendCommand, subscribeToPi } from "../lib/pi";
+import { harnessRuntimes } from "../lib/harnessRuntime";
+import { pi, respondToExtension, subscribeToPi } from "../lib/pi";
 import {
   assistantToUi,
   attachToolResult,
@@ -59,8 +60,6 @@ interface SideChatPanelProps {
   onError?: (message: string) => void;
 }
 
-const SIDE_CHAT_MODE_COMMAND = "pidesktop-mode";
-const SIDE_CHAT_PERMISSION_COMMAND = "pidesktop-permission";
 
 function permissionLabel(mode: AppSettings["permissionMode"]): string {
   if (mode === "read-only") return "只读";
@@ -90,6 +89,9 @@ function upsertToolCall(calls: UiToolCall[] | undefined, call: UiToolCall): UiTo
   return next;
 }
 
+/** The Harness Host has no slash commands of its own. */
+const NO_COMMANDS: SlashCommand[] = [];
+
 export function SideChatPanel({
   chatId,
   cwd,
@@ -113,7 +115,6 @@ export function SideChatPanel({
   const [model, setModel] = useState<ModelInfo | null>(null);
   const [thinkingLevel, setThinkingLevel] = useState("off");
   const [thinkingLevels, setThinkingLevels] = useState<string[]>(["off"]);
-  const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [isSwitchingModel, setIsSwitchingModel] = useState(false);
   const [permissionMode, setPermissionMode] = useState<AppSettings["permissionMode"]>(settings?.permissionMode ?? "ask");
   const [agentMode, setAgentMode] = useState<AppSettings["agentMode"]>(settings?.agentMode ?? "agent");
@@ -161,10 +162,8 @@ export function SideChatPanel({
 
     const refreshStats = async (runtimeId: string) => {
       try {
-        const response = await sendCommand(runtimeId, "get_session_stats");
-        if (!disposed && runtimeRef.current === runtimeId) {
-          setStats((response.data as unknown as SessionStats) ?? null);
-        }
+        const next = await harnessRuntimes.stats(runtimeId);
+        if (!disposed && runtimeRef.current === runtimeId) setStats(next);
       } catch {
         if (!disposed && runtimeRef.current === runtimeId) setStats(null);
       }
@@ -318,23 +317,20 @@ export function SideChatPanel({
           return;
         }
         runtimeRef.current = started.runtimeId;
-        const [state, availableModelResponse, thinkingResponse, commandResponse] = await Promise.all([
-          sendCommand(started.runtimeId, "get_state"),
-          sendCommand(started.runtimeId, "get_available_models"),
-          sendCommand(started.runtimeId, "get_available_thinking_levels"),
-          sendCommand(started.runtimeId, "get_commands"),
+        const [state, availableModels] = await Promise.all([
+          harnessRuntimes.state(started.runtimeId),
+          harnessRuntimes.models(),
         ]);
-        const sideFile = typeof state.data?.sessionFile === "string" ? state.data.sessionFile : null;
+        const sideFile = state.sessionFile ?? null;
         if (!sideFile || sameLocalPath(sideFile, parentSessionFile)) {
           throw new Error("无法创建独立的侧边聊天会话");
         }
         await pi.bindSession(started.runtimeId, sideFile);
         if (!disposed) {
-          setModel(state.data?.model ?? null);
-          setThinkingLevel(state.data?.thinkingLevel ?? "off");
-          setModels(availableModelResponse.data?.models ?? []);
-          setThinkingLevels(thinkingResponse.data?.levels ?? ["off"]);
-          setCommands((commandResponse.data?.commands ?? []).filter((command) => !command.name.startsWith("pidesktop-")));
+          setModel(state.model ?? null);
+          setThinkingLevel(state.thinkingLevel ?? "off");
+          setModels(availableModels);
+          setThinkingLevels(harnessRuntimes.thinkingLevels());
           setPhase("ready");
           void refreshStats(started.runtimeId);
         }
@@ -388,8 +384,8 @@ export function SideChatPanel({
     setIsStreaming(true);
     if (!wasStreaming) activeTurnStartedAtRef.current = Date.now();
     try {
-      const command = wasStreaming ? (behavior === "followUp" ? "follow_up" : "steer") : "prompt";
-      await sendCommand(runtimeId, command, payload, 60_000);
+      if (wasStreaming) await harnessRuntimes.queue(runtimeId, behavior === "followUp" ? "followUp" : "steer", payload);
+      else await harnessRuntimes.prompt(runtimeId, payload);
       return true;
     } catch (reason) {
       setIsStreaming(wasStreaming);
@@ -406,7 +402,7 @@ export function SideChatPanel({
 
   const stop = () => {
     const runtimeId = runtimeRef.current;
-    if (runtimeId) void sendCommand(runtimeId, "abort").finally(() => setIsStreaming(false));
+    if (runtimeId) void harnessRuntimes.abort(runtimeId).finally(() => setIsStreaming(false));
   };
 
   const pickAttachments = async () => {
@@ -436,13 +432,8 @@ export function SideChatPanel({
     setModel(next);
     setIsSwitchingModel(true);
     try {
-      await sendCommand(runtimeId, "set_model", { provider: next.provider, modelId: next.id });
-      const [state, levels] = await Promise.all([
-        sendCommand(runtimeId, "get_state"),
-        sendCommand(runtimeId, "get_available_thinking_levels"),
-      ]);
-      setModel(state.data?.model ?? next);
-      setThinkingLevels(levels.data?.levels ?? ["off"]);
+      setModel(await harnessRuntimes.setModel(runtimeId, next.provider, next.id));
+      setThinkingLevels(harnessRuntimes.thinkingLevels());
     } catch (reason) {
       setModel(previous);
       reportError(reason);
@@ -455,7 +446,7 @@ export function SideChatPanel({
     const runtimeId = runtimeRef.current;
     if (!runtimeId) return;
     try {
-      await sendCommand(runtimeId, "set_thinking_level", { level });
+      await harnessRuntimes.setThinkingLevel(runtimeId, level);
       setThinkingLevel(level);
     } catch (reason) {
       reportError(reason);
@@ -466,7 +457,7 @@ export function SideChatPanel({
     const runtimeId = runtimeRef.current;
     if (!runtimeId || isStreaming) return;
     try {
-      await sendCommand(runtimeId, "prompt", { message: `/${SIDE_CHAT_PERMISSION_COMMAND} ${mode}` }, 30_000);
+      await harnessRuntimes.setPermission(runtimeId, { permission: mode });
       setPermissionMode(mode);
     } catch (reason) {
       reportError(reason);
@@ -477,7 +468,7 @@ export function SideChatPanel({
     const runtimeId = runtimeRef.current;
     if (!runtimeId || isStreaming) return;
     try {
-      await sendCommand(runtimeId, "prompt", { message: `/${SIDE_CHAT_MODE_COMMAND} ${mode}` }, 30_000);
+      await harnessRuntimes.setPermission(runtimeId, { agentMode: mode });
       setAgentMode(mode);
     } catch (reason) {
       reportError(reason);
@@ -573,7 +564,7 @@ export function SideChatPanel({
           isSwitchingModel={isSwitchingModel}
           disabled={phase !== "ready"}
           attachments={attachments}
-          commands={commands}
+          commands={NO_COMMANDS}
           models={models}
           model={model}
           thinkingLevel={thinkingLevel}

@@ -103,7 +103,8 @@ export interface PiState {
   loadSessionTree: () => Promise<void>;
   continueFromTreeNode: (entryId: string) => Promise<void>;
   compact: () => Promise<void>;
-  exportSession: () => Promise<string | null>;
+  /** Write the task on screen as Markdown to `destination`; returns where it went. */
+  exportSession: (destination: string) => Promise<string>;
   setModel: (model: ModelInfo) => Promise<void>;
   /** Make live chats re-read credentials and models.json, then reload the picker's models. */
   reloadProviderCatalog: () => Promise<void>;
@@ -115,9 +116,6 @@ export interface PiState {
   refreshGit: () => Promise<void>;
   loadSettings: () => Promise<void>;
   saveSettings: (settings: AppSettings) => Promise<void>;
-  runBash: (command: string, excludeFromContext?: boolean) => Promise<void>;
-  abortBash: () => Promise<void>;
-  resetTerminal: () => void;
   answerExtension: (response: { value?: string; confirmed?: boolean; cancelled?: true }) => Promise<void>;
   showToast: (message: string, kind?: Toast["kind"]) => void;
   addNotification: (notification: Omit<AppNotification, "createdAt" | "read"> & { createdAt?: number; read?: boolean }) => void;

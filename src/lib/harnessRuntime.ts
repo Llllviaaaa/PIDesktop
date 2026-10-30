@@ -25,7 +25,8 @@ import type {
   SessionSubscribeResult,
   UiRequestNotification,
 } from "@pid/protocol";
-import type { ExtensionUIRequest, ModelInfo, PiEvent, RpcData, RpcResponse } from "../types";
+import type { AgentMessage, ExtensionUIRequest, ForkPoint, ModelInfo, PiEvent, SessionStats } from "../types";
+import type { SessionTreeNode } from "./sessionTree";
 import { connectHarness, harnessEndpoint, type HarnessConnection } from "./harnessClient";
 import { HARNESS_THINKING_LEVELS, HarnessEventTranslator, effortForLevel, forkPointsOf, sessionTreeOf, toAgentMessages } from "./harnessTranscript";
 
@@ -169,113 +170,115 @@ export class HarnessRuntimes {
     return events;
   }
 
-  /** Answer one Pi RPC command the store sends. Unknown commands fail like Pi's would. */
-  async command(runtimeId: string, command: string, payload: Record<string, unknown> = {}): Promise<RpcResponse> {
+  private runtime(runtimeId: string): Runtime {
     const runtime = this.runtimes.get(runtimeId);
-    if (runtime === undefined) return failure(command, "Harness 任务已结束");
+    if (runtime === undefined) throw new Error("Harness 任务已结束");
     this.lastActive = runtimeId;
-    try {
-      const data = await this.run(runtime, command, payload);
-      return { type: "response", command, success: true, ...(data === undefined ? {} : { data }) };
-    } catch (error) {
-      return failure(command, error instanceof Error ? error.message : String(error));
-    }
+    return runtime;
   }
 
-  private async run(runtime: Runtime, command: string, payload: Record<string, unknown>): Promise<RpcData | undefined> {
+  /** Send a prompt, creating the session on the first one. */
+  async prompt(runtimeId: string, input: PromptInput): Promise<void> {
+    const runtime = this.runtime(runtimeId);
+    await this.ensureSession(runtime);
+    await (await this.rpc()).call("session.prompt", { sessionId: runtime.sessionId, content: promptContent(input) });
+  }
+
+  /** Redirect the running turn (`steer`) or queue a message after it (`followUp`). */
+  async queue(runtimeId: string, behavior: "steer" | "followUp", input: PromptInput): Promise<void> {
+    const runtime = this.runtime(runtimeId);
+    await this.ensureSession(runtime);
+    await (await this.rpc()).call(behavior === "steer" ? "session.steer" : "session.followUp", { sessionId: runtime.sessionId, content: promptContent(input) });
+  }
+
+  async abort(runtimeId: string): Promise<void> {
+    const runtime = this.runtime(runtimeId);
+    if (runtime.sessionId !== undefined) await (await this.rpc()).call("session.abort", { sessionId: runtime.sessionId });
+  }
+
+  /** The permission mode or agent mode of the runtime's session. */
+  async setPermission(runtimeId: string, change: { permission?: string; agentMode?: string }): Promise<void> {
+    const runtime = this.runtime(runtimeId);
+    await this.ensureSession(runtime);
+    await (await this.rpc()).call("permission.set", { sessionId: runtime.sessionId, ...change });
+  }
+
+  async messages(runtimeId: string): Promise<AgentMessage[]> {
+    const runtime = this.runtime(runtimeId);
+    if (runtime.sessionId === undefined) return [];
+    const replay = await (await this.rpc()).call<SessionSubscribeResult>("session.subscribe", { sessionId: runtime.sessionId, afterSeq: 0 });
+    return toAgentMessages(replay.events);
+  }
+
+  thinkingLevels(): string[] {
+    return HARNESS_THINKING_LEVELS;
+  }
+
+  async forkPoints(runtimeId: string): Promise<ForkPoint[]> {
+    const runtime = this.runtime(runtimeId);
+    return runtime.sessionId === undefined ? [] : forkPointsOf(await this.readEvents(runtime.sessionId));
+  }
+
+  async tree(runtimeId: string): Promise<{ tree: SessionTreeNode[]; leafId: string | null }> {
+    const runtime = this.runtime(runtimeId);
+    if (runtime.sessionId === undefined) return { tree: [], leafId: null };
+    return sessionTreeOf(await this.readEvents(runtime.sessionId));
+  }
+
+  /**
+   * Continue in a new session forked at `entryId`. From a user message the
+   * fork stops before it; from a reply it keeps the reply.
+   */
+  async fork(runtimeId: string, entryId: string): Promise<void> {
+    const runtime = this.runtime(runtimeId);
+    if (runtime.sessionId === undefined) throw new Error("任务尚未开始");
+    const seq = Number(entryId);
+    const entry = (await this.readEvents(runtime.sessionId)).find((event) => event.seq === seq);
+    if (entry === undefined) throw new Error("找不到要分叉的消息");
     const rpc = await this.rpc();
-    switch (command) {
-      case "prompt": {
-        const message = typeof payload.message === "string" ? payload.message : "";
-        const slash = /^\/(pidesktop-mode|pidesktop-permission)\s+(\S+)/.exec(message);
-        if (slash !== null) {
-          await this.ensureSession(runtime);
-          await rpc.call("permission.set", { sessionId: runtime.sessionId, ...(slash[1] === "pidesktop-mode" ? { agentMode: slash[2] } : { permission: slash[2] }) });
-          return undefined;
-        }
-        const rewind = /^\/pidesktop-rewind\s+(\d+)\s*$/.exec(message);
-        if (rewind !== null) {
-          await this.rewind(runtime, Number(rewind[1]));
-          return undefined;
-        }
-        // Pi's internal slash commands (the provider service) have no Host counterpart.
-        if (message.startsWith("/pidesktop-")) return undefined;
-        await this.ensureSession(runtime);
-        await rpc.call("session.prompt", { sessionId: runtime.sessionId, content: promptContent(payload) });
-        return undefined;
-      }
-      case "steer":
-      case "follow_up":
-        await this.ensureSession(runtime);
-        await rpc.call(command === "steer" ? "session.steer" : "session.followUp", { sessionId: runtime.sessionId, content: promptContent(payload) });
-        return undefined;
-      case "abort":
-        if (runtime.sessionId !== undefined) await rpc.call("session.abort", { sessionId: runtime.sessionId });
-        return undefined;
-      case "get_state":
-        return this.state(runtime);
-      case "get_messages": {
-        if (runtime.sessionId === undefined) return { messages: [] };
-        const replay = await rpc.call<SessionSubscribeResult>("session.subscribe", { sessionId: runtime.sessionId, afterSeq: 0 });
-        return { messages: toAgentMessages(replay.events) };
-      }
-      case "get_available_models":
-        return { models: await this.models() };
-      case "get_available_thinking_levels":
-        return { levels: HARNESS_THINKING_LEVELS };
-      case "get_commands":
-        // The store checks for the rewind command before offering rewind and edit.
-        return { commands: [{ name: "pidesktop-rewind", description: "Rewind to before a message", source: "extension" }] };
-      case "get_fork_messages":
-        // Pi sends fork points in the `messages` field, which the store reads as ForkPoint[].
-        return { messages: (runtime.sessionId === undefined ? [] : forkPointsOf(await this.readEvents(runtime.sessionId))) as unknown as RpcData["messages"] };
-      case "get_tree":
-        if (runtime.sessionId === undefined) return { tree: [], leafId: null };
-        return { ...sessionTreeOf(await this.readEvents(runtime.sessionId)) };
-      case "fork": {
-        if (runtime.sessionId === undefined) throw new Error("任务尚未开始");
-        const seq = Number(payload.entryId);
-        const entry = (await this.readEvents(runtime.sessionId)).find((event) => event.seq === seq);
-        if (entry === undefined) throw new Error("找不到要分叉的消息");
-        // From a user message the fork stops before it, as Pi does; from a reply it keeps the reply.
-        await this.switchTo(runtime, await rpc.call<SessionResult>("session.fork", { sessionId: runtime.sessionId, seq: entry.type === "user" ? seq - 1 : seq }));
-        return { cancelled: false };
-      }
-      case "clone":
-        if (runtime.sessionId === undefined) throw new Error("任务尚未开始");
-        await this.switchTo(runtime, await rpc.call<SessionResult>("session.fork", { sessionId: runtime.sessionId }));
-        return { cancelled: false };
-      case "new_session":
-        runtime.sessionId = undefined;
-        runtime.lastSeq = 0;
-        runtime.title = undefined;
-        return { cancelled: false };
-      case "set_model": {
-        const model = { provider: String(payload.provider ?? ""), model: String(payload.modelId ?? "") };
-        if (runtime.sessionId === undefined) runtime.pendingModel = model;
-        else await rpc.call("model.set", { sessionId: runtime.sessionId, ...model });
-        runtime.model = model;
-        return this.modelInfo(model) as unknown as RpcData;
-      }
-      case "set_thinking_level": {
-        const level = String(payload.level ?? "medium");
-        if (runtime.sessionId === undefined) runtime.pendingLevel = level;
-        else await rpc.call("model.setEffort", { sessionId: runtime.sessionId, effort: effortForLevel(level) });
-        return undefined;
-      }
-      case "set_session_name":
-        await this.ensureSession(runtime);
-        await rpc.call("session.rename", { sessionId: runtime.sessionId, title: String(payload.name ?? "") });
-        runtime.title = String(payload.name ?? "");
-        return undefined;
-      case "compact":
-        if (runtime.sessionId !== undefined) await rpc.call("session.compact", { sessionId: runtime.sessionId });
-        return undefined;
-      case "get_session_stats":
-        return this.stats(runtime);
-      default:
-        throw new Error(`Harness 引擎暂不支持 ${command}`);
-    }
+    await this.switchTo(runtime, await rpc.call<SessionResult>("session.fork", { sessionId: runtime.sessionId, seq: entry.type === "user" ? seq - 1 : seq }));
+  }
+
+  /** Continue in a full copy of the session. */
+  async clone(runtimeId: string): Promise<void> {
+    const runtime = this.runtime(runtimeId);
+    if (runtime.sessionId === undefined) throw new Error("任务尚未开始");
+    await this.switchTo(runtime, await (await this.rpc()).call<SessionResult>("session.fork", { sessionId: runtime.sessionId }));
+  }
+
+  /** Start over: the next prompt creates a new session. */
+  newSession(runtimeId: string): void {
+    const runtime = this.runtime(runtimeId);
+    runtime.sessionId = undefined;
+    runtime.lastSeq = 0;
+    runtime.title = undefined;
+  }
+
+  async setModel(runtimeId: string, provider: string, modelId: string): Promise<ModelInfo> {
+    const runtime = this.runtime(runtimeId);
+    const model = { provider, model: modelId };
+    if (runtime.sessionId === undefined) runtime.pendingModel = model;
+    else await (await this.rpc()).call("model.set", { sessionId: runtime.sessionId, ...model });
+    runtime.model = model;
+    return this.modelInfo(model);
+  }
+
+  async setThinkingLevel(runtimeId: string, level: string): Promise<void> {
+    const runtime = this.runtime(runtimeId);
+    if (runtime.sessionId === undefined) runtime.pendingLevel = level;
+    else await (await this.rpc()).call("model.setEffort", { sessionId: runtime.sessionId, effort: effortForLevel(level) });
+  }
+
+  async rename(runtimeId: string, name: string): Promise<void> {
+    const runtime = this.runtime(runtimeId);
+    await this.ensureSession(runtime);
+    await (await this.rpc()).call("session.rename", { sessionId: runtime.sessionId, title: name });
+    runtime.title = name;
+  }
+
+  async compact(runtimeId: string): Promise<void> {
+    const runtime = this.runtime(runtimeId);
+    if (runtime.sessionId !== undefined) await (await this.rpc()).call("session.compact", { sessionId: runtime.sessionId });
   }
 
   /** Point the runtime at another session (a fork or clone), as Pi's runtime switches to it. */
@@ -289,12 +292,14 @@ export class HarnessRuntimes {
   }
 
   /**
-   * Rewind to before the user message at `userSeq`, as the Pi guard's rewind
-   * command does: when the files changed since its checkpoint, ask before
-   * restoring them, then continue the session from just before the message.
+   * Rewind to before the user message at `entryId` (its seq): when the files
+   * changed since its checkpoint, ask before restoring them, then continue the
+   * session from just before the message. False when the user declines.
    */
-  private async rewind(runtime: Runtime, userSeq: number): Promise<void> {
+  async rewind(runtimeId: string, entryId: string): Promise<boolean> {
+    const runtime = this.runtime(runtimeId);
     if (runtime.sessionId === undefined) throw new Error("任务尚未开始");
+    const userSeq = Number(entryId);
     const rpc = await this.rpc();
     const sessionId = runtime.sessionId;
     const { checkpoints } = await rpc.call<CheckpointListResult>("checkpoint.list", { sessionId });
@@ -303,11 +308,12 @@ export class HarnessRuntimes {
       if (diff.changed) {
         const fileSummary = diff.files.length > 0 ? `${diff.files.length} 个文件将恢复到此消息发送前的状态。` : "Git 暂存区将恢复到此消息发送前的状态。";
         const confirmed = await this.askLocally(runtime.id, "回退消息和工作区？", `${fileSummary}\n\n此操作不会删除已有对话分支，你之后仍可从会话树切回。`);
-        if (!confirmed) throw new Error("PIDesktop message rewind was cancelled");
+        if (!confirmed) return false;
         await rpc.call("checkpoint.restore", { sessionId, userSeq });
       }
     }
     await rpc.call("session.rewind", { sessionId, toSeq: userSeq - 1, reason: "rewind to before a message" });
+    return true;
   }
 
   private askLocally(runtimeId: string, title: string, message: string): Promise<boolean> {
@@ -318,7 +324,9 @@ export class HarnessRuntimes {
     });
   }
 
-  private async state(runtime: Runtime): Promise<RpcData> {
+  /** The runtime's session, model, effort and whether it is running. */
+  async state(runtimeId: string): Promise<RuntimeStateInfo> {
+    const runtime = this.runtime(runtimeId);
     if (runtime.sessionId === undefined) {
       const model = runtime.model ?? runtime.pendingModel;
       return {
@@ -342,7 +350,9 @@ export class HarnessRuntimes {
     };
   }
 
-  private async stats(runtime: Runtime): Promise<RpcData> {
+  /** Token totals of the runtime's session. The Host does not count messages by role or compute costs. */
+  async stats(runtimeId: string): Promise<SessionStats> {
+    const runtime = this.runtime(runtimeId);
     if (runtime.sessionId === undefined) throw new Error("任务尚未开始");
     const got = await (await this.rpc()).call<SessionGetResult>("session.get", { sessionId: runtime.sessionId });
     const usage = got.session.usage;
@@ -366,7 +376,7 @@ export class HarnessRuntimes {
   }
 
   /** Every model the Host's providers offer; a provider that cannot be reached is skipped. */
-  private models(): Promise<ModelInfo[]> {
+  models(): Promise<ModelInfo[]> {
     if (this.catalog !== undefined && Date.now() - this.catalog.at < MODEL_CATALOG_TTL_MS) return this.catalog.models;
     const models = (async () => {
       const rpc = await this.rpc();
@@ -476,18 +486,28 @@ export class HarnessRuntimes {
   }
 }
 
-function failure(command: string, error: string): RpcResponse {
-  return { type: "response", command, success: false, error };
+/** A prompt as the composer builds it: its text and attached images. */
+export interface PromptInput {
+  message: string;
+  images: Array<{ type?: "image"; data: string; mimeType: string }>;
 }
 
-/** Pi's prompt payload (`message`, `images`) as Host prompt content. */
-export function promptContent(payload: Record<string, unknown>): Array<{ type: "text"; text: string } | { type: "image"; mimeType: string; data: string }> {
+/** What `state` reports about a runtime. */
+export interface RuntimeStateInfo {
+  sessionFile?: string;
+  sessionId?: string;
+  sessionName?: string;
+  isStreaming: boolean;
+  isCompacting: boolean;
+  thinkingLevel?: string;
+  model?: ModelInfo;
+}
+
+/** A prompt as Host prompt content. */
+export function promptContent(input: PromptInput): Array<{ type: "text"; text: string } | { type: "image"; mimeType: string; data: string }> {
   const content: Array<{ type: "text"; text: string } | { type: "image"; mimeType: string; data: string }> = [];
-  if (typeof payload.message === "string" && payload.message !== "") content.push({ type: "text", text: payload.message });
-  for (const image of Array.isArray(payload.images) ? payload.images : []) {
-    const item = image as { data?: unknown; mimeType?: unknown };
-    if (typeof item.data === "string" && typeof item.mimeType === "string") content.push({ type: "image", mimeType: item.mimeType, data: item.data });
-  }
+  if (input.message !== "") content.push({ type: "text", text: input.message });
+  for (const image of input.images) content.push({ type: "image", mimeType: image.mimeType, data: image.data });
   return content;
 }
 

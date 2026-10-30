@@ -163,6 +163,18 @@ export default function App() {
     }
     setLocalTranscriptDensity(density);
   }, []);
+  // The task on screen as Markdown, wherever the user picks.
+  const exportConversation = useCallback(async () => {
+    const current = usePiStore.getState();
+    const name = (current.sessionName || "conversation").replace(/[\\/:*?"<>|]+/g, "-").slice(0, 60);
+    const destination = await saveDialog({ defaultPath: `${name}.md`, filters: [{ name: "Markdown", extensions: ["md"] }] });
+    if (!destination) return;
+    try {
+      await current.exportSession(destination);
+    } catch (error) {
+      current.showToast(`导出失败：${describeError(error)}`, "error");
+    }
+  }, []);
   // Pi's past tasks, offered once (P6b).
   const [piImportPending, setPiImportPending] = useState<number | null>(null);
   const haveSettings = settings !== null;
@@ -1524,7 +1536,7 @@ export default function App() {
                 <button onClick={() => { setAppMenu(null); void pickFolder(); }}>打开项目...</button>
                 <button disabled={!canOpenWorkspace} onClick={() => { setAppMenu(null); openWorkspaceInPreferredApp(); }}>{preferredWorkspaceEditor ? `在 ${preferredWorkspaceEditor.name} 中打开` : "在文件资源管理器中打开"}  Ctrl+Shift+O</button>
                 <button disabled={!connected || !sessionFile} onClick={() => { setAppMenu(null); void exportConversationMarkdown(); }}>导出为 Markdown...</button>
-                <button disabled={!connected} onClick={() => { setAppMenu(null); void store.exportSession(); }}>导出为 HTML</button>
+                <button disabled={!connected} onClick={() => { setAppMenu(null); void exportConversation(); }}>导出为 Markdown</button>
                 <div className="menu-separator" />
                 <button onClick={() => { setAppMenu(null); void invoke("quit_app"); }}>退出</button>
               </>}
@@ -1728,7 +1740,7 @@ export default function App() {
                         <button disabled={!connected} onClick={() => { setMoreOpen(false); void store.cloneSession(); }}>克隆当前分支</button>
                         <button disabled={!connected || isStreaming} onClick={() => { setMoreOpen(false); void store.forkLatest(); }}>从最新检查点分叉</button>
                         <button disabled={!connected || isStreaming} onClick={() => { setMoreOpen(false); void store.compact(); }}>压缩上下文</button>
-                        <button disabled={!connected} onClick={() => { setMoreOpen(false); void store.exportSession(); }}>导出为 HTML</button>
+                        <button disabled={!connected} onClick={() => { setMoreOpen(false); void exportConversation(); }}>导出为 Markdown</button>
                         <button disabled={!sessionFile} onClick={() => { setMoreOpen(false); void exportConversationMarkdown(); }}>导出为 Markdown...</button>
                         <button disabled={!sessionFile || isStreaming} onClick={() => {
                           setMoreOpen(false);

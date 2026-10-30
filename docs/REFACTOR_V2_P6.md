@@ -112,6 +112,8 @@ P5 结束后，Harness 是默认引擎，Pi 只作为退路保留。还依赖 Pi
 
 P6a 和 P6b 互不依赖，可以并行开发。P6c 依赖这两个。P6d 和 P6e 依次进行。
 
+> **P6d 拆成两个 PR**：P6d-1 把命令改为类型化的方法调用（ADR 0014 “P6d-1”一节）；P6d-2 让 store 直接处理 Host 的事件，删除 `piMessages` 和 Pi 的事件、消息类型，并把 `pi.ts` 改名为 `agent.ts`。
+
 > **P6c 实施时的调整**：
 > - `pi.ts` 暂不改名为 `agent.ts`：改名涉及所有引用它的文件，放到 P6d 用 GitNexus 的 rename 一起做。
 > - `providerService` 暂时保留原来的接口，改由 Host 实现：列表来自 Host，填写或删除密钥改为编辑 provider，OAuth 直接报错。模型设置页留到 P6d、P6e 再整理。
