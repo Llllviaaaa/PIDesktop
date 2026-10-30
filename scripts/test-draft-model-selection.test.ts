@@ -23,7 +23,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined })
 
 const { agent } = await import("../src/lib/agent.ts");
 const { harnessRuntimes } = await import("../src/lib/harnessRuntime.ts");
-const { usePiStore } = await import("../src/store.ts");
+const { useAppStore } = await import("../src/store/index.ts");
 
 const DEFAULT_MODEL: ModelInfo = { provider: "example", id: "default-model", name: "Default" };
 const PICKED_MODEL: ModelInfo = { provider: "example", id: "picked-model", name: "Picked" };
@@ -112,7 +112,7 @@ async function until(condition: () => boolean) {
   assert.ok(condition(), "condition was never reached");
 }
 
-const store = () => usePiStore.getState();
+const store = () => useAppStore.getState();
 const defaults = (model: ModelInfo, thinkingLevel: string) =>
   ({ provider: model.provider, model: model.id, thinkingLevel }) as AppSettings;
 const savedDefault = () => {
@@ -178,7 +178,7 @@ agent.gitSnapshot = async () => null as never;
 beforeEach(async () => {
   await store().disconnect();
   store().prepareNewTask();
-  usePiStore.setState({
+  useAppStore.setState({
     model: DEFAULT_MODEL,
     thinkingLevel: "medium",
     toasts: [],
@@ -200,7 +200,7 @@ test("a model picked before Pi has started is used by a prompt sent while Pi is 
   // The picker lists the cached catalog, so the choice can land before any runtime exists.
   await store().setModel(PICKED_MODEL);
   const shown: string[] = [];
-  const unsubscribe = usePiStore.subscribe((state) => shown.push(state.model?.id ?? "none"));
+  const unsubscribe = useAppStore.subscribe((state) => shown.push(state.model?.id ?? "none"));
 
   start.open();
   await until(() => store().runtimeId !== null);
@@ -262,7 +262,7 @@ test("the model and thinking level picked on the new-task page follow the task t
 });
 
 test("a new task applies the saved default to a runtime warmed with an older one; a saved session keeps its own", async () => {
-  usePiStore.setState({ settings: defaults(PICKED_MODEL, "high") });
+  useAppStore.setState({ settings: defaults(PICKED_MODEL, "high") });
 
   await store().connect(PROJECT, SAVED_SESSION);
   assert.deepEqual(runtimeIn(PROJECT).setModelRequests, [], "opening a saved session must not switch its model");
@@ -279,7 +279,7 @@ test("a new task applies the saved default to a runtime warmed with an older one
 });
 
 test("a saved default the catalog does not list is not forced onto new tasks", async () => {
-  usePiStore.setState({ settings: defaults(REMOVED_MODEL, "medium") });
+  useAppStore.setState({ settings: defaults(REMOVED_MODEL, "medium") });
   await store().connect(PROJECT);
   assert.deepEqual(runtimeIn(PROJECT).setModelRequests, []);
   assert.equal(store().toasts.length, 0, "a disconnected default must not raise an error on every new task");

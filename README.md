@@ -106,7 +106,7 @@ Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Do 
 ## Important files
 
 - `src/App.tsx` - desktop workspace composition
-- `src/store.ts` - conversation state machine
+- `src/store/` - app state in four slices (runtime, sessions, transcript, ui) with their actions; `selectors.ts` reads them by slice
 - `src/lib/harnessRuntime.ts` - the frontend's link to the Harness Host's sessions (ADR 0014)
 - `src/lib/agent.ts` - typed client for the Rust shell and the Host
 - `src/lib/transcript.ts` - the conversation from the Host's session events

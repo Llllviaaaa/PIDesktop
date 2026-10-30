@@ -1,13 +1,13 @@
 import { useId, useMemo, useState } from "react";
 import { ChevronUp } from "lucide-react";
 import { currentPlanStepIndex, deriveLiveTaskPlan } from "../lib/envSources";
-import { usePiStore } from "../store";
+import { useAppStore } from "../store";
 import { PlanProgressRing, PlanSteps } from "./ConversationPlan";
 
 /** The running turn's plan, pinned above the composer only while the turn is live. */
 export function LivePlanBar() {
-  const messages = usePiStore((state) => state.messages);
-  const isStreaming = usePiStore((state) => state.isStreaming);
+  const messages = useAppStore((state) => state.messages);
+  const isStreaming = useAppStore((state) => state.isStreaming);
   const plan = useMemo(() => (isStreaming ? deriveLiveTaskPlan(messages) : null), [isStreaming, messages]);
   const [expanded, setExpanded] = useState(false);
   const stepsId = useId();
