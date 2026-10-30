@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { LlmCompleteResult } from "@pid/protocol";
+import { harnessRuntimes } from "./harnessRuntime";
 import type {
   GitBranchInfo,
   GitCommitInfo,
@@ -8,6 +10,13 @@ import type {
 } from "../types";
 
 const gitSnapshotRequests = new Map<string, Promise<GitSnapshot>>();
+
+/** Models sometimes wrap the answer in a code fence or quotes anyway. */
+export function cleanCommitMessage(output: string): string {
+  const message = output.trim().split(/\r?\n/).filter((line) => !line.trimStart().startsWith("```")).join("\n").trim();
+  const quoted = /^"([^"]*)"$/.exec(message);
+  return (quoted?.[1] ?? message).trim();
+}
 
 export const gitClient = {
   snapshot(cwd: string): Promise<GitSnapshot> {
@@ -34,13 +43,15 @@ export const gitClient = {
   commit: (cwd: string, message: string, options: { paths?: string[]; newBranch?: string } = {}) =>
     invoke<GitCommitResult>("git_commit", { cwd, message, paths: options.paths ?? null, newBranch: options.newBranch ?? null }),
   push: (cwd: string) => invoke<GitPushResult>("git_push", { cwd }),
-  generateCommitMessage: (cwd: string, options: { paths?: string[]; provider?: string; model?: string } = {}) =>
-    invoke<string>("git_generate_commit_message", {
-      cwd,
-      paths: options.paths ?? null,
-      provider: options.provider ?? null,
-      model: options.model ?? null,
-    }),
+  /** Rust describes the changes; the Harness Host writes the message with one model call (P6a). */
+  generateCommitMessage: async (cwd: string, options: { paths?: string[]; provider?: string; model?: string } = {}) => {
+    const prompt = await invoke<string>("git_commit_message_prompt", { cwd, paths: options.paths ?? null });
+    const model = options.provider && options.model ? { provider: options.provider, model: options.model } : {};
+    const { text } = await harnessRuntimes.call<LlmCompleteResult>("llm.complete", { prompt, ...model });
+    const message = cleanCommitMessage(text);
+    if (!message) throw new Error("模型返回了空的提交说明");
+    return message;
+  },
   applyPatch: (cwd: string, patch: string, options: { cached: boolean; reverse: boolean }) =>
     invoke<void>("git_apply_patch", { cwd, patch, cached: options.cached, reverse: options.reverse }),
   lastTurnSnapshot: (cwd: string) =>

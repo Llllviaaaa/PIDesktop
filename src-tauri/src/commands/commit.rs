@@ -1,8 +1,9 @@
-//! Committing and pushing from the app, and drafting commit messages with Pi.
+//! Committing and pushing from the app, and the prompt for drafting a commit message.
 //!
 //! `git.rs` reads the repository and moves changes in and out of the index;
-//! this module writes history, talks to remotes and runs a one-shot Pi prompt
-//! for the message. The agent is never asked to commit on the user's behalf.
+//! this module writes history, talks to remotes and describes the changes for
+//! the message, which the Harness Host's `llm.complete` writes. The agent is
+//! never asked to commit on the user's behalf.
 
 use crate::pi::process::kill_process_tree;
 use crate::*;
@@ -12,13 +13,9 @@ use std::process::Stdio;
 
 /// A push that has not finished by now is waiting on something we cannot answer.
 const PUSH_TIMEOUT: Duration = Duration::from_secs(180);
-const MESSAGE_TIMEOUT: Duration = Duration::from_secs(90);
 /// Enough of the diff to summarize it without sending a whole refactor.
 const MESSAGE_DIFF_LIMIT: usize = 48 * 1024;
 const UNTRACKED_PREVIEW_LIMIT: usize = 4 * 1024;
-/// The command-line half of the prompt. It stays ASCII because `cmd /C` quoting
-/// mangles newlines and some punctuation; the rules and the diff travel on stdin.
-const MESSAGE_REQUEST: &str = "Write the commit message for the changes above, following the rules at the top. Output only the commit message.";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -316,15 +313,13 @@ fn explain_push_error(error: AppError) -> AppError {
     error
 }
 
-/// Drafts a commit message for what `git_commit` would commit with the same
-/// arguments, using a one-shot Pi prompt without tools, extensions or session.
+/// The prompt for drafting a commit message for what `git_commit` would commit
+/// with the same arguments: the rules, the recent subjects and the diff. The
+/// frontend sends it to the Harness Host's `llm.complete` (P6a).
 #[tauri::command(async)]
-pub(crate) fn git_generate_commit_message(
-    state: State<'_, AppState>,
+pub(crate) fn git_commit_message_prompt(
     cwd: String,
     paths: Option<Vec<String>>,
-    provider: Option<String>,
-    model: Option<String>,
 ) -> Result<String, AppError> {
     let root = workspace_root(&cwd)?;
     let changes = describe_changes(&root, paths.as_deref())?;
@@ -332,52 +327,7 @@ pub(crate) fn git_generate_commit_message(
         return Err(AppError::InvalidInput("没有可以描述的改动".to_string()));
     }
     let recent = run_git(&root, &["log", "-8", "--format=%s"]).unwrap_or_default();
-    let input = commit_message_input(&recent, &changes);
-
-    let settings = state
-        .settings
-        .lock()
-        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
-        .clone();
-    let pi_binary = effective_pi_binary(&settings, &state);
-    let provider = provider.filter(|value| !value.trim().is_empty());
-    let model = model.filter(|value| !value.trim().is_empty());
-    let args = pi::launch::toolless_args(provider.as_deref(), model.as_deref());
-    let cancelled = AtomicBool::new(false);
-    let output = run_pi_print(
-        &pi_binary,
-        &cwd,
-        &args,
-        &[],
-        PiPrintPrompt {
-            text: MESSAGE_REQUEST,
-            stdin: Some(&input),
-        },
-        &cancelled,
-        PiPrintLimits {
-            timeout: MESSAGE_TIMEOUT,
-            output_bytes: 16 * 1024,
-        },
-    )?;
-    if output.timed_out {
-        return Err(AppError::Process(format!(
-            "Pi 在 {} 秒内没有写完提交说明",
-            MESSAGE_TIMEOUT.as_secs()
-        )));
-    }
-    if !output.status.is_some_and(|status| status.success()) {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(AppError::Process(if stderr.is_empty() {
-            "Pi 没能生成提交说明".to_string()
-        } else {
-            format!("Pi 没能生成提交说明：{stderr}")
-        }));
-    }
-    let message = clean_commit_message(&String::from_utf8_lossy(&output.stdout));
-    if message.is_empty() {
-        return Err(AppError::Process("Pi 返回了空的提交说明".to_string()));
-    }
-    Ok(message)
+    Ok(commit_message_input(&recent, &changes))
 }
 
 /// The diff (and new files' contents) of what the commit would contain.
@@ -466,23 +416,6 @@ fn commit_message_input(recent_subjects: &str, changes: &str) -> String {
          {style}\n\n\
          ## 改动\n\n{changes}\n\n"
     )
-}
-
-/// Models sometimes wrap the answer in a code fence or quotes anyway.
-fn clean_commit_message(output: &str) -> String {
-    let lines = output
-        .trim()
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("```"))
-        .collect::<Vec<_>>();
-    let message = lines.join("\n");
-    let message = message.trim();
-    let unquoted = message
-        .strip_prefix('"')
-        .and_then(|rest| rest.strip_suffix('"'))
-        .filter(|inner| !inner.contains('"'))
-        .unwrap_or(message);
-    unquoted.trim().to_string()
 }
 
 #[cfg(test)]
@@ -643,16 +576,6 @@ mod tests {
         );
         fs::remove_dir_all(directory).ok();
         fs::remove_dir_all(remote).ok();
-    }
-
-    #[test]
-    fn strips_fences_and_quotes_from_generated_messages() {
-        assert_eq!(
-            clean_commit_message("```\nfeat: x\n\nbody\n```\n"),
-            "feat: x\n\nbody"
-        );
-        assert_eq!(clean_commit_message("\"fix: y\""), "fix: y");
-        assert_eq!(clean_commit_message("say \"hi\""), "say \"hi\"");
     }
 
     #[test]

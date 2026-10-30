@@ -29,6 +29,7 @@
 | `host` | `initialize`, `host.info`, `host.ping` |
 | `session` | `session.create`, `session.resume`, `session.list`, `session.get`, `session.subscribe`, `session.unsubscribe`, `session.prompt`, `session.steer`, `session.followUp`, `session.abort`, `session.fork`, `session.rewind`, `session.compact`, `session.rename`, `session.archive`, `session.delete`, `session.export` |
 | `model` | `model.list`, `model.set`, `model.setEffort`, `provider.list`, `provider.save`, `provider.delete`, `provider.discover`, `provider.check` |
+| `llm` | `llm.complete`（不带工具和会话的单次模型调用，用于生成提交说明等小任务；P6a 加入） |
 | `import` | `import.piSessions`（一次性导入 Pi 的历史任务，见 0015；P6b 加入） |
 | `ui` | `ui.respond`（回应 Host 发起的确认、选择、输入请求） |
 | `plugin` | `plugin.list`, `plugin.enable`, `plugin.disable`, `plugin.configure` |

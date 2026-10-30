@@ -428,7 +428,7 @@ export function SettingsModal({
       }} />}
       {page === "usage" && <UsagePage usage={usage} />}
       {page === "providers" && <ModelsPage form={form} update={update} />}
-      {page === "skills" && <SkillsPage resources={resources} loading={loadingData} />}
+      {page === "skills" && <SkillsPage cwd={cwd} resources={resources} loading={loadingData} onMigrated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.resources(cwd) })} />}
       {page === "mcp" && <McpPage form={form} update={update} />}
       {page === "browser" && <BrowserPage form={form} update={update} />}
       {page === "computer" && <ComputerPage form={form} update={update} />}
@@ -952,12 +952,29 @@ function HooksPage({ form, update }: { form: AppSettings; update: Update }) {
   </>;
 }
 
-function SkillsPage({ resources, loading }: { resources: ResourceItem[]; loading: boolean }) {
+function SkillsPage({ cwd, resources, loading, onMigrated }: { cwd: string; resources: ResourceItem[]; loading: boolean; onMigrated: () => void }) {
   const skills = resources.filter((item) => item.kind === "skill");
+  // Since P6a skills, themes and pets live in .pid/; a project can still carry them in Pi's .pi/.
+  const legacyQuery = useQuery({
+    queryKey: ["legacy-project-resources", cwd],
+    queryFn: () => (cwd ? pi.legacyProjectResources(cwd).catch(() => 0) : Promise.resolve(0)),
+  });
+  const [migrating, setMigrating] = useState(false);
+  const migrate = async () => {
+    setMigrating(true);
+    try {
+      await pi.migrateProjectResources(cwd);
+      await legacyQuery.refetch();
+      onMigrated();
+    } finally {
+      setMigrating(false);
+    }
+  };
   return <>
-    <PageHeading title="技能" description="查看用户和当前项目中可供 Pi 调用的技能。" />
+    <PageHeading title="技能" description="查看用户（~/.pid/skills）和当前项目（.pid/skills、.agents/skills）中可供 Agent 调用的技能。" />
+    {(legacyQuery.data ?? 0) > 0 && <div className="settings-info"><Sparkles size={17} /><span>当前项目的 <code>.pi/</code> 里还有 {legacyQuery.data} 个技能、主题或宠物，不会再被加载。</span><button className="secondary-button" disabled={migrating} onClick={() => void migrate()}>{migrating ? "正在复制…" : "复制到 .pid/"}</button></div>}
     <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} />正在发现技能…</div> : skills.length === 0 ? <div className="settings-empty"><Sparkles size={22} />未发现技能</div> : <div className="resource-list">{skills.map((item) => <button key={`${item.scope}-${item.path}`} onClick={() => void openPath(item.path).catch(() => undefined)}><span className="resource-kind skill">技能</span><span><strong>{item.name}</strong><small>{item.path}</small></span><em>{item.scope === "project" ? "项目" : "用户"}</em><ChevronRight size={14} /></button>)}</div>}</Card>
-    <div className="settings-info"><Sparkles size={17} /><span>技能由 <code>SKILL.md</code> 定义。项目技能只在当前工作区受信任后加载，软件包内的技能请在“插件”中管理。</span></div>
+    <div className="settings-info"><Sparkles size={17} /><span>技能由 <code>SKILL.md</code> 定义。项目技能只在当前工作区受信任后加载。</span></div>
   </>;
 }
 
