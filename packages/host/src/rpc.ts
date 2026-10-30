@@ -87,6 +87,8 @@ export class RpcGateway extends Service {
 
   private readonly handlers = new Map<string, RpcHandler>();
   private readonly connections = new Set<Connection>();
+  /** Numbers the calls, so a call's log lines can be found together. */
+  private nextTrace = 0;
   private readonly sockets = new WebSocketServer({
     noServer: true,
     handleProtocols: (protocols) => (protocols.has(SUBPROTOCOL) ? SUBPROTOCOL : false),
@@ -202,15 +204,22 @@ export class RpcGateway extends Service {
       this.send(connection, failure(message.id, ErrorCode.MethodNotFound, `Unknown method ${message.method}`));
       return;
     }
+    // Each call is traced at debug level: the log file keeps it, stderr does not.
+    const trace = (++this.nextTrace).toString(36);
+    const started = performance.now();
+    const elapsed = () => Math.round(performance.now() - started);
+    const logger = this.ctx.logger("rpc");
     try {
       const notify = (method: string, params?: unknown) => this.send(connection, notification(method, params));
       const result = await handler(message.params, { signal: connection.closed.signal, notify });
       this.send(connection, success(message.id, result ?? null));
+      logger.debug("%s %s ok %dms", trace, message.method, elapsed());
     } catch (error) {
       if (error instanceof RpcError) {
         this.send(connection, failure(message.id, error.code, error.message, error.data));
+        logger.debug("%s %s error %d %dms: %s", trace, message.method, error.code, elapsed(), error.message);
       } else {
-        this.ctx.logger("rpc").error("%s failed: %s", message.method, error);
+        logger.error("%s %s failed %dms: %s", trace, message.method, elapsed(), error);
         this.send(connection, failure(message.id, ErrorCode.InternalError, "Internal error"));
       }
     }

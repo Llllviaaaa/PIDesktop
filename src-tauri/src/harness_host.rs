@@ -149,7 +149,7 @@ fn migrate_sidebar_settings(app: &AppHandle, data_dir: &Path) {
         .map_or(Ok(()), std::fs::create_dir_all)
         .and_then(|()| std::fs::copy(&from, &to));
     if let Err(error) = copied {
-        eprintln!("failed to move better-sidebar settings: {error}");
+        log_line!("failed to move better-sidebar settings: {error}");
     }
 }
 
@@ -184,7 +184,7 @@ fn send_settings(child: &mut Child, settings: &AppSettings) {
             .map_err(AppError::from)
     });
     if let Err(error) = result {
-        eprintln!("failed to send settings to the Harness Host: {error}");
+        log_line!("failed to send settings to the Harness Host: {error}");
     }
 }
 
@@ -256,7 +256,7 @@ fn start(app: &AppHandle) -> Result<Running, AppError> {
     if let Some(stderr) = child.stderr.take() {
         std::thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                eprintln!("{line}");
+                log_line!("{line}");
             }
         });
     }

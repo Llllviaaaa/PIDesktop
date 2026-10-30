@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import type { PiImportProgress } from "@pid/protocol";
 import { agent } from "../lib/agent";
+import { exportDiagnostics, logsDir } from "../lib/diagnostics";
 import { describeImport, piImport } from "../lib/piImport";
 import { useAppStore } from "../store";
 import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
@@ -1117,10 +1118,32 @@ function WorktreesPage({ cwd, worktrees, loading, onCreated }: { cwd: string; wo
 }
 
 function DebugPage({ form, update }: { form: AppSettings; update: Update }) {
+  const [diagnosticsState, setDiagnosticsState] = useState<{ busy: boolean; message: string }>({ busy: false, message: "" });
+  const openLogs = async () => {
+    try {
+      await openPath(await logsDir());
+    } catch (error) {
+      setDiagnosticsState({ busy: false, message: `打开日志目录失败：${describeError(error)}` });
+    }
+  };
+  const exportBundle = async () => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const destination = await saveDialog({ title: "导出诊断包", defaultPath: `pidesktop-diagnostics-${stamp}.zip`, filters: [{ name: "Zip", extensions: ["zip"] }] });
+    if (typeof destination !== "string") return;
+    setDiagnosticsState({ busy: true, message: "正在导出…" });
+    try {
+      const files = await exportDiagnostics(destination);
+      setDiagnosticsState({ busy: false, message: `已导出 ${files.length} 个文件到 ${destination}` });
+    } catch (error) {
+      setDiagnosticsState({ busy: false, message: `导出失败：${describeError(error)}` });
+    }
+  };
   return <>
     <PageHeading title="调试" description="诊断选项。" />
     <Card title="诊断">
       <Row title="日志等级"><select value={form.logLevel} onChange={(event) => update("logLevel", event.target.value as AppSettings["logLevel"])}><option value="error">错误</option><option value="warn">警告</option><option value="info">信息</option><option value="debug">调试</option></select></Row>
+      <Row title="日志" description="Harness 和桌面端的日志，每天一个文件，保留 7 天，密钥已脱敏。"><button className="secondary-button" onClick={() => void openLogs()}><FolderOpen size={14} />打开日志目录</button></Row>
+      <Row title="诊断包" description={diagnosticsState.message || "最近的日志、版本号和脱敏后的配置，打包成 zip，由你保存后附在问题报告里。"}><button className="secondary-button" disabled={diagnosticsState.busy} onClick={() => void exportBundle()}><FileDown size={14} />导出诊断包</button></Row>
     </Card>
     <div className="settings-info"><MonitorCog size={17} /><span>进程、模型、系统提示词和权限更改会在重新连接工作区后生效。</span></div>
     <div className="settings-info"><FileCode2 size={17} /><span>设置文件：%APPDATA%/pid-desktop/settings.json · 个人指令：personal-instructions.md</span></div>

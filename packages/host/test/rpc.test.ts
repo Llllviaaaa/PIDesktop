@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { Context } from "@deepseek-ai/cordis";
+import { Logger, type Context, type Exporter } from "@deepseek-ai/cordis";
 import { ErrorCode, PROTOCOL_VERSION, clientSubprotocols } from "@pid/protocol";
 import WebSocket from "ws";
 import { RpcError, RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
@@ -130,6 +130,10 @@ describe("RPC gateway", () => {
       }));
     }, { inject: ["rpc"] });
     const port = await startHost();
+    // Every call is traced: an id, the method, how it ended and how long it took.
+    const traced: string[] = [];
+    const exporter: Exporter = { levels: { default: 3 }, export: (message) => void traced.push(`${message.type} ${Logger.format(exporter, message)}`) };
+    host?.ctx.logger.exporter(exporter);
     const fiber = host?.ctx.plugin(plugin);
     await fiber;
     const client = await connect(port);
@@ -138,6 +142,11 @@ describe("RPC gateway", () => {
     expect((await client.call("test.echo", { a: 1 })).result).toEqual({ a: 1 });
     expect((await client.call("test.busy")).error).toEqual({ code: ErrorCode.SessionBusy, message: "busy", data: { sessionId: "s" } });
     expect((await client.call("test.crash")).error).toEqual({ code: ErrorCode.InternalError, message: "Internal error" });
+    expect(traced).toEqual([
+      expect.stringMatching(/^debug 1 test\.echo ok \d+ms$/),
+      expect.stringMatching(/^debug 2 test\.busy error -?\d+ \d+ms: busy$/),
+      expect.stringMatching(/^error 3 test\.crash failed \d+ms: Error: secret detail/),
+    ]);
 
     await fiber?.dispose();
     expect((await client.call("test.echo", {})).error?.code).toBe(ErrorCode.MethodNotFound);
