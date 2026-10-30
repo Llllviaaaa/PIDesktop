@@ -2,7 +2,7 @@
  * The feature plugins through the host: a permission prompt answered over
  * the WebSocket, the permission, plan and checkpoint methods, and harness.json.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,6 +22,7 @@ import * as toolFs from "@pid/tool-fs";
 import { Tools } from "@pid/tools";
 import { Ui } from "@pid/ui";
 import * as featuresRpc from "../src/features-rpc.ts";
+import * as piSessions from "../src/pi-sessions.ts";
 import { defaultHarnessConfig, readHarnessConfig } from "../src/harness-config.ts";
 import { RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
 import * as scheduleRpc from "../src/schedule-rpc.ts";
@@ -65,6 +66,7 @@ async function start(provider: ScriptedProvider) {
       [uiRpc],
       [featuresRpc],
       [scheduleRpc],
+      [piSessions, { stateFile: join(dir, "pi-import.json") }],
       [{ name: "scripted", inject: ["llm"], apply: (ctx: never) => useScriptedProvider(ctx, provider) }],
     ],
   });
@@ -182,5 +184,46 @@ describe("harness.json", () => {
     expect(problems).toEqual(["hooks must be an object; using its defaults"]);
     writeFileSync(file, "{");
     expect(readHarnessConfig(file).problems[0]).toMatch(/not valid JSON/);
+  });
+});
+
+describe("Pi session import", () => {
+  it("imports Pi's sessions once, and an imported one carries on", async () => {
+    const provider = new ScriptedProvider([textReply("Carried on.")]);
+    const { call, until } = await start(provider);
+    const root = join(dir, "pi", "sessions");
+    mkdirSync(join(root, "--C--work--demo--"), { recursive: true });
+    for (const name of ["tools", "branched", "compacted"]) {
+      // The samples were recorded with the cwd C:\work\demo; point them at a directory that exists here.
+      const text = readFileSync(join(import.meta.dirname, "fixtures", "pi-sessions", `${name}.jsonl`), "utf8");
+      writeFileSync(join(root, "--C--work--demo--", `${name}.jsonl`), text.replace('"cwd":"C:\\\\work\\\\demo"', `"cwd":${JSON.stringify(dir)}`));
+    }
+    writeFileSync(join(root, "--C--work--demo--", "broken.jsonl"), "not a session\n");
+
+    // A dry run counts what is left; offering the import is recorded once.
+    expect((await call("import.piSessions", { roots: [root], dryRun: true })).result).toEqual({ pending: 4, prompted: false, imported: 0, skipped: 0, failed: 0, problems: [] });
+    expect((await call("import.piSessions", { roots: [root], dryRun: true, markPrompted: true })).result).toMatchObject({ pending: 4, prompted: true });
+    expect((await call("import.piSessions", { roots: "nope" })).error.code).toBe(ErrorCode.InvalidParams);
+
+    const report = (await call("import.piSessions", { roots: [root] })).result;
+    expect(report).toMatchObject({ prompted: true, imported: 3, skipped: 0, failed: 1 });
+    expect((await call("import.piSessions", { roots: [root], dryRun: true })).result).toMatchObject({ pending: 1, prompted: true });
+    expect(report.problems).toEqual(expect.arrayContaining(["left out 1 label entry", "left out 1 custom_message entry"]));
+    expect((await call("import.piSessions", { roots: [root] })).result).toMatchObject({ imported: 0, skipped: 3, failed: 1 });
+
+    const sessions = (await call("session.list")).result.sessions as Array<{ id: string; title?: string; cwd: string; createdAt: string }>;
+    const imported = sessions.find((session) => session.title === "List files");
+    expect(imported).toMatchObject({ cwd: dir });
+    expect(imported?.createdAt).toBe(JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", "pi-sessions", "tools.jsonl"), "utf8").split("\n")[0] ?? "{}").timestamp);
+    const sessionId = String(imported?.id);
+    expect((await call("session.get", { sessionId })).result.session).toMatchObject({ importedFrom: { format: "pi", id: "00000000-0000-4000-8000-000000000005" } });
+
+    await call("session.subscribe", { sessionId });
+    await call("model.set", { sessionId, provider: "scripted", model: "m" });
+    await call("session.prompt", { sessionId, content: "Which one is newer?" });
+    await until(settled);
+    const sent = JSON.stringify(provider.requests[0]?.messages);
+    expect(sent).toContain("Two files: a.txt and b.txt.");
+    expect(sent).toContain("Which one is newer?");
   });
 });

@@ -20,6 +20,8 @@ export interface SessionHeader {
   parent?: { sessionId: string; callId: string };
   /** A side chat: a fork the session list hides, shown beside its source. */
   side?: true;
+  /** Converted from another app's session file (P6b); that file is left as it was. */
+  importedFrom?: { format: "pi"; file: string; id: string };
 }
 
 export interface ModelRef {
@@ -85,4 +87,5 @@ export interface SessionSummary {
   forkedFrom?: SessionHeader["forkedFrom"];
   parent?: SessionHeader["parent"];
   side?: true;
+  importedFrom?: SessionHeader["importedFrom"];
 }

@@ -79,6 +79,8 @@ import {
 } from "./components/DesktopPetWindow";
 import { ExtensionDialog, extensionRequestHeadline } from "./components/ExtensionDialog";
 import { HarnessOffer } from "./components/HarnessOffer";
+import { PiImportOffer } from "./components/PiImportOffer";
+import { describeImport, piImport } from "./lib/piImport";
 import { ConversationMessages } from "./components/ConversationMessages";
 import { ClaudeHomeDashboard } from "./components/ClaudeHomeDashboard";
 import { ActiveGoalBar } from "./components/ActiveGoalBar";
@@ -171,6 +173,18 @@ export default function App() {
       current.showToast(`保存引擎设置失败：${describeError(error)}`, "error");
     });
   }, []);
+  // Pi's past tasks, offered once on the Harness engine (P6b).
+  const [piImportPending, setPiImportPending] = useState<number | null>(null);
+  const harnessEngine = settings?.engine === "harness";
+  const piSessionDir = settings?.sessionDir;
+  useEffect(() => {
+    if (!isTauri || !harnessEngine) return;
+    let cancelled = false;
+    void piImport.status(piSessionDir).then((status) => {
+      if (!cancelled && !status.prompted && status.pending > 0) setPiImportPending(status.pending);
+    }, () => undefined);
+    return () => { cancelled = true; };
+  }, [harnessEngine, isTauri, piSessionDir]);
   const cycleTranscriptDensity = useCallback(() => {
     setTranscriptDensity(nextTranscriptDensity(transcriptDensity));
   }, [setTranscriptDensity, transcriptDensity]);
@@ -1960,6 +1974,15 @@ export default function App() {
       )}
       {settings?.engine === "pi" && !settings.harnessPromptSeen && !settingsOpen && (
         <HarnessOffer onSwitch={() => answerHarnessOffer("harness")} onStay={() => answerHarnessOffer("pi")} />
+      )}
+      {piImportPending !== null && harnessEngine && !settingsOpen && (
+        <PiImportOffer sessionDir={piSessionDir} pending={piImportPending} onDone={(report) => {
+          setPiImportPending(null);
+          if (report !== null && report.imported > 0) {
+            void store.refreshSessions();
+            store.showToast(describeImport(report), "info");
+          }
+        }} />
       )}
       {settingsOpen && <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}><SettingsModal initialPage={settingsPage} settings={settings} cwd={cwd} appearanceCatalog={appearanceCatalog} onReloadAppearance={reloadAppearanceCatalog} onSave={store.saveSettings} onClose={() => setSettingsOpen(false)} /></Suspense>}
 

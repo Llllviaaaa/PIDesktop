@@ -85,6 +85,8 @@ export interface SessionInfo {
   parent?: { sessionId: string; callId: string };
   /** A side chat of `forkedFrom.sessionId`; session lists leave it out. */
   side?: true;
+  /** Converted from a Pi session file (P6b), which was left as it was. */
+  importedFrom?: { format: "pi"; file: string; id: string };
 }
 
 /** One persisted event, as stored in the session log. */
@@ -287,6 +289,33 @@ export interface UsageSummaryResult {
   sessions: number;
   messages: number;
   usage: TokenUsage;
+}
+
+/** `import.piSessions` (P6b): convert Pi's session files under `roots` (default `~/.pi/agent/sessions`). */
+export interface PiImportParams {
+  roots?: string[];
+  /** Count what is left to import instead of importing. */
+  dryRun?: boolean;
+  /** Record that the desktop has offered the import. */
+  markPrompted?: boolean;
+}
+
+export interface PiImportReport {
+  /** Files not imported yet (a dry run counts them instead of importing). */
+  pending: number;
+  /** The desktop has offered the import before. */
+  prompted: boolean;
+  imported: number;
+  skipped: number;
+  failed: number;
+  /** One line per failed file, and the entry kinds left out across all files. */
+  problems: string[];
+}
+
+/** `import/progress`: how far an import has got. */
+export interface PiImportProgress {
+  done: number;
+  total: number;
 }
 
 // Scheduled tasks (ADR 0011).
