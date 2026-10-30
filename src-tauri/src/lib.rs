@@ -269,6 +269,7 @@ pub fn run() {
             terminal::terminal_resize,
             terminal::terminal_close,
             harness_host::harness_endpoint,
+            harness_host::restart_harness_host,
             harness_host::sidebar_host_base,
             list_pull_requests,
             checkout_pull_request,

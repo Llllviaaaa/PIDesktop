@@ -92,6 +92,7 @@ import { CommitDialog, type CommitOutcome } from "./components/CommitDialog";
 import { preferredEditorFor, rememberProjectEditor, resolveWorkspacePath } from "./lib/workspaceEditors";
 import type { CodeReviewScope } from "./lib/codeReview";
 import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, SessionInfo, TerminalAppInfo, UiMessage, WorkspaceEditorInfo } from "./types";
+import { HostStatusBanner } from "./components/HostStatusBanner";
 
 const SettingsModal = lazy(() => import("./components/SettingsModal").then((module) => ({ default: module.SettingsModal })));
 const PullRequestsPage = lazy(() => import("./components/PullRequestsPage").then((module) => ({ default: module.PullRequestsPage })));
@@ -2006,6 +2007,8 @@ export default function App() {
           }}
         />
       )}
+
+      <HostStatusBanner />
 
       <div className="toast-stack">
         {toasts.map((toast) => (
