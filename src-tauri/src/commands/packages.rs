@@ -253,14 +253,22 @@ pub(crate) fn migrate_pi_resources() {
 #[tauri::command(async)]
 pub(crate) fn legacy_project_resources(cwd: String) -> Result<usize, AppError> {
     let workspace = validate_workspace_directory(&cwd)?;
-    Ok(copy_missing_resources(&workspace.join(".pi"), &workspace.join(".pid"), true))
+    Ok(copy_missing_resources(
+        &workspace.join(".pi"),
+        &workspace.join(".pid"),
+        true,
+    ))
 }
 
 /// Copy the workspace's `.pi/` skills, themes and pets into `.pid/`.
 #[tauri::command(async)]
 pub(crate) fn migrate_project_resources(cwd: String) -> Result<usize, AppError> {
     let workspace = validate_workspace_directory(&cwd)?;
-    Ok(copy_missing_resources(&workspace.join(".pi"), &workspace.join(".pid"), false))
+    Ok(copy_missing_resources(
+        &workspace.join(".pi"),
+        &workspace.join(".pid"),
+        false,
+    ))
 }
 
 pub(crate) fn validate_json_object(path: &Path, label: &str) -> Result<(), AppError> {
@@ -872,7 +880,9 @@ mod tests {
             PathBuf::from(installed_pet),
             workspace.join(".pid/pets/comet")
         );
-        assert!(workspace.join(".pid/pets/comet/sprites/comet.png").is_file());
+        assert!(workspace
+            .join(".pid/pets/comet/sprites/comet.png")
+            .is_file());
 
         assert!(install_appearance_extension(
             theme.to_string_lossy().to_string(),
