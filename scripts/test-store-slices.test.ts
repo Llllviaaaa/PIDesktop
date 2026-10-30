@@ -19,6 +19,6 @@ describe("store slices", () => {
     const all = slices.flat();
     expect(new Set(all).size).toBe(all.length);
     expect(new Set(all)).toEqual(new Set(Object.keys(useAppStore.getState())));
-    expect(slices.map((keys) => keys.length)).toEqual([35, 16, 18, 14]);
+    expect(slices.map((keys) => keys.length)).toEqual([38, 16, 18, 14]);
   });
 });

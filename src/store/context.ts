@@ -134,13 +134,17 @@ export class StoreContext {
     this.pendingAssistantUpdate.thinking += delta.thinking ?? "";
     this.pendingAssistantUpdate.toolCalls.push(...(delta.toolCalls ?? []));
     if (this.assistantUpdateTimer !== null) return;
-    this.assistantUpdateTimer = window.setTimeout(() => {
-      const pending = this.pendingAssistantUpdate;
-      this.assistantUpdateTimer = null;
-      this.pendingAssistantUpdate = null;
-      if (!pending || pending.runtimeId !== this.get().runtimeId) return;
-      this.set((state) => ({ messages: streamAssistant(state.messages, pending), isStreaming: true }));
-    }, 32);
+    this.assistantUpdateTimer = window.setTimeout(() => this.flushAssistantDelta(), 32);
+  };
+
+  /** Apply the queued streamed text now, to the task on screen. */
+  flushAssistantDelta = () => {
+    const pending = this.pendingAssistantUpdate;
+    if (this.assistantUpdateTimer !== null) window.clearTimeout(this.assistantUpdateTimer);
+    this.assistantUpdateTimer = null;
+    this.pendingAssistantUpdate = null;
+    if (!pending || pending.runtimeId !== this.get().runtimeId) return;
+    this.set((state) => ({ messages: streamAssistant(state.messages, pending), isStreaming: true }));
   };
 
   /** The task on screen, which the actions act on. */

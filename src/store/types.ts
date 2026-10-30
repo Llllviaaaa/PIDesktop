@@ -5,6 +5,7 @@
  */
 import type { TranscriptEvent } from "../lib/transcript";
 import type { PiRuntimeStatus } from "../lib/agent";
+import type { HostStatus } from "../lib/harnessRuntime";
 import type {
   AgentBrowserState,
   AppNotification,
@@ -48,6 +49,8 @@ export interface RuntimeSlice {
   runtimeId: string | null;
   runtimes: Record<string, RuntimeState>;
   connection: ConnectionState;
+  /** Whether the Harness Host can be reached (src/lib/harnessRuntime.ts). */
+  hostStatus: HostStatus;
   cwd: string;
   piLog: string[];
   lastError: string | null;
@@ -70,6 +73,9 @@ export interface RuntimeSlice {
   disconnect: () => Promise<void>;
   handleStatus: (status: PiRuntimeStatus) => void;
   handleLog: (runtimeId: string, line: string) => void;
+  handleHostStatus: (status: HostStatus) => void;
+  /** Start the Host again after it crashed too often for Rust to restart it. */
+  restartHost: () => Promise<void>;
   appendLog: (line: string) => void;
   prepareNewTask: () => void;
   setModel: (model: ModelInfo) => Promise<void>;

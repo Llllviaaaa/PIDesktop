@@ -5,7 +5,7 @@
  * Run: npx vitest run test-message-history.test.ts
  */
 import type { PersistedEvent } from "@pid/protocol";
-import { historyToUi } from "../src/lib/transcript.ts";
+import { INTERRUPTED_TURN, historyToUi, interruptTurn } from "../src/lib/transcript.ts";
 import { useAppStore } from "../src/store/index.ts";
 import { test } from "vitest";
 
@@ -84,6 +84,30 @@ test("message history", async () => {
   assert(finished.length === 1, "the finished reply was added beside the streamed one");
   assert(finished[0].thinking === "Reasoning stream", "a finished reply without thinking dropped the streamed thinking");
   assert(finished[0].isStreaming === false && finished[0].toolCalls?.[0]?.name === "read", "the finished reply was not applied");
+
+  // The Host stopped the turn unseen: the reply being streamed fails, keeping its text.
+  handle("stream-test", { type: "user", message: { id: "host-10", role: "user", content: "again", timestamp: 2 } });
+  handle("stream-test", { type: "assistant-start" });
+  handle("stream-test", { type: "assistant-delta", text: "Half", thinking: "" });
+  handle("stream-test", { type: "turn-interrupted" });
+  handle("stream-test", { type: "turn-end" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const interrupted = useAppStore.getState();
+  assert(interrupted.messages.at(-1)?.content === `Half
+
+${INTERRUPTED_TURN}`, "a delta queued before the interruption was applied after it");
+  assert(interrupted.messages.at(-1)?.isError === true && interrupted.messages.at(-1)?.isStreaming === false, "the interrupted reply was not marked");
+  assert(!interrupted.isStreaming, "the interrupted turn did not end");
+
+  // A log cut off mid-turn: the unanswered call fails and a failed reply closes the turn.
+  const cut = interruptTurn(historyToUi([
+    { seq: 1, ts: at(1), type: "user", data: { content: [{ type: "text", text: "read" }] } },
+    { seq: 2, ts: at(2), type: "assistant", data: { content: [{ type: "tool-call", id: "c1", name: "read", arguments: {} }], model: { provider: "t", model: "m" }, usage: {}, stop: "tool-use" } },
+  ]), 5);
+  assert(cut.length === 3 && cut[2].isError === true, "a cut-off turn did not end in a failed reply");
+  assert(cut[1].toolCalls?.[0]?.isError === true && cut[1].toolCalls?.[0]?.result === INTERRUPTED_TURN, "the unanswered call was not failed");
+  // A finished turn is left alone.
+  assert(interruptTurn(timed) === timed, "a finished turn was changed");
 
   console.log(`message-history: ${messageCount} messages converted in ${elapsedMs.toFixed(1)}ms; streaming passed`);
 });

@@ -8,6 +8,11 @@
  * A runtime creates its session on its first prompt, so a workspace that is
  * only warmed up leaves no empty session behind. Its `sessionFile` is
  * `harness:<sessionId>`, which `pi.start` accepts to reopen it.
+ *
+ * When the connection closes (the Host crashed, or Rust restarted it), the
+ * runtimes reconnect with a backoff, catch up on what their sessions logged
+ * meanwhile, and end a turn the Host no longer runs as interrupted
+ * (docs/REFACTOR_V2_P7.md, 3.1).
  */
 import type {
   CheckpointDiffResult,
@@ -28,7 +33,7 @@ import type { AttachmentPayload, ExtensionUIRequest, ForkPoint, ModelInfo, Sessi
 import type { SessionTreeNode } from "./sessionTree";
 import { connectHarness, harnessEndpoint, type HarnessConnection } from "./harnessClient";
 import { HARNESS_THINKING_LEVELS, effortForLevel, forkPointsOf, sessionTreeOf } from "./hostSessions";
-import { TranscriptTranslator, historyToUi, type TranscriptEvent } from "./transcript";
+import { TranscriptTranslator, historyToUi, interruptTurn, type TranscriptEvent } from "./transcript";
 
 
 export const HARNESS_RUNTIME_PREFIX = "harness:";
@@ -44,6 +49,9 @@ export function isHarnessSessionFile(sessionFile: string | null | undefined): bo
 
 type Listener = (runtimeId: string, event: TranscriptEvent) => void;
 type Connect = () => Promise<HarnessConnection>;
+
+/** Whether the Host can be reached: `failed` once Rust stops restarting it. */
+export type HostStatus = "connected" | "reconnecting" | "failed";
 
 interface Runtime {
   id: string;
@@ -62,6 +70,10 @@ interface Runtime {
 }
 
 const MODEL_CATALOG_TTL_MS = 60_000;
+/** The waits between reconnect attempts; the last one repeats. */
+const RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
+/** Rust's answer once the Host crashed too often to restart (src-tauri/src/harness_host.rs). */
+const KEEPS_CRASHING = "keeps crashing";
 
 export class HarnessRuntimes {
   private connection: Promise<HarnessConnection> | undefined;
@@ -74,8 +86,17 @@ export class HarnessRuntimes {
   private readonly notificationListeners = new Map<string, Set<(params: unknown) => void>>();
   /** Questions the adapter asks itself (rewinding files), answered through the same dialog. */
   private readonly localQuestions = new Map<string, (confirmed: boolean) => void>();
+  private hostStatus: HostStatus = "connected";
+  private readonly statusListeners = new Set<(status: HostStatus) => void>();
+  /** Whether a connection was ever made, so the next one resumes the runtimes. */
+  private connectedBefore = false;
+  private reconnecting = false;
+  private closed = false;
 
-  constructor(private readonly connect: Connect = async () => connectHarness(await harnessEndpoint(), { name: "pi-desktop", version: "1" })) {}
+  constructor(
+    private readonly connect: Connect = async () => connectHarness(await harnessEndpoint(), { name: "pi-desktop", version: "1" }),
+    private readonly reconnectDelaysMs: readonly number[] = RECONNECT_DELAYS_MS,
+  ) {}
 
   /**
    * Hear a Host notification such as `schedule/run`. This connects at once,
@@ -98,6 +119,25 @@ export class HarnessRuntimes {
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Hear whether the Host can be reached; called at once with the current status. */
+  onHostStatus(listener: (status: HostStatus) => void): () => void {
+    this.statusListeners.add(listener);
+    listener(this.hostStatus);
+    return () => this.statusListeners.delete(listener);
+  }
+
+  /** Try to reach the Host again now, after Rust was told to restart it. */
+  reconnectNow(): void {
+    void this.reconnect(true);
+  }
+
+  /** Stop reconnecting and close the connection. */
+  close(): void {
+    this.closed = true;
+    void this.connection?.then((connection) => connection.close(), () => undefined);
+    this.connection = undefined;
   }
 
   /**
@@ -208,7 +248,9 @@ export class HarnessRuntimes {
     const runtime = this.runtime(runtimeId);
     if (runtime.sessionId === undefined) return [];
     const replay = await (await this.rpc()).call<SessionSubscribeResult>("session.subscribe", { sessionId: runtime.sessionId, afterSeq: 0 });
-    return historyToUi(replay.events);
+    const messages = historyToUi(replay.events);
+    // A log that stops mid-turn while nothing runs it was cut off, by a crash for one.
+    return replay.status.running ? messages : interruptTurn(messages);
   }
 
   thinkingLevels(): string[] {
@@ -437,9 +479,15 @@ export class HarnessRuntimes {
   }
 
   private rpc(): Promise<HarnessConnection> {
+    if (this.closed) return Promise.reject(new Error("Harness 连接已关闭"));
     if (this.connection === undefined) {
-      const connecting = this.connect().then((connection) => {
+      const connecting = this.connect().then(async (connection) => {
         connection.onNotification((method, params) => this.notify(method, params));
+        connection.onClose(() => this.lost(connecting));
+        // Calls wait for the runtimes to catch up, so a prompt never lands before its session's backlog.
+        if (this.connectedBefore) await this.resume(connection);
+        this.connectedBefore = true;
+        this.setHostStatus("connected");
         return connection;
       });
       this.connection = connecting;
@@ -450,6 +498,64 @@ export class HarnessRuntimes {
     return this.connection;
   }
 
+  /** The connection closed: drop it and reconnect in the background. */
+  private lost(connection: Promise<HarnessConnection>): void {
+    if (this.connection !== connection) return;
+    this.connection = undefined;
+    if (!this.closed) void this.reconnect(false);
+  }
+
+  private async reconnect(now: boolean): Promise<void> {
+    if (this.reconnecting || this.closed) return;
+    this.reconnecting = true;
+    this.setHostStatus("reconnecting");
+    try {
+      for (let attempt = 0; !this.closed; attempt += 1) {
+        if (!now || attempt > 0) await new Promise((resolve) => setTimeout(resolve, this.reconnectDelaysMs[Math.min(attempt, this.reconnectDelaysMs.length - 1)]));
+        try {
+          await this.rpc();
+          return;
+        } catch (error) {
+          if (errorText(error).includes(KEEPS_CRASHING)) {
+            this.setHostStatus("failed");
+            return;
+          }
+        }
+      }
+    } finally {
+      this.reconnecting = false;
+    }
+  }
+
+  /**
+   * Subscribe each runtime again from its last event, replaying what its
+   * session logged while disconnected. A turn the Host no longer runs ended
+   * unseen: it ends here, and a reply still streaming is marked interrupted.
+   */
+  private async resume(connection: HarnessConnection): Promise<void> {
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.sessionId === undefined) continue;
+      try {
+        const replay = await connection.call<SessionSubscribeResult>("session.subscribe", { sessionId: runtime.sessionId, afterSeq: runtime.lastSeq });
+        for (const event of replay.events) this.deliver(runtime, event);
+        const wasStreaming = runtime.streaming;
+        runtime.streaming = replay.status.running;
+        if (wasStreaming && !replay.status.running) {
+          runtime.translator = new TranscriptTranslator();
+          this.emit(runtime.id, [{ type: "turn-interrupted" }, { type: "turn-end" }]);
+        }
+      } catch {
+        // A session deleted meanwhile: its runtime reports that on its next call.
+      }
+    }
+  }
+
+  private setHostStatus(status: HostStatus): void {
+    if (this.hostStatus === status) return;
+    this.hostStatus = status;
+    for (const listener of this.statusListeners) listener(status);
+  }
+
   private emit(runtimeId: string, events: TranscriptEvent[]): void {
     for (const event of events) for (const listener of this.listeners) listener(runtimeId, event);
   }
@@ -458,16 +564,19 @@ export class HarnessRuntimes {
     return [...this.runtimes.values()].filter((runtime) => runtime.sessionId !== undefined && runtime.sessionId === sessionId);
   }
 
+  /** A logged event of the runtime's session, unless it has seen it already. */
+  private deliver(runtime: Runtime, event: PersistedEvent): void {
+    if (event.seq <= runtime.lastSeq) return;
+    runtime.lastSeq = event.seq;
+    if (event.type === "model") runtime.model = event.data as { provider: string; model: string };
+    this.emit(runtime.id, runtime.translator.event(event));
+  }
+
   private notify(method: string, params: unknown): void {
     for (const listener of this.notificationListeners.get(method) ?? []) listener(params);
     if (method === "session/event") {
       const { sessionId, event } = params as SessionEventNotification;
-      for (const runtime of this.runtimesOf(sessionId)) {
-        if (event.seq <= runtime.lastSeq) continue;
-        runtime.lastSeq = event.seq;
-        if (event.type === "model") runtime.model = event.data as { provider: string; model: string };
-        this.emit(runtime.id, runtime.translator.event(event as PersistedEvent));
-      }
+      for (const runtime of this.runtimesOf(sessionId)) this.deliver(runtime, event as PersistedEvent);
     } else if (method === "session/delta") {
       const { sessionId, delta } = params as SessionDeltaNotification;
       for (const runtime of this.runtimesOf(sessionId)) {
@@ -485,6 +594,13 @@ export class HarnessRuntimes {
       for (const runtimeId of targets.length > 0 ? targets.map((runtime) => runtime.id) : fallback) this.emit(runtimeId, [{ type: "ui-request", request: event }]);
     }
   }
+}
+
+/** An error's text: Tauri rejects `invoke` with `{ kind, message }`, not an Error. */
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error) return String((error as { message: unknown }).message);
+  return String(error);
 }
 
 /** A prompt as the composer builds it: its text and attached images. */

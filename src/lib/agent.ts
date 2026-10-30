@@ -17,7 +17,7 @@ import type {
 } from "../types";
 import { gitClient } from "./gitClient";
 import { harnessProviders } from "./harnessProviders";
-import { harnessRuntimes } from "./harnessRuntime";
+import { harnessRuntimes, type HostStatus } from "./harnessRuntime";
 import type { TranscriptEvent } from "./transcript";
 import { scheduleClient } from "./scheduleClient";
 import { sessionClient } from "./sessionClient";
@@ -128,6 +128,8 @@ export const agent = {
   listWorktrees: (cwd: string) => invoke<WorktreeInfo[]>("list_worktrees", { cwd }),
   createWorktree: (cwd: string, base?: string) => invoke<WorktreeInfo>("create_worktree", { cwd, base }),
   usageSummary,
+  /** Clear the Host's crash count and start it again (src-tauri/src/harness_host.rs). */
+  restartHost: () => invoke<void>("restart_harness_host"),
 };
 
 export interface PiStartResult {
@@ -148,11 +150,17 @@ export interface PiListeners {
   onStatus?: (status: PiRuntimeStatus) => void;
   onLog?: (runtimeId: string, line: string) => void;
   onProtocolError?: (message: string) => void;
+  onHostStatus?: (status: HostStatus) => void;
 }
 
-/** Hear the runtimes' events. Host runtimes have no process to exit or log of their own. */
+/** Hear the runtimes' events and the Host's status. Host runtimes have no process to exit or log of their own. */
 export async function subscribeToPi(listeners: PiListeners): Promise<() => void> {
-  return harnessRuntimes.subscribe(listeners.onEvent);
+  const stopEvents = harnessRuntimes.subscribe(listeners.onEvent);
+  const stopStatus = listeners.onHostStatus === undefined ? undefined : harnessRuntimes.onHostStatus(listeners.onHostStatus);
+  return () => {
+    stopEvents();
+    stopStatus?.();
+  };
 }
 
 export function respondToExtension(

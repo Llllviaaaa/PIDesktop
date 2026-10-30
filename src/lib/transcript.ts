@@ -15,6 +15,8 @@ import type { ExtensionUIRequest, ImageContent, UiMessage, UiToolCall, Usage } f
 export type TranscriptEvent =
   | { type: "turn-start" }
   | { type: "turn-end" }
+  /** The Host stopped running the turn while disconnected (src/lib/harnessRuntime.ts). */
+  | { type: "turn-interrupted" }
   | { type: "user"; message: UiMessage }
   | { type: "assistant-start" }
   | { type: "assistant-delta"; text: string; thinking: string }
@@ -218,6 +220,35 @@ export function completeAssistant(messages: UiMessage[], message: UiMessage): Ui
   const next = [...messages];
   next[index] = { ...previous, ...message, id: previous.id, thinking: message.thinking || previous.thinking, toolCalls };
   return next;
+}
+
+export const INTERRUPTED_TURN = "这一轮因 Harness 断开而中断";
+
+/** A call still running, or one a log records without its result. */
+const unanswered = (call: UiToolCall): boolean => call.running || call.isError === undefined;
+
+/**
+ * End a turn that stopped without finishing: its unanswered tool calls fail,
+ * and its reply, the one streaming or a missing last one, is marked as an
+ * error. A turn ends on a reply without tool calls; one that did is left as it is.
+ */
+export function interruptTurn(messages: UiMessage[], now = Date.now()): UiMessage[] {
+  let last = messages.length - 1;
+  while (last >= 0 && (messages[last].role === "notice" || messages[last].role === "terminal")) last -= 1;
+  const reply = messages[last];
+  if (reply === undefined) return messages;
+  if (reply.role === "assistant" && !reply.isStreaming && (reply.toolCalls ?? []).length === 0) return messages;
+  const turnStart = messages.findLastIndex((message) => message.role === "user");
+  const next = messages.map((message, index) => {
+    if (index < turnStart || !message.toolCalls?.some(unanswered)) return message;
+    return { ...message, toolCalls: message.toolCalls.map((call) => (unanswered(call) ? { ...call, running: false, isError: true, result: INTERRUPTED_TURN, finishedAt: now } : call)) };
+  });
+  if (reply.role === "assistant" && reply.isStreaming) {
+    const partial = next[last].content.trim();
+    next[last] = { ...next[last], isStreaming: false, isError: true, content: partial === "" ? INTERRUPTED_TURN : `${partial}\n\n${INTERRUPTED_TURN}` };
+    return next;
+  }
+  return [...next, { id: `interrupted-${now}`, role: "assistant", content: INTERRUPTED_TURN, isError: true, timestamp: now }];
 }
 
 /** Change the tool call `callId`, adding it to the last reply when no message has it yet. */
