@@ -19,6 +19,7 @@ import {
   FolderOpen,
   GitBranch,
   Globe2,
+  History,
   Network,
   MonitorCog,
   Palette,
@@ -39,7 +40,10 @@ import {
   ArrowUp,
   X,
 } from "lucide-react";
+import type { PiImportProgress } from "@pid/protocol";
 import { pi } from "../lib/pi";
+import { describeImport, piImport } from "../lib/piImport";
+import { usePiStore } from "../store";
 import { providerService } from "../lib/providerService";
 import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
 import { PetAvatar } from "./PetCompanion";
@@ -412,6 +416,7 @@ export function SettingsModal({
         }}
       />}
       {page === "shortcuts" && <ShortcutsPage form={form} update={update} />}
+      {page === "archived" && <PiImportSection sessionDir={form.sessionDir} />}
       {page === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
         await pi.restoreSession(session.file);
         dropArchived(session.file);
@@ -807,6 +812,33 @@ function ShortcutsPage({ form, update }: { form: AppSettings; update: Update }) 
     <Card title="快捷键">{rows.map(([key, title, description]) => <Row key={key} title={title} description={description}><input className="shortcut-input" value={String(form[key])} onChange={(event) => update(key, event.target.value as never)} /></Row>)}</Card>
     <button className="secondary-button reset-shortcuts" onClick={() => rows.forEach(([key]) => update(key, DEFAULTS[key] as never))}><Undo2 size={14} /> 重置快捷键</button>
   </>;
+}
+
+/** Import Pi's past tasks again, e.g. after declining the offer (P6b). */
+function PiImportSection({ sessionDir }: { sessionDir: string }) {
+  const statusQuery = useQuery({ queryKey: ["pi-import-status", sessionDir], queryFn: () => piImport.status(sessionDir) });
+  const [progress, setProgress] = useState<PiImportProgress | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const run = async () => {
+    setResult(null);
+    try {
+      const report = await piImport.run(sessionDir, setProgress);
+      setResult(describeImport(report));
+      await statusQuery.refetch();
+      await usePiStore.getState().refreshSessions();
+    } catch (reason) {
+      setResult(`导入失败：${describeError(reason)}`);
+    } finally {
+      setProgress(null);
+    }
+  };
+  const pending = statusQuery.data?.pending ?? 0;
+  return <Card title="Pi 的历史任务">
+    <Row title="导入到 Harness" description={statusQuery.isError ? "Harness Host 未连接，暂时无法检查。" : pending > 0 ? `还有 ${pending} 个 Pi 任务没有导入。原文件只读取，不会改动。` : "没有需要导入的 Pi 任务。"}>
+      <button className="secondary-button" disabled={progress !== null || pending === 0} onClick={() => void run()}>{progress !== null ? `正在导入 ${progress.done}/${progress.total}…` : "导入"}</button>
+    </Row>
+    {result !== null && <div className="settings-info"><History size={17} /><span>{result}</span></div>}
+  </Card>;
 }
 
 function ArchivedPage({ archived, loading, onRestore, onDelete }: { archived: SessionInfo[]; loading: boolean; onRestore: (session: SessionInfo) => Promise<void>; onDelete: (session: SessionInfo) => Promise<void> }) {

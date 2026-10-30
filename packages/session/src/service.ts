@@ -146,6 +146,9 @@ export interface CreateSessionOptions {
   forkedFrom?: SessionHeader["forkedFrom"];
   parent?: SessionHeader["parent"];
   side?: boolean;
+  /** When the session began, for an imported one; now otherwise. */
+  createdAt?: string;
+  importedFrom?: SessionHeader["importedFrom"];
   /** Events the session starts with, numbered from 1 (a fork's copy). */
   events?: SessionEvent[];
 }
@@ -178,11 +181,12 @@ export class Sessions extends Service {
       format: SESSION_FORMAT,
       version: SESSION_FORMAT_VERSION,
       id: uuidv7(),
-      createdAt: new Date().toISOString(),
+      createdAt: options.createdAt ?? new Date().toISOString(),
       cwd: options.cwd,
       ...(options.forkedFrom === undefined ? {} : { forkedFrom: options.forkedFrom }),
       ...(options.parent === undefined ? {} : { parent: options.parent }),
       ...(options.side === true ? { side: true as const } : {}),
+      ...(options.importedFrom === undefined ? {} : { importedFrom: options.importedFrom }),
     };
     const events = options.events ?? [];
     this.storage.create(header, events);

@@ -23,6 +23,7 @@ import { applyDesktopMessage, parseControlLine } from "./control.ts";
 import * as featuresRpc from "./features-rpc.ts";
 import { readHarnessConfig } from "./harness-config.ts";
 import * as llmRpc from "./llm-rpc.ts";
+import * as piSessions from "./pi-sessions.ts";
 import * as providerAdmin from "./provider-admin.ts";
 import { ReloadablePlugins } from "./reloadable.ts";
 import { RpcGateway } from "./rpc.ts";
@@ -100,6 +101,7 @@ export async function main(argv: readonly string[]): Promise<void> {
       [featuresRpc],
       [scheduleRpc],
       [llmRpc, { defaultModel }],
+      [piSessions, { stateFile: join(dataDir, "pi-import.json") }],
       [{
         name: "pid-config-rpc",
         inject: ["rpc"],
