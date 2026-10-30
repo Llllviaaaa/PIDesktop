@@ -1,8 +1,9 @@
 // Records the Pi session samples the Pi session importer is tested against
 // (packages/host/test/fixtures/pi-sessions). Pi's own SessionManager writes
-// them, so they are real Pi files; no model is called. Run it while Pi is
-// still a dependency (P6b); the committed samples outlive it.
+// them, so they are real Pi files; no model is called. Pi is no longer a
+// dependency (P6c), so re-recording needs it installed for the run:
 //
+//   npm install --no-save @earendil-works/pi-coding-agent@1.4.0
 //   node scripts/record-pi-session-samples.mjs
 import { mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";

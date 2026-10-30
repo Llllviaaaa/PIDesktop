@@ -1,11 +1,11 @@
 /**
- * The model settings page on the Harness engine (docs/adr/0014): the Host's
+ * The model settings page on the Harness Host (docs/adr/0014): the Host's
  * providers.json in the shapes the page already renders. Pi's API names map
- * onto the Host's two adapters; built-in providers and OAuth logins are Pi's
- * and have no Host counterpart, so every Host provider is a custom one.
+ * onto the Host's two adapters; the Host has no built-in providers or OAuth
+ * logins, so every provider is a custom one.
  */
 import type { ModelListResult, ModelSummary } from "@pid/protocol";
-import type { ProviderModelSummary, ProviderSummary } from "../../src-tauri/resources/pidesktop-providers-core";
+import type { ProviderModelSummary, ProviderSummary } from "./providerService";
 import type { ModelProviderCheckResult, ModelProviderConfig, ModelProviderInput, ModelProviderModel } from "../types";
 import { harnessRuntimes } from "./harnessRuntime";
 
@@ -123,6 +123,13 @@ export const harnessProviders = {
   ),
   save: async (input: ModelProviderInput): Promise<void> => {
     await harnessRuntimes.call("provider.save", { provider: draftToHost(input) });
+  },
+  /** Set or, with "", remove a provider's key, keeping the rest of it. */
+  setKey: async (id: string, apiKey: string): Promise<void> => {
+    const provider = (await hostConfigs()).find((entry) => entry.id === id);
+    if (provider === undefined) throw new Error(`没有名为 ${id} 的 provider`);
+    const { keySource: _keySource, ...rest } = provider;
+    await harnessRuntimes.call("provider.save", { provider: { ...rest, originalId: id, apiKey, keepExistingApiKey: false } });
   },
   delete: async (id: string): Promise<void> => {
     await harnessRuntimes.call("provider.delete", { id });

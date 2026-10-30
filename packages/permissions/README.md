@@ -2,7 +2,7 @@
 
 权限模式（`read-only`、`ask`、`workspace-write`、`full-access`）、agent 模式（`agent`、`plan`、`ask`）和工具规则，挂在 `tools/pre-execute` 上。见 [ADR 0009](../../docs/adr/0009-feature-plugins.md)。
 
-- 判断逻辑（`rules.ts`）复制自 Pi guard 的 `pidesktop-rules.ts`，P6 之前两份要保持一致。
+- 判断逻辑（`rules.ts`）复制自 Pi guard 的 `pidesktop-rules.ts`（Pi 已在 P6c 移除，这里是唯一的一份）。
 - `permissions` 服务：
   - `modes(session)` 返回会话的模式和有效模式（agent 模式不是 `agent` 时一律按只读处理）；
   - `set(session, change)` 修改模式，记为 `custom` 事件 `pid-permissions`。

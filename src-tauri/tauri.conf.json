@@ -4,9 +4,9 @@
   "version": "0.2.29",
   "identifier": "io.github.llllviaaaa.pidesktop",
   "build": {
-    "beforeDevCommand": "npm run prepare:pi-runtime && npm run prepare:harness-host && npm run dev",
+    "beforeDevCommand": "npm run prepare:harness-host && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run prepare:pi-runtime && npm run prepare:harness-host && npm run build",
+    "beforeBuildCommand": "npm run prepare:harness-host && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -55,7 +55,6 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/pi-runtime/": "pi-runtime/",
       "resources/harness/": "harness/"
     }
   }

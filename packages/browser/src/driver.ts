@@ -1,6 +1,6 @@
 /**
- * The Chrome DevTools Protocol driver of src-tauri/resources/pidesktop-browser.ts,
- * copied; the Pi engine keeps its copy until P6 (ADR 0012). Changes: `export`s,
+ * The Chrome DevTools Protocol driver of the Pi engine's pidesktop-browser.ts,
+ * which went with Pi in P6c (ADR 0012). Changes: `export`s,
  * and the profile directory, browser executable and workspace root come from
  * `BrowserSession` options instead of environment variables, since one host
  * serves sessions in many directories.

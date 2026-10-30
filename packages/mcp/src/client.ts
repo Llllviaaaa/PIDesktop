@@ -1,7 +1,7 @@
 /**
- * The MCP client half of src-tauri/resources/pidesktop-mcp.ts, copied as it is
- * (stdio and Streamable HTTP transports, result formatting); the Pi engine
- * keeps its copy until P6 (ADR 0010). Only `export` keywords were added.
+ * The MCP client half of the Pi engine's pidesktop-mcp.ts, copied as it was
+ * (stdio and Streamable HTTP transports, result formatting) before it went
+ * with Pi in P6c (ADR 0010). Only `export` keywords were added.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";

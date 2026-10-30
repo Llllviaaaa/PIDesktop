@@ -1,6 +1,5 @@
 /**
- * Copied from src-tauri/resources/pidesktop-subagents-core.ts (the Pi engine
- * keeps its copy until P6; ADR 0010).
+ * Taken from the Pi engine's pidesktop-subagents-core.ts, which went with Pi in P6c (ADR 0010).
  */
 export type SubagentRole = "explorer" | "planner" | "reviewer" | "worker";
 export type SubagentPermission = "read-only" | "workspace-write";

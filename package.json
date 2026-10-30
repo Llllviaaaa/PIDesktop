@@ -24,21 +24,18 @@
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json --noEmit && tsc -p tsconfig.packages.json --noEmit",
     "lint": "eslint .",
-    "prepare:pi-runtime": "node scripts/prepare-pi-runtime.mjs",
     "prepare:harness-host": "node scripts/prepare-harness-host.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:mcp-subscriptions": "node scripts/test-mcp-subscriptions.mjs",
-    "test:pi-runtime": "npm run prepare:pi-runtime && node scripts/test-pi-runtime.mjs",
     "test:harness-host": "npm run prepare:harness-host && node scripts/test-harness-host.mjs",
     "test:public-hygiene": "node scripts/test-public-repo-hygiene.mjs",
     "test:doc-links": "node scripts/test-doc-links.mjs",
     "test:github-config": "node scripts/test-github-config.mjs",
     "scan:secrets": "node scripts/scan-secrets.mjs",
-    "test:unit": "npm run test && npm run test:mcp-subscriptions && npm run test:pi-runtime && npm run test:harness-host && npm run test:public-hygiene && npm run test:doc-links && npm run test:github-config"
+    "test:unit": "npm run test && npm run test:harness-host && npm run test:public-hygiene && npm run test:doc-links && npm run test:github-config"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
@@ -119,8 +116,6 @@
     "zustand": "^5.0.16"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^1.4.0",
-    "@earendil-works/pi-coding-agent": "1.4.0",
     "@eslint/js": "^10.0.1",
     "@tauri-apps/cli": "^2",
     "@types/mdast": "^4.0.4",

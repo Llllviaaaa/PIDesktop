@@ -1,6 +1,5 @@
 /**
- * Copied from src-tauri/resources/pidesktop-rules.ts, which the Pi engine keeps
- * using until P6 removes it; keep the two in step until then (ADR 0009).
+ * Taken from the Pi engine's pidesktop-rules.ts, which went with Pi in P6c (ADR 0009).
  */
 
 export type PermissionMode = "read-only" | "ask" | "workspace-write" | "full-access";

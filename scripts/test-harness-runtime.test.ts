@@ -81,7 +81,6 @@ async function start(provider: ScriptedProvider) {
   await host.start();
   const port = await host.ctx.webServer.listen(0);
   const runtimes = new HarnessRuntimes(() => connectHarness({ baseUrl: `http://127.0.0.1:${port}/`, token }, { name: "test", version: "1" }));
-  runtimes.setEngine("harness");
   const events: Array<[string, PiEvent]> = [];
   const waiters: Array<() => void> = [];
   runtimes.subscribe((runtimeId, event) => {

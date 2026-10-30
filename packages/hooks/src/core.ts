@@ -1,6 +1,5 @@
 /**
- * Copied from src-tauri/resources/pidesktop-hooks-core.ts (the Pi engine keeps
- * its copy until P6; ADR 0009).
+ * Taken from the Pi engine's pidesktop-hooks-core.ts, which went with Pi in P6c (ADR 0009).
  */
 export type DesktopHookEvent =
   | "session_start"

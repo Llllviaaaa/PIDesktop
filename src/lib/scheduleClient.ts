@@ -1,12 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ScheduleListResult, ScheduleRunsResult, ScheduledRunInfo, ScheduledTaskInfo } from "@pid/protocol";
 import type { ScheduledRunRecord, ScheduledRunResult, ScheduledTask } from "../types";
 import { HARNESS_SESSION_PREFIX, harnessRuntimes } from "./harnessRuntime";
 
-// On the harness engine the Harness Host runs scheduled tasks (docs/adr/0011,
-// 0014); the desktop's Rust scheduler keeps running them for the Pi engine.
-const onHarness = () => harnessRuntimes.getEngine() === "harness";
+// The Harness Host runs scheduled tasks (docs/adr/0011, 0014).
+type UnlistenFn = () => void;
 
 /** The tasks last listed from the Host, to fill in what its run records leave out. */
 const hostTasks = new Map<string, ScheduledTask>();
@@ -73,46 +70,36 @@ async function hostList(): Promise<ScheduledTask[]> {
   return mapped;
 }
 
-/** Listen to a desktop event and, on the harness engine, to the Host notification that stands for it. */
-async function listenBoth<T>(event: string, method: string, listener: (payload: T) => void, fromHost: (params: unknown) => T): Promise<UnlistenFn> {
-  const stopDesktop = await listen<T>(event, (message) => listener(message.payload));
-  const stopHost = harnessRuntimes.onNotification(method, (params) => listener(fromHost(params)));
-  return () => {
-    stopDesktop();
-    stopHost();
-  };
+/** Listen to a Host notification. */
+async function listenHost<T>(method: string, listener: (payload: T) => void, fromHost: (params: unknown) => T): Promise<UnlistenFn> {
+  return harnessRuntimes.onNotification(method, (params) => listener(fromHost(params)));
 }
 
 export const scheduleClient = {
-  list: () => (onHarness() ? hostList() : invoke<ScheduledTask[]>("list_scheduled_tasks_cmd")),
+  list: () => hostList(),
   listRuns: async (taskId?: string, limit = 80): Promise<ScheduledRunRecord[]> => {
-    if (!onHarness()) return invoke<ScheduledRunRecord[]>("list_scheduled_runs_cmd", { taskId: taskId || null, limit });
     if (hostTasks.size === 0) await hostList();
     const { runs } = await harnessRuntimes.call<ScheduleRunsResult>("schedule.runs", { ...(taskId ? { taskId } : {}), limit });
     return runs.map((run) => runFromHost(run, hostTasks.get(run.taskId)));
   },
   save: async (task: ScheduledTask): Promise<ScheduledTask> => {
-    if (!onHarness()) return invoke<ScheduledTask>("save_scheduled_task_cmd", { task });
     const saved = taskFromHost((await harnessRuntimes.call<{ task: ScheduledTaskInfo }>("schedule.save", { task: taskToHost(task) })).task);
     hostTasks.set(saved.id, saved);
     return saved;
   },
   delete: async (id: string): Promise<void> => {
-    if (!onHarness()) return invoke<void>("delete_scheduled_task_cmd", { id });
     await harnessRuntimes.call("schedule.delete", { id });
     hostTasks.delete(id);
   },
-  run: async (id: string, nextRunAt?: number | null): Promise<ScheduledRunResult> => {
-    if (!onHarness()) return invoke<ScheduledRunResult>("run_scheduled_task_cmd", { id, nextRunAt: nextRunAt ?? null });
+  run: async (id: string, _nextRunAt?: number | null): Promise<ScheduledRunResult> => {
     const { run } = await harnessRuntimes.call<{ run: ScheduledRunInfo }>("schedule.run", { id });
     return { success: run.status === "success", output: run.output, run: runFromHost(run, hostTasks.get(run.taskId)) };
   },
-  cancel: (id: string) => (onHarness() ? harnessRuntimes.call<void>("schedule.cancel", { id }) : invoke<void>("cancel_scheduled_task_cmd", { id })),
-  /** A task changed, from the desktop's scheduler or the Host's. */
-  onTaskUpdated: (listener: () => void): Promise<UnlistenFn> => listenBoth<unknown>("scheduled-task-updated", "schedule/task", () => listener(), () => undefined),
-  /** A run started or finished, from the desktop's scheduler or the Host's. */
-  onRunUpdated: (listener: (run: ScheduledRunRecord) => void): Promise<UnlistenFn> => listenBoth<ScheduledRunRecord>(
-    "scheduled-run-updated",
+  cancel: (id: string) => harnessRuntimes.call<void>("schedule.cancel", { id }),
+  /** A task changed. */
+  onTaskUpdated: (listener: () => void): Promise<UnlistenFn> => listenHost<unknown>("schedule/task", () => listener(), () => undefined),
+  /** A run started or finished. */
+  onRunUpdated: (listener: (run: ScheduledRunRecord) => void): Promise<UnlistenFn> => listenHost<ScheduledRunRecord>(
     "schedule/run",
     listener,
     (params) => runFromHost(params as ScheduledRunInfo, hostTasks.get((params as ScheduledRunInfo).taskId)),

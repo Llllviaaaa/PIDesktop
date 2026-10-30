@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { usePiConfigDir } from "../hooks/usePiConfigDir";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queries";
@@ -644,15 +643,10 @@ function ConnectedState({ provider, custom, onDisconnect, onReplaceKey, onEdit }
   onReplaceKey: () => void;
   onEdit: () => void;
 }) {
-  const piConfig = usePiConfigDir();
-  const sharing = piConfig.shared ? "与终端里的 pi 共用" : "仅供本应用使用";
-  const hint = provider.source === "stored"
-    ? provider.authType === "oauth" ? `令牌由 Pi 自动续期，${sharing}。` : `密钥由 Pi 保存在 ${piConfig.dir}/auth.json，${sharing}。`
-    : provider.source === "environment"
-      ? "来自启动 Pi Desktop 时的环境变量。如需更换，请修改系统环境变量后重启应用。"
-      : provider.source === "models_json_key" || provider.source === "models_json_command"
-        ? "在 models.json 中配置，可通过「编辑配置」修改。"
-        : provider.source === "fallback" ? "本地服务，无需密钥。" : "";
+  // The Host's providers say where their key is through sourceLabel (src/lib/harnessProviders.ts).
+  const hint = provider.sourceLabel === "环境变量"
+    ? "密钥来自环境变量引用（$变量），由 Harness 在使用时读取。如需更换，请修改环境变量后重启应用。"
+    : provider.configured ? "密钥加密保存在本机的 ~/.pid/secrets.dat，只供本应用使用。" : "";
   return (
     <div className="models-connected">
       <CircleCheck size={16} />
@@ -684,7 +678,6 @@ function ConnectForm({ provider, custom, busy, replacing, onLogin, onCancelRepla
   ];
   const [method, setMethod] = useState<AuthMethod>(methods[0] ?? "api_key");
   const [apiKey, setApiKey] = useState("");
-  const piConfig = usePiConfigDir();
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (apiKey.trim()) onLogin("api_key", apiKey.trim());
@@ -730,8 +723,8 @@ function ConnectForm({ provider, custom, busy, replacing, onLogin, onCancelRepla
           </div>
           <small className="models-hint">
             {custom
-              ? <>密钥由 Pi 保存在 auth.json。也可以在 <button type="button" className="models-link" onClick={onEdit}>编辑配置</button> 中写入 models.json（支持 $环境变量 或 !命令）。</>
-              : `密钥由 Pi 保存在 ${piConfig.dir}/auth.json，${piConfig.shared ? "终端里的 pi 也能直接使用" : "仅供本应用使用"}。`}
+              ? <>密钥加密保存在本机的 ~/.pid/secrets.dat。也可以在 <button type="button" className="models-link" onClick={onEdit}>编辑配置</button> 中填写 $环境变量。</>
+              : "密钥加密保存在本机的 ~/.pid/secrets.dat，只供本应用使用。"}
           </small>
         </form>
       )}
@@ -922,7 +915,6 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
   onSaved: (saved: ModelProviderInput) => Promise<void>;
 }) {
   const editing = Boolean(initial.originalId);
-  const piConfig = usePiConfigDir();
   const [draft, setDraft] = useState<ModelProviderInput>(initial);
   const [idTouched, setIdTouched] = useState(editing);
   const [discovered, setDiscovered] = useState<ModelProviderModel[]>([]);
@@ -1123,7 +1115,7 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
           </div>
         </div>
         <footer>
-          {error ? <span className="models-field-error"><CircleAlert size={13} />{error}</span> : <span className="models-hint">保存到 {piConfig.dir}/models.json</span>}
+          {error ? <span className="models-field-error"><CircleAlert size={13} />{error}</span> : <span className="models-hint">保存到 ~/.pid/providers.json</span>}
           <button className="secondary-button compact" onClick={onClose} disabled={busy}>取消</button>
           <button className="primary-button compact" onClick={() => void save()} disabled={busy}>
             {busy && <LoaderCircle size={13} className="spinner-icon" />}{editing ? "保存" : "添加"}

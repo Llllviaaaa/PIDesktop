@@ -270,21 +270,15 @@ export type PiEvent =
   | RpcResponse;
 
 export interface AppSettings {
-  piBinary: string;
   provider: string;
   model: string;
   thinkingLevel: string;
   /** `provider/model` keys hidden from the composer model picker. */
   hiddenModels?: string[];
+  /** Where Pi kept its sessions, if not `~/.pi/agent/sessions`; only read to import them (P6b). */
   sessionDir: string;
-  /** Pi uses PIDesktop's own config directory, without the terminal pi's add-ons. */
-  separatePiConfig: boolean;
   agentMode: "agent" | "plan" | "ask";
   permissionMode: "read-only" | "ask" | "workspace-write" | "full-access";
-  /** Which engine new tasks run on: the V2 Harness Host (the default since P5d), or Pi until P6. */
-  engine: "pi" | "harness";
-  /** The one-time offer to move from Pi to the Harness has been shown. */
-  harnessPromptSeen: boolean;
   /** Shell/bash/exec always requires confirmation (unless full-access). */
   alwaysConfirmShell: boolean;
   /** Block model writes outside the workspace without prompting. */

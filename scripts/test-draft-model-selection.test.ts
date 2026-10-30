@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { beforeEach, test, vi } from "vitest";
-import type { AppSettings, ModelInfo } from "../src/types.ts";
+import type { AppSettings, ModelInfo, RpcResponse } from "../src/types.ts";
 
-// The store reads window at import time and talks to Pi over a Tauri event channel.
-const transport = vi.hoisted(() => {
+// The store reads window at import time.
+vi.hoisted(() => {
   const storage = new Map<string, string>();
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -17,17 +17,12 @@ const transport = vi.hoisted(() => {
       },
     },
   });
-  return { deliver: null as ((payload: unknown) => void) | null };
 });
 
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: async (_event: string, handler: (event: { payload: unknown }) => void) => {
-    transport.deliver = (payload) => handler({ payload });
-    return () => undefined;
-  },
-}));
+vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined }));
 
 const { pi } = await import("../src/lib/pi.ts");
+const { harnessRuntimes } = await import("../src/lib/harnessRuntime.ts");
 const { usePiStore } = await import("../src/store.ts");
 
 const DEFAULT_MODEL: ModelInfo = { provider: "example", id: "default-model", name: "Default" };
@@ -149,21 +144,18 @@ pi.start = async (cwd, sessionFile) => {
   runtimes.push(runtime);
   return { runtimeId: runtime.id, sessionLoaded: Boolean(sessionFile), sessionForked: false };
 };
-pi.sendRaw = async (runtimeId, line) => {
+// Commands reach the runtime through the Host adapter; a runtime that has not booted yet answers once it has.
+vi.spyOn(harnessRuntimes, "command").mockImplementation((runtimeId, command, payload = {}) => new Promise<RpcResponse>((resolve) => {
   const runtime = runtimes.find((item) => item.id === runtimeId);
   assert.ok(runtime, `command sent to unknown runtime ${runtimeId}`);
-  const request = JSON.parse(line) as Record<string, unknown>;
+  const request: Record<string, unknown> = { ...payload, type: command };
   const reply = () => {
     const { data, error } = handle(runtime, request);
-    transport.deliver?.({
-      protocolVersion: 1,
-      runtimeId,
-      event: { type: "response", id: request.id, command: request.type, success: !error, data, error },
-    });
+    resolve({ type: "response", command, success: !error, data, error } as RpcResponse);
   };
   if (runtime.booted) queueMicrotask(reply);
   else runtime.backlog.push(reply);
-};
+}));
 pi.stop = async () => undefined;
 pi.bindSession = async () => undefined;
 pi.sessionHistory = async () => ({ messages: [], timings: [] }) as never;
