@@ -20,6 +20,7 @@ import { runHeadless } from "./headless.ts";
 import { createHost } from "./host.ts";
 import { readDefaultModel } from "./providers.ts";
 import { applyDesktopMessage, parseControlLine } from "./control.ts";
+import * as diagnostics from "./diagnostics.ts";
 import * as featuresRpc from "./features-rpc.ts";
 import { readHarnessConfig } from "./harness-config.ts";
 import * as llmRpc from "./llm-rpc.ts";
@@ -32,6 +33,7 @@ import * as sessionsRpc from "./sessions-rpc.ts";
 import { dpapiCodec } from "./secrets.ts";
 import * as uiRpc from "./ui-rpc.ts";
 import { WebServer } from "./web-server.ts";
+import { logFileExporter } from "./log-file.ts";
 
 declare const PID_HOST_VERSION: string | undefined;
 
@@ -99,6 +101,7 @@ export async function main(argv: readonly string[]): Promise<void> {
       [sessionsRpc, { defaultModel }],
       [uiRpc],
       [featuresRpc],
+      [diagnostics],
       [scheduleRpc],
       [llmRpc, { defaultModel }],
       [piSessions, { stateFile: join(dataDir, "pi-import.json") }],
@@ -112,6 +115,8 @@ export async function main(argv: readonly string[]): Promise<void> {
     ],
   });
   host.ctx.logger.exporter(stderrExporter);
+  // ~/.pid/logs: the desktop writes its own log beside this one.
+  host.ctx.logger.exporter(logFileExporter(join(dataDir, "logs")));
   await host.start();
 
   // The feature plugins follow harness.json and providers.json (ADR 0013).

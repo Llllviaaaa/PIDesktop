@@ -1,3 +1,6 @@
+#[macro_use]
+mod desktop_log;
+
 mod commands;
 #[cfg(windows)]
 mod computer;

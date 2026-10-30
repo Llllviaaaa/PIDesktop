@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
@@ -111,6 +111,13 @@ ${JSON.stringify(created)}`);
   assert.equal(permission, "read-only", `desktop settings must reload the permissions plugin
 ${stderr}`);
   assert.ok(existsSync(join(dataDir, "harness.json")), "desktop settings must be written to harness.json");
+
+  // The Host logs to <data-dir>/logs and bundles those logs for a report.
+  const bundle = join(dataDir, "diagnostics.zip");
+  const exported = await call(7, "diagnostics.export", { path: bundle, desktop: { version: "smoke" } });
+  const files = exported.result?.files ?? [];
+  assert.ok(files.includes("about.json") && files.some((file) => /^logs\/host-\d{4}-\d{2}-\d{2}\.log$/.test(file)), `diagnostics must bundle the Host's log: ${JSON.stringify(exported)}`);
+  assert.equal(readFileSync(bundle).readUInt32LE(0), 0x04034b50, "the diagnostics bundle must be a zip");
   socket.close();
 
   const sidebar = await fetch(`http://127.0.0.1:${port}/sidebar/api/settings.get`, {
@@ -135,4 +142,4 @@ ${headless.stderr}`);
   rmSync(dataDir, { recursive: true, force: true });
 }
 
-console.log(`harness-host: pid-harness ${appVersion} RPC, DPAPI secrets, providers, sessions, desktop settings reload, better-sidebar, stdin shutdown and headless run passed`);
+console.log(`harness-host: pid-harness ${appVersion} RPC, DPAPI secrets, providers, sessions, desktop settings reload, log file and diagnostics, better-sidebar, stdin shutdown and headless run passed`);

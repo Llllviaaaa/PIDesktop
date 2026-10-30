@@ -493,7 +493,7 @@ pub(crate) fn load_settings() -> AppSettings {
     let mut secrets = match load_mcp_secrets() {
         Ok(secrets) => secrets,
         Err(err) => {
-            eprintln!("PIDesktop could not load protected MCP credentials: {err}");
+            log_line!("PIDesktop could not load protected MCP credentials: {err}");
             McpSecrets::new()
         }
     };
@@ -515,17 +515,17 @@ pub(crate) fn load_settings() -> AppSettings {
         match save_mcp_secrets(&secrets) {
             Ok(()) => {
                 if let Err(err) = write_public_settings(&settings) {
-                    eprintln!(
+                    log_line!(
                         "PIDesktop could not remove migrated MCP credentials from settings: {err}"
                     );
                 }
             }
-            Err(err) => eprintln!("PIDesktop could not migrate MCP credentials: {err}"),
+            Err(err) => log_line!("PIDesktop could not migrate MCP credentials: {err}"),
         }
     }
     if typography_migrated {
         if let Err(err) = write_public_settings(&settings) {
-            eprintln!("PIDesktop could not migrate Codex typography defaults: {err}");
+            log_line!("PIDesktop could not migrate Codex typography defaults: {err}");
         }
     }
     let _ = fs::remove_file(app_config_dir().join("mcp-servers.json"));
