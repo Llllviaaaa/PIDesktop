@@ -1,5 +1,5 @@
 import type { TranscriptEvent } from "./lib/transcript";
-import type { PiRuntimeStatus } from "./lib/pi";
+import type { PiRuntimeStatus } from "./lib/agent";
 import type {
   AgentBrowserState,
   AppNotification,

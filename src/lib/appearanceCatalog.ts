@@ -497,14 +497,14 @@ export function resolveAppearancePet(catalog: AppearanceCatalog, id: string): Ap
 }
 
 export async function loadAppearanceCatalog(cwd: string): Promise<AppearanceCatalog> {
-  const { pi } = await import("./pi");
-  const resources = await pi.listResources(cwd);
+  const { agent } = await import("./agent");
+  const resources = await agent.listResources(cwd);
   const themes: AppearanceThemeDefinition[] = [];
   const pets: AppearancePetDefinition[] = [];
   const errors: AppearanceCatalogError[] = [];
   await Promise.all(resources.filter((resource) => resource.kind === "theme").map(async (resource) => {
     try {
-      const payload = await pi.readAttachment(resource.path);
+      const payload = await agent.readAttachment(resource.path);
       if (!payload.text) throw new Error("主题文件不可读取");
       themes.push(parseAppearanceTheme(payload.text, resource));
     } catch (error) {
@@ -514,9 +514,9 @@ export async function loadAppearanceCatalog(cwd: string): Promise<AppearanceCata
   await Promise.all(resources.filter((resource) => resource.kind === "pet").map(async (resource) => {
     try {
       const manifestPath = manifestPathFor(resource);
-      const payload = await pi.readAttachment(manifestPath);
+      const payload = await agent.readAttachment(manifestPath);
       if (!payload.text) throw new Error("pet.json 不可读取");
-      pets.push(await parseAppearancePet(payload.text, resource, pi.readAttachment, manifestPath));
+      pets.push(await parseAppearancePet(payload.text, resource, agent.readAttachment, manifestPath));
     } catch (error) {
       errors.push({ kind: "pet", name: resource.name, message: String(error) });
     }

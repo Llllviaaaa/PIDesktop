@@ -17,7 +17,7 @@ import {
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Copy, Eye, FolderOpen, PanelBottom, Paperclip, SquareTerminal } from "lucide-react";
 import { describeError } from "../lib/errors";
-import { pi } from "../lib/pi";
+import { agent } from "../lib/agent";
 import { relativeWorkspacePath, resolveWorkspacePath } from "../lib/workspaceEditors";
 import type { TerminalAppInfo, WorkspaceEditorInfo } from "../types";
 
@@ -257,7 +257,7 @@ export function FileActionsProvider({
   const actions = useMemo<FileActions>(() => {
     const reveal = (path: string) => {
       if (!inTauri) return;
-      void pi.revealPathInFileManager(resolveWorkspacePath(workspace, path)).catch((error) => {
+      void agent.revealPathInFileManager(resolveWorkspacePath(workspace, path)).catch((error) => {
         onNotify(`无法在资源管理器中显示：${describeError(error)}`, "error");
       });
     };
@@ -268,7 +268,7 @@ export function FileActionsProvider({
         return;
       }
       if (!inTauri) return;
-      void pi.openFileInEditor(resolveWorkspacePath(workspace, path), editor.id, {
+      void agent.openFileInEditor(resolveWorkspacePath(workspace, path), editor.id, {
         line: line && line > 0 ? line : undefined,
         workspace: workspace || undefined,
       }).catch((error) => onNotify(`无法在 ${editor.name} 中打开：${describeError(error)}`, "error"));

@@ -567,7 +567,7 @@ export interface ComputerElementState {
 
 export interface UiMessage {
   id: string;
-  /** Stable Pi session-tree entry for branch navigation and rewind. */
+  /** The user message's seq in its Host session log, which rewind and fork take. */
   entryId?: string;
   role: "user" | "assistant" | "terminal" | "notice";
   content: string;

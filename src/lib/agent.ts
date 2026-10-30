@@ -42,7 +42,7 @@ async function usageSummary(): Promise<UsageSummary> {
 // (docs/adr/0014-frontend-harness-adapter.md); the store calls its typed
 // methods. Its events still arrive in Pi's shapes until P6d-2.
 // An isolated runtime (a side chat) runs on a hidden fork of its parent.
-export const pi = {
+export const agent = {
   start: (cwd: string, sessionFile?: string, isolated = false) => harnessRuntimes.start(cwd, sessionFile, isolated),
   stop: (runtimeId: string) => harnessRuntimes.stop(runtimeId),
   isRunning: (runtimeId: string) => Promise.resolve(harnessRuntimes.isRunning(runtimeId)),

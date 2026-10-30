@@ -41,7 +41,7 @@ import {
   X,
 } from "lucide-react";
 import type { PiImportProgress } from "@pid/protocol";
-import { pi } from "../lib/pi";
+import { agent } from "../lib/agent";
 import { describeImport, piImport } from "../lib/piImport";
 import { usePiStore } from "../store";
 import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
@@ -246,27 +246,27 @@ export function SettingsModal({
   const queryClient = useQueryClient();
   const archivedQuery = useQuery({
     queryKey: queryKeys.archivedSessions(),
-    queryFn: () => pi.listArchivedSessions(),
+    queryFn: () => agent.listArchivedSessions(),
     enabled: isTauri,
   });
   const resourcesQuery = useQuery({
     queryKey: queryKeys.resources(cwd),
-    queryFn: () => pi.listResources(cwd),
+    queryFn: () => agent.listResources(cwd),
     enabled: isTauri,
   });
   const worktreesQuery = useQuery({
     queryKey: queryKeys.worktrees(cwd),
-    queryFn: () => (cwd ? pi.listWorktrees(cwd).catch((): WorktreeInfo[] => []) : Promise.resolve([])),
+    queryFn: () => (cwd ? agent.listWorktrees(cwd).catch((): WorktreeInfo[] => []) : Promise.resolve([])),
     enabled: isTauri,
   });
   const memoryQuery = useQuery({
     queryKey: queryKeys.localMemory(),
-    queryFn: () => pi.getLocalMemory().catch(() => ""),
+    queryFn: () => agent.getLocalMemory().catch(() => ""),
     enabled: isTauri,
   });
   const usageQuery = useQuery({
     queryKey: queryKeys.usage(),
-    queryFn: () => pi.usageSummary(),
+    queryFn: () => agent.usageSummary(),
     enabled: isTauri,
   });
   const archived = archivedQuery.data ?? NO_SESSIONS;
@@ -367,7 +367,7 @@ export function SettingsModal({
         onMemorySave={async () => {
           setMemoryState("saving");
           try {
-            await pi.setLocalMemory(memoryText);
+            await agent.setLocalMemory(memoryText);
             queryClient.setQueryData(queryKeys.localMemory(), memoryText);
             setMemoryState("saved");
           } catch {
@@ -383,8 +383,8 @@ export function SettingsModal({
           if (typeof destination !== "string") return;
           setMemoryState("saving");
           try {
-            await pi.setLocalMemory(memoryText);
-            await pi.exportLocalMemory(destination);
+            await agent.setLocalMemory(memoryText);
+            await agent.exportLocalMemory(destination);
             setMemoryState("saved");
           } catch {
             setMemoryState("error");
@@ -393,7 +393,7 @@ export function SettingsModal({
         onMemoryDelete={async () => {
           if (!window.confirm("删除 PIDesktop 本地记忆文件吗？此操作不能撤销。")) return;
           try {
-            await pi.deleteLocalMemory();
+            await agent.deleteLocalMemory();
             queryClient.setQueryData(queryKeys.localMemory(), "");
             setMemoryText("");
             setMemoryState("idle");
@@ -405,12 +405,12 @@ export function SettingsModal({
       {page === "shortcuts" && <ShortcutsPage form={form} update={update} />}
       {page === "archived" && <PiImportSection sessionDir={form.sessionDir} />}
       {page === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
-        await pi.restoreSession(session.file);
+        await agent.restoreSession(session.file);
         dropArchived(session.file);
         setForm((current) => ({ ...current, archivedSessions: current.archivedSessions.filter((file) => file !== session.file) }));
       }} onDelete={async (session) => {
         if (!window.confirm(`将“${session.name || session.firstMessage || "未命名任务"}”移到 Pi Desktop 回收站吗？`)) return;
-        await pi.deleteSession(session.file);
+        await agent.deleteSession(session.file);
         dropArchived(session.file);
       }} />}
       {page === "usage" && <UsagePage usage={usage} />}
@@ -533,7 +533,7 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
   const inTauri = "__TAURI_INTERNALS__" in window;
   const editorsQuery = useQuery({
     queryKey: queryKeys.workspaceEditors(),
-    queryFn: () => pi.listWorkspaceEditors(),
+    queryFn: () => agent.listWorkspaceEditors(),
     enabled: inTauri,
     staleTime: Infinity,
   });
@@ -648,14 +648,14 @@ function AppearancePage({
     const source = typeof selected === "string" ? selected : Array.isArray(selected) ? selected[0] : null;
     if (!source) return;
     await runExtensionAction(kind, async () => {
-      await pi.installAppearanceExtension(source, cwd, kind, extensionScope);
+      await agent.installAppearanceExtension(source, cwd, kind, extensionScope);
       await onReload();
     }, kind === "theme" ? "主题已导入" : "宠物已导入");
   };
 
   const openExtensionDirectory = (kind: "theme" | "pet") => runExtensionAction(
     kind,
-    () => pi.openAppearanceDirectory(cwd, kind, extensionScope).then(() => undefined),
+    () => agent.openAppearanceDirectory(cwd, kind, extensionScope).then(() => undefined),
     kind === "theme" ? "已打开主题目录" : "已打开宠物目录",
   );
 
@@ -941,13 +941,13 @@ function SkillsPage({ cwd, resources, loading, onMigrated }: { cwd: string; reso
   // Since P6a skills, themes and pets live in .pid/; a project can still carry them in Pi's .pi/.
   const legacyQuery = useQuery({
     queryKey: ["legacy-project-resources", cwd],
-    queryFn: () => (cwd ? pi.legacyProjectResources(cwd).catch(() => 0) : Promise.resolve(0)),
+    queryFn: () => (cwd ? agent.legacyProjectResources(cwd).catch(() => 0) : Promise.resolve(0)),
   });
   const [migrating, setMigrating] = useState(false);
   const migrate = async () => {
     setMigrating(true);
     try {
-      await pi.migrateProjectResources(cwd);
+      await agent.migrateProjectResources(cwd);
       await legacyQuery.refetch();
       onMigrated();
     } finally {
@@ -1107,7 +1107,7 @@ function WorktreesPage({ cwd, worktrees, loading, onCreated }: { cwd: string; wo
   const create = async () => {
     if (!cwd) return;
     setCreating(true);
-    try { onCreated(await pi.createWorktree(cwd)); } finally { setCreating(false); }
+    try { onCreated(await agent.createWorktree(cwd)); } finally { setCreating(false); }
   };
   return <>
     <PageHeading title="Worktrees" description="在隔离的 Git Worktree 中运行独立 Pi 任务，不影响当前本地检出。" />

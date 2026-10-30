@@ -42,7 +42,7 @@ import {
   Square,
   X,
 } from "lucide-react";
-import { pi } from "./lib/pi";
+import { agent } from "./lib/agent";
 import {
   BUILTIN_APPEARANCE_CATALOG,
   createCustomAppearanceTheme,
@@ -210,7 +210,7 @@ export default function App() {
   // The home composer shows the chosen workspace's branch and uncommitted changes.
   const draftGitQuery = useQuery({
     queryKey: queryKeys.gitSnapshot(draftWorkspace),
-    queryFn: () => pi.gitSnapshot(draftWorkspace),
+    queryFn: () => agent.gitSnapshot(draftWorkspace),
     enabled: isTauri && Boolean(draftWorkspace),
   });
   const draftGit: GitSnapshot | null = isTauri && draftWorkspace && !draftGitQuery.isError ? draftGitQuery.data ?? null : null;
@@ -451,14 +451,14 @@ export default function App() {
 
   const workspaceEditorsQuery = useQuery({
     queryKey: queryKeys.workspaceEditors(),
-    queryFn: () => pi.listWorkspaceEditors(),
+    queryFn: () => agent.listWorkspaceEditors(),
     enabled: isTauri,
     staleTime: Infinity,
   });
   const workspaceEditors: WorkspaceEditorInfo[] = useMemo(() => workspaceEditorsQuery.data ?? [], [workspaceEditorsQuery.data]);
   const terminalAppsQuery = useQuery({
     queryKey: queryKeys.terminalApps(),
-    queryFn: () => pi.listTerminalApps(),
+    queryFn: () => agent.listTerminalApps(),
     enabled: isTauri,
     staleTime: Infinity,
   });
@@ -802,7 +802,7 @@ export default function App() {
     let disposed = false;
     const loadProjects = async () => {
       try {
-        const projects = await pi.listProjects();
+        const projects = await agent.listProjects();
         if (!disposed) setRegisteredProjects(projects.filter((project) => !project.hidden));
       } catch {
         if (!disposed) setRegisteredProjects([]);
@@ -835,7 +835,7 @@ export default function App() {
     setDraftWorkspace(workspace);
     setQuickChat(false);
     if (isTauri && workspace && !workspace.toLowerCase().endsWith("quick-chat")) {
-      void pi.registerProject(workspace)
+      void agent.registerProject(workspace)
         .then(() => window.dispatchEvent(new Event("pid-desktop:projects-changed")))
         .catch(() => undefined);
     }
@@ -856,7 +856,7 @@ export default function App() {
     const files = typeof selected === "string" ? [selected] : selected ?? [];
     const loaded = await Promise.all(files.map(async (file) => {
       try {
-        return await pi.readAttachment(file);
+        return await agent.readAttachment(file);
       } catch (error) {
         appendLog(`附件读取失败：${describeError(error)}`);
         return null;
@@ -884,7 +884,7 @@ export default function App() {
 
   const newWorktreeChat = useCallback(async () => {
     if (!cwd) return;
-    const worktree = await pi.createWorktree(cwd, git?.branch);
+    const worktree = await agent.createWorktree(cwd, git?.branch);
     window.localStorage.setItem("pid-desktop:last-workspace", worktree.path);
     await connect(worktree.path);
   }, [cwd, git?.branch, connect]);
@@ -905,7 +905,7 @@ export default function App() {
   const addWorkspaceFileToChat = useCallback(async (path: string) => {
     if (!workspaceCwd) return;
     try {
-      const attachment = await pi.readAttachment(workspaceFilePath(path));
+      const attachment = await agent.readAttachment(workspaceFilePath(path));
       setAttachments((current) => current.some((item) => item.path === attachment.path)
         ? current
         : [...current, attachment]);
@@ -952,7 +952,7 @@ export default function App() {
       if (enteringConversation) usePiStore.setState({ composerPrefill: text });
     };
     let current = usePiStore.getState();
-    let workspace = quickChat ? await pi.quickChatDir() : draftWorkspace || current.cwd;
+    let workspace = quickChat ? await agent.quickChatDir() : draftWorkspace || current.cwd;
     if (!workspace) {
         const selected = await open({ directory: true, multiple: false, title: "选择任务项目" });
         if (typeof selected !== "string") return false;
@@ -976,7 +976,7 @@ export default function App() {
         // Ensure git snapshot is available for base branch when possible.
         await current.refreshGit();
         current = usePiStore.getState();
-        const worktree = await pi.createWorktree(current.cwd, current.git?.branch);
+        const worktree = await agent.createWorktree(current.cwd, current.git?.branch);
         window.localStorage.setItem("pid-desktop:last-workspace", worktree.path);
         setDraftWorkspace(worktree.path);
         const connection = current.connect(worktree.path);
@@ -1026,14 +1026,14 @@ export default function App() {
 
   const revealWorkspaceInExplorer = useCallback((workspace: string) => {
     if (!workspace) return;
-    void pi.openWorkspaceInFileManager(workspace).catch((error) => {
+    void agent.openWorkspaceInFileManager(workspace).catch((error) => {
       usePiStore.getState().showToast(`无法在资源管理器中打开项目：${describeError(error)}`, "error");
     });
   }, []);
 
   const revealWorkspaceInEditor = useCallback((workspace: string, editor: WorkspaceEditorInfo) => {
     if (!workspace) return;
-    void pi.openWorkspaceInEditor(workspace, editor.id).catch((error) => {
+    void agent.openWorkspaceInEditor(workspace, editor.id).catch((error) => {
       usePiStore.getState().showToast(`无法在 ${editor.name} 中打开项目：${describeError(error)}`, "error");
     });
   }, []);
@@ -1048,7 +1048,7 @@ export default function App() {
 
   const openWorkspaceTerminalApp = useCallback((app: TerminalAppInfo) => {
     if (!workspaceCwd) return;
-    void pi.openWorkspaceInTerminalApp(workspaceCwd, app.id).catch((error) => {
+    void agent.openWorkspaceInTerminalApp(workspaceCwd, app.id).catch((error) => {
       usePiStore.getState().showToast(`无法打开 ${app.name}：${describeError(error)}`, "error");
     });
   }, [workspaceCwd]);
@@ -1186,7 +1186,7 @@ export default function App() {
     if (targets.length === 0) return;
     const archivedFiles = targets.map((target) => target.file);
     try {
-      await Promise.all(archivedFiles.map((file) => pi.archiveSession(file)));
+      await Promise.all(archivedFiles.map((file) => agent.archiveSession(file)));
     } catch (error) {
       usePiStore.getState().showToast(`归档失败：${describeError(error)}`, "error");
       return;
@@ -1235,7 +1235,7 @@ export default function App() {
     const label = targets.length === 1 ? targets[0] : `${targets.length} 个文件`;
     if (!window.confirm(`撤销对 ${label} 的本地更改？未提交的改动将丢失。`)) return;
     try {
-      await pi.gitRestoreFiles(workspace, targets);
+      await agent.gitRestoreFiles(workspace, targets);
       if (newTask) await refreshDraftGit();
       else await usePiStore.getState().refreshGit();
       usePiStore.getState().showToast("已撤销本地更改", "info");
@@ -1412,7 +1412,7 @@ export default function App() {
     if (!workspaceCwd || gitPushing) return;
     setGitPushing(true);
     try {
-      const result = await pi.gitPush(workspaceCwd);
+      const result = await agent.gitPush(workspaceCwd);
       usePiStore.getState().showToast(
         result.setUpstream ? `已发布 ${result.branch} 到 ${result.remote}` : `已推送到 ${result.remote}/${result.branch}`,
         "info",
@@ -1440,7 +1440,7 @@ export default function App() {
     });
     if (typeof destination !== "string") return;
     try {
-      const path = await pi.exportSessionMarkdown(current.sessionFile, destination);
+      const path = await agent.exportSessionMarkdown(current.sessionFile, destination);
       current.showToast(`已导出到 ${path}`, "info");
     } catch (error) {
       current.showToast(`导出失败：${describeError(error)}`, "error");
@@ -1632,8 +1632,8 @@ export default function App() {
             }}
             onCreateWorktree={async (workspace) => {
               try {
-                const snapshot = await pi.gitSnapshot(workspace);
-                const worktree = await pi.createWorktree(workspace, snapshot.branch);
+                const snapshot = await agent.gitSnapshot(workspace);
+                const worktree = await agent.createWorktree(workspace, snapshot.branch);
                 navigateTo({ kind: "home", workspace: worktree.path });
                 store.showToast(`已创建工作树：${worktree.branch || worktree.path}`, "info");
               } catch (error) {
@@ -1817,7 +1817,7 @@ export default function App() {
               onOpenUrl={(url) => void openUrl(url)}
               onCheckout={async (pullRequest, repositoryRoot) => {
                 try {
-                  await pi.checkoutPullRequest(repositoryRoot, pullRequest.number);
+                  await agent.checkoutPullRequest(repositoryRoot, pullRequest.number);
                   navigateTo({ kind: "home", workspace: repositoryRoot });
                   store.showToast(`已检出 PR #${pullRequest.number}`, "info");
                 } catch (error) {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { pi } from "../src/lib/pi.ts";
+import { agent } from "../src/lib/agent.ts";
 import { usePiStore } from "../src/store.ts";
 import { test } from "vitest";
 
@@ -13,7 +13,7 @@ test("runtime disconnect", async () => {
   });
 
   const runtimeId = "runtime-being-archived";
-  const originalStop = pi.stop;
+  const originalStop = agent.stop;
 
   usePiStore.setState({
     runtimeId,
@@ -34,7 +34,7 @@ test("runtime disconnect", async () => {
     toasts: [],
   });
 
-  pi.stop = async (stoppingRuntimeId: string) => {
+  agent.stop = async (stoppingRuntimeId: string) => {
     assert.equal(stoppingRuntimeId, runtimeId);
     usePiStore.getState().handleStatus({
       runtimeId,
@@ -47,7 +47,7 @@ test("runtime disconnect", async () => {
   try {
     await usePiStore.getState().disconnect();
   } finally {
-    pi.stop = originalStop;
+    agent.stop = originalStop;
   }
 
   assert.equal(usePiStore.getState().connection, "disconnected");

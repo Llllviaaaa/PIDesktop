@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { pi } from "../lib/pi";
+import { agent } from "../lib/agent";
 import type { SessionInfo, UsageSummary } from "../types";
 
 type HomeRange = "all" | "30d" | "7d";
@@ -80,7 +80,7 @@ export function ClaudeHomeDashboard({
 
   const usageQuery = useQuery<UsageSummary>({
     queryKey: ["claude-home-usage"],
-    queryFn: () => pi.usageSummary(),
+    queryFn: () => agent.usageSummary(),
     staleTime: 15_000,
   });
 

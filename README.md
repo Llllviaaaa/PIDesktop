@@ -108,7 +108,8 @@ Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Do 
 - `src/App.tsx` - desktop workspace composition
 - `src/store.ts` - conversation state machine
 - `src/lib/harnessRuntime.ts` - the frontend's link to the Harness Host's sessions (ADR 0014)
-- `src/lib/pi.ts` - typed client for the Rust shell and the Host
+- `src/lib/agent.ts` - typed client for the Rust shell and the Host
+- `src/lib/transcript.ts` - the conversation from the Host's session events
 - `src/components/` - chat, composer, sessions, review, terminal, settings, and permission UI
 - `src-tauri/src/lib.rs` - Tauri commands and persisted settings
 - `src-tauri/src/harness_host.rs` - starting the Harness Host and handing it the settings

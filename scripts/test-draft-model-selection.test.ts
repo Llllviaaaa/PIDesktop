@@ -21,7 +21,7 @@ vi.hoisted(() => {
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined }));
 
-const { pi } = await import("../src/lib/pi.ts");
+const { agent } = await import("../src/lib/agent.ts");
 const { harnessRuntimes } = await import("../src/lib/harnessRuntime.ts");
 const { usePiStore } = await import("../src/store.ts");
 
@@ -125,7 +125,7 @@ const runtimeIn = (cwd: string) => {
   return runtime;
 };
 
-pi.start = async (cwd, sessionFile) => {
+agent.start = async (cwd, sessionFile) => {
   await startGate;
   const saved = sessionFile === SAVED_SESSION;
   const runtime: FakeRuntime = {
@@ -169,11 +169,11 @@ vi.spyOn(harnessRuntimes, "stats").mockRejectedValue(new Error("no stats in this
 vi.spyOn(harnessRuntimes, "setModel").mockImplementation((id, provider, modelId) => ask(id, { type: "set_model", provider, modelId }));
 vi.spyOn(harnessRuntimes, "setThinkingLevel").mockImplementation((id, level) => ask(id, { type: "set_thinking_level", level }).then(() => undefined));
 vi.spyOn(harnessRuntimes, "prompt").mockImplementation((id, input) => ask(id, { type: "prompt", message: input.message }).then(() => undefined));
-pi.stop = async () => undefined;
-pi.bindSession = async () => undefined;
-pi.sessionHistory = async () => [];
-pi.listSessions = async () => [];
-pi.gitSnapshot = async () => null as never;
+agent.stop = async () => undefined;
+agent.bindSession = async () => undefined;
+agent.sessionHistory = async () => [];
+agent.listSessions = async () => [];
+agent.gitSnapshot = async () => null as never;
 
 beforeEach(async () => {
   await store().disconnect();

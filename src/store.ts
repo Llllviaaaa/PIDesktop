@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { describeError } from "./lib/errors";
-import { pi, respondToExtension } from "./lib/pi";
+import { agent, respondToExtension } from "./lib/agent";
 import { buildPromptPayload, harnessRuntimes } from "./lib/harnessRuntime";
 import { redactSensitiveText } from "./lib/redact";
 import { readStoredNotifications } from "./lib/notificationCenter";
@@ -266,7 +266,7 @@ export const usePiStore = create<PiState>((set, get) => {
 
     const sessionFile = data?.sessionFile;
     if (sessionFile) {
-      await pi.bindSession(runtimeId, sessionFile);
+      await agent.bindSession(runtimeId, sessionFile);
       if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
       set((state) => ({
         runtimes: {
@@ -355,7 +355,7 @@ export const usePiStore = create<PiState>((set, get) => {
         clearPendingAssistantUpdate();
         pendingOptimisticPrompt = null;
         activeTurnStartedAt = null;
-        const localHistory = sessionFile ? pi.sessionHistory(sessionFile) : null;
+        const localHistory = sessionFile ? agent.sessionHistory(sessionFile) : null;
         set({
           connection: "starting",
           cwd,
@@ -388,9 +388,9 @@ export const usePiStore = create<PiState>((set, get) => {
           const warmup = workspaceWarmups.get(key);
           if (warmup) await warmup;
           if (connectVersion !== connectionVersion) return;
-          const started = await pi.start(cwd, sessionFile);
+          const started = await agent.start(cwd, sessionFile);
           if (connectVersion !== connectionVersion) {
-            await pi.stop(started.runtimeId).catch(() => undefined);
+            await agent.stop(started.runtimeId).catch(() => undefined);
             return;
           }
           const runtimeId = started.runtimeId;
@@ -474,10 +474,10 @@ export const usePiStore = create<PiState>((set, get) => {
       if (pending) return pending;
       // Reuse is decided by the host claim. This map only tracks the in-flight request.
 
-      const warmup = pi.start(cwd)
+      const warmup = agent.start(cwd)
         .then((started) => {
           if (preferredWarmupKey !== key && started.runtimeId !== get().runtimeId) {
-            return pi.stop(started.runtimeId).finally(() => {
+            return agent.stop(started.runtimeId).finally(() => {
               set((state) => {
                 const runtimes = { ...state.runtimes };
                 delete runtimes[started.runtimeId];
@@ -534,7 +534,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (runtimeId) {
         intentionalRuntimeStops.add(runtimeId);
         try {
-          await pi.stop(runtimeId);
+          await agent.stop(runtimeId);
         } catch (error) {
           intentionalRuntimeStops.delete(runtimeId);
           throw error;
@@ -1015,7 +1015,7 @@ export const usePiStore = create<PiState>((set, get) => {
     exportSession: async (destination) => {
       const sessionFile = get().sessionFile;
       if (!sessionFile) throw new Error("当前任务还没有可导出的对话");
-      const path = await pi.exportSessionMarkdown(sessionFile, destination);
+      const path = await agent.exportSessionMarkdown(sessionFile, destination);
       toast(`已导出到 ${path}`, "info");
       return path;
     },
@@ -1128,7 +1128,7 @@ export const usePiStore = create<PiState>((set, get) => {
 
     refreshSessions: async () => {
       try {
-        set({ sessions: await pi.listSessions() });
+        set({ sessions: await agent.listSessions() });
       } catch (error) {
         get().appendLog(`列出会话失败：${describeError(error)}`);
       }
@@ -1138,7 +1138,7 @@ export const usePiStore = create<PiState>((set, get) => {
       const cwd = get().cwd;
       if (!cwd) return;
       try {
-        set({ git: await pi.gitSnapshot(cwd) });
+        set({ git: await agent.gitSnapshot(cwd) });
       } catch (error) {
         get().appendLog(`读取 Git 更改失败：${describeError(error)}`);
       }
@@ -1151,7 +1151,7 @@ export const usePiStore = create<PiState>((set, get) => {
         return;
       }
       try {
-        set({ settings: await pi.getSettings() });
+        set({ settings: await agent.getSettings() });
       } catch (error) {
         toast(`加载设置失败：${describeError(error)}`, "error");
       }
@@ -1163,8 +1163,8 @@ export const usePiStore = create<PiState>((set, get) => {
         set({ settings });
         return;
       }
-      await pi.setSettings(settings);
-      set({ settings: await pi.getSettings() });
+      await agent.setSettings(settings);
+      set({ settings: await agent.getSettings() });
     },
 
 

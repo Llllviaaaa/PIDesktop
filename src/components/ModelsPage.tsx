@@ -24,7 +24,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { pi } from "../lib/pi";
+import { agent } from "../lib/agent";
 import {
   providerService,
   type AuthEventSummary,
@@ -103,7 +103,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
   // models.json only marks which providers are custom; it never holds up the list.
   const configsQuery = useQuery({
     queryKey: queryKeys.modelConfigs(),
-    queryFn: () => pi.listModelProviders(),
+    queryFn: () => agent.listModelProviders(),
     enabled: isTauri,
   });
   const providers = providersQuery.data ?? NO_PROVIDERS;
@@ -261,7 +261,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
   const deleteCustom = async (provider: ProviderSummary) => {
     if (!window.confirm(`从 models.json 删除自定义提供商“${provider.name}”及其模型？`)) return;
     try {
-      await pi.deleteModelProvider(provider.id);
+      await agent.deleteModelProvider(provider.id);
       setSelectedId(null);
       await afterConfigChange(`已删除 ${provider.name}`);
     } catch (error) {
@@ -972,7 +972,7 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
     setError("");
     try {
       // Most OpenAI-compatible relays list only IDs; fill capabilities the way other clients do.
-      const enriched = (await pi.discoverModelProviderModels({ ...draft, id: draft.id || "discover" }))
+      const enriched = (await agent.discoverModelProviderModels({ ...draft, id: draft.id || "discover" }))
         .map((model) => enrichModel(model, catalog));
       const models = enriched.map((entry) => entry.model);
       setSources((current) => ({ ...current, ...Object.fromEntries(enriched.map((entry) => [entry.model.id, entry])) }));
@@ -991,7 +991,7 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
     setBusy(true);
     setError("");
     try {
-      await pi.saveModelProvider(draft);
+      await agent.saveModelProvider(draft);
       await onSaved(draft);
     } catch (nextError) {
       setError(errorText(nextError));

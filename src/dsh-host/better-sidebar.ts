@@ -17,7 +17,7 @@ import { openPath } from '@tauri-apps/plugin-opener'
 import * as betterSidebar from 'dsh-better-sidebar/client/index.tsx'
 import { setChunkScriptLoaderForTests, type ChunkExports, type ChunkName } from 'dsh-better-sidebar/client/chunk-loader.ts'
 import { SideChatTab } from '../components/SideChatTab'
-import { pi } from '../lib/pi'
+import { agent } from '../lib/agent'
 
 /** Each lazy chunk's entry, split out by Vite. */
 const CHUNKS: Record<ChunkName, () => Promise<ChunkExports>> = {
@@ -75,7 +75,7 @@ const sessionRemote = {
   },
   async workspacePathApplications(_request: { path: string }) {
     try {
-      const editors = await pi.listWorkspaceEditors()
+      const editors = await agent.listWorkspaceEditors()
       const value: FileApplication[] = [
         { id: SYSTEM_DEFAULT, name: '默认应用', default: true, icon: null },
         ...editors.map(editor => ({ id: editor.id, name: editor.name, default: false, icon: null })),
@@ -87,9 +87,9 @@ const sessionRemote = {
   },
   async openWorkspacePath(request: { path: string; action?: 'reveal'; application?: string }) {
     try {
-      if (request.action === 'reveal') await pi.revealPathInFileManager(request.path)
+      if (request.action === 'reveal') await agent.revealPathInFileManager(request.path)
       else if (request.application === undefined || request.application === SYSTEM_DEFAULT) await openPath(request.path)
-      else await pi.openFileInEditor(request.path, request.application)
+      else await agent.openFileInEditor(request.path, request.application)
       return { ok: true }
     } catch (error) {
       return { ok: false, error: { message: String(error) } }

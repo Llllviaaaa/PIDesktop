@@ -8,7 +8,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle, MessageSquare, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { buildPromptPayload, harnessRuntimes } from "../lib/harnessRuntime";
-import { pi, respondToExtension, subscribeToPi } from "../lib/pi";
+import { agent, respondToExtension, subscribeToPi } from "../lib/agent";
 import {
   completeAssistant,
   endToolCall,
@@ -179,7 +179,7 @@ export function SideChatPanel({
     };
 
     // Stopping a side runtime also removes its forked session, which lives outside the session list.
-    const stopAndDeleteSideRuntime = (runtimeId: string) => pi.stop(runtimeId).catch(() => undefined);
+    const stopAndDeleteSideRuntime = (runtimeId: string) => agent.stop(runtimeId).catch(() => undefined);
 
     setPhase("starting");
     setError(null);
@@ -196,7 +196,7 @@ export function SideChatPanel({
           onLog: () => undefined,
         });
         if (disposed) return;
-        const started = await pi.start(cwd, parentSessionFile, true);
+        const started = await agent.start(cwd, parentSessionFile, true);
         if (disposed) {
           void stopAndDeleteSideRuntime(started.runtimeId);
           return;
@@ -210,7 +210,7 @@ export function SideChatPanel({
         if (!sideFile || sameLocalPath(sideFile, parentSessionFile)) {
           throw new Error("无法创建独立的侧边聊天会话");
         }
-        await pi.bindSession(started.runtimeId, sideFile);
+        await agent.bindSession(started.runtimeId, sideFile);
         if (!disposed) {
           setModel(state.model ?? null);
           setThinkingLevel(state.thinkingLevel ?? "off");
@@ -295,7 +295,7 @@ export function SideChatPanel({
     const files = typeof selected === "string" ? [selected] : selected ?? [];
     const loaded = await Promise.all(files.map(async (file) => {
       try {
-        return await pi.readAttachment(file);
+        return await agent.readAttachment(file);
       } catch (reason) {
         reportError(reason);
         return null;

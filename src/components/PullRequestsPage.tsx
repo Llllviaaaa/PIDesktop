@@ -11,7 +11,7 @@ import {
   RefreshCw,
   TriangleAlert,
 } from "lucide-react";
-import { pi } from "../lib/pi";
+import { agent } from "../lib/agent";
 import { findGitWorkspace, uniqueWorkspacePaths } from "../lib/pullRequests";
 import type { PullRequestCollection, PullRequestInfo } from "../types";
 
@@ -54,13 +54,13 @@ export function PullRequestsPage({ cwd, workspaceOptions, onOpenUrl, onCheckout,
   const pullRequests = useQuery({
     queryKey: queryKeys.pullRequests(requested, availableWorkspaces, selectionTouched),
     queryFn: async () => {
-      const resolved = await findGitWorkspace(requested, availableWorkspaces, pi.gitRepositoryRoot, !selectionTouched);
+      const resolved = await findGitWorkspace(requested, availableWorkspaces, agent.gitRepositoryRoot, !selectionTouched);
       if (!resolved) {
         throw new Error(selectionTouched
           ? "所选工作区不是 Git 仓库，请切换到其他项目。"
           : "没有找到可用的 Git 项目，请先打开或注册一个 Git 仓库。");
       }
-      const collection = await pi.listPullRequests(resolved.repositoryRoot);
+      const collection = await agent.listPullRequests(resolved.repositoryRoot);
       return { ...resolved, collection };
     },
     enabled: availableWorkspaces.length > 0,
