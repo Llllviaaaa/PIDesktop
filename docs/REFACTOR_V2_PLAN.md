@@ -123,7 +123,7 @@ src-tauri/           # Rust（瘦身）
 | **P4 能力迁移** | 每个 `pidesktop-*` 迁成一个 cordis 插件：permissions/rules/guard → `tools/pre-execute`；plan、memory、hooks、checkpoints；subagents 改为进程内子 agent 作用域；mcp、browser、computer；schedule 从 Rust 移入 Host；title 和 usage | `scripts/test-*.test.ts` 中对应套件迁移后通过；`CODEX_PARITY.md` 逐项对照 | P3。各插件之间相互独立，可以并行 |
 | **P5 前端切换**（[细化方案](REFACTOR_V2_P5.md)） | `packages/protocol` 生成客户端；`lib/pi*` 替换为 `agentClient`；拆分 `store.ts` 为 slices，从 `App.tsx` 抽出路由和视图；extension UI 改为 `ui` 服务；“Pi 包”页面改为插件和 skills 管理；`dsh-host` 的 `PiSessions` 改为直接读 Host 的 sessions | `engine=harness` 下全部功能可用；前端组件测试补到关键路径 | P3，并随 P4 逐步推进 |
 | **P6 移除 Pi**（[细化方案](REFACTOR_V2_P6.md)） | 删除 `@earendil-works/*`、`prepare-pi-runtime`、Rust `pi/*`、`provider.rs` 和 `packages.rs` 中与 Pi 相关的代码、`engine` 开关；提供可选的一次性导入器（`~/.pi/agent/sessions` → 新格式）；更新 README、CODEX_PARITY、THIRD_PARTY_NOTICES；处理产品改名和数据目录 | 仓库里没有 Pi 运行时依赖；安装包体积和启动时间有记录 | P5 |
-| **P7 加固** | Host 崩溃恢复、会话并发压测、内存和句柄泄漏检查（fiber 释放）、E2E（Tauri + mock LLM）、可观测性（日志和 trace） | 发布 0.3.0 | P6 |
+| **P7 加固**（[细化方案](REFACTOR_V2_P7.md)） | Host 崩溃恢复、会话并发压测、内存和句柄泄漏检查（fiber 释放）、E2E（Tauri + mock LLM）、可观测性（日志和 trace） | 发布 0.3.0 | P6 |
 
 ## 6. 风险与对策
 
