@@ -15,7 +15,7 @@ import type { AppState } from "./types";
 
 export type { AppState, RuntimeSlice, RuntimeState, SessionsSlice, TerminalState, TranscriptSlice, UiSlice } from "./types";
 
-export const usePiStore = create<AppState>((set, get) => {
+export const useAppStore = create<AppState>((set, get) => {
   const ctx = new StoreContext(set, get);
   return {
     ...createRuntimeSlice(set, get, ctx),

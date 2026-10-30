@@ -5,7 +5,7 @@ import App from "./App";
 import { DesktopPetWindow } from "./components/DesktopPetWindow";
 import { queryClient } from "./lib/queryClient";
 import { moveManagedQueueItem, removeManagedQueueItem } from "./lib/managedQueue";
-import { usePiStore } from "./store";
+import { useAppStore } from "./store";
 import type { UiMessage } from "./types";
 // dsh-claude-style's bundled faces (OFL): Inter for the UI, Noto Serif for prose, JetBrains Mono for code.
 import "@fontsource-variable/inter/wght.css";
@@ -30,7 +30,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
     content: `Message ${index}\n\nLong history entry for layout and markdown rendering.\n\n\`\`\`ts\nconst value = ${index};\n\`\`\``,
     timestamp: Date.now() - (1_000 - index) * 1_000,
   }));
-  usePiStore.setState({
+  useAppStore.setState({
     runtimeId: performanceFixture || streamFixture || queueFixture || titleFixture || diagramFixture || goalFixture ? "fixture-runtime" : null,
     connection: "running",
     cwd,
@@ -264,17 +264,17 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
       { id: "queue-c", text: "最后运行完整回归", attachments: [], createdAt: Date.now() + 2 },
     ] : [],
     moveManagedFollowUp: (id, direction) => {
-      usePiStore.setState((state) => ({
+      useAppStore.setState((state) => ({
         managedFollowUpQueue: moveManagedQueueItem(state.managedFollowUpQueue, id, direction),
       }));
     },
     removeManagedFollowUp: (id) => {
-      usePiStore.setState((state) => ({
+      useAppStore.setState((state) => ({
         managedFollowUpQueue: removeManagedQueueItem(state.managedFollowUpQueue, id).queue,
       }));
     },
     steerManagedFollowUp: async (id) => {
-      usePiStore.getState().removeManagedFollowUp(id);
+      useAppStore.getState().removeManagedFollowUp(id);
     },
     git: {
       isRepository: true,
@@ -313,7 +313,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
       if (!performanceFixture) return true;
       const nonce = Date.now();
       const assistantId = `fixture-pending-assistant-${nonce}`;
-      usePiStore.setState((state) => ({
+      useAppStore.setState((state) => ({
         messages: [
           ...state.messages,
           {
@@ -336,7 +336,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
         isStreaming: true,
       }));
       window.setTimeout(() => {
-        usePiStore.setState((state) => ({
+        useAppStore.setState((state) => ({
           messages: state.messages.map((message) => message.id === assistantId
             ? { ...message, content: "Fixture response started.", streaming: false }
             : message),
@@ -352,23 +352,23 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
     window.setTimeout(() => {
       let updateCount = 0;
       let messageCommits = 0;
-      let previousMessages = usePiStore.getState().messages;
-      const unsubscribe = usePiStore.subscribe((state) => {
+      let previousMessages = useAppStore.getState().messages;
+      const unsubscribe = useAppStore.subscribe((state) => {
         if (state.messages !== previousMessages) {
           messageCommits += 1;
           previousMessages = state.messages;
         }
       });
-      usePiStore.getState().handleEvent("fixture-runtime", { type: "assistant-start" });
+      useAppStore.getState().handleEvent("fixture-runtime", { type: "assistant-start" });
       let thinkingCount = 0;
       let thinkingText = "";
       const thinkingTimer = window.setInterval(() => {
         thinkingCount += 1;
         const delta = `Thinking update ${thinkingCount} `;
         thinkingText += delta;
-        usePiStore.getState().handleEvent("fixture-runtime", { type: "assistant-delta", text: "", thinking: delta });
+        useAppStore.getState().handleEvent("fixture-runtime", { type: "assistant-delta", text: "", thinking: delta });
         if (thinkingCount === 8) {
-          usePiStore.getState().handleEvent("fixture-runtime", {
+          useAppStore.getState().handleEvent("fixture-runtime", {
             type: "tool-start",
             callId: "fixture-stream-read",
             name: "read",
@@ -377,7 +377,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
         }
         if (thinkingCount < 30) return;
         window.clearInterval(thinkingTimer);
-        usePiStore.getState().handleEvent("fixture-runtime", {
+        useAppStore.getState().handleEvent("fixture-runtime", {
           type: "tool-end",
           callId: "fixture-stream-read",
           name: "read",
@@ -386,10 +386,10 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
         const timer = window.setInterval(() => {
           updateCount += 1;
           const content = `Streaming update ${updateCount} `;
-          usePiStore.getState().handleEvent("fixture-runtime", { type: "assistant-delta", text: content, thinking: "" });
+          useAppStore.getState().handleEvent("fixture-runtime", { type: "assistant-delta", text: content, thinking: "" });
           if (updateCount < 300) return;
           window.clearInterval(timer);
-          usePiStore.getState().handleEvent("fixture-runtime", {
+          useAppStore.getState().handleEvent("fixture-runtime", {
             type: "assistant",
             message: {
               id: "fixture-reply",
@@ -401,7 +401,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
               timestamp: Date.now(),
             },
           });
-          usePiStore.getState().handleEvent("fixture-runtime", { type: "turn-end" });
+          useAppStore.getState().handleEvent("fixture-runtime", { type: "turn-end" });
           unsubscribe();
           // eslint-disable-next-line no-console -- the performance fixture reports through the console
           console.info(`[performance-fixture] ${updateCount} updates -> ${messageCommits} message commits`);

@@ -10,7 +10,6 @@ import {
 import { useSyncOnChange } from "./hooks/useSyncOnChange";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "./lib/queries";
-import { useShallow } from "zustand/react/shallow";
 import { usePanelResize } from "./hooks/usePanelResize";
 import {
   SIDEBAR_BOUNDS,
@@ -64,7 +63,8 @@ import { sameLocalPath } from "./lib/pathIdentity";
 import { filterHiddenModels } from "./lib/modelProviders";
 import { buildPetActivities, petStatusToAnimation, type PetActivityItem, type PetActivityStatus } from "./lib/petActivity";
 import { ACTIVE_RUNTIME_KEY, LAST_TASK_KEY, readPersistedTask, useRuntimeBootstrap } from "./hooks/useRuntimeBootstrap";
-import { usePiStore } from "./store";
+import { useAppStore } from "./store";
+import { useSlices } from "./store/selectors";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import type { SettingsPage } from "./components/SettingsModal";
@@ -101,14 +101,25 @@ type HubView = "pull-requests" | "sites" | "scheduled";
 type AppMenu = "file" | "edit" | "view" | "help";
 type NavigationTarget = BaseNavigationTarget<HubView>;
 
-function selectAppShellState(state: ReturnType<typeof usePiStore.getState>) {
-  const { messages, ...shellState } = state;
-  void messages;
-  return shellState;
-}
-
 export default function App() {
-  const store = usePiStore(useShallow(selectAppShellState));
+  // The shell reads the fields and actions it uses, by slice; the transcript's
+  // messages are read by the conversation components themselves.
+  const store = useSlices({
+    runtime: [
+      "connection", "cwd", "settings", "sessionFile", "sessionId", "sessionName", "isSwitchingModel", "model",
+      "thinkingLevel", "availableModels", "availableThinkingLevels", "commands", "stats", "git", "runtimeId", "runtimes",
+      "lastError", "prepareNewTask", "connect", "appendLog", "switchSession", "disconnect", "saveSettings",
+    ],
+    sessions: ["sessions", "refreshSessions", "setSessionName", "cloneSession", "forkLatest"],
+    transcript: [
+      "isStreaming", "isCompacting", "retryStatus", "extensionWidgets", "managedFollowUpQueue", "steeringQueue",
+      "followUpQueue", "steerManagedFollowUp", "removeManagedFollowUp", "moveManagedFollowUp", "compact",
+    ],
+    ui: [
+      "extensionRequest", "composerPrefill", "toasts", "notifications", "setViewedSession", "showToast",
+      "markNotificationRead", "markAllNotificationsRead", "dismissToast", "dismissNotification", "answerExtension",
+    ],
+  });
   // Store actions are stable references. Calling them unbound keeps hooks from
   // having to list the whole `store` object, which changes on every update.
   const { prepareNewTask, setViewedSession, connect, appendLog, switchSession } = store;
@@ -156,7 +167,7 @@ export default function App() {
     ? normalizeTranscriptDensity(settings.transcriptDensity)
     : localTranscriptDensity;
   const setTranscriptDensity = useCallback((density: typeof transcriptDensity) => {
-    const current = usePiStore.getState();
+    const current = useAppStore.getState();
     if (current.settings) {
       void current.saveSettings({ ...current.settings, transcriptDensity: density });
       return;
@@ -165,7 +176,7 @@ export default function App() {
   }, []);
   // The task on screen as Markdown, wherever the user picks.
   const exportConversation = useCallback(async () => {
-    const current = usePiStore.getState();
+    const current = useAppStore.getState();
     const name = (current.sessionName || "conversation").replace(/[\\/:*?"<>|]+/g, "-").slice(0, 60);
     const destination = await saveDialog({ defaultPath: `${name}.md`, filters: [{ name: "Markdown", extensions: ["md"] }] });
     if (!destination) return;
@@ -223,7 +234,7 @@ export default function App() {
   const conversationScrollRef = useRef<HTMLDivElement>(null);
   const autoFollowConversationRef = useRef(true);
   const lastAutoScrollAtRef = useRef(0);
-  const firstUserMessage = usePiStore((state) => state.messages.find((message) => message.role === "user")?.content);
+  const firstUserMessage = useAppStore((state) => state.messages.find((message) => message.role === "user")?.content);
   const resolvedThreadTitle = useMemo(() => activeSessionTitle({
     sessions,
     sessionFile,
@@ -362,7 +373,7 @@ export default function App() {
 
   useEffect(() => {
     if (isTauri) return;
-    void usePiStore.getState().loadSettings();
+    void useAppStore.getState().loadSettings();
   }, [isTauri]);
 
   /**
@@ -375,13 +386,13 @@ export default function App() {
     try {
       action(sidebar);
     } catch {
-      usePiStore.getState().showToast("先打开一个任务，再使用侧边栏", "info");
+      useAppStore.getState().showToast("先打开一个任务，再使用侧边栏", "info");
     }
   }, []);
 
   /** Pages of the old sidebar that the new one does not carry yet. */
   const pageMoving = useCallback((label: string) => {
-    usePiStore.getState().showToast(`${label}正在迁移到新的侧边栏，暂时不可用`, "info");
+    useAppStore.getState().showToast(`${label}正在迁移到新的侧边栏，暂时不可用`, "info");
   }, []);
 
   const reloadAppearanceCatalog = useCallback(async () => {
@@ -426,7 +437,7 @@ export default function App() {
   }, [activePet, displayedPetActivities, isTauri, petActivity, petBusy, settings]);
 
   const showErrorToast = useCallback((message: string) => {
-    usePiStore.getState().showToast(message, "error");
+    useAppStore.getState().showToast(message, "error");
   }, []);
 
   const toggleWorkspaceSidebar = useCallback(() => {
@@ -575,14 +586,14 @@ export default function App() {
     let unlisten: UnlistenFn | undefined;
     void scheduleClient.onRunUpdated((run) => {
       if (run.status === "running") return;
-      void usePiStore.getState().refreshSessions();
-      usePiStore.getState().showToast(
+      void useAppStore.getState().refreshSessions();
+      useAppStore.getState().showToast(
         run.status === "success"
           ? `计划任务“${run.taskName}”已完成`
           : `计划任务“${run.taskName}”${run.status === "interrupted" ? "已中断" : "失败"}`,
         run.status === "success" ? "info" : "error",
       );
-      usePiStore.getState().addNotification({
+      useAppStore.getState().addNotification({
         id: `scheduled:${run.id}:${run.status}`,
         kind: "completion",
         title: run.status === "success" ? "计划任务已完成" : "计划任务未完成",
@@ -909,9 +920,9 @@ export default function App() {
       setAttachments((current) => current.some((item) => item.path === attachment.path)
         ? current
         : [...current, attachment]);
-      usePiStore.getState().showToast(`${attachment.fileName} 已添加到聊天`, "info");
+      useAppStore.getState().showToast(`${attachment.fileName} 已添加到聊天`, "info");
     } catch (error) {
-      usePiStore.getState().showToast(describeError(error), "error");
+      useAppStore.getState().showToast(describeError(error), "error");
     }
   }, [workspaceCwd, workspaceFilePath]);
   const workspaceOptions = useMemo(
@@ -949,9 +960,9 @@ export default function App() {
       setHubView(null);
     };
     const restoreInitialPrompt = () => {
-      if (enteringConversation) usePiStore.setState({ composerPrefill: text });
+      if (enteringConversation) useAppStore.setState({ composerPrefill: text });
     };
-    let current = usePiStore.getState();
+    let current = useAppStore.getState();
     let workspace = quickChat ? await agent.quickChatDir() : draftWorkspace || current.cwd;
     if (!workspace) {
         const selected = await open({ directory: true, multiple: false, title: "选择任务项目" });
@@ -965,7 +976,7 @@ export default function App() {
       const connection = current.connect(workspace);
       enterConversation();
       await connection;
-      current = usePiStore.getState();
+      current = useAppStore.getState();
       if (current.connection !== "running") {
         restoreInitialPrompt();
         return false;
@@ -975,14 +986,14 @@ export default function App() {
       try {
         // Ensure git snapshot is available for base branch when possible.
         await current.refreshGit();
-        current = usePiStore.getState();
+        current = useAppStore.getState();
         const worktree = await agent.createWorktree(current.cwd, current.git?.branch);
         window.localStorage.setItem("pid-desktop:last-workspace", worktree.path);
         setDraftWorkspace(worktree.path);
         const connection = current.connect(worktree.path);
         enterConversation();
         await connection;
-        current = usePiStore.getState();
+        current = useAppStore.getState();
         if (current.connection !== "running") {
           restoreInitialPrompt();
           return false;
@@ -1003,7 +1014,7 @@ export default function App() {
   }, [attachments, draftWorkspace, newTask, quickChat, selectWorkspace, taskEnvironment]);
 
   const startNewTask = useCallback((asQuickChat = false) => {
-    const current = usePiStore.getState();
+    const current = useAppStore.getState();
     if (current.cwd && !current.cwd.toLowerCase().endsWith("quick-chat")) setDraftWorkspace(current.cwd);
     current.prepareNewTask();
     setDraftMode(true);
@@ -1018,7 +1029,7 @@ export default function App() {
   const openProjectHome = useCallback((workspace: string) => {
     if (!workspace) return;
     selectWorkspace(workspace);
-    usePiStore.getState().prepareNewTask();
+    useAppStore.getState().prepareNewTask();
     setDraftMode(true);
     setQuickChat(false);
     setHubView(null);
@@ -1027,14 +1038,14 @@ export default function App() {
   const revealWorkspaceInExplorer = useCallback((workspace: string) => {
     if (!workspace) return;
     void agent.openWorkspaceInFileManager(workspace).catch((error) => {
-      usePiStore.getState().showToast(`无法在资源管理器中打开项目：${describeError(error)}`, "error");
+      useAppStore.getState().showToast(`无法在资源管理器中打开项目：${describeError(error)}`, "error");
     });
   }, []);
 
   const revealWorkspaceInEditor = useCallback((workspace: string, editor: WorkspaceEditorInfo) => {
     if (!workspace) return;
     void agent.openWorkspaceInEditor(workspace, editor.id).catch((error) => {
-      usePiStore.getState().showToast(`无法在 ${editor.name} 中打开项目：${describeError(error)}`, "error");
+      useAppStore.getState().showToast(`无法在 ${editor.name} 中打开项目：${describeError(error)}`, "error");
     });
   }, []);
 
@@ -1049,7 +1060,7 @@ export default function App() {
   const openWorkspaceTerminalApp = useCallback((app: TerminalAppInfo) => {
     if (!workspaceCwd) return;
     void agent.openWorkspaceInTerminalApp(workspaceCwd, app.id).catch((error) => {
-      usePiStore.getState().showToast(`无法打开 ${app.name}：${describeError(error)}`, "error");
+      useAppStore.getState().showToast(`无法打开 ${app.name}：${describeError(error)}`, "error");
     });
   }, [workspaceCwd]);
 
@@ -1074,7 +1085,7 @@ export default function App() {
   }, [canOpenWorkspace, openWorkspaceInPreferredApp]);
 
   const notify = useCallback((message: string, tone: "info" | "error") => {
-    usePiStore.getState().showToast(message, tone);
+    useAppStore.getState().showToast(message, tone);
   }, []);
 
   const currentNavigationTarget = useCallback((): NavigationTarget => {
@@ -1121,7 +1132,7 @@ export default function App() {
   }, [applyNavigationTarget, currentNavigationTarget, syncNavigationAvailability]);
 
   const openPetActivity = useCallback((activity: DesktopPetNavigationRequest) => {
-    if (activity.notificationId) usePiStore.getState().markNotificationRead(activity.notificationId);
+    if (activity.notificationId) useAppStore.getState().markNotificationRead(activity.notificationId);
     if (activity.sessionFile) {
       navigateTo({ kind: "session", cwd: activity.cwd, file: activity.sessionFile });
     } else if (activity.cwd) {
@@ -1136,7 +1147,7 @@ export default function App() {
     void Promise.all([
       listen<DesktopPetNavigationRequest>(DESKTOP_PET_NAVIGATE_EVENT, (event) => openPetActivity(event.payload)),
       listen(DESKTOP_PET_DISABLE_EVENT, () => {
-        const current = usePiStore.getState();
+        const current = useAppStore.getState();
         if (!current.settings?.petEnabled) return;
         void current.saveSettings({ ...current.settings, petEnabled: false }).catch((error) => {
           current.showToast(`关闭宠物失败：${describeError(error)}`, "error");
@@ -1188,11 +1199,11 @@ export default function App() {
     try {
       await Promise.all(archivedFiles.map((file) => agent.archiveSession(file)));
     } catch (error) {
-      usePiStore.getState().showToast(`归档失败：${describeError(error)}`, "error");
+      useAppStore.getState().showToast(`归档失败：${describeError(error)}`, "error");
       return;
     }
 
-    const activeFile = usePiStore.getState().sessionFile;
+    const activeFile = useAppStore.getState().sessionFile;
     const activeTarget = activeFile
       ? targets.find((target) => sameLocalPath(target.file, activeFile))
       : undefined;
@@ -1203,20 +1214,20 @@ export default function App() {
       window.localStorage.removeItem(ACTIVE_RUNTIME_KEY);
       window.localStorage.removeItem(LAST_TASK_KEY);
       try {
-        await usePiStore.getState().disconnect();
+        await useAppStore.getState().disconnect();
       } catch (error) {
         closeWarning = describeError(error);
-        usePiStore.getState().appendLog(`归档后关闭旧任务失败：${closeWarning}`);
+        useAppStore.getState().appendLog(`归档后关闭旧任务失败：${closeWarning}`);
       }
       await applyNavigationTarget({ kind: "home", workspace: activeTarget.cwd || fallbackWorkspace });
     }
 
     try {
-      await usePiStore.getState().refreshSessions();
+      await useAppStore.getState().refreshSessions();
     } catch (error) {
-      usePiStore.getState().appendLog(`归档后刷新会话失败：${describeError(error)}`);
+      useAppStore.getState().appendLog(`归档后刷新会话失败：${describeError(error)}`);
     }
-    usePiStore.getState().showToast(
+    useAppStore.getState().showToast(
       closeWarning ? `${successMessage}；旧任务进程关闭失败，但已返回项目首页` : successMessage,
       closeWarning ? "warning" : "info",
     );
@@ -1228,7 +1239,7 @@ export default function App() {
 
   const restoreGitFiles = useCallback(async (paths?: string[]) => {
     const workspace = workspaceCwd;
-    const snapshot = newTask ? draftGit : usePiStore.getState().git;
+    const snapshot = newTask ? draftGit : useAppStore.getState().git;
     if (!workspace || !snapshot?.files.length) return;
     const targets = paths?.length ? paths : snapshot.files.map((file) => file.path);
     if (!targets.length) return;
@@ -1237,10 +1248,10 @@ export default function App() {
     try {
       await agent.gitRestoreFiles(workspace, targets);
       if (newTask) await refreshDraftGit();
-      else await usePiStore.getState().refreshGit();
-      usePiStore.getState().showToast("已撤销本地更改", "info");
+      else await useAppStore.getState().refreshGit();
+      useAppStore.getState().showToast("已撤销本地更改", "info");
     } catch (error) {
-      usePiStore.getState().showToast(describeError(error), "error");
+      useAppStore.getState().showToast(describeError(error), "error");
     }
   }, [draftGit, newTask, refreshDraftGit, workspaceCwd]);
 
@@ -1250,19 +1261,19 @@ export default function App() {
   }, []);
 
   const stopFromComposer = useCallback(() => {
-    void usePiStore.getState().abort();
+    void useAppStore.getState().abort();
   }, []);
   const removeComposerAttachment = useCallback((path: string) => {
     setAttachments((items) => items.filter((item) => item.path !== path));
   }, []);
   const changeComposerModel = useCallback((next: ModelInfo) => {
-    void usePiStore.getState().setModel(next).catch((error) => {
-      usePiStore.getState().appendLog(`切换模型失败：${describeError(error)}`);
+    void useAppStore.getState().setModel(next).catch((error) => {
+      useAppStore.getState().appendLog(`切换模型失败：${describeError(error)}`);
     });
   }, []);
   const changeComposerThinking = useCallback((level: string) => {
-    void usePiStore.getState().setThinkingLevel(level).catch((error) => {
-      usePiStore.getState().showToast(`设置推理等级失败：${describeError(error)}`, "error");
+    void useAppStore.getState().setThinkingLevel(level).catch((error) => {
+      useAppStore.getState().showToast(`设置推理等级失败：${describeError(error)}`, "error");
     });
   }, []);
   const startQuickChatFromComposer = useCallback(() => {
@@ -1270,7 +1281,7 @@ export default function App() {
     setTaskEnvironment("local");
   }, []);
   const changeComposerPermission = useCallback(async (mode: AppSettings["permissionMode"]) => {
-    const current = usePiStore.getState();
+    const current = useAppStore.getState();
     if (!current.settings || current.settings.permissionMode === mode) return;
     if (current.isStreaming) {
       current.showToast("请等待当前回复完成后再切换权限", "warning");
@@ -1280,14 +1291,14 @@ export default function App() {
     try {
       await current.setRuntimePermissionMode(mode);
       await current.saveSettings({ ...current.settings, permissionMode: mode });
-      usePiStore.getState().showToast("权限模式已更新", "info");
+      useAppStore.getState().showToast("权限模式已更新", "info");
     } catch (error) {
-      await usePiStore.getState().setRuntimePermissionMode(previous).catch(() => undefined);
-      usePiStore.getState().showToast(`切换权限失败：${describeError(error)}`, "error");
+      await useAppStore.getState().setRuntimePermissionMode(previous).catch(() => undefined);
+      useAppStore.getState().showToast(`切换权限失败：${describeError(error)}`, "error");
     }
   }, []);
   const changeComposerAgentMode = useCallback(async (mode: AppSettings["agentMode"]) => {
-    const current = usePiStore.getState();
+    const current = useAppStore.getState();
     if (!current.settings || current.settings.agentMode === mode) return;
     if (current.isStreaming) {
       current.showToast("请等待当前回复完成后再切换工作模式", "warning");
@@ -1297,19 +1308,19 @@ export default function App() {
     try {
       await current.setRuntimeAgentMode(mode);
       await current.saveSettings({ ...current.settings, agentMode: mode });
-      usePiStore.getState().showToast(`已切换到${mode === "agent" ? "执行" : mode === "plan" ? "计划" : "问答"}模式`, "info");
+      useAppStore.getState().showToast(`已切换到${mode === "agent" ? "执行" : mode === "plan" ? "计划" : "问答"}模式`, "info");
     } catch (error) {
-      await usePiStore.getState().setRuntimeAgentMode(previous).catch(() => undefined);
-      usePiStore.getState().showToast(`切换工作模式失败：${describeError(error)}`, "error");
+      await useAppStore.getState().setRuntimeAgentMode(previous).catch(() => undefined);
+      useAppStore.getState().showToast(`切换工作模式失败：${describeError(error)}`, "error");
     }
   }, []);
   const consumeComposerPrefill = useCallback(() => {
     setGoalEditPrefill(null);
-    usePiStore.getState().clearComposerPrefill();
+    useAppStore.getState().clearComposerPrefill();
   }, []);
 
   const editUserMessage = useCallback((message: UiMessage) => {
-    const current = usePiStore.getState();
+    const current = useAppStore.getState();
     if (current.isStreaming) {
       current.showToast("请等待当前回复完成后再编辑消息", "warning");
       return;
@@ -1318,7 +1329,7 @@ export default function App() {
   }, []);
 
   const submitMessageEdit = useCallback(async (message: UiMessage, text: string) => {
-    const current = usePiStore.getState();
+    const current = useAppStore.getState();
     if (current.isStreaming) {
       current.showToast("请等待当前回复完成后再编辑消息", "warning");
       return false;
@@ -1342,7 +1353,7 @@ export default function App() {
   }, []);
 
   const rewindUserMessage = useCallback(async (message: UiMessage) => {
-    const current = usePiStore.getState();
+    const current = useAppStore.getState();
     if (current.isStreaming) {
       current.showToast("请等待当前回复完成后再回退消息", "warning");
       return false;
@@ -1368,15 +1379,15 @@ export default function App() {
 
   const requestReview = useCallback(async (target: CodeReviewScope = { mode: "uncommitted" }) => {
     if (settings?.reviewDelivery === "detached") {
-      const current = usePiStore.getState();
+      const current = useAppStore.getState();
       const workspace = current.cwd;
       current.prepareNewTask();
-      if (workspace) await usePiStore.getState().connect(workspace);
+      if (workspace) await useAppStore.getState().connect(workspace);
     }
     const scope = target.mode === "base-branch"
       ? `审查当前分支相对于基线分支 ${target.baseBranch} 的代码更改。先运行 git merge-base HEAD ${target.baseBranch}，再检查从合并基点到 HEAD 的差异。`
       : "审查当前未提交的代码更改，包括已暂存、未暂存和未跟踪文件。";
-    const sent = await usePiStore.getState().sendMessage([
+    const sent = await useAppStore.getState().sendMessage([
       scope,
       "只报告由这些更改引入、作者明确会修复的离散问题，重点检查正确性、回归风险、安全性和缺失测试；按严重程度列出发现。没有可操作问题时请直接说明。",
       "需要定位到具体改动行的意见，请另起一行输出 ::code-comment{title=\"[P1] 简短标题\" body=\"问题、触发场景和修复方向\" file=\"相对或绝对文件路径\" start=行号 end=行号 priority=1}。正文保持普通 Markdown，不要输出 JSON。",
@@ -1386,7 +1397,7 @@ export default function App() {
 
   const refreshReviewGit = useCallback(async () => {
     if (newTask) await refreshDraftGit();
-    else await usePiStore.getState().refreshGit();
+    else await useAppStore.getState().refreshGit();
   }, [newTask, refreshDraftGit]);
 
   /** Commits run in the app, not through the agent; the dialog can push right after. */
@@ -1399,11 +1410,11 @@ export default function App() {
     const committed = `已提交 ${outcome.commit.shortSha}：${outcome.commit.subject}`;
     const push = outcome.push;
     if (push && "error" in push) {
-      usePiStore.getState().showToast(`${committed}。推送失败：${push.error}`, "error");
+      useAppStore.getState().showToast(`${committed}。推送失败：${push.error}`, "error");
     } else if (push) {
-      usePiStore.getState().showToast(`${committed}，已推送到 ${push.result.remote}/${push.result.branch}`, "info");
+      useAppStore.getState().showToast(`${committed}，已推送到 ${push.result.remote}/${push.result.branch}`, "info");
     } else {
-      usePiStore.getState().showToast(committed, "info");
+      useAppStore.getState().showToast(committed, "info");
     }
     void refreshReviewGit();
   }, [refreshReviewGit]);
@@ -1413,12 +1424,12 @@ export default function App() {
     setGitPushing(true);
     try {
       const result = await agent.gitPush(workspaceCwd);
-      usePiStore.getState().showToast(
+      useAppStore.getState().showToast(
         result.setUpstream ? `已发布 ${result.branch} 到 ${result.remote}` : `已推送到 ${result.remote}/${result.branch}`,
         "info",
       );
     } catch (error) {
-      usePiStore.getState().showToast(`推送失败：${describeError(error)}`, "error");
+      useAppStore.getState().showToast(`推送失败：${describeError(error)}`, "error");
     } finally {
       setGitPushing(false);
       void refreshReviewGit();
@@ -1427,7 +1438,7 @@ export default function App() {
 
 
   const exportConversationMarkdown = useCallback(async () => {
-    const current = usePiStore.getState();
+    const current = useAppStore.getState();
     if (!current.sessionFile) return;
     const baseName = (current.sessionName || "pidesktop-conversation")
       // eslint-disable-next-line no-control-regex -- stripping control characters is what this sanitiser is for
@@ -1990,7 +2001,7 @@ export default function App() {
           activities={displayedPetActivities}
           onOpenActivity={openPetActivity}
           onHide={() => {
-            const current = usePiStore.getState();
+            const current = useAppStore.getState();
             if (current.settings) void current.saveSettings({ ...current.settings, petEnabled: false });
           }}
         />

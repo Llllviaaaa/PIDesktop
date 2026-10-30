@@ -6,7 +6,7 @@
  */
 import type { PersistedEvent } from "@pid/protocol";
 import { historyToUi } from "../src/lib/transcript.ts";
-import { usePiStore } from "../src/store/index.ts";
+import { useAppStore } from "../src/store/index.ts";
 import { test } from "vitest";
 
 const at = (ms: number) => new Date(ms).toISOString();
@@ -62,25 +62,25 @@ test("message history", async () => {
 
   // Streamed deltas reach the store, coalesced.
   Object.assign(globalThis, { window: globalThis });
-  usePiStore.setState({ runtimeId: "stream-test", messages: [], isStreaming: true });
-  const handle = usePiStore.getState().handleEvent;
+  useAppStore.setState({ runtimeId: "stream-test", messages: [], isStreaming: true });
+  const handle = useAppStore.getState().handleEvent;
   handle("stream-test", { type: "assistant-start" });
   handle("stream-test", { type: "assistant-delta", text: "Hello ", thinking: "" });
   handle("stream-test", { type: "assistant-delta", text: "stream", thinking: "" });
   await new Promise((resolve) => setTimeout(resolve, 50));
-  assert(usePiStore.getState().messages.at(-1)?.content === "Hello stream", "text deltas were not streamed");
+  assert(useAppStore.getState().messages.at(-1)?.content === "Hello stream", "text deltas were not streamed");
 
   handle("stream-test", { type: "assistant-delta", text: "", thinking: "Reasoning " });
   handle("stream-test", { type: "assistant-delta", text: "", thinking: "stream" });
   await new Promise((resolve) => setTimeout(resolve, 50));
-  assert(usePiStore.getState().messages.at(-1)?.thinking === "Reasoning stream", "thinking deltas were not streamed");
+  assert(useAppStore.getState().messages.at(-1)?.thinking === "Reasoning stream", "thinking deltas were not streamed");
 
   // The finished reply replaces the streamed one; thinking it did not repeat is kept.
   handle("stream-test", {
     type: "assistant",
     message: { id: "host-9", role: "assistant", content: "Hello stream", isStreaming: false, timestamp: 1, toolCalls: [{ id: "call-1", name: "read", args: { path: "README.md" }, running: false }] },
   });
-  const finished = usePiStore.getState().messages;
+  const finished = useAppStore.getState().messages;
   assert(finished.length === 1, "the finished reply was added beside the streamed one");
   assert(finished[0].thinking === "Reasoning stream", "a finished reply without thinking dropped the streamed thinking");
   assert(finished[0].isStreaming === false && finished[0].toolCalls?.[0]?.name === "read", "the finished reply was not applied");

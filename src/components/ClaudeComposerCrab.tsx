@@ -1,6 +1,6 @@
 import { type MouseEvent } from "react";
 import { BUILTIN_APPEARANCE_CATALOG, resolveAppearancePet, type AppearancePetDefinition, type PetAnimationState } from "../lib/appearanceCatalog";
-import { usePiStore } from "../store";
+import { useAppStore } from "../store";
 import { PetAvatar, usePetInteractionController } from "./PetCompanion";
 
 interface ComposerPixelPetProps {
@@ -20,7 +20,7 @@ export function ClaudeComposerCrab({
   hasNotification = false,
   hasError = false,
 }: ComposerPixelPetProps) {
-  const petCharacter = usePiStore((state) => state.settings?.petCharacter ?? "cat");
+  const petCharacter = useAppStore((state) => state.settings?.petCharacter ?? "cat");
   const resolvedPet = pet ?? resolveAppearancePet(BUILTIN_APPEARANCE_CATALOG, petCharacter);
 
   const activity: PetAnimationState = hasError
