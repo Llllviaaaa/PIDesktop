@@ -178,3 +178,9 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
   - `providers.json` 里已有的同名 provider 不会被覆盖。
   - key 的处理与 `models.json` 相同：写明的 key 存入 `secrets.dat`，`$VAR` 写成环境变量引用，`!命令` 不导入。
   - 导入过一次后记在 `pi-import.json`。之后即使用户删掉了导入的 provider，也不会再导入。
+
+## P6c：Pi 已移除
+
+- 前端不再有 Pi 路径：`pi.start` 总是启动 Host runtime；会话、定时任务、provider、用量都只走 Host。`engine` 设置、Harness 切换提示和 Pi 进程设置随之删除。
+- 本文的模拟层保留到 P6d：store 仍然处理 Pi 的事件形状，由 `harnessRuntime.ts` 转换。
+- Host runtime 只存在于页面内存中，刷新后没有可以接回的 runtime（Rust 以前会保留 Pi 进程），会话从文件重新打开。

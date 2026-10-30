@@ -112,6 +112,14 @@ P5 结束后，Harness 是默认引擎，Pi 只作为退路保留。还依赖 Pi
 
 P6a 和 P6b 互不依赖，可以并行开发。P6c 依赖这两个。P6d 和 P6e 依次进行。
 
+> **P6c 实施时的调整**：
+> - `pi.ts` 暂不改名为 `agent.ts`：改名涉及所有引用它的文件，放到 P6d 用 GitNexus 的 rename 一起做。
+> - `providerService` 暂时保留原来的接口，改由 Host 实现：列表来自 Host，填写或删除密钥改为编辑 provider，OAuth 直接报错。模型设置页留到 P6d、P6e 再整理。
+> - Rust 的 `separate_pi_config` 作为隐藏设置保留，只用来找到 Pi 原来的配置目录，供一次性导入读取。`sessionDir` 同样只供导入使用。
+> - Cargo 里已经用不到的依赖（`json5`、`regex`、`rusqlite`、`chrono`、`ureq`、`urlencoding` 和为 `ureq` 打的 rustls 补丁）暂时保留：删除它们需要重新生成 `Cargo.lock`，留到有本地 Rust 工具链时再处理。
+> - Host 的定时任务改为始终启用：桌面端不再发送 `engine`，Rust 的调度器也已删除。
+> - 体积：删除前打包的 Pi 运行时（`resources/pi-runtime`）未压缩约 132 MB；Harness Host（`pid-harness.exe`）约 111 MB，P5 起已经打包。冷启动时间需要在安装包上测量，本地没有 Rust 工具链，暂未测量。
+
 每个 PR 都要满足：CI 全绿、做过 GitNexus 影响分析、补齐相应的 ADR（导入器、原生事件各写一篇）。
 
 ## 5. 风险
