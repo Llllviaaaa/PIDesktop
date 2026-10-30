@@ -1,11 +1,12 @@
 // The Harness Host's session logs as the transcript's messages, and its live
-// progress as the Pi events the store handles (src/lib/harnessTranscript.ts),
+// progress as transcript events (src/lib/transcript.ts, src/lib/hostSessions.ts),
 // checked against the agent loop's golden logs.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { PersistedEvent } from "@pid/protocol";
-import { HarnessEventTranslator, currentBranch, effortForLevel, forkPointsOf, planWidgetLines, sessionTreeOf, toAgentMessages } from "../src/lib/harnessTranscript";
+import { effortForLevel, forkPointsOf, sessionTreeOf } from "../src/lib/hostSessions";
+import { TranscriptTranslator, currentBranch, historyToUi, planWidgetLines } from "../src/lib/transcript";
 
 const golden = (name: string): PersistedEvent[] => readFileSync(join(import.meta.dirname, "..", "packages", "agent-loop", "test", "golden", `${name}.jsonl`), "utf8")
   .trim()
@@ -13,30 +14,24 @@ const golden = (name: string): PersistedEvent[] => readFileSync(join(import.meta
   .map((line) => ({ ...JSON.parse(line), ts: "2026-10-29T00:00:00.000Z" }));
 
 describe("session logs as transcript messages", () => {
-  it("map users, assistants with tool calls, and tool results", () => {
-    const messages = toAgentMessages(golden("parallel-tools"));
-    expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "toolResult", "toolResult", "assistant"]);
-    expect(messages[1]).toMatchObject({
-      role: "assistant",
-      provider: "scripted",
-      model: "test-model",
-      stopReason: "toolUse",
-      usage: { input: 10, output: 5, totalTokens: 15 },
-      content: [
-        { type: "text", text: "Let me check." },
-        { type: "toolCall", id: "call-1", name: "echo", arguments: { text: "one" } },
-        { type: "toolCall", id: "call-2", name: "echo", arguments: { text: "two" } },
-        { type: "toolCall", id: "call-3", name: "missing", arguments: {} },
-      ],
-    });
-    expect(messages[4]).toMatchObject({ role: "toolResult", toolCallId: "call-3", toolName: "missing", isError: true });
-    expect(messages[0]).toMatchObject({ role: "user", content: [{ type: "text", text: "Echo twice" }], timestamp: Date.parse("2026-10-29T00:00:00.000Z") });
+  it("map users, and assistants with their tool calls and results", () => {
+    const messages = historyToUi(golden("parallel-tools"));
+    expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "assistant"]);
+    expect(messages[0]).toMatchObject({ role: "user", content: "Echo twice", entryId: "2", timestamp: Date.parse("2026-10-29T00:00:00.000Z") });
+    expect(messages[1]).toMatchObject({ role: "assistant", content: "Let me check.", model: "test-model", usage: { input: 10, output: 5, totalTokens: 15 }, isError: false });
+    expect(messages[1].toolCalls?.map((call) => [call.id, call.name, call.args, call.running, call.isError])).toEqual([
+      ["call-1", "echo", { text: "one" }, false, false],
+      ["call-2", "echo", { text: "two" }, false, false],
+      ["call-3", "missing", {}, false, true],
+    ]);
   });
 
-  it("show compactions, errors and aborts the way Pi's transcript does", () => {
-    expect(toAgentMessages(golden("context-length")).map((message) => message.role)).toEqual(["user", "compactionSummary", "assistant"]);
-    expect(toAgentMessages(golden("provider-error"))[1]).toMatchObject({ role: "assistant", stopReason: "error", errorMessage: "bad key", content: [] });
-    expect(toAgentMessages(golden("abort-stream"))[1]).toMatchObject({ stopReason: "aborted", content: [{ type: "text", text: "Partial" }] });
+  it("show compactions, errors and aborts", () => {
+    const compacted = historyToUi(golden("context-length"));
+    expect(compacted.map((message) => message.role)).toEqual(["user", "notice", "assistant"]);
+    expect(compacted[1]).toMatchObject({ noticeKind: "compaction" });
+    expect(historyToUi(golden("provider-error"))[1]).toMatchObject({ role: "assistant", isError: true, content: "bad key" });
+    expect(historyToUi(golden("abort-stream"))[1]).toMatchObject({ isError: true, content: "Partial" });
   });
 
   it("follow rewinds", () => {
@@ -50,9 +45,9 @@ describe("session logs as transcript messages", () => {
   });
 });
 
-describe("live progress as Pi events", () => {
+describe("live progress as transcript events", () => {
   it("streams a run with a tool call", () => {
-    const translator = new HarnessEventTranslator(() => ({ provider: "p", model: "m" }));
+    const translator = new TranscriptTranslator();
     const events = [
       ...translator.delta({ type: "agent-start" }),
       ...translator.delta({ type: "llm-start", provider: "p", model: "m" }),
@@ -65,21 +60,19 @@ describe("live progress as Pi events", () => {
       ...translator.event({ seq: 4, ts: "t", type: "tool-result", data: { callId: "c1", name: "read", content: [{ type: "text", text: "x" }], isError: false } }),
       ...translator.delta({ type: "agent-end", outcome: "done" }),
     ];
-    expect(events.map((event) => (event.type === "message_update" ? `update:${event.assistantMessageEvent.type}` : event.type))).toEqual([
-      "agent_start", "message_start", "update:text_delta", "update:toolcall_end", "tool_execution_start", "tool_execution_end", "message_end", "agent_end", "agent_settled",
+    expect(events.map((event) => event.type)).toEqual([
+      "turn-start", "assistant-start", "assistant-delta", "assistant-tool-calls", "tool-start", "tool-end", "turn-end",
     ]);
-    const toolCall = events.find((event) => event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_end");
-    expect(toolCall).toMatchObject({ assistantMessageEvent: { toolCall: { id: "c1", name: "read", arguments: { path: "a.ts" } } } });
+    expect(events.find((event) => event.type === "assistant-tool-calls")).toMatchObject({ calls: [{ id: "c1", name: "read", args: { path: "a.ts" }, running: true }] });
+    expect(events.find((event) => event.type === "tool-end")).toMatchObject({ callId: "c1", result: { text: "x", isError: false } });
   });
 
-  it("shows the plan as Pi's plan widget and maps thinking levels", () => {
-    const translator = new HarnessEventTranslator(() => undefined);
+  it("shows the plan as the plan widget's lines, the queue as counts, and maps thinking levels", () => {
+    const translator = new TranscriptTranslator();
     const plan = { items: [{ text: "Read", status: "completed" }, { text: "Fix", status: "in_progress" }] };
-    expect(translator.delta({ type: "plan", plan })).toEqual([
-      { type: "extension_ui_request", id: "harness-plan", method: "setWidget", widgetKey: "pidesktop-plan", widgetLines: ["计划 1/2", "[x] Read", "[>] Fix"] },
-    ]);
+    expect(translator.delta({ type: "plan", plan })).toEqual([{ type: "plan", lines: ["计划 1/2", "[x] Read", "[>] Fix"] }]);
     expect(planWidgetLines({ items: [] })).toEqual([]);
-    expect(translator.delta({ type: "queue", steer: 2, followUp: 0 })).toEqual([{ type: "queue_update", steering: ["", ""], followUp: [] }]);
+    expect(translator.delta({ type: "queue", steer: 2, followUp: 0 })).toEqual([{ type: "queue", steering: 2, followUp: 0 }]);
     expect(["off", "minimal", "medium", "xhigh"].map(effortForLevel)).toEqual(["off", "low", "medium", "high"]);
   });
 });

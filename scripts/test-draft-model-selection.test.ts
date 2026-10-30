@@ -171,8 +171,7 @@ vi.spyOn(harnessRuntimes, "setThinkingLevel").mockImplementation((id, level) => 
 vi.spyOn(harnessRuntimes, "prompt").mockImplementation((id, input) => ask(id, { type: "prompt", message: input.message }).then(() => undefined));
 pi.stop = async () => undefined;
 pi.bindSession = async () => undefined;
-pi.sessionHistory = async () => ({ messages: [], timings: [] }) as never;
-pi.sessionMessageTimings = async () => [];
+pi.sessionHistory = async () => [];
 pi.listSessions = async () => [];
 pi.gitSnapshot = async () => null as never;
 

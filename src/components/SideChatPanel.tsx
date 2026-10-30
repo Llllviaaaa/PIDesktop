@@ -7,30 +7,26 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle, MessageSquare, Plus, RotateCcw, Trash2, X } from "lucide-react";
-import { harnessRuntimes } from "../lib/harnessRuntime";
+import { buildPromptPayload, harnessRuntimes } from "../lib/harnessRuntime";
 import { pi, respondToExtension, subscribeToPi } from "../lib/pi";
 import {
-  assistantToUi,
-  attachToolResult,
-  buildPromptPayload,
-  imagesFromContent,
-  mergeAssistantUi,
-  messageId,
-  textFromContent,
-} from "../lib/piMessages";
-import { updateToolCall } from "../lib/piToolCalls";
+  completeAssistant,
+  endToolCall,
+  replaceOrAppend,
+  startAssistant,
+  startToolCall,
+  streamAssistant,
+  type TranscriptEvent,
+} from "../lib/transcript";
 import { sameLocalPath } from "../lib/pathIdentity";
 import type {
   AppSettings,
   AttachmentPayload,
   ExtensionUIRequest,
   ModelInfo,
-  PiEvent,
   SessionStats,
   SlashCommand,
-  ToolResultMessage,
   UiMessage,
-  UiToolCall,
 } from "../types";
 import { groupTranscriptMessages } from "../lib/transcriptTurns";
 import { Composer } from "./Composer";
@@ -72,21 +68,6 @@ function promptTitle(text: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized || normalized.startsWith("/")) return "侧边聊天";
   return normalized.length > 28 ? `${normalized.slice(0, 28)}…` : normalized;
-}
-
-function upsertToolCall(calls: UiToolCall[] | undefined, call: UiToolCall): UiToolCall[] {
-  const next = [...(calls ?? [])];
-  const index = next.findIndex((item) => item.id === call.id);
-  if (index >= 0) {
-    next[index] = {
-      ...next[index],
-      ...call,
-      args: Object.keys(call.args).length ? call.args : next[index].args,
-    };
-  } else {
-    next.push(call);
-  }
-  return next;
 }
 
 /** The Harness Host has no slash commands of its own. */
@@ -140,26 +121,6 @@ export function SideChatPanel({
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
 
-    const updateAssistant = (updater: (message: UiMessage) => UiMessage) => {
-      setMessages((current) => {
-        const next = [...current];
-        let index = next.length - 1;
-        while (index >= 0 && next[index].role !== "assistant") index -= 1;
-        if (index < 0 || !next[index].isStreaming) {
-          next.push(updater({
-            id: `side-stream-${Date.now()}`,
-            role: "assistant",
-            content: "",
-            isStreaming: true,
-            timestamp: Date.now(),
-          }));
-        } else {
-          next[index] = updater(next[index]);
-        }
-        return next;
-      });
-    };
-
     const refreshStats = async (runtimeId: string) => {
       try {
         const next = await harnessRuntimes.stats(runtimeId);
@@ -169,127 +130,51 @@ export function SideChatPanel({
       }
     };
 
-    const handleEvent = (runtimeId: string, event: PiEvent) => {
+    const handleEvent = (runtimeId: string, event: TranscriptEvent) => {
       if (runtimeId !== runtimeRef.current) return;
-      if (event.type === "agent_start") {
-        activeTurnStartedAtRef.current = Date.now();
-        setIsStreaming(true);
-        return;
-      }
-      if (event.type === "agent_end" && !event.willRetry) {
-        setIsStreaming(false);
-        return;
-      }
-      if (event.type === "agent_settled") {
-        setIsStreaming(false);
-        void refreshStats(runtimeId);
-        return;
-      }
-      if (event.type === "message_start") {
-        if (event.message.role === "assistant") {
-          const incoming = assistantToUi(event.message, true);
+      switch (event.type) {
+        case "turn-start":
+          activeTurnStartedAtRef.current = Date.now();
+          setIsStreaming(true);
+          return;
+        case "turn-end":
+          setIsStreaming(false);
+          void refreshStats(runtimeId);
+          return;
+        case "user":
+          // The message shown when it was sent becomes the recorded one.
           setMessages((current) => {
-            const last = current[current.length - 1];
-            return last?.role === "assistant" && last.isStreaming
-              ? [...current.slice(0, -1), mergeAssistantUi(last, incoming)]
-              : [...current, incoming];
+            const last = [...current].reverse().find((message) => message.role === "user");
+            const pending = last && !last.entryId && last.content === event.message.content ? last.id : undefined;
+            return replaceOrAppend(current, pending, event.message);
           });
-        } else if (event.message.role === "user") {
-          const userMessage = event.message;
-          const content = textFromContent(userMessage.content);
-          if (content.startsWith("/pidesktop-")) return;
-          setMessages((current) => {
-            const lastUser = [...current].reverse().find((message) => message.role === "user");
-            if (lastUser?.content === content) return current;
-            return [...current, {
-              id: messageId(userMessage),
-              role: "user",
-              content,
-              images: imagesFromContent(userMessage.content),
-              timestamp: userMessage.timestamp,
-            }];
-          });
+          return;
+        case "assistant-start":
+          setMessages((current) => startAssistant(current));
+          return;
+        case "assistant-delta":
+          setMessages((current) => streamAssistant(current, event));
+          return;
+        case "assistant-tool-calls":
+          setMessages((current) => streamAssistant(current, { toolCalls: event.calls }));
+          return;
+        case "assistant": {
+          const startedAt = activeTurnStartedAtRef.current;
+          const durationMs = startedAt === null ? undefined : Date.now() - startedAt;
+          setMessages((current) => completeAssistant(current, { ...event.message, durationMs }));
+          return;
         }
-        return;
-      }
-      if (event.type === "message_update") {
-        const update = event.assistantMessageEvent;
-        if (update.type === "text_delta" && update.delta) {
-          updateAssistant((message) => ({ ...message, content: message.content + update.delta, isStreaming: true }));
-        } else if (update.type === "thinking_delta" && update.delta) {
-          updateAssistant((message) => ({ ...message, thinking: `${message.thinking ?? ""}${update.delta}`, isStreaming: true }));
-        } else if (update.type === "toolcall_end" && update.toolCall) {
-          const call = update.toolCall;
-          updateAssistant((message) => ({
-            ...message,
-            toolCalls: upsertToolCall(message.toolCalls, {
-              id: call.id,
-              name: call.name,
-              args: call.arguments,
-              running: true,
-            }),
-            isStreaming: true,
-          }));
-        }
-        return;
-      }
-      if (event.type === "message_end") {
-        if (event.message.role === "assistant") {
-          const durationMs = activeTurnStartedAtRef.current === null
-            ? undefined
-            : Date.now() - activeTurnStartedAtRef.current;
-          const completed = assistantToUi(event.message, false, durationMs);
-          setMessages((current) => {
-            const next = [...current];
-            let index = next.length - 1;
-            while (index >= 0 && next[index].role !== "assistant") index -= 1;
-            if (index >= 0 && next[index].isStreaming) next[index] = mergeAssistantUi(next[index], completed);
-            else next.push(completed);
-            return next;
-          });
-        } else if (event.message.role === "toolResult") {
-          setMessages((current) => {
-            const next = [...current];
-            attachToolResult(next, event.message as ToolResultMessage);
-            return next;
-          });
-        }
-        return;
-      }
-      if (event.type === "tool_execution_start") {
-        setMessages((current) => updateToolCall(current, event.toolCallId, (call) => ({
-          ...call,
-          name: event.toolName,
-          args: event.args,
-          running: true,
-          startedAt: Date.now(),
-        }), event.toolName, event.args));
-        return;
-      }
-      if (event.type === "tool_execution_update") {
-        setMessages((current) => updateToolCall(current, event.toolCallId, (call) => ({
-          ...call,
-          running: true,
-        }), event.toolName, event.args));
-        return;
-      }
-      if (event.type === "tool_execution_end") {
-        setMessages((current) => updateToolCall(current, event.toolCallId, (call) => ({
-          ...call,
-          name: event.toolName,
-          args: call.args,
-          running: false,
-          isError: event.isError,
-          result: typeof event.result === "string" ? event.result : JSON.stringify(event.result),
-          finishedAt: Date.now(),
-        }), event.toolName, {}));
-        return;
-      }
-      if (event.type === "extension_ui_request") {
-        if (event.method === "setTitle" && event.title?.trim()) setTitle(event.title.trim());
-        if (!["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(event.method)) {
-          setExtensionRequest(event);
-        }
+        case "tool-start":
+          setMessages((current) => startToolCall(current, event.callId, event.name, event.args));
+          return;
+        case "tool-end":
+          setMessages((current) => endToolCall(current, event.callId, event.name, event.result));
+          return;
+        case "ui-request":
+          if (event.request.method !== "notify") setExtensionRequest(event.request);
+          return;
+        default:
+          return;
       }
     };
 

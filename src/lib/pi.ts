@@ -5,7 +5,6 @@ import type {
   AttachmentPayload,
   ExtensionUIRequest,
   ModelProviderInput,
-  PiEvent,
   ProjectConfig,
   PullRequestCollection,
   ResourceItem,
@@ -19,6 +18,7 @@ import type {
 import { gitClient } from "./gitClient";
 import { harnessProviders } from "./harnessProviders";
 import { harnessRuntimes } from "./harnessRuntime";
+import type { TranscriptEvent } from "./transcript";
 import { scheduleClient } from "./scheduleClient";
 import { sessionClient } from "./sessionClient";
 
@@ -62,8 +62,6 @@ export const pi = {
   listSessions: sessionClient.list,
   sessionHistory: sessionClient.history,
   exportSessionMarkdown: sessionClient.exportMarkdown,
-  sessionMessageTimings: sessionClient.messageTimings,
-  sessionMessages: sessionClient.messages,
   listArchivedSessions: sessionClient.listArchived,
   archiveSession: sessionClient.archive,
   restoreSession: sessionClient.restore,
@@ -146,7 +144,7 @@ export interface PiRuntimeStatus {
 }
 
 export interface PiListeners {
-  onEvent: (runtimeId: string, event: PiEvent) => void;
+  onEvent: (runtimeId: string, event: TranscriptEvent) => void;
   onStatus?: (status: PiRuntimeStatus) => void;
   onLog?: (runtimeId: string, line: string) => void;
   onProtocolError?: (message: string) => void;

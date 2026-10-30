@@ -6,7 +6,7 @@ import { DesktopPetWindow } from "./components/DesktopPetWindow";
 import { queryClient } from "./lib/queryClient";
 import { moveManagedQueueItem, removeManagedQueueItem } from "./lib/managedQueue";
 import { usePiStore } from "./store";
-import type { AssistantMessage, UiMessage } from "./types";
+import type { UiMessage } from "./types";
 // dsh-claude-style's bundled faces (OFL): Inter for the UI, Noto Serif for prose, JetBrains Mono for code.
 import "@fontsource-variable/inter/wght.css";
 import "@fontsource-variable/noto-serif/wght.css";
@@ -359,66 +359,49 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
           previousMessages = state.messages;
         }
       });
-      const makeMessage = (
-        content: string,
-        stopReason: AssistantMessage["stopReason"],
-        thinking = "",
-      ): AssistantMessage => ({
-        role: "assistant",
-        provider: "fixture",
-        model: "fixture-model",
-        stopReason,
-        timestamp: Date.now(),
-        content: [
-          ...(thinking ? [{ type: "thinking" as const, thinking }] : []),
-          { type: "text", text: content },
-        ],
-      });
-      usePiStore.getState().handleEvent("fixture-runtime", {
-        type: "message_start",
-        message: makeMessage("", "pending"),
-      });
+      usePiStore.getState().handleEvent("fixture-runtime", { type: "assistant-start" });
       let thinkingCount = 0;
       let thinkingText = "";
       const thinkingTimer = window.setInterval(() => {
         thinkingCount += 1;
         const delta = `Thinking update ${thinkingCount} `;
         thinkingText += delta;
-        usePiStore.getState().handleEvent("fixture-runtime", {
-          type: "message_update",
-          assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta },
-        });
+        usePiStore.getState().handleEvent("fixture-runtime", { type: "assistant-delta", text: "", thinking: delta });
         if (thinkingCount === 8) {
           usePiStore.getState().handleEvent("fixture-runtime", {
-            type: "tool_execution_start",
-            toolCallId: "fixture-stream-read",
-            toolName: "read",
+            type: "tool-start",
+            callId: "fixture-stream-read",
+            name: "read",
             args: { path: "README.md" },
           });
         }
         if (thinkingCount < 30) return;
         window.clearInterval(thinkingTimer);
         usePiStore.getState().handleEvent("fixture-runtime", {
-          type: "tool_execution_end",
-          toolCallId: "fixture-stream-read",
-          toolName: "read",
-          result: "# Pi Desktop\n\nA local Windows desktop client.",
-          isError: false,
+          type: "tool-end",
+          callId: "fixture-stream-read",
+          name: "read",
+          result: { text: "# Pi Desktop\n\nA local Windows desktop client.", isError: false, finishedAt: Date.now() },
         });
         const timer = window.setInterval(() => {
           updateCount += 1;
           const content = `Streaming update ${updateCount} `;
-          usePiStore.getState().handleEvent("fixture-runtime", {
-            type: "message_update",
-            assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: content },
-          });
+          usePiStore.getState().handleEvent("fixture-runtime", { type: "assistant-delta", text: content, thinking: "" });
           if (updateCount < 300) return;
           window.clearInterval(timer);
           usePiStore.getState().handleEvent("fixture-runtime", {
-            type: "message_end",
-            message: makeMessage("Streaming fixture complete.", "stop", thinkingText),
+            type: "assistant",
+            message: {
+              id: "fixture-reply",
+              role: "assistant",
+              content: "Streaming fixture complete.",
+              thinking: thinkingText,
+              model: "fixture-model",
+              isStreaming: false,
+              timestamp: Date.now(),
+            },
           });
-          usePiStore.getState().handleEvent("fixture-runtime", { type: "agent_end", messages: [] });
+          usePiStore.getState().handleEvent("fixture-runtime", { type: "turn-end" });
           unsubscribe();
           // eslint-disable-next-line no-console -- the performance fixture reports through the console
           console.info(`[performance-fixture] ${updateCount} updates -> ${messageCommits} message commits`);
