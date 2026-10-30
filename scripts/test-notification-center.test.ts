@@ -2,7 +2,7 @@ import {
   appendNotification,
   parseNotifications,
 } from "../src/lib/notificationCenter.ts";
-import { usePiStore } from "../src/store.ts";
+import { usePiStore } from "../src/store/index.ts";
 import { test } from "vitest";
 
 test("notification center", async () => {

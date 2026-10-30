@@ -1,4 +1,4 @@
-import type { RuntimeState } from "../storeTypes";
+import type { RuntimeState } from "../store/types";
 import type { AppNotification, SessionInfo } from "../types";
 import type { PetAnimationState } from "./appearanceCatalog";
 import { sameLocalPath } from "./pathIdentity";

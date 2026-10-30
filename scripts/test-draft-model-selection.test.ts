@@ -23,7 +23,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined })
 
 const { agent } = await import("../src/lib/agent.ts");
 const { harnessRuntimes } = await import("../src/lib/harnessRuntime.ts");
-const { usePiStore } = await import("../src/store.ts");
+const { usePiStore } = await import("../src/store/index.ts");
 
 const DEFAULT_MODEL: ModelInfo = { provider: "example", id: "default-model", name: "Default" };
 const PICKED_MODEL: ModelInfo = { provider: "example", id: "picked-model", name: "Picked" };

@@ -6,7 +6,7 @@
  */
 import type { PersistedEvent } from "@pid/protocol";
 import { historyToUi } from "../src/lib/transcript.ts";
-import { usePiStore } from "../src/store.ts";
+import { usePiStore } from "../src/store/index.ts";
 import { test } from "vitest";
 
 const at = (ms: number) => new Date(ms).toISOString();

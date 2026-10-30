@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { agent } from "../src/lib/agent.ts";
-import { usePiStore } from "../src/store.ts";
+import { usePiStore } from "../src/store/index.ts";
 import { test } from "vitest";
 
 test("runtime disconnect", async () => {
