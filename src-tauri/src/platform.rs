@@ -127,7 +127,9 @@ pub(crate) fn kill_process_tree(pid: u32) -> Result<(), AppError> {
         if result == 0 {
             Ok(())
         } else {
-            Err(AppError::Process(std::io::Error::last_os_error().to_string()))
+            Err(AppError::Process(
+                std::io::Error::last_os_error().to_string(),
+            ))
         }
     }
 }
