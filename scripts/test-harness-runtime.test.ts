@@ -12,6 +12,7 @@ import { LlmService } from "@pid/llm";
 import { Permissions } from "@pid/permissions";
 import * as plan from "@pid/plan";
 import { Sessions } from "@pid/session";
+import * as sessionJsonl from "@pid/session-jsonl";
 import { SystemPrompt } from "@pid/system-prompt";
 import { ScriptedProvider, textReply, toolReply, useScriptedProvider } from "@pid/testkit";
 import * as toolFs from "@pid/tool-fs";
@@ -26,24 +27,31 @@ import { Schedule } from "@pid/schedule";
 import * as scheduleRpc from "../packages/host/src/schedule-rpc";
 import { runFromHost, taskFromHost, taskToHost } from "../src/lib/scheduleClient";
 import type { ScheduledRunInfo } from "@pid/protocol";
-import { connectHarness } from "../src/lib/harnessClient";
-import { HarnessRuntimes } from "../src/lib/harnessRuntime";
+import { connectHarness, type HarnessConnection } from "../src/lib/harnessClient";
+import { HarnessRuntimes, type HostStatus } from "../src/lib/harnessRuntime";
 import { sessionInfoFromHost } from "../src/lib/hostSessions";
 import { historyToUi, type TranscriptEvent } from "../src/lib/transcript";
 import type { ExtensionUIRequest } from "../src/types";
 
 const token = Buffer.alloc(32, 3).toString("base64url");
 let host: Host | undefined;
+let runtimesInUse: HarnessRuntimes | undefined;
 let dir = "";
+// The session logs, outside the workspace so its checkpoints do not see them.
+let logs = "";
 
 afterEach(async () => {
+  runtimesInUse?.close();
+  runtimesInUse = undefined;
   await host?.stop();
   host = undefined;
   rmSync(dir, { recursive: true, force: true });
+  rmSync(logs, { recursive: true, force: true });
 });
 
 async function start(provider: ScriptedProvider) {
   dir = mkdtempSync(join(tmpdir(), "pid-harness-runtime-"));
+  logs = mkdtempSync(join(tmpdir(), "pid-harness-logs-"));
   writeFileSync(join(dir, "a.txt"), "hello\n");
   // A git repository, so runs take workspace checkpoints to rewind to.
   const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, windowsHide: true });
@@ -54,34 +62,17 @@ async function start(provider: ScriptedProvider) {
   git("config", "core.autocrlf", "false");
   git("add", "a.txt");
   git("commit", "-q", "-m", "init");
-  host = createHost({
-    version: "0",
-    dataDir: dir,
-    plugins: [
-      [WebServer, { pageOrigins: [] }],
-      [RpcGateway, { token }],
-      [LlmService, { maxAttempts: 1 }],
-      [Sessions],
-      [Ui],
-      [Tools],
-      [SystemPrompt],
-      [Permissions, {}],
-      [toolFs],
-      [plan],
-      [AgentLoop],
-      [checkpoints],
-      [Mcp, {}],
-      [Schedule, { tasksFile: join(dir, "schedules.json"), runsFile: join(dir, "schedule-runs.jsonl"), defaultModel: { provider: "scripted", model: "m" }, tickMs: 60_000 }],
-      [scheduleRpc],
-      [sessionsRpc, { defaultModel: { provider: "scripted", model: "m" } }],
-      [uiRpc],
-      [featuresRpc],
-      [{ name: "scripted", inject: ["llm"], apply: (ctx: never) => useScriptedProvider(ctx, provider) }],
-    ],
-  });
+  host = createTestHost(provider);
   await host.start();
-  const port = await host.ctx.webServer.listen(0);
-  const runtimes = new HarnessRuntimes(() => connectHarness({ baseUrl: `http://127.0.0.1:${port}/`, token }, { name: "test", version: "1" }));
+  let port = await host.ctx.webServer.listen(0);
+  // The runtimes reach the Host only while `reachable`; `latest` is their connection.
+  const link = { reachable: true, latest: undefined as HarnessConnection | undefined };
+  const runtimes = new HarnessRuntimes(async () => {
+    if (!link.reachable) throw new Error("unreachable");
+    link.latest = await connectHarness({ baseUrl: `http://127.0.0.1:${port}/`, token }, { name: "test", version: "1" });
+    return link.latest;
+  }, [20]);
+  runtimesInUse = runtimes;
   const events: Array<[string, TranscriptEvent]> = [];
   const waiters: Array<() => void> = [];
   runtimes.subscribe((runtimeId, event) => {
@@ -100,7 +91,60 @@ async function start(provider: ScriptedProvider) {
     const found = await until((event) => event.type === "ui-request" && event.request.method === "confirm" && (title === undefined || event.request.title === title));
     return (found as Extract<TranscriptEvent, { type: "ui-request" }>).request;
   };
-  return { runtimes, events, until, nextQuestion };
+  /**
+   * Cut the runtimes off as a crash would, before the Host can say anything
+   * more, and start another Host on the same data; they reach it once
+   * `link.reachable` is set. Returns the new Host's base URL.
+   */
+  const crash = async (): Promise<string> => {
+    link.reachable = false;
+    link.latest?.close();
+    await host?.stop();
+    host = createTestHost(provider);
+    await host.start();
+    port = await host.ctx.webServer.listen(0);
+    return `http://127.0.0.1:${port}/`;
+  };
+  return { runtimes, events, until, nextQuestion, crash, link };
+}
+
+function createTestHost(provider: ScriptedProvider): Host {
+  return createHost({
+    version: "0",
+    dataDir: dir,
+    plugins: [
+      [WebServer, { pageOrigins: [] }],
+      [RpcGateway, { token }],
+      [LlmService, { maxAttempts: 1 }],
+      [Sessions],
+      // On disk, so a Host started again on the same data finds the sessions.
+      [sessionJsonl, { dir: logs }],
+      [Ui],
+      [Tools],
+      [SystemPrompt],
+      [Permissions, {}],
+      [toolFs],
+      [plan],
+      [AgentLoop],
+      [checkpoints],
+      [Mcp, {}],
+      [Schedule, { tasksFile: join(dir, "schedules.json"), runsFile: join(dir, "schedule-runs.jsonl"), defaultModel: { provider: "scripted", model: "m" }, tickMs: 60_000 }],
+      [scheduleRpc],
+      [sessionsRpc, { defaultModel: { provider: "scripted", model: "m" } }],
+      [uiRpc],
+      [featuresRpc],
+      [{ name: "scripted", inject: ["llm"], apply: (ctx: never) => useScriptedProvider(ctx, provider) }],
+    ],
+  });
+}
+
+/** Poll until `check` holds. */
+async function eventually(check: () => boolean | Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error("timed out");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
 
 describe("harness runtimes", () => {
@@ -273,5 +317,67 @@ describe("scheduled tasks through the adapter", () => {
     expect(runFromHost(run, task)).toMatchObject({ taskName: "Nightly", cwd: dir, prompt: "report", permissionMode: "read-only", status: "success", output: "Report ready.", sessionFile: `harness:${run.sessionId}` });
     expect(heard.map((item) => item.status)).toEqual(["running", "success"]);
     stop();
+  });
+});
+
+describe("crash recovery", () => {
+  it("reconnect after the Host restarts and catch up on what it logged meanwhile", async () => {
+    const provider = new ScriptedProvider([textReply("One."), textReply("Two."), textReply("Three.")]);
+    const { runtimes, events, until, crash, link } = await start(provider);
+    const statuses: HostStatus[] = [];
+    runtimes.onHostStatus((status) => statuses.push(status));
+    const { runtimeId } = await runtimes.start(dir);
+    await runtimes.prompt(runtimeId, { message: "one", images: [] });
+    await until((event) => event.type === "turn-end");
+    const sessionId = String((await runtimes.state(runtimeId)).sessionId);
+
+    const baseUrl = await crash();
+    await eventually(() => statuses.includes("reconnecting"));
+    // While the runtime cannot reach the new Host, another client moves the session on.
+    const other = await connectHarness({ baseUrl, token }, { name: "other", version: "1" });
+    await other.call("session.prompt", { sessionId, content: [{ type: "text", text: "two" }] });
+    await eventually(async () => {
+      const got = await other.call<{ status: { running: boolean }; session: { messageCount: number } }>("session.get", { sessionId });
+      return !got.status.running && got.session.messageCount === 4;
+    });
+    other.close();
+
+    events.length = 0;
+    link.reachable = true;
+    // The runtime replays what it missed, in order.
+    await until((event) => event.type === "assistant" && event.message.content === "Two.");
+    const caughtUp = events.map(([, event]) => event.type);
+    expect(caughtUp.slice(0, 2)).toEqual(["user", "assistant"]);
+    expect(caughtUp).not.toContain("turn-interrupted");
+    expect(statuses).toEqual(["connected", "reconnecting", "connected"]);
+
+    // And works as before.
+    await runtimes.prompt(runtimeId, { message: "three", images: [] });
+    await until((event) => event.type === "assistant" && event.message.content === "Three.");
+    expect((await runtimes.messages(runtimeId)).map((message) => message.content)).toEqual(["one", "One.", "two", "Two.", "three", "Three."]);
+  });
+
+  it("end a turn the Host stopped running as interrupted", async () => {
+    const slowReply = [
+      { type: "text-delta" as const, index: 0, text: "Partial " },
+      { type: "text-delta" as const, index: 0, text: "answer" },
+      { type: "finish" as const, reason: "stop" as const },
+    ];
+    const provider = new ScriptedProvider([slowReply], { chunkDelayMs: 300 });
+    const { runtimes, events, until, crash, link } = await start(provider);
+    const { runtimeId } = await runtimes.start(dir);
+    await runtimes.prompt(runtimeId, { message: "go", images: [] });
+    await until((event) => event.type === "assistant-delta");
+
+    await crash();
+    events.length = 0;
+    link.reachable = true;
+    await until((event) => event.type === "turn-end");
+    expect(events.map(([, event]) => event.type)).toContain("turn-interrupted");
+    expect((await runtimes.state(runtimeId)).isStreaming).toBe(false);
+
+    // Reopened, the session shows the turn as failed rather than still going.
+    const last = (await runtimes.messages(runtimeId)).at(-1);
+    expect(last).toMatchObject({ role: "assistant", isError: true });
   });
 });

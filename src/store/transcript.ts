@@ -4,7 +4,7 @@ import { buildPromptPayload, harnessRuntimes } from "../lib/harnessRuntime";
 import { appendManagedQueue, insertManagedQueueItem, moveManagedQueueItem, removeManagedQueueItem } from "../lib/managedQueue";
 import { completionNotification, isSilentUiRequest, uiRequestNotification } from "../lib/eventNotifications";
 import { agentBrowserFromResult, computerFromResult, isGrokBrowserTool, isGrokComputerTool } from "../lib/toolPanels";
-import { completeAssistant, endToolCall, replaceOrAppend, startAssistant, startToolCall } from "../lib/transcript";
+import { completeAssistant, endToolCall, interruptTurn, replaceOrAppend, startAssistant, startToolCall } from "../lib/transcript";
 import type { ManagedQueuedMessage } from "../types";
 import type { GetState, SetState, StoreContext } from "./context";
 import type { TranscriptSlice } from "./types";
@@ -60,6 +60,10 @@ export function createTranscriptSlice(set: SetState, get: GetState, ctx: StoreCo
             }, false));
           }
           void Promise.all([get().refreshSessions(), get().refreshGit(), ctx.refreshStats()]);
+          return;
+        case "turn-interrupted":
+          ctx.flushAssistantDelta();
+          set((state) => ({ messages: interruptTurn(state.messages) }));
           return;
         case "user": {
           // The message the composer showed at once becomes the recorded one.

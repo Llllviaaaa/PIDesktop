@@ -45,10 +45,12 @@ const START_TIMEOUT: Duration = Duration::from_secs(20);
 const TOKEN_ENV: &str = "PID_HARNESS_TOKEN";
 const TOKEN_BYTES: usize = 32;
 /// The delay before a restart, by how many crashes the window holds; a fifth
-/// crash within the window stops the restarts.
+/// crash within the window stops the restarts until `restart_harness_host`.
+/// The frontend recognises `KEEPS_CRASHING` by its "keeps crashing"
+/// (src/lib/harnessRuntime.ts).
 const RESTART_DELAYS_MS: [u64; 4] = [500, 1_000, 2_000, 4_000];
 const CRASH_WINDOW: Duration = Duration::from_secs(60);
-const KEEPS_CRASHING: &str = "the Harness Host keeps crashing; restart Pi Desktop to try again";
+const KEEPS_CRASHING: &str = "the Harness Host keeps crashing; start it again to retry";
 
 #[derive(Default)]
 pub(crate) struct HarnessHost(Mutex<HostState>);
@@ -342,6 +344,21 @@ pub(crate) fn harness_endpoint(
     state: State<'_, HarnessHost>,
 ) -> Result<HarnessEndpoint, AppError> {
     ensure_running(&app, &state)
+}
+
+/// Forget the host's crashes and start it, after the restarts stopped.
+#[tauri::command(async)]
+pub(crate) fn restart_harness_host(
+    app: AppHandle,
+    state: State<'_, HarnessHost>,
+) -> Result<(), AppError> {
+    state
+        .0
+        .lock()
+        .map_err(|_| AppError::locked("harness host"))?
+        .crashes
+        .clear();
+    ensure_running(&app, &state).map(|_| ())
 }
 
 /// The host's base URL, for better-sidebar's client half

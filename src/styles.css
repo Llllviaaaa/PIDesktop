@@ -925,6 +925,9 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .toast { width: 100%; min-height: 39px; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--active); color: var(--text); box-shadow: 0 12px 35px rgba(0,0,0,.42); padding: 8px 11px; overflow-wrap: anywhere; cursor: pointer; text-align: left; white-space: normal; font-size: 11px; }
 .toast.error { border-color: #69383e; background: #352326; color: #efb4b9; }
 .toast.warning { border-color: #665631; background: #322e22; color: #e1cc98; }
+.host-status-banner { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 160; max-width: calc(100vw - 32px); display: flex; align-items: center; gap: 10px; box-sizing: border-box; border: 1px solid #665631; border-radius: 8px; background: #322e22; color: #e1cc98; box-shadow: 0 12px 35px rgba(0,0,0,.42); padding: 7px 12px; font-size: 12px; }
+.host-status-banner.failed { border-color: #69383e; background: #352326; color: #efb4b9; }
+.host-status-banner button { border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; padding: 3px 9px; font-size: 12px; cursor: pointer; }
 
 .spinner { width: 14px; height: 14px; border: 2px solid rgba(20,20,22,.25); border-top-color: var(--border); border-radius: 50%; animation: spin .8s linear infinite; }
 .spin { animation: spin .9s linear infinite; }
@@ -1455,6 +1458,8 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 :root[data-theme="light"] .question-message,
 :root[data-theme="light"] .package-result,
 :root[data-theme="light"] .toast { background: var(--panel); color: var(--text); }
+:root[data-theme="light"] .host-status-banner { border-color: #e2c27a; background: #fff8e6; color: #6b4e00; }
+:root[data-theme="light"] .host-status-banner.failed { border-color: #e7a9ae; background: #fff0f1; color: #8a1f2a; }
 :root[data-theme="light"] .compact-select select option { background: #fff; color: #111; }
 :root[data-theme="light"] .brand-mark,
 :root[data-theme="light"] .welcome-mark,

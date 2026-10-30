@@ -31,6 +31,7 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
     runtimeId: null,
     runtimes: {},
     connection: "disconnected",
+    hostStatus: "connected",
     cwd: "",
     piLog: [],
     lastError: null,
@@ -336,6 +337,28 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
 
     handleLog: (runtimeId, line) => {
       if (runtimeId === get().runtimeId) get().appendLog(line);
+    },
+
+    handleHostStatus: (status) => {
+      const previous = get().hostStatus;
+      if (status === previous) return;
+      set({ hostStatus: status });
+      if (status === "reconnecting") get().appendLog("Harness 连接已断开，正在重连");
+      if (status === "failed") get().appendLog("Harness 多次崩溃，已停止自动重启");
+      if (status === "connected" && previous !== "connected") {
+        get().appendLog("Harness 已重新连接");
+        void Promise.all([get().refreshSessions(), ctx.refreshStats()]);
+      }
+    },
+
+    restartHost: async () => {
+      set({ hostStatus: "reconnecting" });
+      try {
+        await agent.restartHost();
+      } catch (error) {
+        ctx.toast(`重新启动 Harness 失败：${describeError(error)}`, "error");
+      }
+      harnessRuntimes.reconnectNow();
     },
 
     appendLog: (line) => set((state) => ({ piLog: [...state.piLog.slice(-399), redactSensitiveText(line)] })),

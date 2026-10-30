@@ -38,6 +38,8 @@ export interface HarnessConnection {
   call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
   /** Called with every notification the host sends; returns the unsubscribe. */
   onNotification(listener: (method: string, params: unknown) => void): () => void;
+  /** Called once when the socket closes, whichever side closed it. */
+  onClose(listener: () => void): void;
   close(): void;
 }
 
@@ -62,6 +64,7 @@ export function connectHarness(
     const socket = new WebSocket(rpcUrl(endpoint.baseUrl), clientSubprotocols(endpoint.token));
     const pending = new Map<number, Pending>();
     const listeners = new Set<(method: string, params: unknown) => void>();
+    const closeListeners = new Set<() => void>();
     let nextId = 0;
     let opened = false;
 
@@ -104,6 +107,8 @@ export function connectHarness(
     socket.addEventListener("close", () => {
       failAll(new HarnessRpcError({ code: ErrorCode.Aborted, message: "Harness connection closed" }));
       refused();
+      for (const listener of closeListeners) listener();
+      closeListeners.clear();
     });
 
     socket.addEventListener("open", () => {
@@ -116,6 +121,10 @@ export function connectHarness(
             onNotification(listener) {
               listeners.add(listener);
               return () => listeners.delete(listener);
+            },
+            onClose(listener) {
+              if (socket.readyState === WebSocket.CLOSED) listener();
+              else closeListeners.add(listener);
             },
             close: () => socket.close(),
           });
