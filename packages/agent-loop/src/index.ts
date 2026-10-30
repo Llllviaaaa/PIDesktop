@@ -146,7 +146,9 @@ export class AgentLoop extends Service implements Agents {
       runningTools: new Map(),
     };
     this.runs.set(session.id, run);
-    run.done = this.drive(session, run);
+    // The run keeps its Session object, so the session stays loaded until it ends.
+    const release = this.ctx.sessions.hold(session.id);
+    run.done = this.drive(session, run).finally(release);
   }
 
   private async drive(session: Session, run: Run): Promise<void> {

@@ -128,6 +128,12 @@ export function computerTools(ctx: Context, config: Config, run: HelperRunner = 
     }
     return state;
   };
+  // An idle session's last screenshot is not kept; a deleted session's control state goes with it.
+  ctx.on("session/unloaded", (sessionId) => {
+    const state = states.get(sessionId);
+    if (state !== undefined) delete state.lastCapture;
+  });
+  ctx.on("session/deleted", (sessionId) => void states.delete(sessionId));
   const publish = async (env: ToolEnv, state: State) => {
     (await ctx.sessions.get(env.sessionId))?.delta({ type: "computer", ...sessionSummary(state.session) });
   };

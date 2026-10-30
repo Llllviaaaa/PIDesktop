@@ -1,8 +1,13 @@
 // A stdio MCP server for the plugin tests: one tool (echo), one resource that
-// changes after a subscription, and one prompt.
+// changes after a subscription, and one prompt. With FAKE_MCP_PIDS set, it
+// leaves a file named after its pid there, so a test can check it exited.
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import process from "node:process";
 import readline from "node:readline";
 import { setTimeout } from "node:timers";
+
+if (process.env.FAKE_MCP_PIDS) writeFileSync(join(process.env.FAKE_MCP_PIDS, String(process.pid)), "");
 
 const uri = "fixture://note";
 let version = 1;

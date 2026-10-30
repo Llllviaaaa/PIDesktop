@@ -42,6 +42,7 @@ interface Client {
   notifications: Array<{ method: string; params: Json }>;
   /** Resolves when a notification matching `match` has arrived (or already had). */
   until(match: (notification: { method: string; params: Json }) => boolean): Promise<void>;
+  close(): Promise<void>;
 }
 
 async function connect(port: number): Promise<Client> {
@@ -75,6 +76,12 @@ async function connect(port: number): Promise<Client> {
     },
     async until(match) {
       while (!notifications.some(match)) await new Promise<void>((resolve) => waiters.push(resolve));
+    },
+    close() {
+      return new Promise((resolve) => {
+        socket.once("close", () => resolve());
+        socket.close();
+      });
     },
   };
   await client.call("initialize", { protocolVersion: PROTOCOL_VERSION, client: { name: "test", version: "1" } });
@@ -193,6 +200,41 @@ class Capture extends Writable {
 function sse(...chunks: unknown[]): string {
   return [...chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`), "data: [DONE]\n\n"].join("");
 }
+
+describe("unloading idle sessions", () => {
+  it("keep a session loaded while a client subscribes or a run goes on", async () => {
+    const { port, cwd } = await startHost(new ScriptedProvider([textReply("ok")], { chunkDelayMs: 100 }));
+    if (host === undefined) throw new Error("no host");
+    const { ctx } = host;
+    const sessions = ctx.sessions;
+    const idle = () => sessions.sweep(Date.now() + sessions.idleMs + 1);
+    const a = await connect(port);
+    const sessionId = (await a.call("session.create", { cwd })).result.session.id as string;
+
+    await a.call("session.subscribe", { sessionId });
+    await a.call("session.subscribe", { sessionId });
+    expect(idle()).toEqual([]);
+    await a.call("session.unsubscribe", { sessionId });
+    expect(idle()).toEqual([sessionId]);
+
+    // A connection that closes lets go of what it subscribed to.
+    const b = await connect(port);
+    await b.call("session.subscribe", { sessionId });
+    expect(idle()).toEqual([]);
+    await b.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(idle()).toEqual([sessionId]);
+
+    // A run holds its session until it ends.
+    await a.call("session.prompt", { sessionId, content: "hi" });
+    expect(idle()).toEqual([]);
+    await ctx.agents.idle(sessionId);
+    expect(idle()).toEqual([sessionId]);
+    // And the log reads back whole.
+    const reloaded = await a.call("session.subscribe", { sessionId });
+    expect(reloaded.result.events.map((event: { type: string }) => event.type)).toEqual(["model", "user", "assistant"]);
+  });
+});
 
 describe("deleting and exporting", () => {
   it("export the current branch as Markdown and delete idle sessions", async () => {

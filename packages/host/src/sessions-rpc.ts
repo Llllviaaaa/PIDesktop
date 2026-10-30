@@ -87,6 +87,8 @@ async function guarded<T>(fn: () => T | Promise<T>): Promise<T> {
 
 interface Subscriber {
   notify: RpcCall["notify"];
+  /** Stops listening for the connection's close and lets the session unload. */
+  release: () => void;
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
@@ -104,6 +106,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const unsubscribe = (sessionId: string, signal: AbortSignal) => {
     const forSession = subscribers.get(sessionId);
+    forSession?.get(signal)?.release();
     forSession?.delete(signal);
     if (forSession?.size === 0) subscribers.delete(sessionId);
   };
@@ -165,8 +168,17 @@ export function apply(ctx: Context, config: Config = {}): void {
         subscribers.set(target.id, forSession);
       }
       if (!forSession.has(call.signal)) {
-        forSession.set(call.signal, { notify: call.notify });
-        call.signal.addEventListener("abort", () => unsubscribe(target.id, call.signal), { once: true });
+        const signal = call.signal;
+        const onClose = () => unsubscribe(target.id, signal);
+        const unhold = ctx.sessions.hold(target.id);
+        signal.addEventListener("abort", onClose, { once: true });
+        forSession.set(signal, {
+          notify: call.notify,
+          release: () => {
+            signal.removeEventListener("abort", onClose);
+            unhold();
+          },
+        });
       }
       return {
         events: target.events.filter((event) => event.seq > afterSeq),
@@ -243,8 +255,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     "session.delete": async (p) => {
       const target = await session(p);
       idle(target);
-      await ctx.sessions.delete(target.id);
+      for (const subscriber of subscribers.get(target.id)?.values() ?? []) subscriber.release();
       subscribers.delete(target.id);
+      await ctx.sessions.delete(target.id);
       return {};
     },
 
