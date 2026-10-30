@@ -9,27 +9,24 @@ pub(crate) const MCP_SECRET_PLACEHOLDER: &str = "••••••••";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct AppSettings {
-    #[serde(alias = "pi_binary")]
-    pub(crate) pi_binary: String,
     pub(crate) provider: String,
     pub(crate) model: String,
     #[serde(alias = "thinking_level")]
     pub(crate) thinking_level: String,
     /// `provider/model` keys the user hid from the composer model picker.
     pub(crate) hidden_models: Vec<String>,
+    /// Where Pi kept its sessions, if not `~/.pi/agent/sessions`; only read to
+    /// import them into the Harness Host (P6b).
     #[serde(alias = "session_dir")]
     pub(crate) session_dir: String,
-    /// When true, Pi runs against PIDesktop's own config directory instead of the
-    /// terminal's, so add-ons installed for the terminal `pi` stay out of desktop tasks.
+    /// Pi ran on the app's own config directory (`pi-agent`) instead of the
+    /// terminal's. Pi is gone (P6c); this only says where its models.json and
+    /// auth.json are for the Host's one-time import. The settings page no
+    /// longer sends it, so `set_settings` keeps the stored value.
     pub(crate) separate_pi_config: bool,
     pub(crate) agent_mode: String,
     #[serde(alias = "permission_mode")]
     pub(crate) permission_mode: String,
-    /// The engine new tasks run on: "harness" (the V2 Harness Host, the default
-    /// since P5d) or "pi" until P6 removes it.
-    pub(crate) engine: String,
-    /// Whether the user has seen the one-time offer to move from Pi to the Harness.
-    pub(crate) harness_prompt_seen: bool,
     /// When true, shell/bash/exec always requires confirmation (unless full-access).
     pub(crate) always_confirm_shell: bool,
     /// When true, writes outside the workspace root are blocked without a confirm dialog.
@@ -205,7 +202,6 @@ pub(crate) fn default_transcript_density() -> String {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            pi_binary: "pi".to_string(),
             provider: String::new(),
             model: String::new(),
             thinking_level: "medium".to_string(),
@@ -214,8 +210,6 @@ impl Default for AppSettings {
             separate_pi_config: false,
             agent_mode: "agent".to_string(),
             permission_mode: "ask".to_string(),
-            engine: "harness".to_string(),
-            harness_prompt_seen: false,
             always_confirm_shell: true,
             block_write_outside_workspace: true,
             shell_allow_prefixes: String::new(),
@@ -279,112 +273,6 @@ impl Default for AppSettings {
             shortcut_toggle_sidebar: "Ctrl+B".to_string(),
             archived_sessions: Vec::new(),
         }
-    }
-}
-
-impl AppSettings {
-    // Extension paths remain explicit because each module is provisioned independently.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn rpc_extra_args(
-        &self,
-        guard_extension: &Path,
-        browser_extension: Option<&Path>,
-        computer_extension: Option<&Path>,
-        mcp_extension: Option<&Path>,
-        plan_extension: Option<&Path>,
-        hooks_extension: Option<&Path>,
-        subagents_extension: Option<&Path>,
-        memory_extension: Option<&Path>,
-    ) -> Vec<String> {
-        let mut args = vec![
-            "-e".to_string(),
-            guard_extension.to_string_lossy().to_string(),
-        ];
-        if let Some(browser_extension) = browser_extension {
-            args.extend([
-                "-e".to_string(),
-                browser_extension.to_string_lossy().to_string(),
-            ]);
-        }
-        if let Some(computer_extension) = computer_extension {
-            args.extend([
-                "-e".to_string(),
-                computer_extension.to_string_lossy().to_string(),
-            ]);
-        }
-        if let Some(mcp_extension) = mcp_extension {
-            args.extend([
-                "-e".to_string(),
-                mcp_extension.to_string_lossy().to_string(),
-            ]);
-        }
-        if let Some(plan_extension) = plan_extension {
-            args.extend([
-                "-e".to_string(),
-                plan_extension.to_string_lossy().to_string(),
-            ]);
-        }
-        if let Some(hooks_extension) = hooks_extension {
-            args.extend([
-                "-e".to_string(),
-                hooks_extension.to_string_lossy().to_string(),
-            ]);
-        }
-        if let Some(subagents_extension) = subagents_extension {
-            args.extend([
-                "-e".to_string(),
-                subagents_extension.to_string_lossy().to_string(),
-            ]);
-        }
-        if let Some(memory_extension) = memory_extension {
-            args.extend([
-                "-e".to_string(),
-                memory_extension.to_string_lossy().to_string(),
-            ]);
-        }
-        // Pi 1.x rejects --provider without --model; older versions ignored it.
-        if !self.provider.is_empty() && !self.model.is_empty() {
-            args.extend(["--provider".to_string(), self.provider.clone()]);
-        }
-        if !self.model.is_empty() {
-            args.extend(["--model".to_string(), self.model.clone()]);
-        }
-        if !self.thinking_level.is_empty() {
-            args.extend(["--thinking".to_string(), self.thinking_level.clone()]);
-        }
-        if !self.session_dir.is_empty() {
-            args.extend(["--session-dir".to_string(), self.session_dir.clone()]);
-        }
-        let personality = match self.personality.as_str() {
-            "friendly" => "Communication style: be warm, collaborative, and clear while remaining technically precise.",
-            "pragmatic" => "Communication style: be direct, implementation-focused, and concise. Lead with concrete outcomes.",
-            _ => "",
-        };
-        let instructions = [personality, self.custom_instructions.trim()]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        if !instructions.is_empty() {
-            if let Ok(path) = ensure_personal_instructions(&instructions) {
-                args.extend([
-                    "--append-system-prompt".to_string(),
-                    path.to_string_lossy().to_string(),
-                ]);
-            }
-        }
-        if !self.memory_enabled {
-            args.push("--no-context-files".to_string());
-        } else {
-            let memory = local_memory_path();
-            if memory.is_file() && fs::metadata(&memory).is_ok_and(|metadata| metadata.len() > 0) {
-                args.extend([
-                    "--append-system-prompt".to_string(),
-                    memory.to_string_lossy().to_string(),
-                ]);
-            }
-        }
-        args
     }
 }
 
@@ -596,29 +484,11 @@ pub(crate) fn write_public_settings(settings: &AppSettings) -> Result<(), AppErr
     fs::write(path, raw).map_err(|err| AppError::Io(format!("failed to write settings: {err}")))
 }
 
-/// Settings written before the engine setting existed belong to an install that
-/// ran on Pi; it stays there until the user takes the Harness offer. Only new
-/// installs start on the Harness (P5d).
-fn predates_engine_setting(raw: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(raw)
-        .ok()
-        .and_then(|value| {
-            value
-                .as_object()
-                .map(|object| !object.contains_key("engine"))
-        })
-        .unwrap_or(false)
-}
-
 pub(crate) fn load_settings() -> AppSettings {
-    let raw = fs::read_to_string(settings_path()).ok();
-    let mut settings: AppSettings = raw
-        .as_deref()
-        .and_then(|raw| serde_json::from_str(raw).ok())
+    let mut settings: AppSettings = fs::read_to_string(settings_path())
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default();
-    if raw.as_deref().is_some_and(predates_engine_setting) {
-        settings.engine = "pi".to_string();
-    }
     let legacy_secrets = collect_mcp_secrets(&settings);
     let mut secrets = match load_mcp_secrets() {
         Ok(secrets) => secrets,
@@ -669,20 +539,10 @@ pub(crate) fn save_settings(settings: &AppSettings) -> Result<(), AppError> {
     Ok(())
 }
 
-pub(crate) fn current_time_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 /// Mirrors `AppSettings::separate_pi_config` for code that has no settings at hand.
 static SEPARATE_PI_CONFIG: AtomicBool = AtomicBool::new(false);
 
-/// Add-on lists in Pi's settings.json. The app's own directory starts without the terminal's.
-const PI_ADDON_SETTINGS: [&str; 4] = ["packages", "extensions", "skills", "prompts"];
-
-/// The config directory the terminal `pi` uses.
+/// The config directory the terminal `pi` used.
 pub(crate) fn shared_pi_agent_dir() -> PathBuf {
     std::env::var_os("PI_CODING_AGENT_DIR")
         .filter(|value| !value.is_empty())
@@ -691,11 +551,13 @@ pub(crate) fn shared_pi_agent_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".pi").join("agent"))
 }
 
-/// PIDesktop's own Pi config directory, used when Settings keeps the app apart from the terminal.
+/// The app's own Pi config directory, used when the settings kept the app apart from the terminal.
 pub(crate) fn app_pi_agent_dir() -> PathBuf {
     app_config_dir().join("pi-agent")
 }
 
+/// Where Pi's models.json, auth.json, skills, themes and pets were: what the
+/// one-time imports into the Harness Host read (P5a, P6a).
 pub(crate) fn pi_agent_dir() -> PathBuf {
     if SEPARATE_PI_CONFIG.load(Ordering::Relaxed) {
         app_pi_agent_dir()
@@ -704,137 +566,14 @@ pub(crate) fn pi_agent_dir() -> PathBuf {
     }
 }
 
-/// Where Pi stores new sessions while it runs on the app's own config. It stays under the
-/// shared sessions root, so the task list is the same either way. Pi writes straight into
-/// the directory it is given, hence a folder apart from the terminal's per-project ones.
-fn app_pi_sessions_dir() -> Option<PathBuf> {
-    crate::pi::sessions::default_sessions_root().map(|root| root.join("pidesktop"))
-}
-
-/// Switch every Pi launch and config read between the terminal's directory and the app's own.
-pub(crate) fn select_pi_config(separate: bool) -> Result<(), AppError> {
-    if separate {
-        seed_pi_config(&shared_pi_agent_dir(), &app_pi_agent_dir())?;
-        if let Some(sessions) = app_pi_sessions_dir() {
-            let _ = fs::create_dir_all(sessions);
-        }
-    }
+/// Remember which Pi config directory the settings named.
+pub(crate) fn remember_pi_config(separate: bool) {
     SEPARATE_PI_CONFIG.store(separate, Ordering::Relaxed);
-    Ok(())
-}
-
-/// Environment that points a Pi child process at the config directory chosen in Settings.
-pub(crate) fn pi_config_environment() -> Vec<(&'static str, PathBuf)> {
-    if !SEPARATE_PI_CONFIG.load(Ordering::Relaxed) {
-        return Vec::new();
-    }
-    let mut environment = vec![("PI_CODING_AGENT_DIR", app_pi_agent_dir())];
-    if let Some(sessions) = app_pi_sessions_dir() {
-        environment.push(("PI_CODING_AGENT_SESSION_DIR", sessions));
-    }
-    environment
-}
-
-/// Create the app's own Pi config directory from the terminal's on first use: the same
-/// providers, credentials, trust decisions and look, but none of its add-ons.
-/// An existing directory is left alone, because by then it holds the user's own changes.
-pub(crate) fn seed_pi_config(source: &Path, target: &Path) -> Result<(), AppError> {
-    if target.exists() {
-        return Ok(());
-    }
-    // Build beside the target and rename, so a failed copy never leaves a half-seeded directory.
-    let staging = target.with_extension("partial");
-    let _ = fs::remove_dir_all(&staging);
-    fs::create_dir_all(&staging)
-        .map_err(|err| AppError::Io(format!("failed to create the Pi config directory: {err}")))?;
-    let seeded = (|| {
-        for name in ["auth.json", "models.json", "trust.json"] {
-            let file = source.join(name);
-            if file.is_file() {
-                fs::copy(&file, staging.join(name))
-                    .map_err(|err| AppError::Io(format!("failed to copy Pi {name}: {err}")))?;
-            }
-        }
-        let settings = fs::read_to_string(source.join("settings.json"))
-            .ok()
-            .and_then(|raw| json5::from_str::<serde_json::Value>(&raw).ok());
-        if let Some(serde_json::Value::Object(mut settings)) = settings {
-            for key in PI_ADDON_SETTINGS {
-                settings.remove(key);
-            }
-            let raw = serde_json::to_string_pretty(&settings).map_err(|err| {
-                AppError::Other(format!("failed to serialize Pi settings: {err}"))
-            })?;
-            fs::write(staging.join("settings.json"), raw)
-                .map_err(|err| AppError::Io(format!("failed to write Pi settings: {err}")))?;
-        }
-        // Themes and pets are optional decoration; a file that cannot be copied is not fatal.
-        for folder in ["themes", "pets"] {
-            copy_tree_best_effort(&source.join(folder), &staging.join(folder));
-        }
-        fs::rename(&staging, target)
-            .map_err(|err| AppError::Io(format!("failed to create the Pi config directory: {err}")))
-    })();
-    if seeded.is_err() {
-        let _ = fs::remove_dir_all(&staging);
-    }
-    seeded
-}
-
-fn copy_tree_best_effort(source: &Path, destination: &Path) {
-    let Ok(entries) = fs::read_dir(source) else {
-        return;
-    };
-    if fs::create_dir_all(destination).is_err() {
-        return;
-    }
-    for entry in entries.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        let target = destination.join(entry.file_name());
-        if file_type.is_dir() {
-            copy_tree_best_effort(&entry.path(), &target);
-        } else if file_type.is_file() {
-            let _ = fs::copy(entry.path(), target);
-        }
-    }
-}
-
-pub(crate) fn models_config_path() -> PathBuf {
-    pi_agent_dir().join("models.json")
-}
-
-pub(crate) fn load_models_config() -> Result<serde_json::Value, AppError> {
-    let path = models_config_path();
-    if !path.exists() {
-        return Ok(serde_json::json!({ "providers": {} }));
-    }
-    let raw = fs::read_to_string(&path)
-        .map_err(|err| AppError::Io(format!("无法读取 {}: {err}", path.display())))?;
-    let value: serde_json::Value = json5::from_str(&raw).map_err(|err| {
-        AppError::Other(format!("{} 不是有效的 JSON/JSONC: {err}", path.display()))
-    })?;
-    if !value.is_object() {
-        return Err(AppError::Other(format!(
-            "{} 的根节点必须是对象",
-            path.display()
-        )));
-    }
-    Ok(value)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn new_installs_start_on_the_harness_and_old_settings_stay_on_pi() {
-        assert_eq!(AppSettings::default().engine, "harness");
-        assert!(predates_engine_setting(r#"{"provider":"deepseek"}"#));
-        assert!(!predates_engine_setting(r#"{"engine":"pi"}"#));
-        assert!(!predates_engine_setting("not json"));
-    }
 
     #[test]
     fn permission_rule_env_flags_roundtrip_defaults() {
@@ -898,133 +637,9 @@ mod tests {
     }
 
     #[test]
-    fn provider_is_only_passed_together_with_a_model() {
-        let args = |provider: &str, model: &str| {
-            let settings = AppSettings {
-                provider: provider.to_string(),
-                model: model.to_string(),
-                ..AppSettings::default()
-            };
-            settings.rpc_extra_args(
-                Path::new("guard.ts"),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-        };
-        assert!(!args("openai", "").contains(&"--provider".to_string()));
-        let both = args("openai", "gpt-5");
-        let provider = both.iter().position(|arg| arg == "--provider");
-        assert_eq!(
-            provider.map(|index| both[index + 1].as_str()),
-            Some("openai")
-        );
-        assert!(both.contains(&"--model".to_string()));
-        assert!(args("", "gpt-5").contains(&"--model".to_string()));
-    }
-
-    fn temporary_directory(label: &str) -> PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be after Unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "pid-desktop-{label}-{}-{stamp}",
-            std::process::id()
-        ))
-    }
-
-    #[test]
-    fn own_pi_config_starts_with_the_terminal_providers_but_not_its_addons() {
-        let root = temporary_directory("pi-config-seed");
-        let terminal = root.join("terminal");
-        let own = root.join("pi-agent");
-        fs::create_dir_all(terminal.join("pets/comet")).expect("fixture should be created");
-        fs::create_dir_all(terminal.join("extensions")).expect("fixture should be created");
-        fs::create_dir_all(terminal.join("npm/node_modules/context-mode"))
-            .expect("fixture should be created");
-        fs::write(terminal.join("auth.json"), r#"{ "openai": "key" }"#).expect("fixture");
-        fs::write(terminal.join("models.json"), r#"{ "providers": {} }"#).expect("fixture");
-        fs::write(terminal.join("pets/comet/pet.json"), "{}").expect("fixture");
-        fs::write(
-            terminal.join("extensions/slow.ts"),
-            "export default () => {}",
-        )
-        .expect("fixture");
-        // Pi reads settings.json as JSON5, so comments and trailing commas are valid input.
-        fs::write(
-            terminal.join("settings.json"),
-            r#"{
-              // terminal add-ons
-              "packages": ["npm:context-mode"],
-              "extensions": ["./extra.ts"],
-              "skills": ["./skills"],
-              "prompts": ["./prompts"],
-              "shellPath": "C:\\Git\\bin\\bash.exe",
-              "retry": { "maxRetries": 3 },
-            }"#,
-        )
-        .expect("fixture");
-
-        seed_pi_config(&terminal, &own).expect("the own config directory should be seeded");
-
-        assert_eq!(
-            fs::read_to_string(own.join("auth.json")).expect("credentials should carry over"),
-            r#"{ "openai": "key" }"#
-        );
-        assert!(own.join("models.json").is_file());
-        assert!(own.join("pets/comet/pet.json").is_file());
-        assert!(!own.join("extensions").exists());
-        assert!(!own.join("npm").exists());
-        let settings: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(own.join("settings.json")).expect("settings should carry over"),
-        )
-        .expect("seeded settings should be plain JSON");
-        for addon in PI_ADDON_SETTINGS {
-            assert!(settings.get(addon).is_none(), "{addon} must not carry over");
-        }
-        assert_eq!(settings["shellPath"], r"C:\Git\bin\bash.exe");
-        assert_eq!(settings["retry"]["maxRetries"], 3);
-        assert!(!root.join("pi-agent.partial").exists());
-
-        // Later changes on either side stay where they were made.
-        fs::write(
-            own.join("models.json"),
-            r#"{ "providers": { "mine": {} } }"#,
-        )
-        .expect("edit");
-        fs::write(
-            terminal.join("models.json"),
-            r#"{ "providers": { "theirs": {} } }"#,
-        )
-        .expect("edit");
-        seed_pi_config(&terminal, &own).expect("an existing directory should be left alone");
-        assert!(fs::read_to_string(own.join("models.json"))
-            .expect("models should still be readable")
-            .contains("mine"));
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn own_pi_config_can_start_without_a_terminal_config() {
-        let root = temporary_directory("pi-config-empty");
-        let own = root.join("pi-agent");
-        seed_pi_config(&root.join("missing"), &own).expect("a fresh machine should still work");
-        assert!(own.is_dir());
-        assert!(!own.join("settings.json").exists());
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn pi_child_processes_keep_the_inherited_config_unless_the_app_owns_one() {
+    fn pi_imports_read_the_terminal_config_unless_the_app_had_its_own() {
         // The process-wide switch is left alone here: other tests read the config directory too.
         assert!(!SEPARATE_PI_CONFIG.load(Ordering::Relaxed));
-        assert!(pi_config_environment().is_empty());
         assert_eq!(pi_agent_dir(), shared_pi_agent_dir());
         assert_eq!(app_pi_agent_dir(), app_config_dir().join("pi-agent"));
     }

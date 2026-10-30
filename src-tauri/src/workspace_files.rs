@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use crate::pi::process::kill_process_tree;
+use crate::platform::kill_process_tree;
 
 const MAX_MATCHES: usize = 200;
 const MAX_SCANNED_FILES: usize = 50_000;

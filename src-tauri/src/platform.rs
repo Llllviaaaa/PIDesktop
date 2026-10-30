@@ -1,5 +1,6 @@
-//! Windows process plumbing: finding executables the way the shell would, and
-//! launching child processes without flashing a console window.
+//! Windows process plumbing: finding executables the way the shell would,
+//! launching child processes without flashing a console window, and ending a
+//! child's whole process tree.
 
 use crate::*;
 
@@ -38,45 +39,6 @@ pub(crate) fn windows_registry_path_entries() -> Vec<PathBuf> {
         }
     }
     entries
-}
-
-#[cfg(windows)]
-pub(crate) fn resolve_windows_pi_node_command(pi_binary: &str) -> Option<(PathBuf, PathBuf)> {
-    let shim = PathBuf::from(pi_binary);
-    let npm_root = shim.parent()?;
-    let cli = [
-        npm_root
-            .join("node_modules")
-            .join("@earendil-works")
-            .join("pi-coding-agent")
-            .join("dist")
-            .join("cli.js"),
-        npm_root
-            .join("node_modules")
-            .join("@mariozechner")
-            .join("pi-coding-agent")
-            .join("dist")
-            .join("cli.js"),
-    ]
-    .into_iter()
-    .find(|candidate| candidate.is_file())?;
-
-    let mut node_candidates = vec![npm_root.join("node.exe")];
-    if let Some(path) = std::env::var_os("PATH") {
-        node_candidates.extend(std::env::split_paths(&path).map(|entry| entry.join("node.exe")));
-    }
-    node_candidates.extend(
-        windows_registry_path_entries()
-            .into_iter()
-            .map(|path| path.join("node.exe")),
-    );
-    if let Some(program_files) = std::env::var_os("ProgramFiles") {
-        node_candidates.push(PathBuf::from(program_files).join("nodejs").join("node.exe"));
-    }
-    let node = node_candidates
-        .into_iter()
-        .find(|candidate| candidate.is_file())?;
-    Some((node, cli))
 }
 
 #[cfg(windows)]
@@ -134,6 +96,40 @@ pub(crate) fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
         command.creation_flags(CREATE_NO_WINDOW);
     }
     command
+}
+
+/// Kill a process and all of its descendants. On Windows `taskkill /T` tears
+/// down the whole cmd -> node -> shell tree; elsewhere we signal the direct child.
+pub(crate) fn kill_process_tree(pid: u32) -> Result<(), AppError> {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("taskkill");
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+        let output = command
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .output()
+            .map_err(|err| AppError::Process(format!("taskkill failed: {err}")))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(AppError::Process(format!(
+                "taskkill exited with {}: {}",
+                output.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&output.stderr)
+            )))
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let result = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(AppError::Process(std::io::Error::last_os_error().to_string()))
+        }
+    }
 }
 
 #[cfg(test)]

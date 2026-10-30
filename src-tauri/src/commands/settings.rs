@@ -34,9 +34,6 @@ pub(crate) fn set_settings(
     if !matches!(settings.agent_mode.as_str(), "agent" | "plan" | "ask") {
         return Err(AppError::InvalidInput("invalid agent mode".to_string()));
     }
-    if !matches!(settings.engine.as_str(), "pi" | "harness") {
-        return Err(AppError::InvalidInput("invalid engine".to_string()));
-    }
     if !matches!(
         settings.default_task_environment.as_str(),
         "local" | "worktree"
@@ -173,26 +170,17 @@ pub(crate) fn set_settings(
     if !settings.custom_instructions.trim().is_empty() {
         ensure_personal_instructions(&settings.custom_instructions)?;
     }
-    let pi_config_changed = settings.separate_pi_config != current.separate_pi_config;
-    if pi_config_changed {
-        select_pi_config(settings.separate_pi_config)?;
-    }
-    if let Err(error) = save_settings(&settings) {
-        if pi_config_changed {
-            let _ = select_pi_config(current.separate_pi_config);
-        }
-        return Err(error);
-    }
+    // Pi's old config directory is no longer on the settings page; keep where it was.
+    settings.separate_pi_config = current.separate_pi_config;
+    save_settings(&settings)?;
+    #[cfg(windows)]
+    crate::KEEP_AWAKE.store(settings.prevent_sleep, Ordering::Relaxed);
     let saved = settings.clone();
     *state
         .settings
         .lock()
         .map_err(|_| AppError::Locked("state lock poisoned".to_string()))? = settings;
     crate::harness_host::push_settings(&host, &saved);
-    if pi_config_changed {
-        // The provider service still has the previous directory's providers and keys loaded.
-        provider_service_stop(state)?;
-    }
     Ok(())
 }
 
