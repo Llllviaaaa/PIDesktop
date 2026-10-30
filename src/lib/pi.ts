@@ -146,6 +146,9 @@ export const pi = {
   listPullRequests: (cwd: string) => invoke<PullRequestCollection>("list_pull_requests", { cwd }),
   checkoutPullRequest: (cwd: string, number: number) => invoke<void>("checkout_pull_request", { cwd, number }),
   listResources: (cwd: string) => invoke<ResourceItem[]>("list_resources", { cwd }),
+  /** Skills, themes and pets in the workspace's `.pi/` that its `.pid/` lacks (P6a). */
+  legacyProjectResources: (cwd: string) => invoke<number>("legacy_project_resources", { cwd }),
+  migrateProjectResources: (cwd: string) => invoke<number>("migrate_project_resources", { cwd }),
   openAppearanceDirectory: (cwd: string, kind: "theme" | "pet", scope: "user" | "project") =>
     invoke<string>("open_appearance_directory", { cwd, kind, scope }),
   installAppearanceExtension: (source: string, cwd: string, kind: "theme" | "pet", scope: "user" | "project") =>

@@ -226,6 +226,7 @@ pub fn run() {
         );
     }
     clear_stale_side_chats();
+    migrate_pi_resources();
     let settings = load_settings();
     if let Err(error) = select_pi_config(settings.separate_pi_config) {
         eprintln!("Pi Desktop could not prepare its own Pi config directory: {error}");
@@ -325,8 +326,10 @@ pub fn run() {
             git_default_branch,
             git_commit,
             git_push,
-            git_generate_commit_message,
+            git_commit_message_prompt,
             list_resources,
+            legacy_project_resources,
+            migrate_project_resources,
             open_appearance_directory,
             install_appearance_extension,
             search_pi_packages,
