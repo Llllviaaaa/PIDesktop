@@ -108,13 +108,13 @@ describe("harness runtimes", () => {
     const { runtimeId } = await runtimes.start(dir);
 
     // Nothing is created until the first prompt: a prewarmed workspace leaves no session.
-    expect((await runtimes.command(runtimeId, "get_state")).data).toMatchObject({ isStreaming: false });
-    expect((await runtimes.command(runtimeId, "get_messages")).data).toEqual({ messages: [] });
-    expect((await runtimes.command(runtimeId, "set_model", { provider: "scripted", modelId: "m" })).data).toMatchObject({ provider: "scripted", id: "m" });
-    expect((await runtimes.command(runtimeId, "get_state")).data?.model).toMatchObject({ provider: "scripted", id: "m" });
-    await runtimes.command(runtimeId, "set_thinking_level", { level: "high" });
+    expect(await runtimes.state(runtimeId)).toMatchObject({ isStreaming: false });
+    expect(await runtimes.messages(runtimeId)).toEqual([]);
+    expect(await runtimes.setModel(runtimeId, "scripted", "m")).toMatchObject({ provider: "scripted", id: "m" });
+    expect((await runtimes.state(runtimeId)).model).toMatchObject({ provider: "scripted", id: "m" });
+    await runtimes.setThinkingLevel(runtimeId, "high");
 
-    expect((await runtimes.command(runtimeId, "prompt", { message: "Copy a.txt" })).success).toBe(true);
+    await runtimes.prompt(runtimeId, { message: "Copy a.txt", images: [] });
     // The write needs confirmation: answer it as the extension dialog would.
     const request = await until((event) => event.type === "extension_ui_request" && event.method === "confirm") as ExtensionUIRequest;
     expect(request).toMatchObject({ method: "confirm", title: "Allow file change?" });
@@ -127,16 +127,16 @@ describe("harness runtimes", () => {
     expect(readFileSync(join(dir, "b.txt"), "utf8")).toBe("made");
     expect(provider.requests[0]?.effort).toBe("high");
 
-    const state = (await runtimes.command(runtimeId, "get_state")).data;
+    const state = await runtimes.state(runtimeId);
     expect(state).toMatchObject({ isStreaming: false, thinkingLevel: "high", model: { provider: "scripted", id: "m" } });
     expect(String(state?.sessionFile)).toMatch(/^harness:/);
-    const history = (await runtimes.command(runtimeId, "get_messages")).data?.messages ?? [];
+    const history = await runtimes.messages(runtimeId);
     expect(history.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "assistant", "toolResult", "assistant"]);
-    expect((await runtimes.command(runtimeId, "get_session_stats")).data).toMatchObject({ totalMessages: 4, tokens: { input: 30, output: 15 } });
+    expect(await runtimes.stats(runtimeId)).toMatchObject({ totalMessages: 4, tokens: { input: 30, output: 15 } });
 
     // Reopening the session from its sessionFile shows the same history.
     const reopened = await runtimes.start(dir, String(state?.sessionFile));
-    expect(((await runtimes.command(reopened.runtimeId, "get_messages")).data?.messages ?? []).length).toBe(6);
+    expect(await runtimes.messages(reopened.runtimeId)).toHaveLength(6);
 
     // The sidebar's view of it: listed with its first message, history readable without a runtime.
     const sessionId = String(state?.sessionId);
@@ -148,17 +148,16 @@ describe("harness runtimes", () => {
     expect(messageTimingsOf(logged).map((timing) => timing.role)).toEqual(["user", "assistant", "assistant", "assistant"]);
   });
 
-  it("switch modes through Pi's slash commands and report what it cannot do", async () => {
+  it("switch modes and refuse a runtime that has stopped", async () => {
     const { runtimes } = await start(new ScriptedProvider([]));
     const { runtimeId } = await runtimes.start(dir);
-    expect((await runtimes.command(runtimeId, "prompt", { message: "/pidesktop-mode plan" })).success).toBe(true);
-    const sessionId = String((await runtimes.command(runtimeId, "get_state")).data?.sessionId);
+    await runtimes.setPermission(runtimeId, { agentMode: "plan" });
+    const sessionId = String((await runtimes.state(runtimeId)).sessionId);
     const session = await host?.ctx.sessions.get(sessionId);
     expect(session === undefined ? undefined : host?.ctx.permissions.modes(session).agentMode).toBe("plan");
-    expect(await runtimes.command(runtimeId, "export_html")).toMatchObject({ success: false, error: "Harness 引擎暂不支持 export_html" });
-    expect((await runtimes.command(runtimeId, "get_available_thinking_levels")).data?.levels).toEqual(["off", "low", "medium", "high"]);
+    expect(runtimes.thinkingLevels()).toEqual(["off", "low", "medium", "high"]);
     await runtimes.stop(runtimeId);
-    expect(await runtimes.command(runtimeId, "get_state")).toMatchObject({ success: false });
+    await expect(runtimes.state(runtimeId)).rejects.toThrow("Harness 任务已结束");
   });
 });
 
@@ -171,59 +170,58 @@ describe("rewinding and forking", () => {
     ]);
     const { runtimes, events, until } = await start(provider);
     const { runtimeId } = await runtimes.start(dir);
-    await runtimes.command(runtimeId, "prompt", { message: "/pidesktop-permission full-access" });
-    await runtimes.command(runtimeId, "prompt", { message: "Make b.txt" });
+    await runtimes.setPermission(runtimeId, { permission: "full-access" });
+    await runtimes.prompt(runtimeId, { message: "Make b.txt", images: [] });
     await until((event) => event.type === "agent_settled");
     expect(readFileSync(join(dir, "b.txt"), "utf8")).toBe("made");
 
-    expect((await runtimes.command(runtimeId, "get_commands")).data?.commands?.map((command) => command.name)).toContain("pidesktop-rewind");
-    const points = (await runtimes.command(runtimeId, "get_fork_messages")).data?.messages as unknown as Array<{ entryId: string; text: string }>;
+    const points = await runtimes.forkPoints(runtimeId);
     expect(points.map((point) => point.text)).toEqual(["Make b.txt"]);
 
     // Rewinding asks before putting the files back, through the same dialog as Host questions.
-    const rewinding = runtimes.command(runtimeId, "prompt", { message: `/pidesktop-rewind ${points[0]?.entryId}` });
+    const rewinding = runtimes.rewind(runtimeId, String(points[0]?.entryId));
     const question = await until((event) => event.type === "extension_ui_request" && event.method === "confirm" && event.title === "回退消息和工作区？") as ExtensionUIRequest;
     expect(question).toMatchObject({ message: expect.stringContaining("1 个文件将恢复") });
     await runtimes.respond(question, { confirmed: true });
-    expect((await rewinding).success).toBe(true);
+    expect(await rewinding).toBe(true);
     expect(existsSync(join(dir, "b.txt"))).toBe(false);
-    expect((await runtimes.command(runtimeId, "get_messages")).data?.messages).toEqual([]);
+    expect(await runtimes.messages(runtimeId)).toEqual([]);
 
     // The rewound turn stays in the tree as a side branch.
     events.length = 0;
-    await runtimes.command(runtimeId, "prompt", { message: "Just answer" });
+    await runtimes.prompt(runtimeId, { message: "Just answer", images: [] });
     await until((event) => event.type === "agent_settled");
-    const tree = (await runtimes.command(runtimeId, "get_tree")).data as { tree: Array<{ children: unknown[] }>; leafId: string };
+    const tree = await runtimes.tree(runtimeId);
     expect(tree.tree).toHaveLength(2);
-    const before = String((await runtimes.command(runtimeId, "get_state")).data?.sessionId);
+    const before = String((await runtimes.state(runtimeId)).sessionId);
 
     // Forking from the leaf (an assistant reply) keeps it; cloning copies everything.
-    expect((await runtimes.command(runtimeId, "fork", { entryId: tree.leafId })).data).toEqual({ cancelled: false });
-    const forked = (await runtimes.command(runtimeId, "get_state")).data;
+    await runtimes.fork(runtimeId, String(tree.leafId));
+    const forked = await runtimes.state(runtimeId);
     expect(forked?.sessionId).not.toBe(before);
-    expect(((await runtimes.command(runtimeId, "get_messages")).data?.messages ?? []).map((message) => message.role)).toEqual(["user", "assistant"]);
-    await runtimes.command(runtimeId, "clone");
-    expect((await runtimes.command(runtimeId, "get_state")).data?.sessionId).not.toBe(forked?.sessionId);
+    expect((await runtimes.messages(runtimeId)).map((message) => message.role)).toEqual(["user", "assistant"]);
+    await runtimes.clone(runtimeId);
+    expect((await runtimes.state(runtimeId)).sessionId).not.toBe(forked.sessionId);
 
     // A new session starts empty and is created on its first prompt.
-    await runtimes.command(runtimeId, "new_session");
-    expect((await runtimes.command(runtimeId, "get_state")).data?.sessionId).toBeUndefined();
+    runtimes.newSession(runtimeId);
+    expect((await runtimes.state(runtimeId)).sessionId).toBeUndefined();
   });
 
   it("cancel a rewind the user declines", async () => {
     const provider = new ScriptedProvider([toolReply([{ id: "c1", name: "write", args: { path: "b.txt", content: "made" } }]), textReply("Done.")]);
     const { runtimes, until } = await start(provider);
     const { runtimeId } = await runtimes.start(dir);
-    await runtimes.command(runtimeId, "prompt", { message: "/pidesktop-permission full-access" });
-    await runtimes.command(runtimeId, "prompt", { message: "Make b.txt" });
+    await runtimes.setPermission(runtimeId, { permission: "full-access" });
+    await runtimes.prompt(runtimeId, { message: "Make b.txt", images: [] });
     await until((event) => event.type === "agent_settled");
-    const points = (await runtimes.command(runtimeId, "get_fork_messages")).data?.messages as unknown as Array<{ entryId: string }>;
-    const rewinding = runtimes.command(runtimeId, "prompt", { message: `/pidesktop-rewind ${points[0]?.entryId}` });
+    const points = await runtimes.forkPoints(runtimeId);
+    const rewinding = runtimes.rewind(runtimeId, String(points[0]?.entryId));
     const question = await until((event) => event.type === "extension_ui_request" && event.method === "confirm") as ExtensionUIRequest;
     await runtimes.respond(question, { confirmed: false });
-    expect(await rewinding).toMatchObject({ success: false, error: "PIDesktop message rewind was cancelled" });
+    expect(await rewinding).toBe(false);
     expect(readFileSync(join(dir, "b.txt"), "utf8")).toBe("made");
-    expect(((await runtimes.command(runtimeId, "get_messages")).data?.messages ?? []).length).toBeGreaterThan(0);
+    expect((await runtimes.messages(runtimeId)).length).toBeGreaterThan(0);
   });
 });
 
@@ -231,25 +229,25 @@ describe("side chats", () => {
   it("run on a hidden fork of the conversation that goes when the side chat stops", async () => {
     const { runtimes, events, until } = await start(new ScriptedProvider([textReply("Main answer."), textReply("Side answer.")]));
     const main = await runtimes.start(dir);
-    await runtimes.command(main.runtimeId, "prompt", { message: "Main question" });
+    await runtimes.prompt(main.runtimeId, { message: "Main question", images: [] });
     await until((event) => event.type === "agent_settled");
-    const parentFile = String((await runtimes.command(main.runtimeId, "get_state")).data?.sessionFile);
+    const parentFile = String((await runtimes.state(main.runtimeId)).sessionFile);
 
     const side = await runtimes.start(dir, parentFile, true);
     expect(side.sessionForked).toBe(true);
-    const sideFile = String((await runtimes.command(side.runtimeId, "get_state")).data?.sessionFile);
+    const sideFile = String((await runtimes.state(side.runtimeId)).sessionFile);
     expect(sideFile).not.toBe(parentFile);
-    expect(((await runtimes.command(side.runtimeId, "get_messages")).data?.messages ?? []).map((message) => message.role)).toEqual(["user", "assistant"]);
+    expect((await runtimes.messages(side.runtimeId)).map((message) => message.role)).toEqual(["user", "assistant"]);
     events.length = 0;
-    await runtimes.command(side.runtimeId, "prompt", { message: "Side question" });
+    await runtimes.prompt(side.runtimeId, { message: "Side question", images: [] });
     await until((event) => event.type === "agent_settled");
-    const sideMessages = (await runtimes.command(side.runtimeId, "get_messages")).data?.messages ?? [];
+    const sideMessages = await runtimes.messages(side.runtimeId);
     expect(sideMessages.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
     expect(JSON.stringify(sideMessages.at(-1))).toContain("Side answer.");
 
     // The sidebar never lists it, and the parent keeps only its own turn.
     expect((await runtimes.listSessions()).map((session) => `harness:${session.id}`)).toEqual([parentFile]);
-    expect(((await runtimes.command(main.runtimeId, "get_messages")).data?.messages ?? [])).toHaveLength(2);
+    expect(await runtimes.messages(main.runtimeId)).toHaveLength(2);
 
     await runtimes.stop(side.runtimeId);
     const all = await runtimes.call<{ sessions: Array<{ id: string }> }>("session.list");

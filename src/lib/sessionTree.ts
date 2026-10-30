@@ -39,14 +39,6 @@ export interface ActiveUserMessageEntry {
   text: string;
 }
 
-export function buildGetTreeCommand(): { type: "get_tree" } {
-  return { type: "get_tree" };
-}
-
-export function buildForkCommand(entryId: string): { type: "fork"; entryId: string } {
-  return { type: "fork", entryId };
-}
-
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";

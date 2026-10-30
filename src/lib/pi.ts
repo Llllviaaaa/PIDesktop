@@ -9,7 +9,6 @@ import type {
   ProjectConfig,
   PullRequestCollection,
   ResourceItem,
-  RpcResponse,
   UsageSummary,
   WorkspaceDirEntry,
   TerminalAppInfo,
@@ -40,8 +39,8 @@ async function usageSummary(): Promise<UsageSummary> {
 }
 
 // Task runtimes are the Harness Host's sessions behind `harnessRuntimes`
-// (docs/adr/0014-frontend-harness-adapter.md), which still speaks Pi's
-// command and event shapes until the store moves to the Host's own (P6d).
+// (docs/adr/0014-frontend-harness-adapter.md); the store calls its typed
+// methods. Its events still arrive in Pi's shapes until P6d-2.
 // An isolated runtime (a side chat) runs on a hidden fork of its parent.
 export const pi = {
   start: (cwd: string, sessionFile?: string, isolated = false) => harnessRuntimes.start(cwd, sessionFile, isolated),
@@ -156,17 +155,6 @@ export interface PiListeners {
 /** Hear the runtimes' events. Host runtimes have no process to exit or log of their own. */
 export async function subscribeToPi(listeners: PiListeners): Promise<() => void> {
   return harnessRuntimes.subscribe(listeners.onEvent);
-}
-
-export async function sendCommand(
-  runtimeId: string,
-  command: string,
-  payload: Record<string, unknown> = {},
-  _timeoutMs = 30_000,
-): Promise<RpcResponse> {
-  const response = await harnessRuntimes.command(runtimeId, command, payload);
-  if (!response.success) throw new Error(response.error || `Command '${command}' failed`);
-  return response;
 }
 
 export function respondToExtension(

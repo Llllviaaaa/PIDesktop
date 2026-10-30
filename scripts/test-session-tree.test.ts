@@ -1,11 +1,9 @@
 /**
- * Exercises shipped session-tree helpers and the continue/fork command sequence.
+ * Exercises shipped session-tree helpers.
  * Run: npx vitest run test-session-tree.test.ts
  */
 import {
   activeUserMessageEntries,
-  buildForkCommand,
-  buildGetTreeCommand,
   flattenSessionTree,
   forkableTreeNodes,
   type SessionTreeNode,
@@ -58,12 +56,6 @@ test("session tree", async () => {
     },
   ];
 
-  const getTree = buildGetTreeCommand();
-  assert(getTree.type === "get_tree", "get_tree command type");
-
-  const fork = buildForkCommand("root-user");
-  assert(fork.type === "fork" && fork.entryId === "root-user", "fork command must use real entry id");
-
   const flat = flattenSessionTree(fixture, "leaf-user");
   assert(flat.length === 4, `expected 4 nodes, got ${flat.length}`);
   assert(flat[0].entryId === "root-user" && flat[0].depth === 0, "root depth");
@@ -73,28 +65,6 @@ test("session tree", async () => {
   const forkable = forkableTreeNodes(flat);
   assert(forkable.every((node) => node.role === "user" || node.role === "assistant"), "forkable roles");
   assert(forkable.some((node) => node.entryId === "branch-user"), "branch user is forkable");
-
-  // Simulate the store continue path: load tree → pick node → issue fork payload (transport mocked at boundary)
-  async function continueFromNode(
-    entryId: string,
-    send: (payload: Record<string, unknown>) => Promise<{ success: boolean; command: string }>,
-  ) {
-    const load = buildGetTreeCommand();
-    await send(load);
-    const command = buildForkCommand(entryId);
-    return send(command);
-  }
-
-  const sent: Record<string, unknown>[] = [];
-  const result = await continueFromNode("branch-user", async (payload) => {
-    sent.push(payload);
-    return { success: true, command: String(payload.type) };
-  });
-
-  assert(result.success && result.command === "fork", "continue path ends with fork");
-  assert(sent.length === 2, "continue issues get_tree then fork");
-  assert(sent[0].type === "get_tree", "first command is get_tree");
-  assert(sent[1].type === "fork" && sent[1].entryId === "branch-user", "second command forks selected node");
 
   const activeUsers = activeUserMessageEntries(fixture, "leaf-user");
   assert(activeUsers.length === 2, "active path includes its two user messages");

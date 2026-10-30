@@ -184,3 +184,10 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
 - 前端不再有 Pi 路径：`pi.start` 总是启动 Host runtime；会话、定时任务、provider、用量都只走 Host。`engine` 设置、Harness 切换提示和 Pi 进程设置随之删除。
 - 本文的模拟层保留到 P6d：store 仍然处理 Pi 的事件形状，由 `harnessRuntime.ts` 转换。
 - Host runtime 只存在于页面内存中，刷新后没有可以接回的 runtime（Rust 以前会保留 Pi 进程），会话从文件重新打开。
+
+## P6d-1：类型化的命令
+
+- store 和侧边聊天不再发送 Pi 的命令字符串（`sendCommand(runtimeId, "get_state")` 之类），而是直接调用 `harnessRuntimes` 的方法：`prompt`、`queue`、`abort`、`state`、`messages`、`models`、`forkPoints`、`tree`、`stats`、`setModel`、`setThinkingLevel`、`setPermission`、`rewind`、`fork`、`clone`、`newSession`、`rename`、`compact`。`RpcResponse` 包装、`sendCommand` 和斜杠命令的变通做法（`/pidesktop-mode`、`/pidesktop-permission`、`/pidesktop-rewind`）都已删除。
+- 回退时，如果用户拒绝恢复文件，`rewind` 返回 `false`，不再抛出错误。
+- Host 从未支持的命令一并清理：store 里的 `bash`、`abort_bash` 已经没有调用方，直接删除；“导出为 HTML”改为“导出为 Markdown”，通过 `session.export` 写到用户在保存对话框中选择的位置。
+- 事件方向仍然保持 Pi 的形状，留到 P6d-2 处理。

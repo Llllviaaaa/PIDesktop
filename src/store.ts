@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { describeError } from "./lib/errors";
-import { pi, respondToExtension, sendCommand } from "./lib/pi";
+import { pi, respondToExtension } from "./lib/pi";
+import { harnessRuntimes } from "./lib/harnessRuntime";
 import { redactSensitiveText } from "./lib/redact";
 import { readStoredNotifications } from "./lib/notificationCenter";
 import { createNotices } from "./notifications";
@@ -19,12 +20,7 @@ import {
   isSilentUiRequest,
   uiRequestNotification,
 } from "./lib/eventNotifications";
-import {
-  buildForkCommand,
-  buildGetTreeCommand,
-  flattenSessionTree,
-  type SessionTreeNode,
-} from "./lib/sessionTree";
+import { flattenSessionTree } from "./lib/sessionTree";
 import {
   agentBrowserFromMessages,
   agentBrowserFromResult,
@@ -53,7 +49,6 @@ import type {
   ManagedQueuedMessage,
   ModelInfo,
   SessionMessageTiming,
-  SessionStats,
   ToolResultMessage,
   UiMessage,
   UiToolCall,
@@ -74,9 +69,6 @@ function readWebSettings(): AppSettings | null {
   }
 }
 
-const PIDESKTOP_REWIND_COMMAND = "pidesktop-rewind";
-const PIDESKTOP_MODE_COMMAND = "pidesktop-mode";
-const PIDESKTOP_PERMISSION_COMMAND = "pidesktop-permission";
 const cachedModelCatalog = readStoredModelCatalog();
 
 export const usePiStore = create<PiState>((set, get) => {
@@ -281,14 +273,11 @@ export const usePiStore = create<PiState>((set, get) => {
     }, 32);
   };
 
-  const command = (
-    name: string,
-    payload: Record<string, unknown> = {},
-    timeoutMs = 30_000,
-  ) => {
+  /** The task on screen, which the actions below act on. */
+  const activeRuntime = (): string => {
     const runtimeId = get().runtimeId;
-    if (!runtimeId) return Promise.reject(new Error("当前没有活动的 Pi 任务"));
-    return sendCommand(runtimeId, name, payload, timeoutMs);
+    if (!runtimeId) throw new Error("当前没有活动的任务");
+    return runtimeId;
   };
 
   const updateRuntime = (runtimeId: string, patch: Partial<RuntimeState>) => {
@@ -320,7 +309,7 @@ export const usePiStore = create<PiState>((set, get) => {
     managedDrainInFlight.add(runtimeId);
     setManagedQueueForRuntime(runtimeId, queue.slice(1));
     try {
-      await sendCommand(runtimeId, "prompt", buildPromptPayload(next.text, next.attachments));
+      await harnessRuntimes.prompt(runtimeId, buildPromptPayload(next.text, next.attachments));
     } catch (error) {
       const current = managedFollowUpsByRuntime.get(runtimeId) ?? [];
       setManagedQueueForRuntime(runtimeId, insertManagedQueueItem(current, next, 0));
@@ -334,30 +323,26 @@ export const usePiStore = create<PiState>((set, get) => {
 
   const hydrateMessageForkPoints = async (runtimeId: string) => {
     try {
-      const response = await sendCommand(runtimeId, "get_fork_messages");
+      const points = await harnessRuntimes.forkPoints(runtimeId);
       if (get().runtimeId !== runtimeId) return;
-      const points = (response.data?.messages as ForkPoint[] | undefined) ?? [];
       set((state) => ({ messages: attachForkPointsToUi(state.messages, points) }));
     } catch {
-      // Older Pi runtimes may not expose fork metadata; edit falls back to on-demand lookup.
+      // Without fork points, editing falls back to looking the message up on demand.
     }
   };
 
   const syncSession = async (expectedVersion = connectionVersion, keepQueuedModel = false) => {
     const runtimeId = get().runtimeId;
     if (!runtimeId) return;
-    const stateRequest = sendCommand(runtimeId, "get_state");
-    const historyRequest = sendCommand(runtimeId, "get_messages");
-    const modelCatalogRequest = Promise.all([
-      sendCommand(runtimeId, "get_available_models"),
-      sendCommand(runtimeId, "get_available_thinking_levels"),
-      sendCommand(runtimeId, "get_commands"),
-    ]).then(([models, levels, commands]) => {
+    const stateRequest = harnessRuntimes.state(runtimeId);
+    const historyRequest = harnessRuntimes.messages(runtimeId);
+    const modelCatalogRequest = harnessRuntimes.models().then((models) => {
       if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
       set({
-        availableModels: models.data?.models ?? [],
-        availableThinkingLevels: levels.data?.levels ?? ["off"],
-        commands: (commands.data?.commands ?? []).filter((item) => item.name !== PIDESKTOP_REWIND_COMMAND),
+        availableModels: models,
+        availableThinkingLevels: harnessRuntimes.thinkingLevels(),
+        // The Host has no slash commands of its own.
+        commands: [],
       });
       persistCurrentModelCatalog();
     }).catch((error) => {
@@ -365,10 +350,9 @@ export const usePiStore = create<PiState>((set, get) => {
         get().appendLog(`刷新模型目录失败：${describeError(error)}`);
       }
     });
-    const stateResponse = await stateRequest;
-    const data = stateResponse.data;
+    const data = await stateRequest;
     if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
-    if (data) {
+    {
       set({
         sessionFile: data.sessionFile ?? null,
         sessionId: data.sessionId ?? null,
@@ -386,7 +370,7 @@ export const usePiStore = create<PiState>((set, get) => {
     const timingsRequest = sessionFile
       ? pi.sessionMessageTimings(sessionFile).catch(() => [] as SessionMessageTiming[])
       : Promise.resolve([] as SessionMessageTiming[]);
-    const forkPointsRequest = sendCommand(runtimeId, "get_fork_messages").catch(() => null);
+    const forkPointsRequest = harnessRuntimes.forkPoints(runtimeId).catch((): ForkPoint[] => []);
     if (sessionFile) {
       await pi.bindSession(runtimeId, sessionFile);
       if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
@@ -398,16 +382,13 @@ export const usePiStore = create<PiState>((set, get) => {
       }));
     }
 
-    const [history, timings, forkPointsResponse] = await Promise.all([
+    const [history, timings, forkPoints] = await Promise.all([
       historyRequest,
       timingsRequest,
       forkPointsRequest,
     ]);
     if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
-    const restoredMessages = attachForkPointsToUi(
-      messagesToUi(history.data?.messages ?? [], timings),
-      (forkPointsResponse?.data?.messages as ForkPoint[] | undefined) ?? [],
-    );
+    const restoredMessages = attachForkPointsToUi(messagesToUi(history, timings), forkPoints);
     set({
       messages: restoredMessages,
       agentBrowser: agentBrowserFromMessages(restoredMessages),
@@ -422,9 +403,9 @@ export const usePiStore = create<PiState>((set, get) => {
     const runtimeId = get().runtimeId;
     if (!runtimeId) return;
     try {
-      const response = await sendCommand(runtimeId, "get_session_stats");
+      const stats = await harnessRuntimes.stats(runtimeId);
       if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
-      set({ stats: (response.data as unknown as SessionStats) ?? null });
+      set({ stats });
     } catch {
       if (get().runtimeId === runtimeId && expectedVersion === connectionVersion) set({ stats: null });
     }
@@ -545,10 +526,6 @@ export const usePiStore = create<PiState>((set, get) => {
             extensionRequest: existing?.extensionRequest ?? null,
             managedFollowUpQueue: managedFollowUpsByRuntime.get(runtimeId) ?? [],
           }));
-          if (sessionFile && !started.sessionLoaded) {
-            await sendCommand(runtimeId, "switch_session", { sessionPath: sessionFile }, 60_000);
-            if (connectVersion !== connectionVersion) return;
-          }
           await syncSession(connectVersion, true);
           if (connectVersion !== connectionVersion) return;
           // A new task without a pick of its own starts from the remembered defaults.
@@ -1006,8 +983,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (messageIndex < 0 || target?.role !== "user" || !target.content.trim()) return null;
       if (target.entryId) return { entryId: target.entryId, text: target.content };
       try {
-        const response = await command("get_fork_messages");
-        const points = (response.data?.messages as ForkPoint[] | undefined) ?? [];
+        const points = await harnessRuntimes.forkPoints(activeRuntime());
         const matches = points.filter((point) => point.text === target.content);
         const sameTextAfter = state.messages
           .slice(messageIndex + 1)
@@ -1026,12 +1002,8 @@ export const usePiStore = create<PiState>((set, get) => {
         return false;
       }
       try {
-        const commandsResponse = await command("get_commands");
-        const rewindAvailable = (commandsResponse.data?.commands ?? [])
-          .some((item) => item.name === PIDESKTOP_REWIND_COMMAND);
-        if (!rewindAvailable) throw new Error("消息回退组件尚未加载，请重启当前任务后再试");
-
-        await command("prompt", { message: `/${PIDESKTOP_REWIND_COMMAND} ${entryId}` }, 60_000);
+        // The user can decline restoring the files; nothing changes then.
+        if (!await harnessRuntimes.rewind(activeRuntime(), entryId)) return false;
         await syncSession();
         await get().refreshSessions();
         return true;
@@ -1049,12 +1021,7 @@ export const usePiStore = create<PiState>((set, get) => {
       const payload = buildPromptPayload(text, attachments);
       if (!payload.message && payload.images.length === 0) return false;
       try {
-        const commandsResponse = await command("get_commands");
-        const rewindAvailable = (commandsResponse.data?.commands ?? [])
-          .some((item) => item.name === PIDESKTOP_REWIND_COMMAND);
-        if (!rewindAvailable) throw new Error("消息回退组件尚未加载，请重启当前任务后再试");
-
-        await command("prompt", { message: `/${PIDESKTOP_REWIND_COMMAND} ${entryId}` }, 60_000);
+        if (!await harnessRuntimes.rewind(activeRuntime(), entryId)) return false;
         await syncSession();
         await get().refreshSessions();
         return get().sendMessage(text, attachments);
@@ -1137,10 +1104,9 @@ export const usePiStore = create<PiState>((set, get) => {
       }
       try {
         if (wasStreaming) {
-          const commandName = behavior === "followUp" ? "follow_up" : "steer";
-          await command(commandName, payload);
+          await harnessRuntimes.queue(runtimeId, behavior === "followUp" ? "followUp" : "steer", payload);
         } else {
-          await command("prompt", payload);
+          await harnessRuntimes.prompt(runtimeId, payload);
           // The task has started: its model and thinking level now live in the runtime.
           queuedModelSelection = null;
           queuedThinkingLevel = null;
@@ -1186,7 +1152,7 @@ export const usePiStore = create<PiState>((set, get) => {
       const runtimeId = get().runtimeId;
       if (runtimeId) suppressManagedDrainFor.add(runtimeId);
       try {
-        await command("abort");
+        await harnessRuntimes.abort(activeRuntime());
       } catch (error) {
         if (runtimeId) suppressManagedDrainFor.delete(runtimeId);
         throw error;
@@ -1197,37 +1163,30 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     newSession: async () => {
-      const response = await command("new_session");
-      if (!response.data?.cancelled) {
-        await syncSession();
-        await get().refreshSessions();
-      }
+      harnessRuntimes.newSession(activeRuntime());
+      await syncSession();
+      await get().refreshSessions();
     },
 
     cloneSession: async () => {
-      const response = await command("clone", {}, 60_000);
-      if (!response.data?.cancelled) {
-        await syncSession();
-        await get().refreshSessions();
-        toast("会话已克隆", "info");
-      }
+      await harnessRuntimes.clone(activeRuntime());
+      await syncSession();
+      await get().refreshSessions();
+      toast("会话已克隆", "info");
     },
 
     forkLatest: async () => {
-      const points = await command("get_fork_messages");
-      const messages = points.data?.messages as Array<{ entryId: string; text: string }> | undefined;
-      const latest = messages?.[messages.length - 1];
+      const runtimeId = activeRuntime();
+      const latest = (await harnessRuntimes.forkPoints(runtimeId)).at(-1);
       if (!latest) {
         toast("当前对话还没有可分叉的检查点", "warning");
         return;
       }
-      const response = await command("fork", { entryId: latest.entryId }, 60_000);
-      if (!response.data?.cancelled) {
-        await syncSession();
-        await get().refreshSessions();
-        await get().loadSessionTree();
-        toast("已从最新检查点分叉对话", "info");
-      }
+      await harnessRuntimes.fork(runtimeId, latest.entryId);
+      await syncSession();
+      await get().refreshSessions();
+      await get().loadSessionTree();
+      toast("已从最新检查点分叉对话", "info");
     },
 
     loadSessionTree: async () => {
@@ -1238,10 +1197,7 @@ export const usePiStore = create<PiState>((set, get) => {
       }
       set({ sessionTreeLoading: true, sessionTreeError: null });
       try {
-        const treeCommand = buildGetTreeCommand();
-        const response = await command(treeCommand.type, {}, 60_000);
-        const tree = (response.data?.tree as SessionTreeNode[] | undefined) ?? [];
-        const leafId = typeof response.data?.leafId === "string" ? response.data.leafId : null;
+        const { tree, leafId } = await harnessRuntimes.tree(runtimeId);
         set({
           sessionTree: flattenSessionTree(tree, leafId),
           sessionTreeLeafId: leafId,
@@ -1253,9 +1209,7 @@ export const usePiStore = create<PiState>((set, get) => {
         set({
           sessionTree: [],
           sessionTreeLeafId: null,
-          sessionTreeError: message.includes("get_tree") || message.toLowerCase().includes("unknown")
-            ? "当前 Pi 运行时未暴露 get_tree；请升级 Pi 或使用检查点分叉。"
-            : message,
+          sessionTreeError: message,
           sessionTreeLoading: false,
         });
       }
@@ -1271,12 +1225,7 @@ export const usePiStore = create<PiState>((set, get) => {
         return;
       }
       try {
-        const forkCommand = buildForkCommand(entryId);
-        const response = await command(forkCommand.type, { entryId: forkCommand.entryId }, 60_000);
-        if (response.data?.cancelled) {
-          toast("分叉已被取消", "warning");
-          return;
-        }
+        await harnessRuntimes.fork(activeRuntime(), entryId);
         await syncSession();
         await get().refreshSessions();
         await get().loadSessionTree();
@@ -1289,17 +1238,18 @@ export const usePiStore = create<PiState>((set, get) => {
     compact: async () => {
       set({ isCompacting: true });
       try {
-        await command("compact", {}, 10 * 60_000);
+        await harnessRuntimes.compact(activeRuntime());
         await refreshStats();
       } finally {
         set({ isCompacting: false });
       }
     },
 
-    exportSession: async () => {
-      const response = await command("export_html", {}, 60_000);
-      const path = typeof response.data?.path === "string" ? response.data.path : null;
-      if (path) toast(`已导出到 ${path}`, "info");
+    exportSession: async (destination) => {
+      const sessionFile = get().sessionFile;
+      if (!sessionFile) throw new Error("当前任务还没有可导出的对话");
+      const path = await pi.exportSessionMarkdown(sessionFile, destination);
+      toast(`已导出到 ${path}`, "info");
       return path;
     },
 
@@ -1307,9 +1257,9 @@ export const usePiStore = create<PiState>((set, get) => {
       const runtimeId = get().runtimeId;
       if (!runtimeId) return;
       try {
-        const models = await sendCommand(runtimeId, "get_available_models");
+        const models = await harnessRuntimes.models();
         if (get().runtimeId !== runtimeId) return;
-        set({ availableModels: models.data?.models ?? [] });
+        set({ availableModels: models });
         persistCurrentModelCatalog();
       } catch (error) {
         get().appendLog(`刷新模型目录失败：${describeError(error)}`);
@@ -1331,28 +1281,11 @@ export const usePiStore = create<PiState>((set, get) => {
         : Promise.resolve();
       const change = previous.then(async () => {
         if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新选择模型");
-        const response = await sendCommand(runtimeId, "set_model", {
-          provider: model.provider,
-          modelId: model.id,
-        });
-        const returned = response.data as unknown as ModelInfo | undefined;
-        if (returned && (returned.provider !== model.provider || returned.id !== model.id)) {
-          throw new Error(`Pi 返回了不同的模型：${returned.provider}/${returned.id}`);
-        }
-
-        const stateResponse = await sendCommand(runtimeId, "get_state");
-        const confirmed = stateResponse.data?.model;
-        if (!confirmed || confirmed.provider !== model.provider || confirmed.id !== model.id) {
-          const actual = confirmed ? `${confirmed.provider}/${confirmed.id}` : "未知";
-          throw new Error(`Pi 未应用所选模型，当前仍为 ${actual}`);
-        }
-        if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新选择模型");
-
-        const levels = await sendCommand(runtimeId, "get_available_thinking_levels");
+        const confirmed = await harnessRuntimes.setModel(runtimeId, model.provider, model.id);
         if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新选择模型");
         set({
           model: confirmed,
-          availableThinkingLevels: levels.data?.levels ?? ["off"],
+          availableThinkingLevels: harnessRuntimes.thinkingLevels(),
         });
         persistCurrentModelCatalog();
         rememberForNewTasks({ provider: confirmed.provider, model: confirmed.id });
@@ -1370,9 +1303,9 @@ export const usePiStore = create<PiState>((set, get) => {
           // Pi turned this model down; do not offer it to the next runtime either.
           if (queuedModelSelection === model) queuedModelSelection = null;
           try {
-            const stateResponse = await sendCommand(runtimeId, "get_state");
+            const state = await harnessRuntimes.state(runtimeId);
             if (get().runtimeId === runtimeId) {
-              set({ model: stateResponse.data?.model ?? null });
+              set({ model: state.model ?? null });
               persistCurrentModelCatalog();
             }
           } catch {
@@ -1402,24 +1335,26 @@ export const usePiStore = create<PiState>((set, get) => {
         : null;
       if (modelChange) await modelChange;
       if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新设置推理等级");
-      await sendCommand(runtimeId, "set_thinking_level", { level });
+      await harnessRuntimes.setThinkingLevel(runtimeId, level);
       set({ thinkingLevel: level });
       rememberForNewTasks({ thinkingLevel: level });
       if (taskNotStarted()) queuedThinkingLevel = level;
     },
 
     setRuntimeAgentMode: async (mode) => {
-      if (!get().runtimeId) return;
-      await command("prompt", { message: `/${PIDESKTOP_MODE_COMMAND} ${mode}` }, 30_000);
+      const runtimeId = get().runtimeId;
+      if (!runtimeId) return;
+      await harnessRuntimes.setPermission(runtimeId, { agentMode: mode });
     },
 
     setRuntimePermissionMode: async (mode) => {
-      if (!get().runtimeId) return;
-      await command("prompt", { message: `/${PIDESKTOP_PERMISSION_COMMAND} ${mode}` }, 30_000);
+      const runtimeId = get().runtimeId;
+      if (!runtimeId) return;
+      await harnessRuntimes.setPermission(runtimeId, { permission: mode });
     },
 
     setSessionName: async (name) => {
-      await command("set_session_name", { name: name.trim() });
+      await harnessRuntimes.rename(activeRuntime(), name.trim());
       set({ sessionName: name.trim() || null });
       await get().refreshSessions();
     },
@@ -1465,49 +1400,6 @@ export const usePiStore = create<PiState>((set, get) => {
       set({ settings: await pi.getSettings() });
     },
 
-    runBash: async (shellCommand, excludeFromContext = false) => {
-      const trimmed = shellCommand.trim();
-      if (!trimmed || get().terminal.running) return;
-      set((state) => ({
-        terminal: {
-          running: true,
-          command: trimmed,
-          output: "",
-          history: state.terminal.command
-            ? [...state.terminal.history, {
-                command: state.terminal.command,
-                output: state.terminal.output,
-                exitCode: state.terminal.exitCode,
-              }].slice(-100)
-            : state.terminal.history,
-        },
-      }));
-      try {
-        const response = await command("bash", { command: trimmed, excludeFromContext }, 60 * 60_000);
-        set((state) => ({
-          terminal: {
-            ...state.terminal,
-            running: false,
-            output: typeof response.data?.output === "string" ? response.data.output : state.terminal.output,
-            exitCode: typeof response.data?.exitCode === "number" ? response.data.exitCode : undefined,
-          },
-        }));
-      } catch (error) {
-        set((state) => ({
-          terminal: { ...state.terminal, running: false, output: `${state.terminal.output}\n${describeError(error)}` },
-        }));
-      }
-    },
-
-    abortBash: async () => {
-      await command("abort_bash");
-      set((state) => ({ terminal: { ...state.terminal, running: false } }));
-    },
-
-    resetTerminal: () => {
-      if (get().terminal.running) return;
-      set({ terminal: { running: false, command: "", output: "", history: [] } });
-    },
 
     answerExtension: async (response) => {
       const request = get().extensionRequest;
