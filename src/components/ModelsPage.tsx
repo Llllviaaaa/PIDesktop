@@ -52,7 +52,7 @@ import {
   type EnrichedModel,
   type ModelCatalog,
 } from "../lib/modelProviders";
-import { usePiStore } from "../store";
+import { useAppStore } from "../store";
 import type { AppSettings, ModelProviderConfig, ModelProviderInput, ModelProviderModel } from "../types";
 
 type Update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
@@ -93,7 +93,7 @@ const NO_CONFIGS: ModelProviderConfig[] = [];
 
 export function ModelsPage({ form, update }: { form: AppSettings; update: Update }) {
   const isTauri = "__TAURI_INTERNALS__" in window;
-  const reloadProviderCatalog = usePiStore((state) => state.reloadProviderCatalog);
+  const reloadProviderCatalog = useAppStore((state) => state.reloadProviderCatalog);
   const queryClient = useQueryClient();
   const providersQuery = useQuery({
     queryKey: queryKeys.modelProviders(),

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { describeError } from "../lib/errors";
 import { subscribeToPi } from "../lib/agent";
 import { sameLocalPath } from "../lib/pathIdentity";
-import { usePiStore } from "../store";
+import { useAppStore } from "../store";
 import type { ConnectionState, SessionInfo } from "../types";
 
 export const ACTIVE_RUNTIME_KEY = "pid-desktop:active-runtime";
@@ -65,12 +65,12 @@ export function useRuntimeBootstrap({
     let disposed = false;
     let cleanup: (() => void) | undefined;
     void (async () => {
-      const store = usePiStore.getState();
+      const store = useAppStore.getState();
       cleanup = await subscribeToPi({
         onEvent: store.handleEvent,
         onStatus: store.handleStatus,
         onLog: store.handleLog,
-        onProtocolError: (message) => usePiStore.getState().appendLog(`Pi 协议错误：${message}`),
+        onProtocolError: (message) => useAppStore.getState().appendLog(`Pi 协议错误：${message}`),
       });
       if (disposed) {
         cleanup();
@@ -80,7 +80,7 @@ export function useRuntimeBootstrap({
       const preferredRuntimeId = window.localStorage.getItem(ACTIVE_RUNTIME_KEY);
       const restored = await store.restoreRuntimes(preferredRuntimeId);
       if (restored && !disposed) {
-        const current = usePiStore.getState();
+        const current = useAppStore.getState();
         const restoredSessionMissing = current.sessionFile
           && !current.sessions.some((session) => sameLocalPath(session.file, current.sessionFile));
         if (restoredSessionMissing) {
@@ -104,7 +104,7 @@ export function useRuntimeBootstrap({
       }
       if (!disposed) setRuntimeRecoveryDone(true);
     })().catch((error) => {
-      usePiStore.getState().appendLog(`初始化失败：${describeError(error)}`);
+      useAppStore.getState().appendLog(`初始化失败：${describeError(error)}`);
       if (!disposed) setRuntimeRecoveryDone(true);
     });
     return () => {
@@ -125,7 +125,7 @@ export function useRuntimeBootstrap({
     autoConnectedRef.current = true;
     onDraftModeChange(!restoredSession);
     startupAutoConnectRef.current = true;
-    void usePiStore.getState().connect(lastWorkspace, restoredSession).finally(() => {
+    void useAppStore.getState().connect(lastWorkspace, restoredSession).finally(() => {
       startupAutoConnectRef.current = false;
     });
   }, [autoConnect, connection, onDraftModeChange, runtimeRecoveryDone, sessions]);

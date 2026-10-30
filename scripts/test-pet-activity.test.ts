@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { buildPetActivities, petStatusToAnimation } from "../src/lib/petActivity";
-import type { RuntimeState } from "../src/storeTypes";
+import type { RuntimeState } from "../src/store/types";
 import type { AppNotification, SessionInfo } from "../src/types";
 import { test } from "vitest";
 

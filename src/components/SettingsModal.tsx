@@ -43,7 +43,7 @@ import {
 import type { PiImportProgress } from "@pid/protocol";
 import { agent } from "../lib/agent";
 import { describeImport, piImport } from "../lib/piImport";
-import { usePiStore } from "../store";
+import { useAppStore } from "../store";
 import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
 import { PetAvatar } from "./PetCompanion";
 import { ModelsPage } from "./ModelsPage";
@@ -812,7 +812,7 @@ function PiImportSection({ sessionDir }: { sessionDir: string }) {
       const report = await piImport.run(sessionDir, setProgress);
       setResult(describeImport(report));
       await statusQuery.refetch();
-      await usePiStore.getState().refreshSessions();
+      await useAppStore.getState().refreshSessions();
     } catch (reason) {
       setResult(`导入失败：${describeError(reason)}`);
     } finally {

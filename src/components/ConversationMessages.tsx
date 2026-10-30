@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronUp } from "lucide-react";
-import { usePiStore } from "../store";
+import { useAppStore } from "../store";
 import type { UiMessage } from "../types";
 import { deriveTurnPlans } from "../lib/envSources";
 import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
@@ -46,7 +46,7 @@ export function ConversationMessages({
   lastAutoScrollAtRef: { current: number };
   conversationKey: string;
 }) {
-  const messages = usePiStore((state) => state.messages);
+  const messages = useAppStore((state) => state.messages);
   const transcriptDensity = normalizeTranscriptDensity(density);
   const displayMessages = useMemo(() => groupTranscriptMessages(messages), [messages]);
   const { turnPlans, latestPlanMessageId } = useMemo(() => {

@@ -2,7 +2,7 @@ import { CircleAlert, LoaderCircle, Target } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { deriveActiveGoal, type ActiveGoal } from "../lib/activeGoal";
 import { useClock } from "../hooks/useClock";
-import { usePiStore } from "../store";
+import { useAppStore } from "../store";
 
 function formatElapsed(goal: ActiveGoal, now: number): string {
   if (goal.startedAt <= 0) return "进行中";
@@ -15,7 +15,7 @@ function formatElapsed(goal: ActiveGoal, now: number): string {
 }
 
 export function ActiveGoalBar() {
-  const goal = usePiStore(useShallow((state) => deriveActiveGoal(state.messages)));
+  const goal = useAppStore(useShallow((state) => deriveActiveGoal(state.messages)));
   // A shared 30-second clock; formatElapsed clamps, so a tick older than the
   // goal's start still reads as "just started".
   const now = useClock();

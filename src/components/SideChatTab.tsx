@@ -1,6 +1,6 @@
 import { MessageSquare } from "lucide-react";
 import { sameLocalPath } from "../lib/pathIdentity";
-import { usePiStore } from "../store";
+import { useAppStore } from "../store";
 import { SideChatPanel } from "./SideChatPanel";
 
 interface SideChatTabProps {
@@ -12,8 +12,8 @@ interface SideChatTabProps {
 
 /** The right sidebar's Side Chat tab: one side chat of the conversation on screen per tab. */
 export function SideChatTab({ sessionFile, tabId, visible }: SideChatTabProps) {
-  const settings = usePiStore((state) => state.settings);
-  const cwd = usePiStore((state) => state.sessions.find((session) => sameLocalPath(session.file, sessionFile))?.cwd
+  const settings = useAppStore((state) => state.settings);
+  const cwd = useAppStore((state) => state.sessions.find((session) => sameLocalPath(session.file, sessionFile))?.cwd
     ?? (state.sessionFile !== null && sameLocalPath(state.sessionFile, sessionFile) ? state.cwd : undefined));
 
   if (!sessionFile || !cwd) {

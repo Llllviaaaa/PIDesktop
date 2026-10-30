@@ -114,6 +114,12 @@ P6a 和 P6b 互不依赖，可以并行开发。P6c 依赖这两个。P6d 和 P6
 
 > **P6d 拆成两个 PR**：P6d-1 把命令改为类型化的方法调用（ADR 0014 “P6d-1”一节）；P6d-2 让 store 直接处理 Host 的事件，删除 `piMessages` 和 Pi 的事件、消息类型，并把 `pi.ts` 改名为 `agent.ts`。
 
+> **P6e 实施时的做法**：
+> - `store.ts`（1.2k 行）拆成 `src/store/`：`runtime.ts`、`sessions.ts`、`transcript.ts`、`ui.ts` 各自持有自己的状态和 action，类型在 `types.ts` 中按 slice 定义，由 `index.ts` 组合。action 的代码原样迁移；它们共用的内部状态（连接版本、乐观提示、排队的模型选择、流式计时器、待发送的跟进消息）和多个 slice 都要用的辅助函数放在 `context.ts` 的 `StoreContext` 里。
+> - `usePiStore` 改名为 `useAppStore`，`PiState` 改为 `AppState`。
+> - `selectors.ts` 提供按 slice 读取的 hook：`useRuntime`、`useSessions`、`useTranscript`、`useUi`，以及跨 slice 的 `useSlices`。`App` 不再订阅整个 store（以前订阅的是除 `messages` 外的全部字段），只读取它用到的字段和 action。
+> - 计划中的截图对比没有做：本地无法运行桌面应用。行为一致由现有测试保证，另外新增了一个测试，检查各 slice 互不重叠、合起来正好是整个 store。
+
 > **P6c 实施时的调整**：
 > - `pi.ts` 暂不改名为 `agent.ts`：改名涉及所有引用它的文件，放到 P6d 用 GitNexus 的 rename 一起做。
 > - `providerService` 暂时保留原来的接口，改由 Host 实现：列表来自 Host，填写或删除密钥改为编辑 provider，OAuth 直接报错。模型设置页留到 P6d、P6e 再整理。

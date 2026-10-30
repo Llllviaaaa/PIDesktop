@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { Check, Copy, FileText } from "lucide-react";
-import { usePiStore } from "../store";
+import { useAppStore } from "../store";
 import { showToast } from "../notifications";
 import { stripCodeReviewDirectives } from "../lib/codeReview";
 import { parseRichContent, RICH_CONTENT_LANGUAGE } from "../lib/richContent";
@@ -53,7 +53,7 @@ function linkifyFilePaths(markdown: string): string {
 function openFileRef(event: MouseEvent, href: string) {
   event.preventDefault();
   const path = decodeURIComponent(href.slice(FILE_SCHEME.length).split("#")[0]);
-  const cwd = usePiStore.getState().cwd;
+  const cwd = useAppStore.getState().cwd;
   const absolute = /^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)
     ? path
     : cwd
