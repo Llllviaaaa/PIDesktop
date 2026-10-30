@@ -29,6 +29,7 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:stress": "vitest run --config vitest.stress.config.ts",
     "test:coverage": "vitest run --coverage",
     "test:harness-host": "npm run prepare:harness-host && node scripts/test-harness-host.mjs",
     "test:public-hygiene": "node scripts/test-public-repo-hygiene.mjs",

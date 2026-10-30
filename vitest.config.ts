@@ -16,6 +16,8 @@ export default defineConfig({
   test: {
     // packages/ holds the Harness packages of the V2 refactor (docs/adr/0005).
     include: ["scripts/**/*.test.ts", "scripts/**/*.test.tsx", "packages/*/test/**/*.test.ts"],
+    // The load and leak test runs on its own: npm run test:stress (vitest.stress.config.ts).
+    exclude: ["**/node_modules/**", "packages/host/test/stress.test.ts"],
     environment: "node",
     // Several suites start a local HTTP server or spawn a child process.
     testTimeout: 60_000,

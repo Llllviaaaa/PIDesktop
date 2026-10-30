@@ -150,6 +150,36 @@ describe("summaries", () => {
 });
 
 describe("sessions service", () => {
+  it("unloads a session nobody holds once it is idle, and loads it again", async () => {
+    const ctx = new Context();
+    await ctx.plugin(Sessions);
+    const unloaded: string[] = [];
+    const deleted: string[] = [];
+    ctx.on("session/unloaded", (id) => void unloaded.push(id));
+    ctx.on("session/deleted", (id) => void deleted.push(id));
+    const later = () => Date.now() + ctx.sessions.idleMs + 1;
+
+    const a = ctx.sessions.create({ cwd: "." });
+    a.append("user", { content: text("hi") });
+    const b = ctx.sessions.create({ cwd: "." });
+    const release = ctx.sessions.hold(b.id);
+    expect(ctx.sessions.sweep()).toEqual([]);
+    expect(ctx.sessions.sweep(later())).toEqual([a.id]);
+    expect(unloaded).toEqual([a.id]);
+    expect(ctx.sessions.loaded).toBe(1);
+
+    const again = await ctx.sessions.get(a.id);
+    expect(again).not.toBe(a);
+    expect(again?.events).toEqual(a.events);
+    release();
+    release();
+    expect(ctx.sessions.sweep(later()).sort()).toEqual([a.id, b.id].sort());
+
+    await ctx.sessions.delete(a.id);
+    expect(deleted).toEqual([a.id]);
+    await ctx.fiber.dispose();
+  });
+
   it("appends, emits and forks", async () => {
     const ctx = new Context();
     await ctx.plugin(Sessions);

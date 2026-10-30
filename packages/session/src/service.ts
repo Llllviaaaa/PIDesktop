@@ -24,6 +24,10 @@ declare module "@deepseek-ai/cordis" {
     "session/delta"(session: Session, liveSeq: number, delta: SessionDelta): void;
     /** Checkpoint: storage synced, plugins persist what they keep. */
     "session/flush"(session: Session): Promise<void>;
+    /** The session left memory; plugins drop what they cache for it. It loads again on its next use. */
+    "session/unloaded"(sessionId: string): void;
+    /** The session's log was deleted; plugins drop everything they keep for it. */
+    "session/deleted"(sessionId: string): void;
   }
 }
 
@@ -88,6 +92,8 @@ export function uuidv7(now = Date.now()): string {
 export class Session {
   private readonly log: SessionEvent[];
   private liveSeq = 0;
+  /** When it was last opened or written, for unloading idle sessions. */
+  usedAt = Date.now();
   private cached: { length: number; state: SessionState } | undefined;
 
   constructor(private readonly ctx: Context, private readonly owner: Sessions, readonly header: SessionHeader, events: SessionEvent[]) {
@@ -109,6 +115,7 @@ export class Session {
   /** Append one event: storage first, then `session/event`. */
   append<K extends SessionEventType>(type: K, data: SessionEventData[K]): Extract<SessionEvent, { type: K }> {
     const event = { seq: this.lastSeq + 1, ts: new Date().toISOString(), type, data } as Extract<SessionEvent, { type: K }>;
+    this.usedAt = Date.now();
     this.owner.storage.append(this.header, event);
     this.log.push(event);
     this.ctx.emit("session/event", this, event);
@@ -153,14 +160,65 @@ export interface CreateSessionOptions {
   events?: SessionEvent[];
 }
 
-/** Opens, creates and forks sessions; one `Session` object per open log. */
+/** How long a session nobody holds stays in memory after its last use. */
+export const SESSION_IDLE_MS = 10 * 60_000;
+const SWEEP_MS = 60_000;
+
+/**
+ * Opens, creates and forks sessions; one `Session` object per open log.
+ *
+ * A session stays in memory while something holds it (a run, a client
+ * subscribed to it) and for `idleMs` after its last use; then it is unloaded
+ * and read from storage again when next asked for. Code that keeps a
+ * `Session` beyond the call it got it in must `hold` it, so that no second
+ * object for the same log appears beside it.
+ */
 export class Sessions extends Service {
   storage: SessionStorage = new MemoryStorage();
+  idleMs = SESSION_IDLE_MS;
   private readonly open = new Map<string, Session>();
   private readonly loading = new Map<string, Promise<Session | undefined>>();
+  private readonly holds = new Map<string, number>();
 
   constructor(ctx: Context) {
     super(ctx, "sessions");
+    ctx.effect(() => {
+      const timer = setInterval(() => this.sweep(), SWEEP_MS);
+      timer.unref?.();
+      return () => clearInterval(timer);
+    }, "sessions: unload idle sessions");
+  }
+
+  /** Keep the session `id` in memory until the returned release is called (once). */
+  hold(id: string): () => void {
+    this.holds.set(id, (this.holds.get(id) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const left = (this.holds.get(id) ?? 1) - 1;
+      if (left > 0) this.holds.set(id, left);
+      else this.holds.delete(id);
+      const session = this.open.get(id);
+      if (session !== undefined) session.usedAt = Date.now();
+    };
+  }
+
+  /** How many sessions are in memory. */
+  get loaded(): number {
+    return this.open.size;
+  }
+
+  /** Unload the sessions nobody holds that were last used more than `idleMs` before `now`. */
+  sweep(now = Date.now()): string[] {
+    const unloaded: string[] = [];
+    for (const [id, session] of this.open) {
+      if (this.holds.has(id) || now - session.usedAt < this.idleMs) continue;
+      this.open.delete(id);
+      unloaded.push(id);
+      this.ctx.emit("session/unloaded", id);
+    }
+    return unloaded;
   }
 
   /** Keep logs in `storage` from now on. Returns the disposer. */
@@ -199,7 +257,10 @@ export class Sessions extends Service {
   /** The session with `id`, loaded from storage on first use. */
   async get(id: string): Promise<Session | undefined> {
     const opened = this.open.get(id);
-    if (opened !== undefined) return opened;
+    if (opened !== undefined) {
+      opened.usedAt = Date.now();
+      return opened;
+    }
     let pending = this.loading.get(id);
     if (pending === undefined) {
       pending = this.storage.load(id).then((log) => {
@@ -223,7 +284,10 @@ export class Sessions extends Service {
   /** Delete a session's log. The caller makes sure nothing is running in it. */
   async delete(id: string): Promise<boolean> {
     this.open.delete(id);
-    return this.storage.delete(id);
+    this.holds.delete(id);
+    const deleted = await this.storage.delete(id);
+    this.ctx.emit("session/deleted", id);
+    return deleted;
   }
 
   /** A new session holding `source`'s current branch up to `atSeq` (default: all of it). */
