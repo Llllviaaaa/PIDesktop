@@ -1,4 +1,5 @@
-import type { PiRuntimeStatus } from "./lib/pi";
+import type { TranscriptEvent } from "./lib/transcript";
+import type { PiRuntimeStatus } from "./lib/agent";
 import type {
   AgentBrowserState,
   AppNotification,
@@ -11,7 +12,6 @@ import type {
   GitSnapshot,
   ManagedQueuedMessage,
   ModelInfo,
-  PiEvent,
   SessionInfo,
   SessionStats,
   SessionTreeNodeView,
@@ -84,7 +84,7 @@ export interface PiState {
   restoreRuntimes: (preferredRuntimeId?: string | null) => Promise<boolean>;
   switchSession: (cwd: string, sessionFile: string) => Promise<void>;
   disconnect: () => Promise<void>;
-  handleEvent: (runtimeId: string, event: PiEvent) => void;
+  handleEvent: (runtimeId: string, event: TranscriptEvent) => void;
   handleStatus: (status: PiRuntimeStatus) => void;
   handleLog: (runtimeId: string, line: string) => void;
   appendLog: (line: string) => void;

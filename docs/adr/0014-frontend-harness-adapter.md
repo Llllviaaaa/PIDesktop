@@ -191,3 +191,14 @@ P5 方案原计划在 store 里抽出一层 `RuntimeAdapter`，并顺带把 stor
 - 回退时，如果用户拒绝恢复文件，`rewind` 返回 `false`，不再抛出错误。
 - Host 从未支持的命令一并清理：store 里的 `bash`、`abort_bash` 已经没有调用方，直接删除；“导出为 HTML”改为“导出为 Markdown”，通过 `session.export` 写到用户在保存对话框中选择的位置。
 - 事件方向仍然保持 Pi 的形状，留到 P6d-2 处理。
+
+## P6d-2：事件不再经过 Pi 的形状
+
+- Host 的会话事件直接变成对话内容，不再先转换成 Pi 的事件和消息：
+  - `src/lib/transcript.ts` 用 `historyToUi` 把会话日志转成 `UiMessage`，耗时与日志长度成线性关系；
+  - 运行中的通知由 `TranscriptTranslator` 转成一个小的 `TranscriptEvent` 联合类型：一轮的开始和结束、用户消息、回复的开始、增量、工具调用和完成、工具的开始和结束、队列、压缩、计划和对话框。
+- store 和侧边聊天共用 `transcript.ts` 里的纯函数 reducer。侧边聊天不再保留自己的一份 Pi 事件处理。
+- 用户消息自带 `entryId`（日志中的 seq），不再需要另外请求 fork point 再按文本匹配；回复的耗时由日志计算，不再需要单独的 timings 请求。
+- 删除：Pi 的消息、事件和 RPC 类型，`piMessages`、`piToolCalls`、`HarnessEventTranslator`、`toAgentMessages`。会话相关的辅助函数移到 `hostSessions.ts`，浏览器和电脑面板的辅助函数移到 `toolPanels.ts`。
+- `pi.ts` 改名为 `agent.ts`，导出的 `pi` 对象改名为 `agent`。改名通过 TypeScript language service 的 rename 完成：GitNexus 的 rename 只有 MCP 版本，本次会话中不可用。
+- 本文开头描述的模拟层到此全部移除；`harnessRuntime.ts` 只剩类型化的 Host 调用和事件转换。

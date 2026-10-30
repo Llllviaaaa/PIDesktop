@@ -33,7 +33,7 @@ import {
   X,
 } from "lucide-react";
 import { PI_BRAND_MARK_SVG } from "../lib/claudeCrabSheets";
-import { pi } from "../lib/pi";
+import { agent } from "../lib/agent";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queries";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
@@ -220,11 +220,11 @@ export function Sidebar({
   const queryClient = useQueryClient();
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects(),
-    queryFn: () => pi.listProjects().catch((): ProjectConfig[] => []),
+    queryFn: () => agent.listProjects().catch((): ProjectConfig[] => []),
   });
   const archivedSessionsQuery = useQuery({
     queryKey: ["claude-sidebar-archived-sessions"],
-    queryFn: () => pi.listArchivedSessions().catch((): SessionInfo[] => []),
+    queryFn: () => agent.listArchivedSessions().catch((): SessionInfo[] => []),
     enabled: workspaceView === "archived",
   });
   const archivedSessions = archivedSessionsQuery.data ?? [];
@@ -333,7 +333,7 @@ export function Sidebar({
       return current.map((project, index) => index === existingIndex ? next : project);
     });
     try {
-      await pi.saveProject(next);
+      await agent.saveProject(next);
     } catch {
       await loadProjectConfigs();
     }
@@ -364,7 +364,7 @@ export function Sidebar({
     const workspace = session.cwd;
     if (branchByWorkspace[workspace] !== undefined || requestedBranches.current.has(workspace)) return;
     requestedBranches.current.add(workspace);
-    void pi.gitSnapshot(workspace)
+    void agent.gitSnapshot(workspace)
       .then((snapshot) => {
         setBranchByWorkspace((current) => ({ ...current, [workspace]: snapshot.branch || "本地" }));
       })
@@ -401,7 +401,7 @@ export function Sidebar({
       ? current.map((project) => pathsEqual(project.path, workspace) ? { ...project, hidden: true } : project)
       : [...current, { path: workspace, name: "", pinned: false, hidden: true }]);
     try {
-      await pi.removeLocalProject(workspace);
+      await agent.removeLocalProject(workspace);
     } catch {
       await loadProjectConfigs();
     }
@@ -659,7 +659,7 @@ export function Sidebar({
                       aria-label="取消归档"
                       onClick={(event) => {
                         event.stopPropagation();
-                        void pi.restoreSession(session.file).then(() => {
+                        void agent.restoreSession(session.file).then(() => {
                           void archivedSessionsQuery.refetch();
                           window.dispatchEvent(new Event("pid-desktop:projects-changed"));
                         });
@@ -676,7 +676,7 @@ export function Sidebar({
                       aria-label="删除会话"
                       onClick={(event) => {
                         event.stopPropagation();
-                        void pi.deleteSession(session.file).then(() => {
+                        void agent.deleteSession(session.file).then(() => {
                           void archivedSessionsQuery.refetch();
                         });
                       }}

@@ -5,7 +5,6 @@ import type {
   AttachmentPayload,
   ExtensionUIRequest,
   ModelProviderInput,
-  PiEvent,
   ProjectConfig,
   PullRequestCollection,
   ResourceItem,
@@ -19,6 +18,7 @@ import type {
 import { gitClient } from "./gitClient";
 import { harnessProviders } from "./harnessProviders";
 import { harnessRuntimes } from "./harnessRuntime";
+import type { TranscriptEvent } from "./transcript";
 import { scheduleClient } from "./scheduleClient";
 import { sessionClient } from "./sessionClient";
 
@@ -42,7 +42,7 @@ async function usageSummary(): Promise<UsageSummary> {
 // (docs/adr/0014-frontend-harness-adapter.md); the store calls its typed
 // methods. Its events still arrive in Pi's shapes until P6d-2.
 // An isolated runtime (a side chat) runs on a hidden fork of its parent.
-export const pi = {
+export const agent = {
   start: (cwd: string, sessionFile?: string, isolated = false) => harnessRuntimes.start(cwd, sessionFile, isolated),
   stop: (runtimeId: string) => harnessRuntimes.stop(runtimeId),
   isRunning: (runtimeId: string) => Promise.resolve(harnessRuntimes.isRunning(runtimeId)),
@@ -62,8 +62,6 @@ export const pi = {
   listSessions: sessionClient.list,
   sessionHistory: sessionClient.history,
   exportSessionMarkdown: sessionClient.exportMarkdown,
-  sessionMessageTimings: sessionClient.messageTimings,
-  sessionMessages: sessionClient.messages,
   listArchivedSessions: sessionClient.listArchived,
   archiveSession: sessionClient.archive,
   restoreSession: sessionClient.restore,
@@ -146,7 +144,7 @@ export interface PiRuntimeStatus {
 }
 
 export interface PiListeners {
-  onEvent: (runtimeId: string, event: PiEvent) => void;
+  onEvent: (runtimeId: string, event: TranscriptEvent) => void;
   onStatus?: (status: PiRuntimeStatus) => void;
   onLog?: (runtimeId: string, line: string) => void;
   onProtocolError?: (message: string) => void;

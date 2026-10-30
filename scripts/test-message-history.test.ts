@@ -1,11 +1,15 @@
 /**
- * Guards the long-session conversion path against quadratic tool-result lookup.
+ * The transcript from a Host session log and from live events
+ * (src/lib/transcript.ts): long logs stay linear, durations come from the
+ * log, and streamed text and thinking reach the store.
  * Run: npx vitest run test-message-history.test.ts
  */
-import { attachForkPointsToUi, messagesToUi } from "../src/lib/piMessages.ts";
+import type { PersistedEvent } from "@pid/protocol";
+import { historyToUi } from "../src/lib/transcript.ts";
 import { usePiStore } from "../src/store.ts";
-import type { AgentMessage, ForkPoint, SessionMessageTiming, UiMessage } from "../src/types.ts";
 import { test } from "vitest";
+
+const at = (ms: number) => new Date(ms).toISOString();
 
 test("message history", async () => {
   function assert(condition: unknown, message: string): void {
@@ -13,142 +17,73 @@ test("message history", async () => {
   }
 
   const messageCount = 5_000;
-  const history: AgentMessage[] = [];
-
+  const log: PersistedEvent[] = [];
+  let seq = 0;
   for (let index = 0; index < messageCount; index += 1) {
-    history.push({
-      role: "assistant",
-      provider: "test",
-      model: "test-model",
-      stopReason: "toolUse",
-      timestamp: index + 1,
-      content: [
-        { type: "text", text: `message-${index}` },
-        { type: "toolCall", id: `call-${index}`, name: "read", arguments: { index } },
-      ],
+    log.push({
+      seq: ++seq,
+      ts: at(index + 1),
+      type: "assistant",
+      data: {
+        content: [
+          { type: "text", text: `message-${index}` },
+          { type: "tool-call", id: `call-${index}`, name: "read", arguments: { index } },
+        ],
+        model: { provider: "test", model: "test-model" },
+        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        stop: "tool-use",
+      },
     });
   }
-
-  // Results arrive after all calls, which is the worst case for reverse scanning.
+  // Results arrive after all calls, which is the worst case for scanning.
   for (let index = 0; index < messageCount; index += 1) {
-    history.push({
-      role: "toolResult",
-      toolCallId: `call-${index}`,
-      toolName: "read",
-      content: [{ type: "text", text: `result-${index}` }],
-      isError: false,
-      timestamp: messageCount + index + 1,
-    });
+    log.push({ seq: ++seq, ts: at(messageCount + index + 1), type: "tool-result", data: { callId: `call-${index}`, name: "read", content: [{ type: "text", text: `result-${index}` }], isError: false } });
   }
 
   const startedAt = performance.now();
-  const converted = messagesToUi(history);
+  const converted = historyToUi(log);
   const elapsedMs = performance.now() - startedAt;
 
   assert(converted.length === messageCount, `expected ${messageCount} UI messages, got ${converted.length}`);
   assert(converted[0].toolCalls?.[0].result === "result-0", "first tool result was not attached");
   assert(converted[0].toolCalls?.[0].startedAt === 1, "tool start time was not restored");
   assert(converted[0].toolCalls?.[0].finishedAt === messageCount + 1, "tool finish time was not restored");
-  assert(
-    converted[messageCount - 1].toolCalls?.[0].result === `result-${messageCount - 1}`,
-    "last tool result was not attached",
-  );
+  assert(converted[messageCount - 1].toolCalls?.[0].result === `result-${messageCount - 1}`, "last tool result was not attached");
   assert(elapsedMs < 1_500, `long-session conversion took ${elapsedMs.toFixed(1)}ms`);
 
-  const timedHistory: AgentMessage[] = [
-    { role: "user", content: "test", timestamp: 10 },
-    {
-      role: "assistant",
-      provider: "test",
-      model: "test-model",
-      stopReason: "stop",
-      timestamp: 11,
-      content: [{ type: "thinking", thinking: "done" }, { type: "text", text: "ok" }],
-    },
-  ];
-  const timings: SessionMessageTiming[] = [
-    { role: "user", messageTimestamp: 10, entryTimestamp: "2026-08-17T01:00:00.000Z" },
-    { role: "assistant", messageTimestamp: 11, entryTimestamp: "2026-08-17T01:00:13.000Z" },
-  ];
-  assert(messagesToUi(timedHistory, timings)[1].durationMs === 13_000, "session duration was not restored");
+  // A reply's duration runs from the user message that started its turn; its seq is the fork point.
+  const timed = historyToUi([
+    { seq: 1, ts: "2026-08-17T01:00:00.000Z", type: "user", data: { content: [{ type: "text", text: "test" }] } },
+    { seq: 2, ts: "2026-08-17T01:00:13.000Z", type: "assistant", data: { content: [{ type: "thinking", text: "done" }, { type: "text", text: "ok" }], model: { provider: "test", model: "m" }, usage: {}, stop: "stop" } },
+  ]);
+  assert(timed[1].durationMs === 13_000, "session duration was not restored");
+  assert(timed[0].entryId === "1", "a user message did not carry its fork point");
+  assert(timed[1].thinking === "done", "thinking was not restored");
 
-  const repeatedMessages: UiMessage[] = [
-    { id: "user-1", role: "user", content: "repeat", timestamp: 1 },
-    { id: "assistant-1", role: "assistant", content: "first", timestamp: 2 },
-    { id: "user-2", role: "user", content: "repeat", timestamp: 3 },
-  ];
-  const repeatedPoints: ForkPoint[] = [
-    { entryId: "entry-1", text: "repeat" },
-    { entryId: "entry-2", text: "repeat" },
-  ];
-  const hydrated = attachForkPointsToUi(repeatedMessages, repeatedPoints);
-  assert(hydrated[0].entryId === "entry-1", "first repeated message did not keep its fork identity");
-  assert(hydrated[2].entryId === "entry-2", "second repeated message did not keep its fork identity");
-
-  // Pi 0.84 RPC omits the cumulative message from message_update and sends deltas only.
+  // Streamed deltas reach the store, coalesced.
   Object.assign(globalThis, { window: globalThis });
-  const streamingMessage = {
-    role: "assistant" as const,
-    provider: "test",
-    model: "test-model",
-    stopReason: "pending" as const,
-    timestamp: Date.now(),
-    content: [],
-  };
   usePiStore.setState({ runtimeId: "stream-test", messages: [], isStreaming: true });
-  usePiStore.getState().handleEvent("stream-test", { type: "message_start", message: streamingMessage });
-  usePiStore.getState().handleEvent("stream-test", {
-    type: "message_update",
-    assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Hello " },
-  });
-  usePiStore.getState().handleEvent("stream-test", {
-    type: "message_update",
-    assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "stream" },
-  });
+  const handle = usePiStore.getState().handleEvent;
+  handle("stream-test", { type: "assistant-start" });
+  handle("stream-test", { type: "assistant-delta", text: "Hello ", thinking: "" });
+  handle("stream-test", { type: "assistant-delta", text: "stream", thinking: "" });
   await new Promise((resolve) => setTimeout(resolve, 50));
-  assert(usePiStore.getState().messages.at(-1)?.content === "Hello stream", "delta-only RPC updates were not streamed");
+  assert(usePiStore.getState().messages.at(-1)?.content === "Hello stream", "text deltas were not streamed");
 
-  usePiStore.getState().handleEvent("stream-test", {
-    type: "message_update",
-    assistantMessageEvent: { type: "thinking_delta", contentIndex: 1, delta: "Reasoning " },
-  });
-  usePiStore.getState().handleEvent("stream-test", {
-    type: "message_update",
-    assistantMessageEvent: { type: "thinking_delta", contentIndex: 1, delta: "stream" },
-  });
+  handle("stream-test", { type: "assistant-delta", text: "", thinking: "Reasoning " });
+  handle("stream-test", { type: "assistant-delta", text: "", thinking: "stream" });
   await new Promise((resolve) => setTimeout(resolve, 50));
-  assert(
-    usePiStore.getState().messages.at(-1)?.thinking === "Reasoning stream",
-    "thinking deltas were not streamed",
-  );
+  assert(usePiStore.getState().messages.at(-1)?.thinking === "Reasoning stream", "thinking deltas were not streamed");
 
-  usePiStore.getState().handleEvent("stream-test", {
-    type: "message_end",
-    message: {
-      ...streamingMessage,
-      stopReason: "stop",
-      content: [
-        { type: "text", text: "Hello stream" },
-        { type: "toolCall", id: "call-1", name: "read", arguments: { path: "README.md" } },
-      ],
-    },
+  // The finished reply replaces the streamed one; thinking it did not repeat is kept.
+  handle("stream-test", {
+    type: "assistant",
+    message: { id: "host-9", role: "assistant", content: "Hello stream", isStreaming: false, timestamp: 1, toolCalls: [{ id: "call-1", name: "read", args: { path: "README.md" }, running: false }] },
   });
-  assert(
-    usePiStore.getState().messages.at(-1)?.thinking === "Reasoning stream",
-    "message_end without thinking blocks dropped streamed thinking",
-  );
+  const finished = usePiStore.getState().messages;
+  assert(finished.length === 1, "the finished reply was added beside the streamed one");
+  assert(finished[0].thinking === "Reasoning stream", "a finished reply without thinking dropped the streamed thinking");
+  assert(finished[0].isStreaming === false && finished[0].toolCalls?.[0]?.name === "read", "the finished reply was not applied");
 
-  usePiStore.setState({ runtimeId: "stream-test", messages: [], isStreaming: true });
-  usePiStore.getState().handleEvent("stream-test", { type: "message_start", message: streamingMessage });
-  usePiStore.getState().handleEvent("stream-test", {
-    type: "message_update",
-    assistantMessageEvent: { type: "thinking_end", contentIndex: 0, content: "Final thought" },
-  });
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  assert(
-    usePiStore.getState().messages.at(-1)?.thinking === "Final thought",
-    "thinking_end content was not applied",
-  );
-
-  console.log(`message-history: ${messageCount} messages converted in ${elapsedMs.toFixed(1)}ms; text/thinking streaming passed`);
+  console.log(`message-history: ${messageCount} messages converted in ${elapsedMs.toFixed(1)}ms; streaming passed`);
 });

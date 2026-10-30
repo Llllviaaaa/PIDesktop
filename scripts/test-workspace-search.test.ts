@@ -12,8 +12,8 @@ const calls = vi.hoisted(() => ({
   finish: undefined as undefined | (() => void),
 }));
 
-vi.mock("../src/lib/pi", () => ({
-  pi: {
+vi.mock("../src/lib/agent", () => ({
+  agent: {
     searchWorkspaceFiles: (_cwd: string, _needle: string, requestId: string) => {
       calls.searches.push(requestId);
       return new Promise((resolve) => {

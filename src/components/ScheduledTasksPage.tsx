@@ -23,7 +23,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { pi } from "../lib/pi";
+import { agent } from "../lib/agent";
 import { formatScheduleTime, scheduleSummary } from "../lib/schedule";
 import type { ScheduledFrequency, ScheduledPermissionMode, ScheduledRunRecord, ScheduledTask } from "../types";
 
@@ -134,8 +134,8 @@ export function ScheduledTasksPage({
     queryFn: async () => {
       try {
         const [tasks, runs] = await Promise.all([
-          pi.listScheduledTasks(),
-          pi.listScheduledRuns(undefined, 80),
+          agent.listScheduledTasks(),
+          agent.listScheduledRuns(undefined, 80),
         ]);
         return { tasks, runs };
       } catch (error) {
@@ -194,7 +194,7 @@ export function ScheduledTasksPage({
   const save = async () => {
     setSaving(true);
     try {
-      await pi.saveScheduledTask({ ...draft });
+      await agent.saveScheduledTask({ ...draft });
       setEditorOpen(false);
       await reload();
     } catch (error) {
@@ -206,7 +206,7 @@ export function ScheduledTasksPage({
 
   const toggle = async (task: ScheduledTask) => {
     try {
-      await pi.saveScheduledTask({ ...task, enabled: !task.enabled });
+      await agent.saveScheduledTask({ ...task, enabled: !task.enabled });
       await reload();
     } catch (error) {
       onError(describeError(error));
@@ -216,7 +216,7 @@ export function ScheduledTasksPage({
   const runNow = async (task: ScheduledTask) => {
     setRunningId(task.id);
     try {
-      const result = await pi.runScheduledTask(task.id);
+      const result = await agent.runScheduledTask(task.id);
       if (!result.success && result.run.status !== "cancelled") onError(result.output || "计划任务执行失败");
       await reload();
       onTasksChanged();
@@ -231,7 +231,7 @@ export function ScheduledTasksPage({
   const cancel = async (task: ScheduledTask) => {
     setCancellingId(task.id);
     try {
-      await pi.cancelScheduledTask(task.id);
+      await agent.cancelScheduledTask(task.id);
       await reload();
     } catch (error) {
       onError(describeError(error));
@@ -242,7 +242,7 @@ export function ScheduledTasksPage({
 
   const remove = async (id: string) => {
     try {
-      await pi.deleteScheduledTask(id);
+      await agent.deleteScheduledTask(id);
       setDeleteConfirmId(null);
       await reload();
     } catch (error) {

@@ -1,10 +1,9 @@
 /**
- * The Harness Host as a Pi runtime (docs/adr/0014-frontend-harness-adapter.md).
+ * The desktop's tasks on the Harness Host (docs/adr/0014-frontend-harness-adapter.md).
  *
- * `pi.start` returns a runtime id starting with `harness:`; commands sent
- * to it are answered here with Host RPCs, and the Host's notifications reach
- * the store as the Pi events it already handles. Pi itself is gone (P6c);
- * the store moves to the Host's own shapes in P6d.
+ * `pi.start` returns a runtime id starting with `harness:`. The store calls
+ * the typed methods below, which are Host RPCs, and hears each runtime's
+ * session as `TranscriptEvent`s (src/lib/transcript.ts).
  *
  * A runtime creates its session on its first prompt, so a workspace that is
  * only warmed up leaves no empty session behind. Its `sessionFile` is
@@ -25,10 +24,11 @@ import type {
   SessionSubscribeResult,
   UiRequestNotification,
 } from "@pid/protocol";
-import type { AgentMessage, ExtensionUIRequest, ForkPoint, ModelInfo, PiEvent, SessionStats } from "../types";
+import type { AttachmentPayload, ExtensionUIRequest, ForkPoint, ModelInfo, SessionStats, UiMessage } from "../types";
 import type { SessionTreeNode } from "./sessionTree";
 import { connectHarness, harnessEndpoint, type HarnessConnection } from "./harnessClient";
-import { HARNESS_THINKING_LEVELS, HarnessEventTranslator, effortForLevel, forkPointsOf, sessionTreeOf, toAgentMessages } from "./harnessTranscript";
+import { HARNESS_THINKING_LEVELS, effortForLevel, forkPointsOf, sessionTreeOf } from "./hostSessions";
+import { TranscriptTranslator, historyToUi, type TranscriptEvent } from "./transcript";
 
 
 export const HARNESS_RUNTIME_PREFIX = "harness:";
@@ -42,7 +42,7 @@ export function isHarnessSessionFile(sessionFile: string | null | undefined): bo
   return typeof sessionFile === "string" && sessionFile.startsWith(HARNESS_SESSION_PREFIX);
 }
 
-type Listener = (runtimeId: string, event: PiEvent) => void;
+type Listener = (runtimeId: string, event: TranscriptEvent) => void;
 type Connect = () => Promise<HarnessConnection>;
 
 interface Runtime {
@@ -53,7 +53,7 @@ interface Runtime {
   pendingModel?: { provider: string; model: string };
   pendingLevel?: string;
   lastSeq: number;
-  translator: HarnessEventTranslator;
+  translator: TranscriptTranslator;
   model?: { provider: string; model: string };
   title?: string;
   streaming: boolean;
@@ -108,7 +108,7 @@ export class HarnessRuntimes {
   async start(cwd: string, sessionFile?: string, side = false): Promise<{ runtimeId: string; sessionLoaded: boolean; sessionForked: boolean }> {
     this.nextRuntime += 1;
     const id = `${HARNESS_RUNTIME_PREFIX}${Date.now().toString(36)}-${this.nextRuntime}`;
-    const runtime: Runtime = { id, cwd, lastSeq: 0, streaming: false, translator: new HarnessEventTranslator(() => runtime.model) };
+    const runtime: Runtime = { id, cwd, lastSeq: 0, streaming: false, translator: new TranscriptTranslator() };
     if (isHarnessSessionFile(sessionFile)) {
       runtime.sessionId = (sessionFile as string).slice(HARNESS_SESSION_PREFIX.length);
       if (side) {
@@ -203,11 +203,12 @@ export class HarnessRuntimes {
     await (await this.rpc()).call("permission.set", { sessionId: runtime.sessionId, ...change });
   }
 
-  async messages(runtimeId: string): Promise<AgentMessage[]> {
+  /** The session's transcript so far. */
+  async messages(runtimeId: string): Promise<UiMessage[]> {
     const runtime = this.runtime(runtimeId);
     if (runtime.sessionId === undefined) return [];
     const replay = await (await this.rpc()).call<SessionSubscribeResult>("session.subscribe", { sessionId: runtime.sessionId, afterSeq: 0 });
-    return toAgentMessages(replay.events);
+    return historyToUi(replay.events);
   }
 
   thinkingLevels(): string[] {
@@ -320,7 +321,7 @@ export class HarnessRuntimes {
     const id = `harness-local-${Date.now().toString(36)}-${this.localQuestions.size}`;
     return new Promise((resolve) => {
       this.localQuestions.set(id, resolve);
-      this.emit(runtimeId, [{ type: "extension_ui_request", id, method: "confirm", title, message }]);
+      this.emit(runtimeId, [{ type: "ui-request", request: { type: "extension_ui_request", id, method: "confirm", title, message } }]);
     });
   }
 
@@ -449,7 +450,7 @@ export class HarnessRuntimes {
     return this.connection;
   }
 
-  private emit(runtimeId: string, events: PiEvent[]): void {
+  private emit(runtimeId: string, events: TranscriptEvent[]): void {
     for (const event of events) for (const listener of this.listeners) listener(runtimeId, event);
   }
 
@@ -481,7 +482,7 @@ export class HarnessRuntimes {
       // A subagent's session has no runtime here: its question goes to the task in front.
       const targets = this.runtimesOf(request.sessionId);
       const fallback = this.lastActive !== undefined && this.runtimes.has(this.lastActive) ? [this.lastActive] : [];
-      for (const runtimeId of targets.length > 0 ? targets.map((runtime) => runtime.id) : fallback) this.emit(runtimeId, [event]);
+      for (const runtimeId of targets.length > 0 ? targets.map((runtime) => runtime.id) : fallback) this.emit(runtimeId, [{ type: "ui-request", request: event }]);
     }
   }
 }
@@ -501,6 +502,19 @@ export interface RuntimeStateInfo {
   isCompacting: boolean;
   thinkingLevel?: string;
   model?: ModelInfo;
+}
+
+/** What the composer sends: the text, local file references, and attached images. */
+export function buildPromptPayload(text: string, attachments: AttachmentPayload[]): PromptInput {
+  const trimmed = text.trim();
+  const fileReferences = attachments
+    .filter((item) => item.kind !== "image")
+    .map((item) => `- ${item.fileName}: ${item.path}`);
+  const message = fileReferences.length
+    ? `${trimmed}\n\n附加的本地文件：\n${fileReferences.join("\n")}`.trim()
+    : trimmed;
+  const images = attachments.flatMap((item) => (item.kind === "image" && item.data ? [{ type: "image" as const, data: item.data, mimeType: item.mimeType }] : []));
+  return { message, images };
 }
 
 /** A prompt as Host prompt content. */

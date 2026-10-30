@@ -1,11 +1,10 @@
 import { create } from "zustand";
 import { describeError } from "./lib/errors";
-import { pi, respondToExtension } from "./lib/pi";
-import { harnessRuntimes } from "./lib/harnessRuntime";
+import { agent, respondToExtension } from "./lib/agent";
+import { buildPromptPayload, harnessRuntimes } from "./lib/harnessRuntime";
 import { redactSensitiveText } from "./lib/redact";
 import { readStoredNotifications } from "./lib/notificationCenter";
 import { createNotices } from "./notifications";
-import { updateToolCall } from "./lib/piToolCalls";
 import type { PiState, RuntimeState } from "./storeTypes";
 import {
   appendManagedQueue,
@@ -24,33 +23,23 @@ import { flattenSessionTree } from "./lib/sessionTree";
 import {
   agentBrowserFromMessages,
   agentBrowserFromResult,
-  isGrokBrowserTool,
-  isGrokComputerTool,
-  assistantToUi,
-  attachForkPointsToUi,
-  attachToolResult,
-  buildPromptPayload,
   computerFromMessages,
   computerFromResult,
-  imagesFromContent,
-  messageId,
-  mergeAssistantUi,
-  messagesToUi,
-  resultContent,
-  resultDetails,
-  stringifyResult,
-  textFromContent,
-} from "./lib/piMessages";
+  isGrokBrowserTool,
+  isGrokComputerTool,
+} from "./lib/toolPanels";
+import {
+  completeAssistant,
+  endToolCall,
+  replaceOrAppend,
+  startAssistant,
+  startToolCall,
+  streamAssistant,
+} from "./lib/transcript";
 import type {
   AppSettings,
-  AssistantMessage,
-  ExtensionUIRequest,
-  ForkPoint,
   ManagedQueuedMessage,
   ModelInfo,
-  SessionMessageTiming,
-  ToolResultMessage,
-  UiMessage,
   UiToolCall,
 } from "./types";
 
@@ -72,14 +61,8 @@ function readWebSettings(): AppSettings | null {
 const cachedModelCatalog = readStoredModelCatalog();
 
 export const usePiStore = create<PiState>((set, get) => {
-  let pendingAssistantUpdate: {
-    runtimeId: string;
-    message?: AssistantMessage;
-    textDelta: string;
-    thinkingDelta: string;
-    thinkingReplace?: string;
-    toolCalls: UiToolCall[];
-  } | null = null;
+  /** Streamed text, thinking and tool calls not drawn yet; applied together every 32 ms. */
+  let pendingAssistantUpdate: { runtimeId: string; text: string; thinking: string; toolCalls: UiToolCall[] } | null = null;
   let assistantUpdateTimer: number | null = null;
   let connectionVersion = 0;
   let pendingOptimisticPrompt: {
@@ -181,95 +164,20 @@ export const usePiStore = create<PiState>((set, get) => {
     pendingAssistantUpdate = null;
   };
 
-  const applyAssistantUpdate = (runtimeId: string, message: AssistantMessage) => {
-    if (runtimeId !== get().runtimeId) return;
-    const next = assistantToUi(message, true);
-    set((state) => {
-      const messages = [...state.messages];
-      let index = messages.length - 1;
-      while (index >= 0 && messages[index].role !== "assistant") index -= 1;
-      if (index < 0 || !messages[index].isStreaming) {
-        messages.push(next);
-      } else {
-        messages[index] = mergeAssistantUi(messages[index], next);
-      }
-      return { messages, isStreaming: true };
-    });
-  };
-
-  const applyAssistantDelta = (pending: NonNullable<typeof pendingAssistantUpdate>) => {
-    if (pending.runtimeId !== get().runtimeId) return;
-    set((state) => {
-      const messages = [...state.messages];
-      let index = messages.length - 1;
-      while (index >= 0 && messages[index].role !== "assistant") index -= 1;
-      if (index < 0 || !messages[index].isStreaming) {
-        messages.push({
-          id: `stream-${Date.now()}`,
-          role: "assistant",
-          content: pending.textDelta,
-          thinking: pending.thinkingReplace || pending.thinkingDelta || undefined,
-          toolCalls: pending.toolCalls.length ? pending.toolCalls : undefined,
-          isStreaming: true,
-          timestamp: Date.now(),
-        });
-      } else {
-        const previous = messages[index];
-        const toolCalls = new Map((previous.toolCalls ?? []).map((call) => [call.id, { ...call }]));
-        for (const call of pending.toolCalls) {
-          toolCalls.set(call.id, { ...toolCalls.get(call.id), ...call });
-        }
-        messages[index] = {
-          ...previous,
-          content: previous.content + pending.textDelta,
-          thinking: pending.thinkingReplace
-            || `${previous.thinking ?? ""}${pending.thinkingDelta}`
-            || undefined,
-          toolCalls: toolCalls.size ? [...toolCalls.values()] : undefined,
-          isStreaming: true,
-        };
-      }
-      return { messages, isStreaming: true };
-    });
-  };
-
-  const queueAssistantUpdate = (
-    runtimeId: string,
-    message: AssistantMessage | undefined,
-    update: { type: string; delta?: string; content?: string; toolCall?: { id: string; name: string; arguments: Record<string, unknown> } },
-  ) => {
+  const queueAssistantDelta = (runtimeId: string, delta: { text?: string; thinking?: string; toolCalls?: UiToolCall[] }) => {
     if (!pendingAssistantUpdate || pendingAssistantUpdate.runtimeId !== runtimeId) {
-      pendingAssistantUpdate = { runtimeId, textDelta: "", thinkingDelta: "", toolCalls: [] };
+      pendingAssistantUpdate = { runtimeId, text: "", thinking: "", toolCalls: [] };
     }
-    if (message) pendingAssistantUpdate.message = message;
-    const chunk = update.delta || (update.type.endsWith("_delta") && update.content) || "";
-    if (update.type === "text_delta" && chunk) pendingAssistantUpdate.textDelta += chunk;
-    if (update.type === "thinking_delta" && chunk) pendingAssistantUpdate.thinkingDelta += chunk;
-    if (update.type === "thinking_end" && typeof update.content === "string" && update.content) {
-      pendingAssistantUpdate.thinkingReplace = update.content;
-    }
-    if (update.type === "toolcall_end" && update.toolCall) {
-      pendingAssistantUpdate.toolCalls.push({
-        id: update.toolCall.id,
-        name: update.toolCall.name,
-        args: update.toolCall.arguments,
-        running: true,
-      });
-    }
+    pendingAssistantUpdate.text += delta.text ?? "";
+    pendingAssistantUpdate.thinking += delta.thinking ?? "";
+    pendingAssistantUpdate.toolCalls.push(...(delta.toolCalls ?? []));
     if (assistantUpdateTimer !== null) return;
     assistantUpdateTimer = window.setTimeout(() => {
       const pending = pendingAssistantUpdate;
       assistantUpdateTimer = null;
       pendingAssistantUpdate = null;
-      if (!pending) return;
-      if (pending.message) applyAssistantUpdate(pending.runtimeId, pending.message);
-      if (!pending.message) {
-        applyAssistantDelta(pending);
-        return;
-      }
-      if (pending.thinkingDelta || pending.thinkingReplace) {
-        applyAssistantDelta({ ...pending, textDelta: "", toolCalls: [] });
-      }
+      if (!pending || pending.runtimeId !== get().runtimeId) return;
+      set((state) => ({ messages: streamAssistant(state.messages, pending), isStreaming: true }));
     }, 32);
   };
 
@@ -321,16 +229,6 @@ export const usePiStore = create<PiState>((set, get) => {
     }
   };
 
-  const hydrateMessageForkPoints = async (runtimeId: string) => {
-    try {
-      const points = await harnessRuntimes.forkPoints(runtimeId);
-      if (get().runtimeId !== runtimeId) return;
-      set((state) => ({ messages: attachForkPointsToUi(state.messages, points) }));
-    } catch {
-      // Without fork points, editing falls back to looking the message up on demand.
-    }
-  };
-
   const syncSession = async (expectedVersion = connectionVersion, keepQueuedModel = false) => {
     const runtimeId = get().runtimeId;
     if (!runtimeId) return;
@@ -367,12 +265,8 @@ export const usePiStore = create<PiState>((set, get) => {
     }
 
     const sessionFile = data?.sessionFile;
-    const timingsRequest = sessionFile
-      ? pi.sessionMessageTimings(sessionFile).catch(() => [] as SessionMessageTiming[])
-      : Promise.resolve([] as SessionMessageTiming[]);
-    const forkPointsRequest = harnessRuntimes.forkPoints(runtimeId).catch((): ForkPoint[] => []);
     if (sessionFile) {
-      await pi.bindSession(runtimeId, sessionFile);
+      await agent.bindSession(runtimeId, sessionFile);
       if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
       set((state) => ({
         runtimes: {
@@ -382,13 +276,8 @@ export const usePiStore = create<PiState>((set, get) => {
       }));
     }
 
-    const [history, timings, forkPoints] = await Promise.all([
-      historyRequest,
-      timingsRequest,
-      forkPointsRequest,
-    ]);
+    const restoredMessages = await historyRequest;
     if (get().runtimeId !== runtimeId || expectedVersion !== connectionVersion) return;
-    const restoredMessages = attachForkPointsToUi(messagesToUi(history, timings), forkPoints);
     set({
       messages: restoredMessages,
       agentBrowser: agentBrowserFromMessages(restoredMessages),
@@ -466,7 +355,7 @@ export const usePiStore = create<PiState>((set, get) => {
         clearPendingAssistantUpdate();
         pendingOptimisticPrompt = null;
         activeTurnStartedAt = null;
-        const localHistory = sessionFile ? pi.sessionHistory(sessionFile) : null;
+        const localHistory = sessionFile ? agent.sessionHistory(sessionFile) : null;
         set({
           connection: "starting",
           cwd,
@@ -484,9 +373,8 @@ export const usePiStore = create<PiState>((set, get) => {
           managedFollowUpQueue: [],
         });
         if (localHistory) {
-          void localHistory.then(({ messages: history, timings }) => {
+          void localHistory.then((restoredMessages) => {
             if (connectVersion !== connectionVersion) return;
-            const restoredMessages = messagesToUi(history, timings);
             set({
               messages: restoredMessages,
               agentBrowser: agentBrowserFromMessages(restoredMessages),
@@ -500,9 +388,9 @@ export const usePiStore = create<PiState>((set, get) => {
           const warmup = workspaceWarmups.get(key);
           if (warmup) await warmup;
           if (connectVersion !== connectionVersion) return;
-          const started = await pi.start(cwd, sessionFile);
+          const started = await agent.start(cwd, sessionFile);
           if (connectVersion !== connectionVersion) {
-            await pi.stop(started.runtimeId).catch(() => undefined);
+            await agent.stop(started.runtimeId).catch(() => undefined);
             return;
           }
           const runtimeId = started.runtimeId;
@@ -586,10 +474,10 @@ export const usePiStore = create<PiState>((set, get) => {
       if (pending) return pending;
       // Reuse is decided by the host claim. This map only tracks the in-flight request.
 
-      const warmup = pi.start(cwd)
+      const warmup = agent.start(cwd)
         .then((started) => {
           if (preferredWarmupKey !== key && started.runtimeId !== get().runtimeId) {
-            return pi.stop(started.runtimeId).finally(() => {
+            return agent.stop(started.runtimeId).finally(() => {
               set((state) => {
                 const runtimes = { ...state.runtimes };
                 delete runtimes[started.runtimeId];
@@ -646,7 +534,7 @@ export const usePiStore = create<PiState>((set, get) => {
       if (runtimeId) {
         intentionalRuntimeStops.add(runtimeId);
         try {
-          await pi.stop(runtimeId);
+          await agent.stop(runtimeId);
         } catch (error) {
           intentionalRuntimeStops.delete(runtimeId);
           throw error;
@@ -707,231 +595,110 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     handleEvent: (runtimeId, event) => {
-      if (event.type === "agent_start") updateRuntime(runtimeId, { isStreaming: true });
-      if (event.type === "agent_end" && !event.willRetry) updateRuntime(runtimeId, { isStreaming: false });
-      if (event.type === "agent_settled") updateRuntime(runtimeId, { isStreaming: false });
-      if (event.type === "agent_settled") queueMicrotask(() => void drainManagedFollowUp(runtimeId));
-      if (event.type === "extension_ui_request") {
-        const request = event as ExtensionUIRequest;
-        if (!isSilentUiRequest(request.method)) {
-          updateRuntime(runtimeId, { extensionRequest: request });
-        }
+      if (event.type === "turn-start") updateRuntime(runtimeId, { isStreaming: true });
+      if (event.type === "turn-end") {
+        updateRuntime(runtimeId, { isStreaming: false });
+        queueMicrotask(() => void drainManagedFollowUp(runtimeId));
+      }
+      if (event.type === "ui-request" && !isSilentUiRequest(event.request.method)) {
+        updateRuntime(runtimeId, { extensionRequest: event.request });
       }
 
+      // A task in the background only notifies.
       if (runtimeId !== get().runtimeId) {
-        if (event.type === "agent_end" && !event.willRetry) {
-          const runtime = get().runtimes[runtimeId];
-          raise(completionNotification(runtimeId, {
-            cwd: runtime?.cwd ?? "",
-            sessionFile: runtime?.sessionFile ?? null,
-          }, true));
+        const runtime = get().runtimes[runtimeId];
+        const context = { cwd: runtime?.cwd ?? "", sessionFile: runtime?.sessionFile ?? null };
+        if (event.type === "turn-end") {
+          raise(completionNotification(runtimeId, context, true));
+          void get().refreshSessions();
         }
-        if (event.type === "agent_settled") void get().refreshSessions();
-        if (event.type === "extension_ui_request") {
-          const runtime = get().runtimes[runtimeId];
-          raise(uiRequestNotification(runtimeId, event as ExtensionUIRequest, {
-            cwd: runtime?.cwd ?? "",
-            sessionFile: runtime?.sessionFile ?? null,
-          }, true));
-        }
+        if (event.type === "ui-request") raise(uiRequestNotification(runtimeId, event.request, context, true));
         return;
       }
 
       switch (event.type) {
-        case "response":
-          return;
-        case "agent_start":
+        case "turn-start":
           set({ isStreaming: true, retryStatus: null });
           return;
-        case "agent_end":
-          if (!event.willRetry) {
-            set({ isStreaming: false });
-            if ((managedFollowUpsByRuntime.get(runtimeId) ?? []).length === 0) {
-              raise(completionNotification(runtimeId, {
-                cwd: get().cwd,
-                sessionFile: get().sessionFile,
-                sessionName: get().sessionName,
-              }, false));
-            }
-          }
-          return;
-        case "agent_settled":
+        case "turn-end":
           settleOptimisticPrompt(runtimeId);
           activeTurnStartedAt = null;
           set({ isStreaming: false, retryStatus: null });
-          void hydrateMessageForkPoints(runtimeId);
-          void Promise.all([get().refreshSessions(), get().refreshGit(), refreshStats()]);
-          return;
-        case "message_start": {
-          const message = event.message;
-          if (message.role === "assistant") {
-            clearPendingAssistantUpdate(runtimeId);
-            const optimistic = pendingOptimisticPrompt?.runtimeId === runtimeId ? pendingOptimisticPrompt : null;
-            const incoming = assistantToUi(message, true);
-            set((state) => {
-              if (!optimistic) return { messages: [...state.messages, incoming] };
-              const messages = [...state.messages];
-              const index = messages.findIndex((item) => item.id === optimistic.assistantMessageId);
-              if (index >= 0) messages[index] = { ...incoming, id: optimistic.assistantMessageId };
-              else messages.push(incoming);
-              return { messages };
-            });
-            if (optimistic) pendingOptimisticPrompt = null;
-          } else if (message.role === "user") {
-            const optimistic = pendingOptimisticPrompt?.runtimeId === runtimeId ? pendingOptimisticPrompt : null;
-            const incoming: UiMessage = {
-              id: messageId(message),
-              role: "user",
-              content: textFromContent(message.content),
-              images: imagesFromContent(message.content),
-              timestamp: message.timestamp,
-            };
-            set((state) => {
-              if (!optimistic) return { messages: [...state.messages, incoming] };
-              const messages = [...state.messages];
-              const index = messages.findIndex((item) => item.id === optimistic.userMessageId);
-              if (index >= 0) messages[index] = { ...incoming, id: optimistic.userMessageId };
-              else messages.push(incoming);
-              return { messages };
-            });
-          }
-          return;
-        }
-        case "message_update": {
-          const message = event.message?.role === "assistant" ? event.message : undefined;
-          queueAssistantUpdate(runtimeId, message, event.assistantMessageEvent);
-          return;
-        }
-        case "message_end": {
-          if (event.message.role === "assistant") {
-            clearPendingAssistantUpdate(runtimeId);
-            const durationMs = activeTurnStartedAt === null ? undefined : Date.now() - activeTurnStartedAt;
-            const completed = assistantToUi(event.message, false, durationMs);
-            set((state) => {
-              const messages = [...state.messages];
-              let index = messages.length - 1;
-              while (index >= 0 && messages[index].role !== "assistant") index -= 1;
-              if (index >= 0 && messages[index].isStreaming) {
-                messages[index] = mergeAssistantUi(messages[index], completed);
-              }
-              return { messages };
-            });
-          } else if (event.message.role === "toolResult") {
-            set((state) => {
-              const messages = [...state.messages];
-              attachToolResult(messages, event.message as ToolResultMessage);
-              return { messages };
-            });
-          }
-          return;
-        }
-        case "tool_execution_start":
-          set((state) => ({
-            messages: updateToolCall(state.messages, event.toolCallId, (call) => ({
-              ...call,
-              name: event.toolName,
-              args: event.args,
-              running: true,
-              startedAt: Date.now(),
-            }), event.toolName, event.args),
-          }));
-          return;
-        case "tool_execution_update":
-          set((state) => ({
-            messages: updateToolCall(state.messages, event.toolCallId, (call) => ({
-              ...call,
-              running: true,
-              result: stringifyResult(event.partialResult),
-              images: imagesFromContent(resultContent(event.partialResult)),
-              details: resultDetails(event.partialResult),
-            }), event.toolName, event.args),
-          }));
-          return;
-        case "tool_execution_end":
-          set((state) => {
-            const messages = updateToolCall(state.messages, event.toolCallId, (call) => ({
-              ...call,
-              running: false,
-              result: stringifyResult(event.result),
-              images: imagesFromContent(resultContent(event.result)),
-              details: resultDetails(event.result),
-              isError: event.isError,
-              finishedAt: Date.now(),
-            }), event.toolName);
-            return {
-              messages,
-              agentBrowser: isGrokBrowserTool(event.toolName)
-                ? agentBrowserFromResult(event.result, state.agentBrowser)
-                : state.agentBrowser,
-              computer: isGrokComputerTool(event.toolName)
-                ? computerFromResult(event.result, state.computer)
-                : state.computer,
-            };
-          });
-          return;
-        case "bash_execution_update":
-          set((state) => ({
-            terminal: {
-              ...state.terminal,
-              output: event.output ?? state.terminal.output + (event.delta ?? ""),
-              running: event.done ? false : state.terminal.running,
-              exitCode: event.exitCode ?? state.terminal.exitCode,
-            },
-          }));
-          return;
-        case "queue_update":
-          set({ steeringQueue: event.steering, followUpQueue: event.followUp });
-          return;
-        case "compaction_start":
-          set({ isCompacting: true });
-          return;
-        case "compaction_end":
-          set({ isCompacting: false });
-          if (event.errorMessage) toast(event.errorMessage, "error");
-          return;
-        case "auto_retry_start":
-          set({ retryStatus: `${Math.ceil(event.delayMs / 1000)} 秒后重试 ${event.attempt}/${event.maxAttempts}` });
-          return;
-        case "auto_retry_end":
-          set({ retryStatus: null });
-          if (!event.success && event.finalError) toast(event.finalError, "error");
-          return;
-        case "extension_error":
-          toast(event.error, "error");
-          return;
-        case "extension_ui_request": {
-          const request = event as ExtensionUIRequest;
-          if (request.method === "notify") {
-            toast(request.message, request.notifyType ?? "info");
-          } else if (request.method === "setStatus") {
-            set((state) => {
-              const statuses = { ...state.extensionStatuses };
-              if (request.statusText) statuses[request.statusKey] = request.statusText;
-              else delete statuses[request.statusKey];
-              return { extensionStatuses: statuses };
-            });
-          } else if (request.method === "setWidget") {
-            set((state) => {
-              const widgets = { ...state.extensionWidgets };
-              if (request.widgetLines) widgets[request.widgetKey] = request.widgetLines;
-              else delete widgets[request.widgetKey];
-              return { extensionWidgets: widgets };
-            });
-          } else if (request.method === "setTitle") {
-            document.title = request.title;
-          } else if (request.method === "set_editor_text") {
-            set({ composerPrefill: request.text });
-          } else {
-            set({ extensionRequest: request });
-            raise(uiRequestNotification(runtimeId, request, {
+          if ((managedFollowUpsByRuntime.get(runtimeId) ?? []).length === 0) {
+            raise(completionNotification(runtimeId, {
               cwd: get().cwd,
               sessionFile: get().sessionFile,
+              sessionName: get().sessionName,
             }, false));
           }
+          void Promise.all([get().refreshSessions(), get().refreshGit(), refreshStats()]);
+          return;
+        case "user": {
+          // The message the composer showed at once becomes the recorded one.
+          const optimistic = pendingOptimisticPrompt?.runtimeId === runtimeId ? pendingOptimisticPrompt : null;
+          set((state) => ({ messages: replaceOrAppend(state.messages, optimistic?.userMessageId, event.message) }));
           return;
         }
-        default:
-          get().appendLog(`event: ${JSON.stringify(event).slice(0, 800)}`);
+        case "assistant-start": {
+          clearPendingAssistantUpdate(runtimeId);
+          // The composer's placeholder reply, if there is one, is the reply being streamed.
+          set((state) => ({ messages: startAssistant(state.messages) }));
+          if (pendingOptimisticPrompt?.runtimeId === runtimeId) pendingOptimisticPrompt = null;
+          return;
+        }
+        case "assistant-delta":
+          queueAssistantDelta(runtimeId, { text: event.text, thinking: event.thinking });
+          return;
+        case "assistant-tool-calls":
+          queueAssistantDelta(runtimeId, { toolCalls: event.calls });
+          return;
+        case "assistant": {
+          clearPendingAssistantUpdate(runtimeId);
+          const durationMs = activeTurnStartedAt === null ? undefined : Date.now() - activeTurnStartedAt;
+          set((state) => ({ messages: completeAssistant(state.messages, { ...event.message, durationMs }) }));
+          return;
+        }
+        case "tool-start":
+          set((state) => ({ messages: startToolCall(state.messages, event.callId, event.name, event.args) }));
+          return;
+        case "tool-end":
+          set((state) => ({
+            messages: endToolCall(state.messages, event.callId, event.name, event.result),
+            agentBrowser: isGrokBrowserTool(event.name) ? agentBrowserFromResult(event.result, state.agentBrowser) : state.agentBrowser,
+            computer: isGrokComputerTool(event.name) ? computerFromResult(event.result, state.computer) : state.computer,
+          }));
+          return;
+        case "queue":
+          set({ steeringQueue: Array(event.steering).fill(""), followUpQueue: Array(event.followUp).fill("") });
+          return;
+        case "compaction-start":
+          set({ isCompacting: true });
+          return;
+        case "compaction-end":
+          set({ isCompacting: false });
+          if (event.failed) toast("上下文压缩失败", "error");
+          return;
+        case "plan":
+          set((state) => {
+            const widgets = { ...state.extensionWidgets };
+            if (event.lines.length > 0) widgets["pidesktop-plan"] = event.lines;
+            else delete widgets["pidesktop-plan"];
+            return { extensionWidgets: widgets };
+          });
+          return;
+        case "ui-request": {
+          const request = event.request;
+          if (request.method === "notify") {
+            toast(request.message, request.notifyType ?? "info");
+            return;
+          }
+          set({ extensionRequest: request });
+          raise(uiRequestNotification(runtimeId, request, {
+            cwd: get().cwd,
+            sessionFile: get().sessionFile,
+          }, false));
+          return;
+        }
       }
     },
 
@@ -1248,7 +1015,7 @@ export const usePiStore = create<PiState>((set, get) => {
     exportSession: async (destination) => {
       const sessionFile = get().sessionFile;
       if (!sessionFile) throw new Error("当前任务还没有可导出的对话");
-      const path = await pi.exportSessionMarkdown(sessionFile, destination);
+      const path = await agent.exportSessionMarkdown(sessionFile, destination);
       toast(`已导出到 ${path}`, "info");
       return path;
     },
@@ -1361,7 +1128,7 @@ export const usePiStore = create<PiState>((set, get) => {
 
     refreshSessions: async () => {
       try {
-        set({ sessions: await pi.listSessions() });
+        set({ sessions: await agent.listSessions() });
       } catch (error) {
         get().appendLog(`列出会话失败：${describeError(error)}`);
       }
@@ -1371,7 +1138,7 @@ export const usePiStore = create<PiState>((set, get) => {
       const cwd = get().cwd;
       if (!cwd) return;
       try {
-        set({ git: await pi.gitSnapshot(cwd) });
+        set({ git: await agent.gitSnapshot(cwd) });
       } catch (error) {
         get().appendLog(`读取 Git 更改失败：${describeError(error)}`);
       }
@@ -1384,7 +1151,7 @@ export const usePiStore = create<PiState>((set, get) => {
         return;
       }
       try {
-        set({ settings: await pi.getSettings() });
+        set({ settings: await agent.getSettings() });
       } catch (error) {
         toast(`加载设置失败：${describeError(error)}`, "error");
       }
@@ -1396,8 +1163,8 @@ export const usePiStore = create<PiState>((set, get) => {
         set({ settings });
         return;
       }
-      await pi.setSettings(settings);
-      set({ settings: await pi.getSettings() });
+      await agent.setSettings(settings);
+      set({ settings: await agent.getSettings() });
     },
 
 

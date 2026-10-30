@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { agentBrowserFromMessages, computerFromMessages, computerFromResult } from "../src/lib/piMessages";
-import { updateToolCall } from "../src/lib/piToolCalls";
+import { agentBrowserFromMessages, computerFromMessages, computerFromResult } from "../src/lib/toolPanels";
+import { updateToolCall } from "../src/lib/transcript";
 import type { UiMessage } from "../src/types";
 import { test } from "vitest";
 
-test("pi tool calls", async () => {
+test("tool calls", async () => {
   const base: UiMessage[] = [{ id: "assistant-1", timestamp: 0, role: "assistant", content: "", toolCalls: [] }];
   const started = updateToolCall(base, "call-1", (call) => ({ ...call, running: true }), "read", { path: "a.ts" });
   assert.equal(started[0].toolCalls?.[0].name, "read");
@@ -17,7 +17,7 @@ test("pi tool calls", async () => {
   assert.equal(finished[0].toolCalls?.[0].result, "done");
 
   const computer = computerFromResult({
-    content: [{ type: "image", data: "png", mimeType: "image/png" }],
+    images: [{ type: "image", data: "png", mimeType: "image/png" }],
     details: {
       action: "observe",
       width: 3000,

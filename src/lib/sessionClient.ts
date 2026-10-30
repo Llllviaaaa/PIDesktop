@@ -1,6 +1,7 @@
-import type { AgentMessage, SessionHistory, SessionInfo, SessionMessageTiming } from "../types";
+import type { SessionInfo, UiMessage } from "../types";
 import { HARNESS_SESSION_PREFIX, harnessRuntimes } from "./harnessRuntime";
-import { messageTimingsOf, sessionInfoFromHost, toAgentMessages } from "./harnessTranscript";
+import { sessionInfoFromHost } from "./hostSessions";
+import { historyToUi } from "./transcript";
 
 let sessionsRequest: Promise<SessionInfo[]> | null = null;
 
@@ -25,18 +26,10 @@ export const sessionClient = {
     }
     return sessionsRequest;
   },
-  async history(file: string): Promise<SessionHistory> {
-    const events = await harnessRuntimes.readEvents(hostId(file));
-    return { messages: toAgentMessages(events), timings: messageTimingsOf(events) };
-  },
+  /** A session's transcript, read without starting a task on it. */
+  history: async (file: string): Promise<UiMessage[]> => historyToUi(await harnessRuntimes.readEvents(hostId(file))),
   async exportMarkdown(file: string, destination: string): Promise<string> {
     return (await harnessRuntimes.call<{ path: string }>("session.export", { sessionId: hostId(file), destination })).path;
-  },
-  async messageTimings(file: string): Promise<SessionMessageTiming[]> {
-    return messageTimingsOf(await harnessRuntimes.readEvents(hostId(file)));
-  },
-  async messages(file: string): Promise<AgentMessage[]> {
-    return toAgentMessages(await harnessRuntimes.readEvents(hostId(file)));
   },
   listArchived: (): Promise<SessionInfo[]> => hostSessions(true),
   async archive(file: string): Promise<void> {

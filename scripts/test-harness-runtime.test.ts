@@ -28,8 +28,9 @@ import { runFromHost, taskFromHost, taskToHost } from "../src/lib/scheduleClient
 import type { ScheduledRunInfo } from "@pid/protocol";
 import { connectHarness } from "../src/lib/harnessClient";
 import { HarnessRuntimes } from "../src/lib/harnessRuntime";
-import { messageTimingsOf, sessionInfoFromHost, toAgentMessages } from "../src/lib/harnessTranscript";
-import type { ExtensionUIRequest, PiEvent } from "../src/types";
+import { sessionInfoFromHost } from "../src/lib/hostSessions";
+import { historyToUi, type TranscriptEvent } from "../src/lib/transcript";
+import type { ExtensionUIRequest } from "../src/types";
 
 const token = Buffer.alloc(32, 3).toString("base64url");
 let host: Host | undefined;
@@ -81,20 +82,25 @@ async function start(provider: ScriptedProvider) {
   await host.start();
   const port = await host.ctx.webServer.listen(0);
   const runtimes = new HarnessRuntimes(() => connectHarness({ baseUrl: `http://127.0.0.1:${port}/`, token }, { name: "test", version: "1" }));
-  const events: Array<[string, PiEvent]> = [];
+  const events: Array<[string, TranscriptEvent]> = [];
   const waiters: Array<() => void> = [];
   runtimes.subscribe((runtimeId, event) => {
     events.push([runtimeId, event]);
     for (const waiter of waiters.splice(0)) waiter();
   });
-  const until = async (match: (event: PiEvent) => boolean): Promise<PiEvent> => {
+  const until = async (match: (event: TranscriptEvent) => boolean): Promise<TranscriptEvent> => {
     for (;;) {
       const found = events.find(([, event]) => match(event));
       if (found !== undefined) return found[1];
       await new Promise<void>((resolve) => waiters.push(resolve));
     }
   };
-  return { runtimes, events, until };
+  /** The next dialog the Host (or the runtime itself) asks for. */
+  const nextQuestion = async (title?: string): Promise<ExtensionUIRequest> => {
+    const found = await until((event) => event.type === "ui-request" && event.request.method === "confirm" && (title === undefined || event.request.title === title));
+    return (found as Extract<TranscriptEvent, { type: "ui-request" }>).request;
+  };
+  return { runtimes, events, until, nextQuestion };
 }
 
 describe("harness runtimes", () => {
@@ -104,7 +110,7 @@ describe("harness runtimes", () => {
       toolReply([{ id: "c2", name: "write", args: { path: "b.txt", content: "made" } }]),
       textReply("Done."),
     ]);
-    const { runtimes, events, until } = await start(provider);
+    const { runtimes, events, until, nextQuestion } = await start(provider);
     const { runtimeId } = await runtimes.start(dir);
 
     // Nothing is created until the first prompt: a prewarmed workspace leaves no session.
@@ -116,14 +122,14 @@ describe("harness runtimes", () => {
 
     await runtimes.prompt(runtimeId, { message: "Copy a.txt", images: [] });
     // The write needs confirmation: answer it as the extension dialog would.
-    const request = await until((event) => event.type === "extension_ui_request" && event.method === "confirm") as ExtensionUIRequest;
+    const request = await nextQuestion();
     expect(request).toMatchObject({ method: "confirm", title: "Allow file change?" });
     await runtimes.respond(request, { confirmed: true });
-    await until((event) => event.type === "agent_settled");
+    await until((event) => event.type === "turn-end");
 
     const kinds = events.map(([, event]) => event.type);
-    expect(kinds.slice(0, 3)).toEqual(["message_start", "agent_start", "message_start"]);
-    expect(kinds.filter((kind) => kind === "tool_execution_end")).toHaveLength(2);
+    expect(kinds.slice(0, 3)).toEqual(["user", "turn-start", "assistant-start"]);
+    expect(kinds.filter((kind) => kind === "tool-end")).toHaveLength(2);
     expect(readFileSync(join(dir, "b.txt"), "utf8")).toBe("made");
     expect(provider.requests[0]?.effort).toBe("high");
 
@@ -131,12 +137,13 @@ describe("harness runtimes", () => {
     expect(state).toMatchObject({ isStreaming: false, thinkingLevel: "high", model: { provider: "scripted", id: "m" } });
     expect(String(state?.sessionFile)).toMatch(/^harness:/);
     const history = await runtimes.messages(runtimeId);
-    expect(history.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "assistant", "toolResult", "assistant"]);
+    expect(history.map((message) => message.role)).toEqual(["user", "assistant", "assistant", "assistant"]);
+    expect(history.flatMap((message) => message.toolCalls ?? []).every((call) => !call.running && call.isError === false)).toBe(true);
     expect(await runtimes.stats(runtimeId)).toMatchObject({ totalMessages: 4, tokens: { input: 30, output: 15 } });
 
     // Reopening the session from its sessionFile shows the same history.
     const reopened = await runtimes.start(dir, String(state?.sessionFile));
-    expect(await runtimes.messages(reopened.runtimeId)).toHaveLength(6);
+    expect(await runtimes.messages(reopened.runtimeId)).toHaveLength(4);
 
     // The sidebar's view of it: listed with its first message, history readable without a runtime.
     const sessionId = String(state?.sessionId);
@@ -144,8 +151,7 @@ describe("harness runtimes", () => {
     expect(listed.map((session) => [session.id, session.firstMessage])).toEqual([[sessionId, "Copy a.txt"]]);
     expect(sessionInfoFromHost(listed[0] as never)).toMatchObject({ file: `harness:${sessionId}`, cwd: dir, firstMessage: "Copy a.txt", messageCount: 4 });
     const logged = await runtimes.readEvents(sessionId);
-    expect(toAgentMessages(logged)).toHaveLength(6);
-    expect(messageTimingsOf(logged).map((timing) => timing.role)).toEqual(["user", "assistant", "assistant", "assistant"]);
+    expect(historyToUi(logged).map((message) => message.role)).toEqual(["user", "assistant", "assistant", "assistant"]);
   });
 
   it("switch modes and refuse a runtime that has stopped", async () => {
@@ -168,11 +174,11 @@ describe("rewinding and forking", () => {
       textReply("Wrote it."),
       textReply("Second answer."),
     ]);
-    const { runtimes, events, until } = await start(provider);
+    const { runtimes, events, until, nextQuestion } = await start(provider);
     const { runtimeId } = await runtimes.start(dir);
     await runtimes.setPermission(runtimeId, { permission: "full-access" });
     await runtimes.prompt(runtimeId, { message: "Make b.txt", images: [] });
-    await until((event) => event.type === "agent_settled");
+    await until((event) => event.type === "turn-end");
     expect(readFileSync(join(dir, "b.txt"), "utf8")).toBe("made");
 
     const points = await runtimes.forkPoints(runtimeId);
@@ -180,7 +186,7 @@ describe("rewinding and forking", () => {
 
     // Rewinding asks before putting the files back, through the same dialog as Host questions.
     const rewinding = runtimes.rewind(runtimeId, String(points[0]?.entryId));
-    const question = await until((event) => event.type === "extension_ui_request" && event.method === "confirm" && event.title === "回退消息和工作区？") as ExtensionUIRequest;
+    const question = await nextQuestion("回退消息和工作区？");
     expect(question).toMatchObject({ message: expect.stringContaining("1 个文件将恢复") });
     await runtimes.respond(question, { confirmed: true });
     expect(await rewinding).toBe(true);
@@ -190,7 +196,7 @@ describe("rewinding and forking", () => {
     // The rewound turn stays in the tree as a side branch.
     events.length = 0;
     await runtimes.prompt(runtimeId, { message: "Just answer", images: [] });
-    await until((event) => event.type === "agent_settled");
+    await until((event) => event.type === "turn-end");
     const tree = await runtimes.tree(runtimeId);
     expect(tree.tree).toHaveLength(2);
     const before = String((await runtimes.state(runtimeId)).sessionId);
@@ -210,14 +216,14 @@ describe("rewinding and forking", () => {
 
   it("cancel a rewind the user declines", async () => {
     const provider = new ScriptedProvider([toolReply([{ id: "c1", name: "write", args: { path: "b.txt", content: "made" } }]), textReply("Done.")]);
-    const { runtimes, until } = await start(provider);
+    const { runtimes, until, nextQuestion } = await start(provider);
     const { runtimeId } = await runtimes.start(dir);
     await runtimes.setPermission(runtimeId, { permission: "full-access" });
     await runtimes.prompt(runtimeId, { message: "Make b.txt", images: [] });
-    await until((event) => event.type === "agent_settled");
+    await until((event) => event.type === "turn-end");
     const points = await runtimes.forkPoints(runtimeId);
     const rewinding = runtimes.rewind(runtimeId, String(points[0]?.entryId));
-    const question = await until((event) => event.type === "extension_ui_request" && event.method === "confirm") as ExtensionUIRequest;
+    const question = await nextQuestion();
     await runtimes.respond(question, { confirmed: false });
     expect(await rewinding).toBe(false);
     expect(readFileSync(join(dir, "b.txt"), "utf8")).toBe("made");
@@ -230,7 +236,7 @@ describe("side chats", () => {
     const { runtimes, events, until } = await start(new ScriptedProvider([textReply("Main answer."), textReply("Side answer.")]));
     const main = await runtimes.start(dir);
     await runtimes.prompt(main.runtimeId, { message: "Main question", images: [] });
-    await until((event) => event.type === "agent_settled");
+    await until((event) => event.type === "turn-end");
     const parentFile = String((await runtimes.state(main.runtimeId)).sessionFile);
 
     const side = await runtimes.start(dir, parentFile, true);
@@ -240,7 +246,7 @@ describe("side chats", () => {
     expect((await runtimes.messages(side.runtimeId)).map((message) => message.role)).toEqual(["user", "assistant"]);
     events.length = 0;
     await runtimes.prompt(side.runtimeId, { message: "Side question", images: [] });
-    await until((event) => event.type === "agent_settled");
+    await until((event) => event.type === "turn-end");
     const sideMessages = await runtimes.messages(side.runtimeId);
     expect(sideMessages.map((message) => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
     expect(JSON.stringify(sideMessages.at(-1))).toContain("Side answer.");

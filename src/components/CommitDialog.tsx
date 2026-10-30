@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { GitBranch, LoaderCircle, Sparkles, TriangleAlert, X } from "lucide-react";
 import { describeError } from "../lib/errors";
 import { perFileDiffStats } from "../lib/gitDiffStats";
-import { pi } from "../lib/pi";
+import { agent } from "../lib/agent";
 import type { GitCommitResult, GitPushResult, GitSnapshot } from "../types";
 
 export interface CommitOutcome {
@@ -64,7 +64,7 @@ export function CommitDialog({ cwd, git, initialPush, model, agentRunning, onClo
 
   useEffect(() => {
     let cancelled = false;
-    void pi.gitDefaultBranch(cwd).then((name) => { if (!cancelled) setDefaultBranch(name); }).catch(() => undefined);
+    void agent.gitDefaultBranch(cwd).then((name) => { if (!cancelled) setDefaultBranch(name); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [cwd]);
 
@@ -77,7 +77,7 @@ export function CommitDialog({ cwd, git, initialPush, model, agentRunning, onClo
     setPhase("generating");
     setError("");
     try {
-      const text = await pi.gitGenerateCommitMessage(cwd, { paths: commitPaths, provider: model?.provider, model: model?.id });
+      const text = await agent.gitGenerateCommitMessage(cwd, { paths: commitPaths, provider: model?.provider, model: model?.id });
       setMessage(text);
       return text;
     } catch (generateError) {
@@ -100,7 +100,7 @@ export function CommitDialog({ cwd, git, initialPush, model, agentRunning, onClo
     setPhase("committing");
     let commit: GitCommitResult;
     try {
-      commit = await pi.gitCommit(cwd, text, { paths: commitPaths, newBranch: useNewBranch ? newBranch.trim() : undefined });
+      commit = await agent.gitCommit(cwd, text, { paths: commitPaths, newBranch: useNewBranch ? newBranch.trim() : undefined });
     } catch (commitError) {
       setError(describeError(commitError));
       setPhase("idle");
@@ -112,7 +112,7 @@ export function CommitDialog({ cwd, git, initialPush, model, agentRunning, onClo
     }
     setPhase("pushing");
     try {
-      onDone({ commit, push: { result: await pi.gitPush(cwd) } });
+      onDone({ commit, push: { result: await agent.gitPush(cwd) } });
     } catch (pushError) {
       onDone({ commit, push: { error: describeError(pushError) } });
     }

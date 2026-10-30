@@ -58,20 +58,20 @@ test("notification center", async () => {
       },
     },
   });
-  usePiStore.getState().handleEvent("runtime-test", { type: "agent_end" });
+  usePiStore.getState().handleEvent("runtime-test", { type: "turn-end" });
   assert(usePiStore.getState().notifications[0]?.kind === "completion", "agent completion must enter the notification center");
 
   usePiStore.getState().markNotificationRead(usePiStore.getState().notifications[0].id);
   assert(usePiStore.getState().notifications.length === 0, "reading a notification must remove it from the center");
 
-  usePiStore.getState().handleEvent("runtime-test", { type: "agent_end" });
+  usePiStore.getState().handleEvent("runtime-test", { type: "turn-end" });
   Object.defineProperty(globalThis, "document", {
     configurable: true,
     value: { hasFocus: () => true, visibilityState: "visible" },
   });
   usePiStore.getState().setViewedSession("D:\\repo\\session.jsonl");
   assert(usePiStore.getState().notifications.length === 0, "viewing a session must clear its notifications");
-  usePiStore.getState().handleEvent("runtime-test", { type: "agent_end" });
+  usePiStore.getState().handleEvent("runtime-test", { type: "turn-end" });
   assert(usePiStore.getState().notifications.length === 0, "a visible session must not receive a completion notification");
   usePiStore.getState().setViewedSession(null);
 
@@ -82,17 +82,15 @@ test("notification center", async () => {
     title: "允许执行命令？",
     message: "npm test",
   };
-  usePiStore.getState().handleEvent("runtime-test", request);
-  usePiStore.getState().handleEvent("runtime-test", request);
+  usePiStore.getState().handleEvent("runtime-test", { type: "ui-request", request });
+  usePiStore.getState().handleEvent("runtime-test", { type: "ui-request", request });
   assert(usePiStore.getState().notifications.filter((item) => item.id.endsWith("confirm-1")).length === 1,
     "duplicate approval events must produce one notification");
   assert(usePiStore.getState().notifications[0]?.kind === "approval", "confirmation requests must be classified as approvals");
 
   usePiStore.getState().handleEvent("runtime-test", {
-    type: "extension_ui_request",
-    id: "input-1",
-    method: "input",
-    title: "请选择分支",
+    type: "ui-request",
+    request: { type: "extension_ui_request", id: "input-1", method: "input", title: "请选择分支" },
   });
   assert(usePiStore.getState().notifications[0]?.kind === "question", "input requests must be classified as questions");
 });

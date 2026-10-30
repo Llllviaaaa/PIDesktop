@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { describeError } from "../lib/errors";
-import { subscribeToPi } from "../lib/pi";
+import { subscribeToPi } from "../lib/agent";
 import { sameLocalPath } from "../lib/pathIdentity";
 import { usePiStore } from "../store";
 import type { ConnectionState, SessionInfo } from "../types";
