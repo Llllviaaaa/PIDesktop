@@ -1,0 +1,8 @@
+{
+  "//": "Type-checks the browser E2E suite (e2e/) and the Host it starts, as tsconfig.packages.json checks packages/: better-sidebar's host half through packages/host/types. Playwright itself loads tsconfig.e2e-runtime.json.",
+  "extends": "./tsconfig.packages.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts", "packages/host/types"]
+}
