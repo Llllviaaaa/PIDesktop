@@ -1,6 +1,5 @@
 /**
- * Copied from src-tauri/resources/pidesktop-memory-core.ts (the Pi engine keeps
- * its copy until P6; ADR 0009).
+ * Taken from the Pi engine's pidesktop-memory-core.ts, which went with Pi in P6c (ADR 0009).
  */
 export type MemoryWriteAction = "append" | "replace" | "clear";
 

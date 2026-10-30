@@ -1,6 +1,5 @@
 /**
- * Copied from src-tauri/resources/pidesktop-computer-core.ts (the Pi engine keeps
- * its copy until P6; ADR 0011).
+ * Taken from the Pi engine's pidesktop-computer-core.ts, which went with Pi in P6c (ADR 0011).
  */
 /**
  * Pure helpers shared by the Pi Desktop computer extension.

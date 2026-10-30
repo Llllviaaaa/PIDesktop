@@ -5,9 +5,7 @@ mod config;
 mod error;
 mod extensions;
 mod harness_host;
-mod pi;
 mod platform;
-mod scheduler;
 mod secret_store;
 mod terminal;
 mod workspace_files;
@@ -18,10 +16,9 @@ mod workspace_files;
 // them. Removing an import that looks unused here can break a sibling module.
 use std::collections::HashMap;
 use std::fs;
-use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -30,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, State,
+    AppHandle, Manager, State,
 };
 
 use commands::commit::*;
@@ -39,23 +36,13 @@ use commands::git::*;
 use commands::memory::*;
 use commands::packages::*;
 use commands::project::*;
-use commands::provider::*;
 use commands::pull_request::*;
-use commands::runtime::*;
-use commands::schedule::*;
-use commands::session::*;
 use commands::settings::*;
-use commands::usage::*;
 use commands::workspace::*;
 use config::*;
 use error::AppError;
-use extensions::{ensure_personal_instructions, ensure_providers_extension};
-use pi::process::{apply_pi_config, run_pi_print, PiPrintLimits, PiPrintPrompt};
-use pi::rpc::PiRpcClient;
-use pi::sessions::{list_sessions, validate_session_path};
-use pi::side_chats::{clear_stale_side_chats, remove_runtime_session_dir, runtime_session_dir};
+use extensions::ensure_personal_instructions;
 use platform::*;
-use scheduler::ScheduledRunRecord;
 
 #[cfg(windows)]
 static KEEP_AWAKE: AtomicBool = AtomicBool::new(false);
@@ -65,31 +52,16 @@ unsafe extern "system" {
 }
 
 struct AppState {
-    runtimes: Mutex<HashMap<String, PiRuntime>>,
     settings: Mutex<AppSettings>,
-    bundled_pi_binary: Option<PathBuf>,
     projects: Mutex<Vec<ProjectConfig>>,
-    scheduled_tasks: Mutex<Vec<ScheduledTask>>,
-    running_scheduled_tasks: Mutex<HashMap<String, Arc<AtomicBool>>>,
     workspace_searches: Mutex<HashMap<String, Arc<AtomicBool>>>,
     terminal_sessions: terminal::TerminalSessions,
-    /// Session-less Pi process that lists providers and runs login/logout for Settings.
-    provider_service: Mutex<Option<PiRpcClient>>,
 }
 
 impl Drop for AppState {
     fn drop(&mut self) {
         if let Ok(terminals) = self.terminal_sessions.get_mut() {
             terminal::close_all(terminals);
-        }
-        let Ok(runtimes) = self.runtimes.get_mut() else {
-            return;
-        };
-        for (_, runtime) in runtimes.drain() {
-            runtime.client.kill();
-            if let Some(dir) = &runtime.side_chat_dir {
-                remove_runtime_session_dir(dir);
-            }
         }
     }
 }
@@ -214,49 +186,25 @@ pub fn run() {
         std::thread::sleep(std::time::Duration::from_secs(30));
     });
 
-    let bundled_pi_binary = pi::runtime::locate_bundled_pi_binary();
-    if let Some(path) = &bundled_pi_binary {
-        eprintln!(
-            "Pi Desktop is using bundled Pi runtime at {}",
-            path.display()
-        );
-    } else {
-        eprintln!(
-            "Pi Desktop bundled Pi runtime was not found; falling back to configured Pi command"
-        );
-    }
-    clear_stale_side_chats();
-    migrate_pi_resources();
     let settings = load_settings();
-    if let Err(error) = select_pi_config(settings.separate_pi_config) {
-        eprintln!("Pi Desktop could not prepare its own Pi config directory: {error}");
-    }
+    // Pi is gone (P6c); its old config directory is only read by the one-time imports.
+    remember_pi_config(settings.separate_pi_config);
+    migrate_pi_resources();
+    #[cfg(windows)]
+    KEEP_AWAKE.store(settings.prevent_sleep, Ordering::Relaxed);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
-            runtimes: Mutex::new(HashMap::new()),
             settings: Mutex::new(settings),
-            bundled_pi_binary,
             projects: Mutex::new(load_json_list(&projects_path())),
-            scheduled_tasks: Mutex::new(load_json_list(&scheduled_tasks_path())),
-            running_scheduled_tasks: Mutex::new(HashMap::new()),
             workspace_searches: Mutex::new(HashMap::new()),
             terminal_sessions: Mutex::new(HashMap::new()),
-            provider_service: Mutex::new(None),
         })
         .manage(harness_host::HarnessHost::default())
         .setup(|app| {
             initialize_tray(app)?;
-            if let Err(error) = initialize_scheduled_runner(app.handle()) {
-                eprintln!("failed to initialize scheduled runner: {error}");
-            }
-            let runner_app = app.handle().clone();
-            std::thread::spawn(move || loop {
-                run_due_scheduled_tasks(&runner_app);
-                std::thread::sleep(std::time::Duration::from_secs(15));
-            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -269,46 +217,17 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             quit_app,
-            pi_start,
-            pi_send,
-            provider_service_start,
-            provider_service_send,
-            provider_service_stop,
-            pi_stop,
-            pi_is_running,
-            pi_bind_session,
-            list_pi_runtimes,
             quick_chat_dir,
             list_projects_cmd,
             register_project_cmd,
             save_project_cmd,
             remove_local_project_cmd,
-            list_scheduled_tasks_cmd,
-            list_scheduled_runs_cmd,
-            save_scheduled_task_cmd,
-            delete_scheduled_task_cmd,
-            run_scheduled_task_cmd,
-            cancel_scheduled_task_cmd,
-            list_sessions_cmd,
-            session_history_cmd,
-            export_session_markdown,
-            session_message_timings_cmd,
-            session_messages_cmd,
-            list_archived_sessions_cmd,
-            archive_session_cmd,
-            restore_session_cmd,
-            delete_session_cmd,
             get_settings,
             set_settings,
             get_local_memory,
             set_local_memory,
             export_local_memory,
             delete_local_memory,
-            list_model_providers,
-            discover_model_provider_models,
-            save_model_provider,
-            delete_model_provider,
-            check_model_provider,
             read_attachment,
             git_snapshot,
             git_repository_root,
@@ -332,8 +251,6 @@ pub fn run() {
             migrate_project_resources,
             open_appearance_directory,
             install_appearance_extension,
-            search_pi_packages,
-            pi_package_detail,
             list_workspace_dir,
             search_workspace_files,
             cancel_workspace_search,
@@ -353,8 +270,6 @@ pub fn run() {
             terminal::terminal_close,
             harness_host::harness_endpoint,
             harness_host::sidebar_host_base,
-            pi_package_action,
-            usage_summary,
             list_pull_requests,
             checkout_pull_request,
             list_worktrees,

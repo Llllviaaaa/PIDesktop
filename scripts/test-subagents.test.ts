@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { normalizeSubagentTasks, subagentPrompt } from "../src-tauri/resources/pidesktop-subagents-core";
 import {
   deriveEnvSources,
   deriveSubagentActivities,
@@ -10,20 +9,9 @@ import {
 import type { UiMessage } from "../src/types";
 import { test } from "vitest";
 
+// How the transcript shows delegated subagent tasks (src/lib/envSources.ts). The
+// task rules themselves are tested with the subagents plugin (packages/subagents).
 test("subagents", async () => {
-  const tasks = normalizeSubagentTasks([
-    { label: " inspect ", task: " Read the store ", role: "explorer" },
-    { task: "Find regressions", role: "reviewer" },
-  ]);
-  assert.deepEqual(tasks.map(({ label, role }) => ({ label, role })), [
-    { label: "inspect", role: "explorer" },
-    { label: "reviewer-2", role: "reviewer" },
-  ]);
-  assert.match(subagentPrompt(tasks[0]), /Do not make changes/);
-  assert.match(subagentPrompt({ label: "worker", task: "Implement", role: "worker" }), /Implement the delegated task/);
-  assert.throws(() => normalizeSubagentTasks([]), /At least one/);
-  assert.throws(() => normalizeSubagentTasks(Array.from({ length: 9 }, (_, index) => ({ task: String(index) }))), /At most 8/);
-
   const ordinaryTools: UiMessage[] = [{
     id: "assistant-tools",
     role: "assistant",

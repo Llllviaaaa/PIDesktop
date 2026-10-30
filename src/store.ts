@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { describeError } from "./lib/errors";
 import { pi, respondToExtension, sendCommand } from "./lib/pi";
-import { harnessRuntimes } from "./lib/harnessRuntime";
 import { redactSensitiveText } from "./lib/redact";
 import { readStoredNotifications } from "./lib/notificationCenter";
 import { createNotices } from "./notifications";
@@ -15,8 +14,6 @@ import {
 } from "./lib/managedQueue";
 import { persistModelCatalog, readStoredModelCatalog } from "./lib/modelCatalogCache";
 import { sameLocalPath } from "./lib/pathIdentity";
-import { decodeProviderMessage } from "../src-tauri/resources/pidesktop-providers-core";
-import { PROVIDER_SERVICE_COMMAND, PROVIDER_SERVICE_RUNTIME_ID } from "./lib/providerService";
 import {
   completionNotification,
   isSilentUiRequest,
@@ -51,7 +48,6 @@ import {
 import type {
   AppSettings,
   AssistantMessage,
-  ConnectionState,
   ExtensionUIRequest,
   ForkPoint,
   ManagedQueuedMessage,
@@ -361,7 +357,7 @@ export const usePiStore = create<PiState>((set, get) => {
       set({
         availableModels: models.data?.models ?? [],
         availableThinkingLevels: levels.data?.levels ?? ["off"],
-        commands: (commands.data?.commands ?? []).filter((item) => item.name !== PIDESKTOP_REWIND_COMMAND && item.name !== PROVIDER_SERVICE_COMMAND),
+        commands: (commands.data?.commands ?? []).filter((item) => item.name !== PIDESKTOP_REWIND_COMMAND),
       });
       persistCurrentModelCatalog();
     }).catch((error) => {
@@ -652,50 +648,9 @@ export const usePiStore = create<PiState>((set, get) => {
       return warmup;
     },
 
-    restoreRuntimes: async (preferredRuntimeId) => {
-      const restoreVersion = ++connectionVersion;
-      try {
-        const discovered = await pi.listRuntimes();
-        if (restoreVersion !== connectionVersion) return false;
-        const runtimes = Object.fromEntries(discovered.map((runtime) => [
-          runtime.runtimeId,
-          {
-            runtimeId: runtime.runtimeId,
-            cwd: runtime.cwd,
-            sessionFile: runtime.sessionFile ?? null,
-            isStreaming: runtime.isStreaming,
-            status: "running" as ConnectionState,
-            extensionRequest: runtime.pendingExtension ?? null,
-            updatedAt: Date.now(),
-          } satisfies RuntimeState,
-        ]));
-        set({ runtimes });
-
-        const active = preferredRuntimeId
-          ? discovered.find((runtime) => runtime.runtimeId === preferredRuntimeId)
-          : undefined;
-        if (!active) return false;
-
-        set({
-          runtimeId: active.runtimeId,
-          connection: "running",
-          cwd: active.cwd,
-          sessionFile: active.sessionFile ?? null,
-          isStreaming: active.isStreaming,
-          extensionRequest: active.pendingExtension ?? null,
-          managedFollowUpQueue: managedFollowUpsByRuntime.get(active.runtimeId) ?? [],
-          lastError: null,
-        });
-        await syncSession(restoreVersion);
-        if (restoreVersion !== connectionVersion) return false;
-        await get().refreshGit();
-        return true;
-      } catch (error) {
-        const message = describeError(error);
-        get().appendLog(`恢复 Pi runtime 失败：${message}`);
-        return false;
-      }
-    },
+    // Host runtimes live in this page (src/lib/harnessRuntime.ts); after a reload
+    // there are none to take back, and the session reopens from its file instead.
+    restoreRuntimes: async () => false,
 
     switchSession: async (cwd, sessionFile) => {
       const current = get();
@@ -775,9 +730,6 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     handleEvent: (runtimeId, event) => {
-      // The Settings provider service and provider-catalog refresh replies are not chat traffic.
-      if (runtimeId === PROVIDER_SERVICE_RUNTIME_ID) return;
-      if (event.type === "extension_ui_request" && event.method === "notify" && decodeProviderMessage(event.message)) return;
       if (event.type === "agent_start") updateRuntime(runtimeId, { isStreaming: true });
       if (event.type === "agent_end" && !event.willRetry) updateRuntime(runtimeId, { isStreaming: false });
       if (event.type === "agent_settled") updateRuntime(runtimeId, { isStreaming: false });
@@ -1008,7 +960,6 @@ export const usePiStore = create<PiState>((set, get) => {
 
     handleStatus: (status) => {
       const runtimeId = status.runtimeId;
-      if (runtimeId === PROVIDER_SERVICE_RUNTIME_ID) return;
       const intentionalStop = status.status === "exited" && intentionalRuntimeStops.delete(runtimeId);
       set((state) => {
         if (status.status === "exited") {
@@ -1353,17 +1304,6 @@ export const usePiStore = create<PiState>((set, get) => {
     },
 
     reloadProviderCatalog: async () => {
-      const refreshRuntime = async (runtimeId: string) => {
-        // Runtimes started before the provider extension existed would send the slash command to the model.
-        const commands = await sendCommand(runtimeId, "get_commands");
-        if (!commands.data?.commands?.some((item) => item.name === PROVIDER_SERVICE_COMMAND)) return;
-        const request = JSON.stringify({ id: `refresh-${Date.now()}`, op: "refresh" });
-        await sendCommand(runtimeId, "prompt", { message: `/${PROVIDER_SERVICE_COMMAND} ${request}` }, 60_000);
-      };
-      const idle = Object.entries(get().runtimes)
-        .filter(([, runtime]) => runtime.status === "running" && !runtime.isStreaming)
-        .map(([runtimeId]) => runtimeId);
-      await Promise.allSettled(idle.map(refreshRuntime));
       const runtimeId = get().runtimeId;
       if (!runtimeId) return;
       try {
@@ -1603,6 +1543,3 @@ export const usePiStore = create<PiState>((set, get) => {
     dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((item) => item.id !== id) })),
   };
 });
-
-// New tasks start on the engine the settings name (docs/adr/0014-frontend-harness-adapter.md).
-usePiStore.subscribe((state) => harnessRuntimes.setEngine(state.settings?.engine));

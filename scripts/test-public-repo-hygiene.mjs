@@ -9,7 +9,7 @@ const packageManifest = JSON.parse(readFileSync("package.json", "utf8"));
 const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
 const cargoManifest = readFileSync("src-tauri/Cargo.toml", "utf8");
 const cargoLock = readFileSync("src-tauri/Cargo.lock", "utf8");
-const mcpExtension = readFileSync("src-tauri/resources/pidesktop-mcp.ts", "utf8");
+const mcpClient = readFileSync("packages/mcp/src/client.ts", "utf8");
 const license = readFileSync("LICENSE", "utf8");
 const thirdPartyNotices = readFileSync("THIRD_PARTY_NOTICES.md", "utf8");
 
@@ -21,7 +21,7 @@ assert.match(cargoManifest, new RegExp(`^version = "${packageManifest.version.re
 assert.match(cargoManifest, /^license = "Apache-2\.0"$/m, "Cargo metadata must declare the repository license");
 assert.match(cargoLock, new RegExp(`name = "pid-desktop"\\r?\\nversion = "${packageManifest.version.replaceAll(".", "\\.")}"`), "Cargo.lock package version must match package.json");
 assert.equal(tauriConfig.version, packageManifest.version, "Tauri bundle version must match package.json");
-assert.match(packageManifest.devDependencies?.bun ?? "", /^\d+\.\d+\.\d+$/, "the Pi sidecar compiler must be pinned exactly");
+assert.match(packageManifest.devDependencies?.bun ?? "", /^\d+\.\d+\.\d+$/, "the Harness Host compiler must be pinned exactly");
 
 // The Tauri CLI refuses to run dev or build when an npm package and its crate
 // differ in major.minor, and CI never runs the CLI, so compare the lockfiles.
@@ -45,9 +45,14 @@ for (const [crate, npmPackage] of tauriPairs) {
   );
 }
 assert.equal(
-  tauriConfig.bundle?.resources?.["resources/pi-runtime/"],
-  "pi-runtime/",
-  "the generated Pi runtime must be included in desktop bundles",
+  Object.keys(tauriConfig.bundle?.resources ?? {}).some((path) => path.includes("pi-runtime")),
+  false,
+  "Pi is no longer bundled (P6c)",
+);
+assert.equal(
+  Object.keys({ ...packageManifest.dependencies, ...packageManifest.devDependencies }).some((name) => name.startsWith("@earendil-works/")),
+  false,
+  "the app must not depend on Pi (P6c)",
 );
 assert.equal(
   tauriConfig.bundle?.resources?.["resources/harness/"],
@@ -59,11 +64,10 @@ assert.equal(
   true,
   "the Harness Host resource directory must exist in a clean checkout",
 );
-assert.match(thirdPartyNotices, /@earendil-works\/pi-coding-agent/, "bundled Pi must have redistribution notices");
 assert.match(thirdPartyNotices, /Bun runtime/, "bundled Bun runtime must have redistribution notices");
-const mcpVersions = [...mcpExtension.matchAll(/clientInfo: \{ name: "Pi Desktop", version: "([^"]+)" \}/g)].map((match) => match[1]);
-assert.ok(mcpVersions.length > 0, "bundled MCP clients must declare a version");
-assert.ok(mcpVersions.every((version) => version === packageManifest.version), "bundled MCP client versions must match package.json");
+const mcpVersions = [...mcpClient.matchAll(/clientInfo: \{ name: "Pi Desktop", version: "([^"]+)" \}/g)].map((match) => match[1]);
+assert.ok(mcpVersions.length > 0, "the MCP client must declare a version");
+assert.ok(mcpVersions.every((version) => version === packageManifest.version), "the MCP client version must match package.json");
 
 assert.equal(typeof csp, "string", "the main WebView must define a CSP");
 assert.match(csp, /default-src 'self'/, "CSP must default to same-origin resources");

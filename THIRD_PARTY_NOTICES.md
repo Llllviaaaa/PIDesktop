@@ -1,13 +1,14 @@
 # Third-Party Notices
 
-Pi Desktop installers include a fixed, standalone Pi runtime so users do not need a global Node.js or npm installation for the core agent workflow.
+Pi Desktop installers include the Harness Host as one executable compiled with Bun, so users do not need a global Node.js or npm installation for the core agent workflow.
 
 ## Pi coding agent
 
-- Package: `@earendil-works/pi-coding-agent`
+- Package: `@earendil-works/pi-coding-agent` (no longer bundled or depended on since 0.3)
 - Upstream: https://github.com/earendil-works/pi
 - License: MIT
 - Copyright: Mario Zechner and contributors
+- Used for: the one-time import reads Pi's session, `models.json` and `auth.json` formats, and `packages/host/src/pi-builtins.ts` lists provider endpoints taken from Pi's model catalog. The test samples in `packages/host/test/fixtures/pi-sessions` were written by Pi's `SessionManager`.
 
 ## Bun runtime
 

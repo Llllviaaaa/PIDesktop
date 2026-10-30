@@ -5,7 +5,6 @@
 //! the message, which the Harness Host's `llm.complete` writes. The agent is
 //! never asked to commit on the user's behalf.
 
-use crate::pi::process::kill_process_tree;
 use crate::*;
 use std::io::{Read, Write};
 use std::path::Path;

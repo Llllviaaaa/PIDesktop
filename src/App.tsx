@@ -78,7 +78,6 @@ import {
   type DesktopPetWindowState,
 } from "./components/DesktopPetWindow";
 import { ExtensionDialog, extensionRequestHeadline } from "./components/ExtensionDialog";
-import { HarnessOffer } from "./components/HarnessOffer";
 import { PiImportOffer } from "./components/PiImportOffer";
 import { describeImport, piImport } from "./lib/piImport";
 import { ConversationMessages } from "./components/ConversationMessages";
@@ -97,9 +96,8 @@ import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectCon
 const SettingsModal = lazy(() => import("./components/SettingsModal").then((module) => ({ default: module.SettingsModal })));
 const PullRequestsPage = lazy(() => import("./components/PullRequestsPage").then((module) => ({ default: module.PullRequestsPage })));
 const ScheduledTasksPage = lazy(() => import("./components/ScheduledTasksPage").then((module) => ({ default: module.ScheduledTasksPage })));
-const PluginMarketplacePage = lazy(() => import("./components/PluginMarketplacePage").then((module) => ({ default: module.PluginMarketplacePage })));
 
-type HubView = "pull-requests" | "sites" | "scheduled" | "plugins";
+type HubView = "pull-requests" | "sites" | "scheduled";
 type AppMenu = "file" | "edit" | "view" | "help";
 type NavigationTarget = BaseNavigationTarget<HubView>;
 
@@ -165,26 +163,18 @@ export default function App() {
     }
     setLocalTranscriptDensity(density);
   }, []);
-  // The one-time Pi → Harness offer (P5d): either answer is recorded and not asked again.
-  const answerHarnessOffer = useCallback((engine: AppSettings["engine"]) => {
-    const current = usePiStore.getState();
-    if (!current.settings) return;
-    void current.saveSettings({ ...current.settings, engine, harnessPromptSeen: true }).catch((error) => {
-      current.showToast(`保存引擎设置失败：${describeError(error)}`, "error");
-    });
-  }, []);
-  // Pi's past tasks, offered once on the Harness engine (P6b).
+  // Pi's past tasks, offered once (P6b).
   const [piImportPending, setPiImportPending] = useState<number | null>(null);
-  const harnessEngine = settings?.engine === "harness";
+  const haveSettings = settings !== null;
   const piSessionDir = settings?.sessionDir;
   useEffect(() => {
-    if (!isTauri || !harnessEngine) return;
+    if (!isTauri || !haveSettings) return;
     let cancelled = false;
     void piImport.status(piSessionDir).then((status) => {
       if (!cancelled && !status.prompted && status.pending > 0) setPiImportPending(status.pending);
     }, () => undefined);
     return () => { cancelled = true; };
-  }, [harnessEngine, isTauri, piSessionDir]);
+  }, [haveSettings, isTauri, piSessionDir]);
   const cycleTranscriptDensity = useCallback(() => {
     setTranscriptDensity(nextTranscriptDensity(transcriptDensity));
   }, [setTranscriptDensity, transcriptDensity]);
@@ -1603,12 +1593,10 @@ export default function App() {
             notifications={notifications}
             cwd={newTask ? draftWorkspace : cwd}
             newTaskActive={newTask && hubView === null}
-            activeHub={hubView === "pull-requests" || hubView === "scheduled" || hubView === "plugins" ? hubView : null}
+            activeHub={hubView === "pull-requests" || hubView === "scheduled" ? hubView : null}
             onNewSession={() => navigateTo({ kind: "home", workspace: draftWorkspace || cwd })}
             onOpenPullRequests={() => navigateTo({ kind: "hub", view: "pull-requests" })}
             onOpenScheduled={() => navigateTo({ kind: "hub", view: "scheduled" })}
-            // The plugins page manages Pi packages; the harness has none to manage yet (P5d).
-            onOpenPlugins={settings?.engine === "pi" ? () => navigateTo({ kind: "hub", view: "plugins" }) : undefined}
             onOpenSession={(session) => navigateTo({ kind: "session", cwd: session.cwd, file: session.file })}
             onOpenNotification={(notification) => {
               store.markNotificationRead(notification.id);
@@ -1837,8 +1825,6 @@ export default function App() {
               onOpenSession={(workspace, file) => navigateTo({ kind: "session", cwd: workspace, file })}
               onError={showErrorToast}
             />
-          ) : hubView === "plugins" && settings?.engine === "pi" ? (
-            <PluginMarketplacePage cwd={draftWorkspace || cwd} />
           ) : hubView === "sites" ? (
             <div className="feature-hub">
               <div className="feature-hub-heading"><span className="feature-hub-icon"><Globe2 size={22} /></span><div><h1>站点快捷方式</h1><p>识别当前项目中的 Web 应用并在本地启动检查。</p></div></div>
@@ -1972,10 +1958,7 @@ export default function App() {
           onDone={finishCommit}
         />
       )}
-      {settings?.engine === "pi" && !settings.harnessPromptSeen && !settingsOpen && (
-        <HarnessOffer onSwitch={() => answerHarnessOffer("harness")} onStay={() => answerHarnessOffer("pi")} />
-      )}
-      {piImportPending !== null && harnessEngine && !settingsOpen && (
+      {piImportPending !== null && !settingsOpen && (
         <PiImportOffer sessionDir={piSessionDir} pending={piImportPending} onDone={(report) => {
           setPiImportPending(null);
           if (report !== null && report.imported > 0) {

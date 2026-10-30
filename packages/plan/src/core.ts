@@ -1,6 +1,5 @@
 /**
- * Copied from src-tauri/resources/pidesktop-plan-core.ts (the Pi engine keeps
- * its copy until P6; ADR 0009).
+ * Taken from the Pi engine's pidesktop-plan-core.ts, which went with Pi in P6c (ADR 0009).
  */
 export type PlanItemStatus = "pending" | "in_progress" | "completed";
 

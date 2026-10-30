@@ -2,10 +2,9 @@
  * Pi's built-in providers that the harness adapters can talk to, for the
  * one-time import of keys from Pi's `auth.json` (pi-import.ts).
  *
- * Taken from Pi's model catalog (`@earendil-works/pi-ai` models.generated):
- * each provider's OpenAI chat-completions or Anthropic Messages endpoint.
- * scripts/test-pi-builtins.test.ts checks the table against that catalog
- * while Pi is still installed (until P6). Left out: providers that sign in
+ * Taken from Pi's model catalog (`@earendil-works/pi-ai` 1.4 models.generated):
+ * each provider's OpenAI chat-completions or Anthropic Messages endpoint. It
+ * was checked against that catalog until Pi went in P6c. Left out: providers that sign in
  * with OAuth only, need cloud credentials (Bedrock, Vertex, Azure), have a
  * URL with account placeholders (Cloudflare), or speak only another API.
  */

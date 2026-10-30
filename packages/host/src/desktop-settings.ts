@@ -2,8 +2,8 @@
  * The desktop's settings as harness configuration (ADR 0013). The desktop
  * sends its public settings (no MCP secrets) as a `{"desktop": …}` line on
  * the host's stdin when the host starts and whenever they change; this maps
- * them onto harness.json the way `src-tauri/src/pi/launch.rs` maps them onto
- * the Pi engine's environment and arguments.
+ * them onto harness.json, as the desktop once mapped them onto the Pi engine's
+ * environment and arguments.
  *
  * Everything here is a pure function of the message, so the mapping is
  * tested field by field.
@@ -117,8 +117,8 @@ export function harnessFromDesktop(message: DesktopMessage): DesktopHarness {
       confirmActions: bool(settings.computerConfirmActions, true),
       ...(executable ? { helper: executable } : {}),
     },
-    // One scheduler at a time: the desktop's own keeps running the Pi engine's tasks.
-    schedule: { enabled: str(settings.engine) === "harness" },
+    // The host is the only scheduler since Pi and the desktop's own went (P6c).
+    schedule: { enabled: true },
     prompt: { instructions: personalInstructions(settings) },
   };
   return { config, ...(defaultModel === undefined ? {} : { defaultModel }) };

@@ -1,173 +1,76 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import {
-  decodeProviderMessage,
-  PROVIDER_SERVICE_COMMAND,
-  type AuthEventSummary,
-  type AuthMethod,
-  type ProviderModelSummary,
-  type ProviderSummary,
-} from "../../src-tauri/resources/pidesktop-providers-core";
-import type { ExtensionUIRequest, PiEvent } from "../types";
+/**
+ * The model settings page's provider service, on the Harness Host (P6c).
+ *
+ * It used to be a session-less Pi process that listed Pi's providers and ran
+ * OAuth logins; Pi is gone, so the list is the Host's providers.json
+ * (src/lib/harnessProviders.ts) and a key is set by editing the provider.
+ * The page's interface stays as it was until the store moves to the Host's
+ * own shapes (P6d); the Host has no OAuth, so no provider offers a login.
+ */
+import type { ExtensionUIRequest } from "../types";
 import { harnessProviders } from "./harnessProviders";
-import { harnessRuntimes } from "./harnessRuntime";
-import type { PiRuntimeStatus } from "./pi";
-import { rejectRuntimeCommands, sendPiCommand, subscribePiEvents } from "./piTransport";
 
-export type { AuthEventSummary, AuthMethod, ProviderModelSummary, ProviderSummary };
+export type AuthMethod = "oauth" | "api_key";
+export type AuthSource = "stored" | "runtime" | "environment" | "fallback" | "models_json_key" | "models_json_command";
 
-/** Matches PROVIDER_SERVICE_RUNTIME_ID in src-tauri/src/lib.rs. */
-export const PROVIDER_SERVICE_RUNTIME_ID = "pidesktop-provider-service";
-export { PROVIDER_SERVICE_COMMAND };
+export interface AuthEventSummary {
+  type: "info" | "auth_url" | "device_code" | "progress" | "prompt";
+  promptType?: "text" | "secret" | "select" | "manual_code";
+  message?: string;
+  url?: string;
+  instructions?: string;
+  userCode?: string;
+  verificationUri?: string;
+}
+
+export interface ProviderModelSummary {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  input: string[];
+  contextWindow: number | null;
+  maxTokens: number | null;
+  cost: { input: number; output: number } | null;
+}
+
+export interface ProviderSummary {
+  id: string;
+  name: string;
+  oauthMethod: string | null;
+  apiKeyMethod: string | null;
+  configured: boolean;
+  authType: AuthMethod | null;
+  source: AuthSource | null;
+  sourceLabel: string | null;
+  builtin: boolean;
+  baseUrl: string;
+  models: ProviderModelSummary[];
+}
 
 export type ProviderDialogRequest = Extract<ExtensionUIRequest, { method: "select" | "input" }>;
 
-interface PendingRequest {
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
-  onAuth?: (event: AuthEventSummary) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-const pending = new Map<string, PendingRequest>();
-let dialogHandler: ((request: ProviderDialogRequest) => void) | null = null;
-let ready: Promise<void> | null = null;
-let listening: Promise<void> | null = null;
-
-const sendRaw = (_runtimeId: string, line: string) => invoke<void>("provider_service_send", { line });
-
-function settle(id: string): PendingRequest | undefined {
-  const entry = pending.get(id);
-  if (!entry) return undefined;
-  pending.delete(id);
-  clearTimeout(entry.timer);
-  return entry;
-}
-
-function failAll(reason: string) {
-  for (const id of [...pending.keys()]) settle(id)?.reject(new Error(reason));
-  rejectRuntimeCommands(PROVIDER_SERVICE_RUNTIME_ID, reason);
-}
-
-function respond(request: ExtensionUIRequest, value: string | undefined) {
-  const response = value === undefined ? { cancelled: true } : { value };
-  return sendRaw(PROVIDER_SERVICE_RUNTIME_ID, JSON.stringify({ type: "extension_ui_response", id: request.id, ...response }));
-}
-
-function handleEvent(runtimeId: string, event: PiEvent) {
-  if (runtimeId !== PROVIDER_SERVICE_RUNTIME_ID) return;
-  if (event.type === "response") {
-    // Slash-command prompts only answer here when Pi rejects them outright.
-    const requestId = event.id?.startsWith("svc-") ? event.id.slice(4) : "";
-    if (requestId && !event.success) settle(requestId)?.reject(new Error(event.error || "模型服务拒绝了请求"));
-    return;
-  }
-  if (event.type !== "extension_ui_request") return;
-  const request = event as ExtensionUIRequest;
-  if (request.method === "notify") {
-    const message = decodeProviderMessage(request.message);
-    if (!message) return;
-    if (message.type === "auth") {
-      pending.get(message.id)?.onAuth?.(message.event);
-      return;
-    }
-    const entry = settle(message.id);
-    if (message.type === "result") entry?.resolve(message.result);
-    else entry?.reject(new Error(message.message));
-    return;
-  }
-  if (request.method === "select" || request.method === "input") {
-    if (dialogHandler) dialogHandler(request);
-    else void respond(request, undefined);
-  } else if (request.method === "confirm" || request.method === "editor") {
-    void respond(request, undefined);
-  }
-}
-
-function ensureListening(): Promise<void> {
-  listening ??= Promise.all([
-    subscribePiEvents({ onEvent: handleEvent }),
-    listen<PiRuntimeStatus>("pi-status", (event) => {
-      if (event.payload.runtimeId !== PROVIDER_SERVICE_RUNTIME_ID || event.payload.status !== "exited") return;
-      ready = null;
-      failAll("模型服务已退出，请重试");
-    }),
-  ]).then(() => undefined).catch((error) => {
-    listening = null;
-    throw error;
-  });
-  return listening;
-}
-
-async function start(): Promise<void> {
-  await ensureListening();
-  await invoke<string>("provider_service_start");
-  // A custom Pi binary without the -e extension would treat our slash command as a model prompt.
-  const commands = await sendPiCommand(sendRaw, PROVIDER_SERVICE_RUNTIME_ID, "get_commands", {}, 30_000);
-  if (!commands.data?.commands?.some((command) => command.name === PROVIDER_SERVICE_COMMAND)) {
-    await invoke("provider_service_stop");
-    throw new Error("当前 Pi 运行时无法加载桌面模型管理扩展，请检查「高级」设置中的 Pi 可执行文件。");
-  }
-}
-
-export function ensureProviderService(): Promise<void> {
-  ready ??= start().catch((error) => {
-    ready = null;
-    throw error;
-  });
-  return ready;
-}
-
-async function call<T>(
-  op: string,
-  params: Record<string, unknown> = {},
-  options: { timeoutMs?: number; onAuth?: (event: AuthEventSummary) => void; requestId?: string } = {},
-): Promise<T> {
-  await ensureProviderService();
-  const id = options.requestId ?? crypto.randomUUID();
-  const result = new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => settle(id)?.reject(new Error("模型服务响应超时")), options.timeoutMs ?? 30_000);
-    pending.set(id, { resolve: resolve as (value: unknown) => void, reject, onAuth: options.onAuth, timer });
-  });
-  const message = `/${PROVIDER_SERVICE_COMMAND} ${JSON.stringify({ id, op, ...params })}`;
-  try {
-    await sendRaw(PROVIDER_SERVICE_RUNTIME_ID, JSON.stringify({ id: `svc-${id}`, type: "prompt", message }));
-  } catch (error) {
-    settle(id);
-    throw error;
-  }
-  return result;
-}
+const noOAuth = () => Promise.reject(new Error("Harness 不支持 OAuth 登录；请在“模型与连接”里为 provider 填写 API key。"));
 
 export const providerService = {
-  // On the harness engine the list is the Host's providers; Pi's provider service is not involved.
-  list: () => (harnessRuntimes.getEngine() === "harness" ? harnessProviders.list() : call<{ providers: ProviderSummary[] }>("list").then((result) => result.providers)),
-  /** Re-read models.json and credentials; `network` also refreshes remote model catalogs. */
-  refresh: (network = false) => (harnessRuntimes.getEngine() === "harness"
-    ? Promise.resolve({ refreshed: true })
-    : call<{ refreshed: boolean }>("refresh", { network }, { timeoutMs: network ? 120_000 : 30_000 })),
+  list: () => harnessProviders.list(),
+  /** The Host reads providers.json on every change; there is nothing to re-read. */
+  refresh: (_network = false) => Promise.resolve({ refreshed: true }),
   login: (
     providerId: string,
     method: AuthMethod,
     options: { apiKey?: string; requestId?: string; onAuth?: (event: AuthEventSummary) => void } = {},
-  ) => call<{ providers: ProviderSummary[] }>(
-    "login",
-    { providerId, method, apiKey: options.apiKey },
-    { timeoutMs: 15 * 60_000, onAuth: options.onAuth, requestId: options.requestId },
-  ).then((result) => result.providers),
-  cancel: (target: string) => call<{ cancelled: boolean }>("cancel", { target }),
-  logout: (providerId: string) => call<{ providers: ProviderSummary[] }>("logout", { providerId }).then((result) => result.providers),
-  check: (providerId: string, modelId: string) => call<{ latencyMs: number }>("check", { providerId, modelId }, { timeoutMs: 60_000 }),
-  /** Route login dialogs (method choice, pasted codes, extra fields) to the Settings UI. */
-  onDialog(handler: (request: ProviderDialogRequest) => void): () => void {
-    dialogHandler = handler;
-    return () => {
-      if (dialogHandler === handler) dialogHandler = null;
-    };
+  ): Promise<ProviderSummary[]> => (method === "oauth" || !options.apiKey
+    ? noOAuth()
+    : harnessProviders.setKey(providerId, options.apiKey).then(() => harnessProviders.list())),
+  cancel: (_target: string) => Promise.resolve({ cancelled: false }),
+  logout: (providerId: string) => harnessProviders.setKey(providerId, "").then(() => harnessProviders.list()),
+  check: async (providerId: string, _modelId: string) => {
+    const started = Date.now();
+    const result = await harnessProviders.check(providerId);
+    if (!result.ok) throw new Error(result.message);
+    return { latencyMs: Date.now() - started };
   },
-  respond,
-  stop: () => {
-    ready = null;
-    return invoke<void>("provider_service_stop");
-  },
+  onDialog: (_handler: (request: ProviderDialogRequest) => void): (() => void) => () => undefined,
+  respond: (_request: ExtensionUIRequest, _value: string | undefined) => Promise.resolve(),
+  stop: () => Promise.resolve(),
 };

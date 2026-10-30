@@ -273,9 +273,8 @@ describe("reloadable plugins", () => {
 });
 
 describe("scheduled tasks on the harness", () => {
-  it("run on the host only when the desktop's engine is the harness", () => {
-    expect(harnessFromDesktop({ settings: { engine: "pi" }, configDir: "/c" }).config.schedule).toEqual({ enabled: false });
-    expect(harnessFromDesktop({ settings: { engine: "harness" }, configDir: "/c" }).config.schedule).toEqual({ enabled: true });
+  it("always run on the host", () => {
+    expect(harnessFromDesktop({ settings: {}, configDir: "/c" }).config.schedule).toEqual({ enabled: true });
   });
 
   it("import the desktop's tasks, letting the host compute the next run", () => {
@@ -288,18 +287,17 @@ describe("scheduled tasks on the harness", () => {
     expect(importDesktopTasks(undefined)).toEqual([]);
   });
 
-  it("move the tasks over once, the first time the harness engine is on", () => {
+  it("move the desktop's tasks over once", () => {
     dir = mkdtempSync(join(tmpdir(), "pid-control-"));
     const configDir = join(dir, "cfg");
     mkdirSync(configDir);
     writeFileSync(join(configDir, "scheduled-tasks.json"), JSON.stringify([{ id: "t", name: "N", prompt: "p", cwd: dir, frequency: "hourly", hour: 0, minute: 5, weekday: 1, permissionMode: "read-only", enabled: true, lastStatus: "", lastMessage: "" }]));
     const dataDir = join(dir, "data");
-    expect(applyDesktopMessage(dataDir, { settings: { engine: "pi" }, configDir }, codec)).toEqual([]);
-    const notes = applyDesktopMessage(dataDir, { settings: { engine: "harness" }, configDir }, codec);
+    const notes = applyDesktopMessage(dataDir, { settings: {}, configDir }, codec);
     expect(notes).toEqual([`imported 1 scheduled task(s) from ${join(configDir, "scheduled-tasks.json")}`]);
     expect(JSON.parse(readFileSync(join(dataDir, "schedules.json"), "utf8"))).toMatchObject([{ id: "t", permissionMode: "read-only" }]);
     writeFileSync(join(configDir, "scheduled-tasks.json"), "[]");
-    expect(applyDesktopMessage(dataDir, { settings: { engine: "harness" }, configDir }, codec)).toEqual([]);
+    expect(applyDesktopMessage(dataDir, { settings: {}, configDir }, codec)).toEqual([]);
     expect(JSON.parse(readFileSync(join(dataDir, "schedules.json"), "utf8"))).toHaveLength(1);
   });
 });

@@ -16,7 +16,6 @@ export default tseslint.config(
       "node_modules/**",
       "src-tauri/target/**",
       "src-tauri/gen/**",
-      "src-tauri/resources/pi-runtime/**",
       // Vendored tooling, not project source.
       ".gitnexus/**",
       // DeepSeek Harness packages kept as they are upstream (MIT); see dsh-aliases.ts.

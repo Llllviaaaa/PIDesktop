@@ -1,5 +1,7 @@
 # Pi Desktop 补齐计划
 
+> **注**：本文写于 V2 重构之前。V2（[docs/REFACTOR_V2_PLAN.md](docs/REFACTOR_V2_PLAN.md)）把运行时换成了自研的 Harness Host，Pi 已在 P6c 移除。下文中“对齐 Pi”“Pi-native”等约束是重构前的方向，仅供参考。
+
 > 状态：执行版 v2（Phase A/B 已落地，Phase C 核心已落地） · 约束：**纯本地** + **对齐 Pi 设计理念**
 > 对照文档：[CODEX_PARITY.md](./CODEX_PARITY.md) · 运行时：[Pi](https://pi.dev)
 

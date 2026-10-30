@@ -1,11 +1,10 @@
 /**
  * The Harness Host as a Pi runtime (docs/adr/0014-frontend-harness-adapter.md).
  *
- * With `engine: "harness"`, `pi.start` returns a runtime id starting with
- * `harness:`; commands sent to such a runtime are answered here with Host
- * RPCs, and the Host's notifications reach the store as the Pi events it
- * already handles. The store and the transcript do not change, and the Pi
- * path is untouched.
+ * `pi.start` returns a runtime id starting with `harness:`; commands sent
+ * to it are answered here with Host RPCs, and the Host's notifications reach
+ * the store as the Pi events it already handles. Pi itself is gone (P6c);
+ * the store moves to the Host's own shapes in P6d.
  *
  * A runtime creates its session on its first prompt, so a workspace that is
  * only warmed up leaves no empty session behind. Its `sessionFile` is
@@ -30,7 +29,6 @@ import type { ExtensionUIRequest, ModelInfo, PiEvent, RpcData, RpcResponse } fro
 import { connectHarness, harnessEndpoint, type HarnessConnection } from "./harnessClient";
 import { HARNESS_THINKING_LEVELS, HarnessEventTranslator, effortForLevel, forkPointsOf, sessionTreeOf, toAgentMessages } from "./harnessTranscript";
 
-export type RuntimeEngine = "pi" | "harness";
 
 export const HARNESS_RUNTIME_PREFIX = "harness:";
 export const HARNESS_SESSION_PREFIX = "harness:";
@@ -65,7 +63,6 @@ interface Runtime {
 const MODEL_CATALOG_TTL_MS = 60_000;
 
 export class HarnessRuntimes {
-  private engine: RuntimeEngine = "pi";
   private connection: Promise<HarnessConnection> | undefined;
   private readonly runtimes = new Map<string, Runtime>();
   private readonly listeners = new Set<Listener>();
@@ -79,14 +76,9 @@ export class HarnessRuntimes {
 
   constructor(private readonly connect: Connect = async () => connectHarness(await harnessEndpoint(), { name: "pi-desktop", version: "1" })) {}
 
-  setEngine(engine: RuntimeEngine | undefined): void {
-    this.engine = engine === "harness" ? "harness" : "pi";
-    if (this.engine === "harness" && this.notificationListeners.size > 0) void this.rpc().catch(() => undefined);
-  }
-
   /**
-   * Hear a Host notification such as `schedule/run`. On the harness engine
-   * this connects at once, so updates arrive before anything is asked.
+   * Hear a Host notification such as `schedule/run`. This connects at once,
+   * so updates arrive before anything is asked.
    */
   onNotification(method: string, listener: (params: unknown) => void): () => void {
     let listeners = this.notificationListeners.get(method);
@@ -95,15 +87,11 @@ export class HarnessRuntimes {
       this.notificationListeners.set(method, listeners);
     }
     listeners.add(listener);
-    if (this.engine === "harness") void this.rpc().catch(() => undefined);
+    void this.rpc().catch(() => undefined);
     return () => {
       listeners?.delete(listener);
       if (listeners?.size === 0) this.notificationListeners.delete(method);
     };
-  }
-
-  getEngine(): RuntimeEngine {
-    return this.engine;
   }
 
   subscribe(listener: Listener): () => void {

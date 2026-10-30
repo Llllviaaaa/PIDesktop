@@ -10,7 +10,6 @@ import {
   Archive,
   ArchiveRestore,
   MessageSquare,
-  AtSign,
   Bell,
   Check,
   CheckCircle2,
@@ -48,7 +47,7 @@ import {
 } from "../lib/sidebarProjectOrder";
 import { sameLocalPath } from "../lib/pathIdentity";
 
-type SidebarHub = "pull-requests" | "scheduled" | "plugins" | null;
+type SidebarHub = "pull-requests" | "scheduled" | null;
 
 interface SidebarProps {
   sessions: SessionInfo[];
@@ -62,8 +61,6 @@ interface SidebarProps {
   onNewSession: () => void;
   onOpenPullRequests: () => void;
   onOpenScheduled: () => void;
-  /** Absent when there is no plugins page (the harness engine). */
-  onOpenPlugins?: () => void;
   onOpenSession: (session: SessionInfo) => void;
   onOpenNotification: (notification: AppNotification) => void;
   onMarkAllNotificationsRead: () => void;
@@ -177,7 +174,6 @@ export function Sidebar({
   onNewSession,
   onOpenPullRequests,
   onOpenScheduled,
-  onOpenPlugins,
   onOpenSession,
   onOpenNotification,
   onMarkAllNotificationsRead,
@@ -607,12 +603,6 @@ export function Sidebar({
             </span>
           )}
         </button>
-        {onOpenPlugins && (
-          <button type="button" className={`nav-item ${activeHub === "plugins" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenPlugins(); }}>
-            <AtSign size={14} strokeWidth={1.75} />
-            <span>插件</span>
-          </button>
-        )}
         <button type="button" className={`nav-item ${activeHub === "scheduled" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenScheduled(); }}>
           <Clock3 size={14} strokeWidth={1.75} />
           <span>定时任务</span>
