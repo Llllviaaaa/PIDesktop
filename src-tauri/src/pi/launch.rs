@@ -1,8 +1,8 @@
 //! One constructor for every Pi launch. Callers pick a use; they do not assemble args.
 //!
 //! `interactive` is a live RPC. `unattended` is a scheduled `-p` run and never
-//! keeps `full-access`. `toolless` drafts a commit message. `subagent_spec`
-//! only publishes the values the extension already reads before it spawns.
+//! keeps `full-access`. `subagent_spec` only publishes the values the extension
+//! already reads before it spawns.
 
 use base64::Engine;
 
@@ -45,32 +45,6 @@ pub(crate) fn unattended(
 
 pub(crate) fn is_safe_unattended_permission(mode: &str) -> bool {
     matches!(mode, "read-only" | "ask" | "workspace-write")
-}
-
-/// Commit-message drafting: no tools, no extensions, no session.
-pub(crate) fn toolless_args(provider: Option<&str>, model: Option<&str>) -> Vec<String> {
-    let mut args = [
-        "--no-session",
-        "--no-tools",
-        "--no-extensions",
-        "--no-skills",
-        "--no-prompt-templates",
-        "--no-themes",
-        "--no-context-files",
-        "--thinking",
-        "off",
-    ]
-    .map(str::to_string)
-    .to_vec();
-    if let (Some(provider), Some(model)) = (provider, model) {
-        args.extend([
-            "--provider".to_string(),
-            provider.to_string(),
-            "--model".to_string(),
-            model.to_string(),
-        ]);
-    }
-    args
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

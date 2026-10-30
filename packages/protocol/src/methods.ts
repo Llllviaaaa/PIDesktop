@@ -289,6 +289,19 @@ export interface UsageSummaryResult {
   usage: TokenUsage;
 }
 
+/** `llm.complete`: one model call without tools or a session. Without `provider` and `model` it uses the default model. */
+export interface LlmCompleteParams {
+  prompt: string;
+  system?: string;
+  provider?: string;
+  model?: string;
+}
+
+export interface LlmCompleteResult {
+  text: string;
+  model: ModelChoice;
+}
+
 // Scheduled tasks (ADR 0011).
 
 export interface ScheduledTaskInfo {
