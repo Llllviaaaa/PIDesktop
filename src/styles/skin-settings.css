@@ -469,6 +469,16 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
+/* An inset shadow sits under the preview's sidebar and top bar, so only its right and bottom
+   edges showed. An outline paints above them and frames all four sides. */
 .theme-preview {
   border-radius: 8px;
+  box-shadow: none;
+  outline: 1px solid var(--border);
+  outline-offset: -3px;
+}
+
+.theme-grid > button:hover .theme-preview,
+.theme-grid > button.active .theme-preview {
+  outline-color: transparent;
 }
