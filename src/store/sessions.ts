@@ -99,7 +99,7 @@ export function createSessionsSlice(set: SetState, get: GetState, ctx: StoreCont
     loadSessionTree: async () => {
       const runtimeId = get().runtimeId;
       if (!runtimeId || get().connection !== "running") {
-        set({ sessionTree: [], sessionTreeLeafId: null, sessionTreeError: "需要已连接的 Pi 会话才能查看会话树", sessionTreeLoading: false });
+        set({ sessionTree: [], sessionTreeLeafId: null, sessionTreeError: "需要已连接的会话才能查看会话树", sessionTreeLoading: false });
         return;
       }
       set({ sessionTreeLoading: true, sessionTreeError: null });

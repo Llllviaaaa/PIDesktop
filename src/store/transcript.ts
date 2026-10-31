@@ -155,7 +155,7 @@ export function createTranscriptSlice(set: SetState, get: GetState, ctx: StoreCo
       }
       const runtimeId = get().runtimeId;
       if (!runtimeId) {
-        ctx.toast("当前没有活动的 Pi 任务", "error");
+        ctx.toast("当前没有活动的任务", "error");
         return false;
       }
       const wasStreaming = get().isStreaming;

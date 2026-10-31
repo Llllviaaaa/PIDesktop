@@ -93,7 +93,7 @@ export function PullRequestsPage({ cwd, workspaceOptions, onOpenUrl, onCheckout,
           <span className="work-center-icon"><GitPullRequest size={20} /></span>
           <span>
             <h1>拉取请求</h1>
-            <p>查看、检出并让 Pi 审查当前项目的 GitHub 拉取请求。</p>
+            <p>查看、检出并让 Agent 审查当前项目的 GitHub 拉取请求。</p>
           </span>
         </div>
         <div className="work-center-header-actions">
@@ -154,7 +154,7 @@ export function PullRequestsPage({ cwd, workspaceOptions, onOpenUrl, onCheckout,
                     <button type="button" className="secondary-button" onClick={() => void checkout(pullRequest)} disabled={checkingOut !== null}>
                       {checkingOut === pullRequest.number ? <LoaderCircle size={14} className="spinner-icon" /> : <GitBranch size={14} />}检出
                     </button>
-                    <button type="button" className="primary-button" onClick={() => onReview(pullRequest, repositoryRoot)}><MessageSquareText size={14} />交给 Pi 审查</button>
+                    <button type="button" className="primary-button" onClick={() => onReview(pullRequest, repositoryRoot)}><MessageSquareText size={14} />交给 Agent 审查</button>
                   </div>
                 </article>
               ))}

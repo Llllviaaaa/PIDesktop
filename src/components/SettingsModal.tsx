@@ -188,7 +188,7 @@ const SETTINGS_GROUPS: Array<{
   { id: "capabilities", label: "能力扩展", description: "技能库、MCP 服务器与自动化工具。", icon: Boxes, pages: ["skills", "mcp", "browser", "computer"], layout: "tabs" },
   { id: "coding", label: "Git 与工程", description: "代码分支、代码审查、Worktrees 与生命周期 Hooks。", icon: FolderGit2, pages: ["git", "worktrees", "hooks"], layout: "tabs" },
   { id: "archived", label: "已归档", description: "历史会话归档管理与一键恢复。", icon: Archive, pages: ["archived"], layout: "single" },
-  { id: "advanced", label: "高级诊断", description: "用量统计分析与 Pi 进程诊断。", icon: SlidersHorizontal, pages: ["usage", "debug"], layout: "stack" },
+  { id: "advanced", label: "高级诊断", description: "用量统计分析与 Harness 进程诊断。", icon: SlidersHorizontal, pages: ["usage", "debug"], layout: "stack" },
 ];
 
 function groupForPage(page: SettingsPage) {
@@ -409,6 +409,8 @@ export function SettingsModal({
         await agent.restoreSession(session.file);
         dropArchived(session.file);
         setForm((current) => ({ ...current, archivedSessions: current.archivedSessions.filter((file) => file !== session.file) }));
+        // The sidebar lists the store's sessions, which still leave out the restored one.
+        await useAppStore.getState().refreshSessions();
       }} onDelete={async (session) => {
         if (!window.confirm(`将“${session.name || session.firstMessage || "未命名任务"}”移到 Pi Desktop 回收站吗？`)) return;
         await agent.deleteSession(session.file);
@@ -543,14 +545,14 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
     <PageHeading title="常规" description="控制 Pi Desktop 的启动、消息发送和项目文件打开方式。" />
     <Card title="任务">
-      <Row title="跟进消息行为" description="Pi 工作时再次发送消息所执行的操作。"><select value={form.followUpBehavior} onChange={(event) => update("followUpBehavior", event.target.value as AppSettings["followUpBehavior"])}><option value="steer">调整当前任务</option><option value="followUp">排队到下一轮</option></select></Row>
+      <Row title="跟进消息行为" description="Agent 工作时再次发送消息所执行的操作。"><select value={form.followUpBehavior} onChange={(event) => update("followUpBehavior", event.target.value as AppSettings["followUpBehavior"])}><option value="steer">调整当前任务</option><option value="followUp">排队到下一轮</option></select></Row>
       <Row title="使用 Ctrl+Enter 发送" description="Enter 插入换行，Ctrl+Enter 发送提示词。"><Switch label="使用 Ctrl+Enter 发送" checked={form.requireCtrlEnter} onChange={(value) => update("requireCtrlEnter", value)} /></Row>
       <Row title="显示推理过程" description="在任务中保留可展开的推理内容。"><Switch label="显示推理过程" checked={form.showThinking} onChange={(value) => update("showThinking", value)} /></Row>
       <Row title="对话详细程度" description="摘要隐藏工具轨迹，详细默认展开工作过程。也可在对话里用 Ctrl+O 切换。"><select value={form.transcriptDensity} onChange={(event) => update("transcriptDensity", event.target.value as AppSettings["transcriptDensity"])}><option value="summary">摘要</option><option value="normal">普通</option><option value="verbose">详细</option></select></Row>
       <Row title="显示建议提示词" description="在新任务页显示与编程相关的快捷提示词。"><Switch label="显示建议提示词" checked={form.suggestedPrompts} onChange={(value) => update("suggestedPrompts", value)} /></Row>
     </Card>
     <Card title="应用">
-      <Row title="恢复上次任务" description="启动时重新打开上一次任务及其 Pi 会话；前端刷新时会直接接回仍在运行的任务。"><Switch label="恢复上次任务" checked={form.autoConnect} onChange={(value) => update("autoConnect", value)} /></Row>
+      <Row title="恢复上次任务" description="启动时重新打开上一次任务及其会话；前端刷新时会直接接回仍在运行的任务。"><Switch label="恢复上次任务" checked={form.autoConnect} onChange={(value) => update("autoConnect", value)} /></Row>
       <Row title="运行时防止休眠" description="执行长时间本地任务时保持电脑唤醒。"><Switch label="运行时防止休眠" checked={form.preventSleep} onChange={(value) => update("preventSleep", value)} /></Row>
       <Row title="默认编辑器" description="打开项目和文件（含跳转到行）时使用。顶栏“打开方式”里为某个项目选过的编辑器优先于这里。">
         <select value={form.defaultFileOpener} onChange={(event) => update("defaultFileOpener", event.target.value)}>
@@ -562,8 +564,8 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
     </Card>
     <Card title="通知">
       <Row title="启用通知" description="允许系统显示任务完成和审批通知。"><Switch label="启用通知" checked={form.notificationsEnabled} onChange={(value) => update("notificationsEnabled", value)} /></Row>
-      <Row title="任务完成" description="Pi 完成长时间任务时通知。"><Switch label="任务完成" checked={form.notifyOnCompletion} onChange={(value) => update("notifyOnCompletion", value)} /></Row>
-      <Row title="需要审批" description="Pi 等待权限决定时通知。"><Switch label="需要审批" checked={form.notifyOnApproval} onChange={(value) => update("notifyOnApproval", value)} /></Row>
+      <Row title="任务完成" description="Agent 完成长时间任务时通知。"><Switch label="任务完成" checked={form.notifyOnCompletion} onChange={(value) => update("notifyOnCompletion", value)} /></Row>
+      <Row title="需要审批" description="Agent 等待权限决定时通知。"><Switch label="需要审批" checked={form.notifyOnApproval} onChange={(value) => update("notifyOnApproval", value)} /></Row>
       <Row title="仅窗口未聚焦时" description="Pi Desktop 已处于活动状态时不显示通知。"><Switch label="仅窗口未聚焦时" checked={form.notifyOnlyWhenUnfocused} onChange={(value) => update("notifyOnlyWhenUnfocused", value)} /></Row>
     </Card>
   </>;
@@ -760,14 +762,14 @@ function PersonalizationPage({
   onMemoryDelete: () => Promise<void>;
 }) {
   return <>
-    <PageHeading title="个性化" description="为每个本地会话设置 Pi 的工作风格和长期指令。" />
+    <PageHeading title="个性化" description="为每个本地会话设置 Agent 的工作风格和长期指令。" />
     <Card title="交流风格">
       <div className="personality-grid">{(["friendly", "pragmatic", "none"] as const).map((personality) => <button key={personality} className={form.personality === personality ? "active" : ""} onClick={() => update("personality", personality)}><Sparkles size={17} /><strong>{personality === "friendly" ? "友好" : personality === "pragmatic" ? "务实" : "无额外风格"}</strong><small>{personality === "friendly" ? "温和、清晰、协作" : personality === "pragmatic" ? "直接、简洁、注重实现" : "不添加额外表达风格"}</small></button>)}</div>
     </Card>
     <Card title="个人指令">
-      <p className="card-description">重新连接后，这些指令会追加到 Pi 的系统提示词。项目中的 AGENTS.md 和 CLAUDE.md 仍按各自作用域加载。</p>
+      <p className="card-description">重新连接后，这些指令会追加到 Agent 的系统提示词。项目中的 AGENTS.md 和 CLAUDE.md 仍按各自作用域加载。</p>
       <textarea className="large-settings-textarea" value={form.customInstructions} onChange={(event) => update("customInstructions", event.target.value)} placeholder="例如：优先使用 PowerShell，保留已有用户改动，并先运行针对性测试。" />
-      <Row title="加载记忆" description="把本地记忆和 Pi 发现的 AGENTS.md、CLAUDE.md 一起加入新任务上下文。"><Switch label="加载记忆" checked={form.memoryEnabled} onChange={(value) => update("memoryEnabled", value)} /></Row>
+      <Row title="加载记忆" description="把本地记忆和 Agent 发现的 AGENTS.md、CLAUDE.md 一起加入新任务上下文。"><Switch label="加载记忆" checked={form.memoryEnabled} onChange={(value) => update("memoryEnabled", value)} /></Row>
     </Card>
     <Card title="本地记忆">
       <p className="card-description">只保存在当前 Windows 账户的 PIDesktop 配置目录中；保存后从新任务开始注入。</p>
@@ -789,7 +791,7 @@ function PersonalizationPage({
 
 function ShortcutsPage({ form, update }: { form: AppSettings; update: Update }) {
   const rows: Array<[keyof AppSettings, string, string]> = [
-    ["shortcutNewChat", "新任务", "创建新的 Pi 任务"],
+    ["shortcutNewChat", "新任务", "创建新任务"],
     ["shortcutSettings", "打开设置", "打开设置中心"],
     ["shortcutTerminal", "切换终端", "打开或关闭终端面板"],
     ["shortcutChanges", "切换更改", "打开或关闭 Git 更改面板"],
@@ -839,12 +841,12 @@ function ArchivedPage({ archived, loading, onRestore, onDelete }: { archived: Se
 function UsagePage({ usage }: { usage: UsageSummary | null }) {
   const number = (value?: number) => (value ?? 0).toLocaleString();
   return <>
-    <PageHeading title="使用情况和计费" description="查看由本机 Pi 会话文件汇总的活动数据。" />
+    <PageHeading title="使用情况和计费" description="查看由本机会话记录汇总的活动数据。" />
     {!usage ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在计算使用情况…</div> : <>
       <div className="usage-hero"><span><small>累计 token</small><strong>{number(usage.totalTokens)}</strong></span><span><small>记录费用</small><strong>${usage.totalCost.toFixed(4)}</strong></span><span><small>任务</small><strong>{number(usage.sessions)}</strong></span><span><small>消息</small><strong>{number(usage.messages)}</strong></span></div>
       <Card title="Token 活动"><div className="usage-breakdown"><span><i style={{ width: `${Math.max(5, usage.inputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输入</strong><em>{number(usage.inputTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.outputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输出</strong><em>{number(usage.outputTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.reasoningTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>推理</strong><em>{number(usage.reasoningTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.cacheReadTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>缓存读取</strong><em>{number(usage.cacheReadTokens)}</em></span></div></Card>
     </>}
-    <div className="settings-info"><BarChart3 size={17} /><span>这些数据由 Pi JSONL 使用记录在本地计算；实际账单和订阅额度以模型提供商为准。</span></div>
+    <div className="settings-info"><BarChart3 size={17} /><span>这些数据由本机的会话记录计算；实际账单和订阅额度以模型提供商为准。</span></div>
   </>;
 }
 
@@ -889,7 +891,7 @@ function AgentPage({ form, update }: { form: AppSettings; update: Update }) {
         </div>;
       })}</div>
     </Card>
-    <div className="settings-info"><Bot size={17} /><span>模型、计划工具和 Rules 设置应用于新启动的 Pi 聊天；工作模式与权限可在当前聊天的输入框中即时切换。</span></div>
+    <div className="settings-info"><Bot size={17} /><span>模型、计划工具和 Rules 设置应用于新启动的聊天；工作模式与权限可在当前聊天的输入框中即时切换。</span></div>
   </>;
 }
 
@@ -916,7 +918,7 @@ function HooksPage({ form, update }: { form: AppSettings; update: Update }) {
     update("hooks", form.hooks.map((hook) => hook.id === id ? { ...hook, ...patch } : hook));
   };
   return <>
-    <PageHeading title="Hooks" description="在 Pi 生命周期事件上运行本机命令；事件数据以 JSON 写入标准输入。" />
+    <PageHeading title="Hooks" description="在 Agent 生命周期事件上运行本机命令；事件数据以 JSON 写入标准输入。" />
     <Card title="Hook 运行器">
       <Row title="启用 Hooks" description="仅新启动的任务加载这些命令。"><Switch label="启用 Hooks" checked={form.hooksEnabled} onChange={(value) => update("hooksEnabled", value)} /></Row>
       <Row title="继承完整环境" description="关闭时过滤 API key、令牌、密码、凭据、Authorization 和 Cookie。"><Switch label="Hooks 继承完整环境" checked={form.hooksInheritEnvironment} onChange={(value) => update("hooksInheritEnvironment", value)} /></Row>
@@ -1009,7 +1011,7 @@ function McpPage({ form, update }: { form: AppSettings; update: Update }) {
   const removeServer = (id: string) => update("mcpServers", form.mcpServers.filter((server) => server.id !== id));
 
   return <>
-    <PageHeading title="MCP 服务器" description="连接本地或远程 Model Context Protocol 服务器，并把它们的真实工具注册给 Pi。" />
+    <PageHeading title="MCP 服务器" description="连接本地或远程 Model Context Protocol 服务器，并把它们的真实工具注册给 Agent。" />
     <Card title="MCP 主机">
       <Row title="启用 MCP" description="新任务会连接已启用的服务器，并动态注册发现到的工具。"><Switch label="启用 MCP" checked={form.mcpEnabled} onChange={(value) => update("mcpEnabled", value)} /></Row>
       <Row title="工具调用前审批" description="每次执行 MCP 工具前显示服务器、工具名和参数。"><Switch label="MCP 工具调用前审批" checked={form.mcpConfirmTools} onChange={(value) => update("mcpConfirmTools", value)} /></Row>
@@ -1047,9 +1049,9 @@ function McpPage({ form, update }: { form: AppSettings; update: Update }) {
 
 function BrowserPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="Agent 浏览器" description="让 Pi 使用 Grok 风格的 browser_* 工具，通过本机 Chromium 会话检查和操作网页。" />
+    <PageHeading title="Agent 浏览器" description="让 Agent 使用 Grok 风格的 browser_* 工具，通过本机 Chromium 会话检查和操作网页。" />
     <Card title="Agent 浏览器工具">
-      <Row title="启用 Agent 浏览器" description="为新启动的 Pi 任务注册 browser_navigate、browser_inspect、browser_click 等工具。"><Switch label="启用 Agent 浏览器" checked={form.browserEnabled} onChange={(value) => update("browserEnabled", value)} /></Row>
+      <Row title="启用 Agent 浏览器" description="为新启动的任务注册 browser_navigate、browser_inspect、browser_click 等工具。"><Switch label="启用 Agent 浏览器" checked={form.browserEnabled} onChange={(value) => update("browserEnabled", value)} /></Row>
       <Row title="后台运行" description="使用无头浏览器并在 Pi Desktop 中显示页面结果和截图。"><Switch label="后台运行浏览器" checked={form.browserHeadless} onChange={(value) => update("browserHeadless", value)} /></Row>
       <Row title="网站数据" description="临时模式在任务结束后清理；保留模式使用 PIDesktop 专用配置保存 Cookie 和登录状态，不读取日常浏览器资料。"><select value={form.browserProfileMode} onChange={(event) => update("browserProfileMode", event.target.value as AppSettings["browserProfileMode"])}><option value="temporary">任务结束后清理</option><option value="persistent">保留在 PIDesktop 中</option></select></Row>
       <Row title="操作前审批" description="打开页面、新建或关闭标签、点击、输入、上传和下载前请求确认；检查、切换标签、导航、滚动和截图保持只读。"><Switch label="浏览器操作前审批" checked={form.browserConfirmActions} onChange={(value) => update("browserConfirmActions", value)} /></Row>
@@ -1061,7 +1063,7 @@ function BrowserPage({ form, update }: { form: AppSettings; update: Update }) {
 
 function ComputerPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="电脑操控" description="允许 Pi 使用 Grok 风格的 computer_* 工具查看桌面，并在审批后进入控制会话。" />
+    <PageHeading title="电脑操控" description="允许 Agent 使用 Grok 风格的 computer_* 工具查看桌面，并在审批后进入控制会话。" />
     <Card title="Computer Use">
       <Row title="启用计算机工具" description="为新任务注册 computer_start、computer_screenshot、computer_click 等工具。"><Switch label="启用计算机工具" checked={form.computerEnabled} onChange={(value) => update("computerEnabled", value)} /></Row>
       <Row title="交互操作前审批" description="computer_start 进入 control 以及点击、移动、滚动、输入和按键前必须确认；观察、截图和窗口检查保持只读。"><Switch label="计算机操作前审批" checked={form.computerConfirmActions} onChange={(value) => update("computerConfirmActions", value)} /></Row>
@@ -1111,7 +1113,7 @@ function WorktreesPage({ cwd, worktrees, loading, onCreated }: { cwd: string; wo
     try { onCreated(await agent.createWorktree(cwd)); } finally { setCreating(false); }
   };
   return <>
-    <PageHeading title="Worktrees" description="在隔离的 Git Worktree 中运行独立 Pi 任务，不影响当前本地检出。" />
+    <PageHeading title="Worktrees" description="在隔离的 Git Worktree 中运行独立任务，不影响当前本地检出。" />
     <div className="worktree-actions"><button className="primary-button" disabled={!cwd || creating} onClick={() => void create()}><GitBranch size={14} />{creating ? "正在创建…" : "创建 Worktree"}</button></div>
     <Card>{loading ? <div className="settings-empty">正在加载 Worktree…</div> : worktrees.length === 0 ? <div className="settings-empty"><GitBranch size={22} />打开 Git 工作区以管理 Worktree</div> : <div className="worktree-list">{worktrees.map((item) => <button key={item.path} onClick={() => void openPath(item.path)}><GitBranch size={17} /><span><strong>{item.isMain ? "本地检出" : item.branch || "游离 Worktree"}</strong><small>{item.path}</small></span><code>{item.head?.slice(0, 8)}</code><ChevronRight size={15} /></button>)}</div>}</Card>
   </>;

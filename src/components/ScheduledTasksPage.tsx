@@ -255,7 +255,7 @@ export function ScheduledTasksPage({
       <header className="work-center-header">
         <div>
           <span className="work-center-icon"><Clock3 size={20} /></span>
-          <span><h1>已安排</h1><p>在本机按计划运行 Pi，并保留每一次执行记录。</p></span>
+          <span><h1>已安排</h1><p>在本机按计划运行任务，并保留每一次执行记录。</p></span>
         </div>
         <div className="work-center-header-actions">
           <button type="button" className="icon-button" title="刷新" onClick={refreshNow} disabled={loading}><RefreshCw size={16} className={loading ? "spinner-icon" : ""} /></button>
@@ -318,7 +318,7 @@ export function ScheduledTasksPage({
                   {expanded && (
                     <div className="scheduled-run-detail">
                       <div className="scheduled-run-path"><span>{workspaceName(run.cwd)}</span><code>{run.cwd}</code>{run.exitCode != null && <em>退出码 {run.exitCode}</em>}</div>
-                      <pre>{run.output || (run.status === "running" ? "Pi 正在执行任务..." : "运行完成，没有文本输出。")}</pre>
+                      <pre>{run.output || (run.status === "running" ? "Agent 正在执行任务..." : "运行完成，没有文本输出。")}</pre>
                       {sessionFile && <button type="button" className="secondary-button" onClick={() => onOpenSession(run.cwd, sessionFile)}><MessageSquare size={14} />打开会话</button>}
                     </div>
                   )}
@@ -335,7 +335,7 @@ export function ScheduledTasksPage({
             <header><div><strong>{draft.id ? "编辑计划任务" : "新建计划任务"}</strong><small>任务在本机执行，并固定使用下面选择的权限。</small></div><button type="button" className="icon-button" title="关闭" onClick={() => setEditorOpen(false)}><X size={17} /></button></header>
             <label><span>名称</span><input autoFocus value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：每日检查未提交更改" required /></label>
             <label><span>工作目录</span><select value={draft.cwd} onChange={(event) => setDraft((current) => ({ ...current, cwd: event.target.value }))} required><option value="" disabled>选择项目</option>{workspaceOptions.map((workspace) => <option key={workspace} value={workspace}>{workspaceName(workspace)} — {workspace}</option>)}</select></label>
-            <label><span>交给 Pi 的任务</span><textarea value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder="描述每次运行时要完成的工作" required rows={5} /></label>
+            <label><span>要完成的任务</span><textarea value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder="描述每次运行时要完成的工作" required rows={5} /></label>
             <label><span>运行权限</span><select value={draft.permissionMode} onChange={(event) => setDraft((current) => ({ ...current, permissionMode: event.target.value as ScheduledPermissionMode }))}><option value="read-only">只读</option><option value="ask">先询问（无界面确认时阻止操作）</option><option value="workspace-write">工作区写入</option></select><small className="schedule-field-help">计划任务不会使用完全访问；需要交互确认的工具会被权限守卫阻止并写入运行记录。</small></label>
             <div className="schedule-editor-grid">
               <label><span>频率</span><select value={draft.frequency} onChange={(event) => setDraft((current) => ({ ...current, frequency: event.target.value as ScheduledFrequency }))}><option value="hourly">每小时</option><option value="daily">每天</option><option value="weekdays">工作日</option><option value="weekly">每周</option></select></label>

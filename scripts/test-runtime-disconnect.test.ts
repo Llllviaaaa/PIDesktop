@@ -80,7 +80,7 @@ test("runtime disconnect", async () => {
   });
 
   assert.equal(useAppStore.getState().connection, "exited");
-  assert.match(useAppStore.getState().toasts[0]?.message ?? "", /Pi 已退出/);
+  assert.match(useAppStore.getState().toasts[0]?.message ?? "", /Agent 已退出/);
 
   useAppStore.setState({ toasts: [] });
   let toastUpdates = 0;

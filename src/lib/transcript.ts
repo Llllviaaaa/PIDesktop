@@ -104,7 +104,8 @@ export function assistantMessageOf(event: PersistedEvent, durationMs?: number): 
     usage: usageOf(data.usage),
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     isStreaming: false,
-    isError: data.stop === "error" || data.stop === "aborted",
+    isError: data.stop === "error",
+    isAborted: data.stop === "aborted",
     durationMs,
     timestamp,
   };

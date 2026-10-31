@@ -79,7 +79,7 @@ export function isLiveAssistantWork(
   return !(content ?? "").trim();
 }
 
-/** Codex/Claude fold rows stay short; drop the app-level "Pi 正在工作…" status prefix. */
+/** Codex/Claude fold rows stay short; drop the app-level "Agent 正在工作…" status prefix. */
 export function foldWorkingLabel(workingLabel: string | undefined): string {
   const label = workingLabel?.trim();
   if (!label || /正在工作/.test(label)) return "正在工作…";
@@ -895,7 +895,8 @@ export const Message = memo(function Message({
     && !working
     && thinkingCount === 0
     && hasContent
-    && !message.isError;
+    && !message.isError
+    && !message.isAborted;
   const durationMs = message.durationMs !== undefined && message.durationMs > 0 ? message.durationMs : workDurationMs(toolCalls);
 
   if (!hasContent && !working && !hasProcess && !reasoningUnavailable) return null;
@@ -984,12 +985,14 @@ export const Message = memo(function Message({
   // Every mode folds a settled turn behind its duration divider, leaving the answer; the divider opens it again.
   const canCollapse = hasProcess;
   const settledProcessVisible = hasProcess && processOpen;
-  const showTurnProcess = !working && (hasProcess || durationMs !== null || reasoningUnavailable);
+  const showTurnProcess = !working && (hasProcess || durationMs !== null || reasoningUnavailable || message.isAborted === true);
   const turnProcessLabel = message.isError
     ? "处理失败"
-    : durationMs !== null
-      ? "已完成，用时 "
-      : "已完成";
+    : message.isAborted
+      ? durationMs !== null ? "已停止，用时 " : "已停止"
+      : durationMs !== null
+        ? "已完成，用时 "
+        : "已完成";
   const durationParts = !message.isError && durationMs !== null ? formatRunDuration(Math.max(1000, durationMs)) : [];
   const liveProcessVisible = working && hasProcess;
   const liveLabel = liveActivityLabel(workingLabel, hasRunningTool, reasoningLive, working && hasContent);

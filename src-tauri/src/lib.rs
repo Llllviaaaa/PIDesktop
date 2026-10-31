@@ -166,6 +166,34 @@ fn initialize_tray(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+/// The `devtools` feature is on for the embedded browser's inspector, which also
+/// lets WebView2 open DevTools on the app's own windows (F12, or 检查 in its
+/// default context menu). Release builds turn that off for the windows from
+/// tauri.conf.json; the embedded browser's webviews are created later and keep it.
+#[cfg(all(windows, not(debug_assertions)))]
+fn disable_app_devtools(app: &tauri::App) {
+    for (label, window) in app.webview_windows() {
+        let result = window.with_webview(move |webview| {
+            let disabled = unsafe {
+                webview
+                    .controller()
+                    .CoreWebView2()
+                    .and_then(|core| core.Settings())
+                    .and_then(|settings| settings.SetAreDevToolsEnabled(false))
+            };
+            if let Err(err) = disabled {
+                log_line!("[desktop] could not turn off DevTools for {label}: {err}");
+            }
+        });
+        if let Err(err) = result {
+            log_line!(
+                "[desktop] could not reach the {} webview: {err}",
+                window.label()
+            );
+        }
+    }
+}
+
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
@@ -213,6 +241,8 @@ pub fn run() {
         .manage(harness_host::HarnessHost::default())
         .setup(|app| {
             initialize_tray(app)?;
+            #[cfg(all(windows, not(debug_assertions)))]
+            disable_app_devtools(app);
             Ok(())
         })
         .on_window_event(|window, event| {

@@ -331,7 +331,7 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
       if (status.status === "exited") {
         if (intentionalStop) return;
         set({ connection: "exited", isStreaming: false });
-        if (status.code && status.code !== 0) ctx.toast(`Pi 已退出，代码 ${status.code}`, "error");
+        if (status.code && status.code !== 0) ctx.toast(`Agent 已退出，代码 ${status.code}`, "error");
       }
     },
 

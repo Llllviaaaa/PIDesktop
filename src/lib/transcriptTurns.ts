@@ -58,6 +58,7 @@ export function mergeAssistantTurn(messages: UiMessage[]): UiMessage {
     toolCalls: mergeToolCalls(messages),
     isStreaming: messages.some((message) => message.isStreaming),
     isError: messages.some((message) => message.isError),
+    isAborted: messages.some((message) => message.isAborted),
     durationMs: turnDurationMs(messages),
     timestamp: last.timestamp || messages[0].timestamp,
   };

@@ -582,6 +582,8 @@ export interface UiMessage {
   isStreaming?: boolean;
   toolCalls?: UiToolCall[];
   isError?: boolean;
+  /** The user stopped this turn; what it wrote so far is kept, and it is not an error. */
+  isAborted?: boolean;
   durationMs?: number;
   timestamp: number;
 }

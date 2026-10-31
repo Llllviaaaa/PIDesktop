@@ -42,9 +42,9 @@ describe("permissions", () => {
     const { run, asked, deny } = await setup();
     expect(await run("read", { path: "a.ts" })).toBe("read ran");
     expect(await run("write", { path: "a.ts", content: "" })).toBe("write ran");
-    expect(asked).toEqual(["Allow file change?"]);
+    expect(asked).toEqual(["允许修改文件？"]);
     deny();
-    expect(await run("bash", { command: "rm -rf build" })).toBe("Denied: Allow command? denied by user");
+    expect(await run("bash", { command: "rm -rf build" })).toBe("Denied: 允许执行命令？ denied by user");
   });
 
   it("follows a session's modes, recorded in its log", async () => {

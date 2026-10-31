@@ -236,7 +236,7 @@ export function CommitDialog({ cwd, git, initialPush, model, agentRunning, onClo
           <div className="commit-dialog-message">
             <div className="commit-dialog-message-head">
               <span>提交说明</span>
-              <button type="button" disabled={busy || selectedPaths.length === 0} onClick={() => void generate()} title="让 Pi 根据选中的改动写提交说明">
+              <button type="button" disabled={busy || selectedPaths.length === 0} onClick={() => void generate()} title="让 Agent 根据选中的改动写提交说明">
                 {phase === "generating" ? <LoaderCircle size={13} className="spin" /> : <Sparkles size={13} />}
                 <span>生成</span>
               </button>
@@ -246,12 +246,12 @@ export function CommitDialog({ cwd, git, initialPush, model, agentRunning, onClo
               value={message}
               disabled={busy}
               onChange={(event) => setMessage(event.target.value)}
-              placeholder="留空则由 Pi 根据改动生成"
+              placeholder="留空则由 Agent 根据改动生成"
               rows={5}
             />
           </div>
 
-          {agentRunning && <p className="commit-dialog-hint">Pi 还在运行，文件可能还会变化。</p>}
+          {agentRunning && <p className="commit-dialog-hint">Agent 还在运行，文件可能还会变化。</p>}
           {error && <pre className="commit-dialog-error" role="alert">{error}</pre>}
         </div>
 

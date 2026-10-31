@@ -298,7 +298,7 @@ test("message actions", async () => {
   assert.equal(isLiveAssistantWork(true, "Here is the answer.", [{ running: false }]), false);
   assert.equal(isLiveAssistantWork(true, "Here is the answer.", [{ running: true }]), true);
   assert.equal(isLiveAssistantWork(false, "", [{ running: true }]), false);
-  assert.equal(foldWorkingLabel("Pi 正在工作…"), "正在工作…");
+  assert.equal(foldWorkingLabel("Agent 正在工作…"), "正在工作…");
   assert.equal(foldWorkingLabel("正在压缩上下文"), "正在压缩上下文");
 
   const streamingAnswer = renderToStaticMarkup(createElement(Message, {
@@ -318,10 +318,10 @@ test("message actions", async () => {
     },
     isLastAssistant: true,
     globalStreaming: true,
-    workingLabel: "Pi 正在工作…",
+    workingLabel: "Agent 正在工作…",
   }));
   assert.match(streamingAnswer, /正在写回答/);
-  assert.doesNotMatch(streamingAnswer, /Pi 正在工作…/);
+  assert.doesNotMatch(streamingAnswer, /Agent 正在工作…/);
   // Once the answer streams, the group above it folds to its header; the answer streams below.
   assert.match(streamingAnswer, /class="dshc-group-title" aria-expanded="false"/);
   assert.doesNotMatch(streamingAnswer, /I should fold once the answer starts/);

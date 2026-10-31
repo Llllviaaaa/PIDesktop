@@ -68,6 +68,8 @@ interface SidebarProps {
   onOpenProject: (workspace: string) => void;
   onNewProjectSession: (workspace: string) => void;
   onArchiveSession: (session: SessionInfo) => void | Promise<void>;
+  /** A session came back from the archive, so the session list has to be read again. */
+  onSessionRestored: () => void;
   onOpenProjectFolder: (workspace: string) => void;
   onCreateWorktree: (workspace: string) => void | Promise<void>;
   onArchiveProject: (workspace: string, sessions: SessionInfo[]) => void | Promise<void>;
@@ -181,6 +183,7 @@ export function Sidebar({
   onOpenProject,
   onNewProjectSession,
   onArchiveSession,
+  onSessionRestored,
   onOpenProjectFolder,
   onCreateWorktree,
   onArchiveProject,
@@ -661,6 +664,7 @@ export function Sidebar({
                         event.stopPropagation();
                         void agent.restoreSession(session.file).then(() => {
                           void archivedSessionsQuery.refetch();
+                          onSessionRestored();
                           window.dispatchEvent(new Event("pid-desktop:projects-changed"));
                         });
                       }}
