@@ -5,7 +5,6 @@
  * logins, so every provider is a custom one.
  */
 import type { ModelListResult, ModelSummary } from "@pid/protocol";
-import type { ProviderModelSummary, ProviderSummary } from "./providerService";
 import type { ModelProviderCheckResult, ModelProviderConfig, ModelProviderInput, ModelProviderModel } from "../types";
 import { harnessRuntimes } from "./harnessRuntime";
 
@@ -84,13 +83,8 @@ export function summaryFromHost(provider: HostProviderConfig, models: ModelSumma
   return {
     id: provider.id,
     name: provider.name ?? provider.id,
-    oauthMethod: null,
-    apiKeyMethod: null,
     configured: provider.keySource !== "none",
-    authType: null,
-    source: null,
-    sourceLabel: provider.keySource === "environment" ? "环境变量" : provider.keySource === "stored" ? "已保存的密钥" : null,
-    builtin: false,
+    keySource: provider.keySource,
     baseUrl: provider.baseUrl ?? "",
     models: all.map((model): ProviderModelSummary => ({
       id: model.id,
@@ -106,6 +100,28 @@ export function summaryFromHost(provider: HostProviderConfig, models: ModelSumma
 
 async function hostConfigs(): Promise<HostProviderConfig[]> {
   return (await harnessRuntimes.call<{ providers: HostProviderConfig[] }>("provider.configs")).providers;
+}
+
+/** A model as the settings page lists it. */
+export interface ProviderModelSummary {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  input: string[];
+  contextWindow: number | null;
+  maxTokens: number | null;
+  cost: { input: number; output: number } | null;
+}
+
+/** A provider as the settings page lists it: its models, and where its key comes from. */
+export interface ProviderSummary {
+  id: string;
+  name: string;
+  configured: boolean;
+  /** A key saved in secrets.dat, a `$VARIABLE` reference, or none. */
+  keySource: HostProviderConfig["keySource"];
+  baseUrl: string;
+  models: ProviderModelSummary[];
 }
 
 export const harnessProviders = {

@@ -18,56 +18,37 @@ import {
   providerMonogram,
   slugifyProviderId,
 } from "../src/lib/modelProviders";
-import type { ProviderSummary } from "../src/lib/providerService";
+import type { ProviderSummary } from "../src/lib/harnessProviders";
 import type { ModelInfo } from "../src/types";
 import { test } from "vitest";
 
 test("model providers ui", async () => {
   function provider(patch: Partial<ProviderSummary> & { id: string }): ProviderSummary {
-    return {
-      name: patch.id,
-      oauthMethod: null,
-      apiKeyMethod: "API key",
-      configured: false,
-      authType: null,
-      source: null,
-      sourceLabel: null,
-      builtin: true,
-      baseUrl: "",
-      models: [],
-      ...patch,
-    };
+    return { name: patch.id, configured: false, keySource: "none", baseUrl: "", models: [], ...patch };
   }
 
   const providers = [
-    provider({ id: "anthropic", name: "Anthropic", oauthMethod: "Claude Pro/Max", configured: true, authType: "oauth", source: "stored" }),
-    provider({ id: "openai-codex", name: "OpenAI Codex", oauthMethod: "ChatGPT Plus/Pro", apiKeyMethod: null }),
+    provider({ id: "anthropic", name: "Anthropic", configured: true, keySource: "stored" }),
     provider({ id: "deepseek", name: "DeepSeek", models: [{ id: "deepseek-reasoner", name: "DeepSeek Reasoner", reasoning: true, input: ["text"], contextWindow: 64000, maxTokens: 8000, cost: null }] }),
-    provider({ id: "grok", name: "grok", builtin: false, configured: true, authType: "api_key", source: "models_json_key" }),
-    provider({ id: "my-proxy", name: "My Proxy", builtin: false }),
-    provider({ id: "llama.cpp", name: "llama.cpp", builtin: false }),
+    provider({ id: "grok", name: "grok", configured: true, keySource: "environment" }),
+    provider({ id: "llama.cpp", name: "llama.cpp" }),
   ];
-  const modelsJson = new Set(["grok", "my-proxy"]);
 
-  const groups = groupProviders(providers, modelsJson);
-  assert.deepEqual(groups.map((group) => group.id), ["connected", "subscription", "apiKey", "custom"]);
+  const groups = groupProviders(providers);
+  assert.deepEqual(groups.map((group) => group.id), ["connected", "disconnected"]);
   assert.deepEqual(groups[0].providers.map((item) => item.id), ["anthropic", "grok"]);
-  assert.deepEqual(groups[1].providers.map((item) => item.id), ["openai-codex"]);
-  assert.deepEqual(groups[2].providers.map((item) => item.id), ["deepseek"]);
-  assert.deepEqual(groups[3].providers.map((item) => item.id), ["my-proxy", "llama.cpp"], "local and custom providers stay findable");
-  assert.deepEqual(groupProviders(providers, modelsJson, "reasoner").flatMap((group) => group.providers.map((item) => item.id)), ["deepseek"], "search matches model IDs");
-  assert.deepEqual(groupProviders(providers, modelsJson, "zzz"), []);
+  assert.deepEqual(groups[1].providers.map((item) => item.id), ["deepseek", "llama.cpp"]);
+  assert.deepEqual(groupProviders(providers, "reasoner").flatMap((group) => group.providers.map((item) => item.id)), ["deepseek"], "search matches model IDs");
+  assert.deepEqual(groupProviders(providers, "zzz"), []);
 
-  assert.equal(isCustomProvider(providers[3], modelsJson), true);
-  assert.equal(isCustomProvider(providers[0], new Set(["anthropic"])), false, "a models.json override of a builtin is not custom");
+  assert.equal(isCustomProvider(providers[2], new Set(["grok"])), true, "providers.json entries can be edited");
+  assert.equal(isCustomProvider(providers[0], new Set(["grok"])), false);
 
-  assert.equal(credentialSourceText(providers[0]), "订阅账号登录");
-  assert.equal(credentialSourceText(provider({ id: "x", configured: true, authType: "api_key", source: "stored" })), "API 密钥 · 保存在 auth.json");
-  assert.equal(credentialSourceText(provider({ id: "x", configured: true, source: "environment", sourceLabel: "OPENAI_API_KEY" })), "环境变量 OPENAI_API_KEY");
-  assert.equal(credentialSourceText(providers[3]), "models.json 中的密钥");
+  assert.equal(credentialSourceText(providers[0]), "API 密钥 · 加密保存在本机");
+  assert.equal(credentialSourceText(providers[2]), "环境变量中的密钥");
   assert.equal(credentialSourceText(providers[1]), "未连接");
   assert.equal(canDisconnect(providers[0]), true);
-  assert.equal(canDisconnect(providers[3]), false, "models.json keys are edited, not logged out");
+  assert.equal(canDisconnect(providers[2]), false, "a $VARIABLE reference stays the user's");
 
   assert.equal(formatTokenCount(1_000_000), "1M");
   assert.equal(formatTokenCount(1_048_576), "1M");
@@ -110,7 +91,7 @@ test("model providers ui", async () => {
     provider({ id: "google", models: [summary("gemini-3.8-flash", { reasoning: true, input: ["text", "image"], contextWindow: 1_048_576, maxTokens: 65_536 })] }),
     provider({ id: "openai", models: [summary("gpt-4o-mini", { input: ["text", "image"], contextWindow: 128_000, maxTokens: 16_384 })] }),
     provider({ id: "deepseek", models: [summary("deepseek-reasoner", { reasoning: true, contextWindow: 128_000, maxTokens: 64_000 })] }),
-    provider({ id: "grok", builtin: false, models: [summary("claude-sonnet-4-5", { contextWindow: 1 })] }),
+    provider({ id: "grok", models: [summary("claude-sonnet-4-5", { contextWindow: 1 })] }),
   ]);
 
   assert.equal(normalizeModelId("anthropic/claude-sonnet-4.5"), "claude-sonnet-4-5");

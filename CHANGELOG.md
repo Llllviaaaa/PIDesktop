@@ -4,6 +4,20 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+## 0.3.0
+
+Tasks now run on Pi Desktop's own Harness Host instead of the bundled Pi. See `docs/RELEASE_0.3.0.md` for what moves where when upgrading from 0.2.x, and for the release checklist.
+
+- Pi is no longer bundled. Sessions, model providers, keys, scheduled tasks and logs live under `~/.pid`; keys are encrypted with DPAPI in `~/.pid/secrets.dat`. Pi's own folder is only read, never changed.
+- On first launch, custom providers from Pi's `models.json`, API keys from Pi's `auth.json`, your skills, themes and pets, and the desktop's scheduled tasks move over once. Pi's past tasks can be imported from the offer on first launch or later from 设置 › 已归档 › 导入到 Harness.
+- OAuth sign-ins (subscription logins) are not supported: add an API key, or a `$VARIABLE` reference, for those providers in 设置 › 模型与连接. The page no longer shows a sign-in option.
+- Fix: a provider without a key had no way to enter one in 设置 › 模型与连接, and a saved key could not be replaced or removed there.
+- 检查连接 asks the provider for its model list instead of sending a prompt, so it costs nothing.
+- If the Harness Host crashes, the app restarts it and reconnects, catching up on what the tasks logged meanwhile; a turn the crash cut off is marked as interrupted. A banner shows while reconnecting, and offers to start the Host again after repeated crashes.
+- Idle tasks leave memory after ten minutes and load again when opened.
+- The Host and the desktop log to `~/.pid/logs` (kept for a week, secrets redacted). 设置 › 调试 opens that folder and exports a diagnostics zip of the logs, versions and configuration for a bug report.
+- The desktop no longer carries an HTTP client: `ureq`, `rustls`, `rusqlite`, `json5` and the vendored `webpki-roots` patch are gone from `src-tauri`.
+
 ## 0.2.29 - 2026-10-12
 
 - Fix a model picked right after opening the app or starting a new task falling back to the default model once the first message was sent. The pick, and the thinking level, now stay with the task until its first message, including when sending moves the task to a worktree, quick chat or another project; a pick made while a saved session is still opening is applied to that session.
