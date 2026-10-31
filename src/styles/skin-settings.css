@@ -151,7 +151,7 @@
 }
 
 .settings-page.wide {
-  width: min(1040px, calc(100% - 64px));
+  width: min(880px, calc(100% - 64px));
 }
 
 .settings-page-heading {
