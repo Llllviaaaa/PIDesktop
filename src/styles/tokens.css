@@ -6,7 +6,8 @@
   --radius: 0.5rem;
   --font-ui: "Anthropic Sans Web Text", "Inter Variable", "Inter", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", sans-serif;
   --font-serif: "Anthropic Serif Web Text", "Noto Serif Variable", "Noto Serif", Georgia, "Times New Roman", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --font-prose: "Anthropic Serif Web Text", "Noto Serif Variable", "Noto Serif", Georgia, "Times New Roman", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  /* Replies set Chinese in the sans fallback, so a serif Latin face only mixes two families in one line. */
+  --font-prose: var(--font-ui);
   --code-font: "JetBrains Mono Variable", "JetBrains Mono", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-monospace, "SF Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace;
 
   /* Claude Style semantic aliases */
