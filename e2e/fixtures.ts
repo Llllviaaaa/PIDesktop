@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test as base, expect, type Page } from "@playwright/test";
+import { test as base, expect, type Locator, type Page } from "@playwright/test";
 import { ScriptedProvider } from "@pid/testkit";
 import { startE2eHost, type E2eHost } from "../packages/host/test/e2e-host.ts";
 import { E2E_ORIGIN } from "../playwright.config.ts";
@@ -63,7 +63,7 @@ export const test = base.extend<{ harness: Harness; app: Page }>({
   },
 });
 
-export const composer = (page: Page) => page.getByPlaceholder(/发消息|继续指示/);
+export const composer = (page: Page | Locator) => page.getByPlaceholder(/发消息|继续指示/);
 
 /** Type `text` into the composer and send it. */
 export async function send(page: Page, text: string): Promise<void> {
