@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { answer, expect, send, settled, test, textReply, toolReply, userBubble, userRow } from "./fixtures.ts";
+import { answer, composer, expect, send, settled, test, textReply, toolReply, userBubble, userRow } from "./fixtures.ts";
 
 test("send a message and watch the reply stream in", async ({ app, harness }) => {
   harness.provider.push([
@@ -88,9 +88,26 @@ test("fork the conversation from its latest checkpoint", async ({ app, harness }
   await expect(answer(app, "On the fork.")).toBeVisible();
 });
 
-test.fixme("chat beside the conversation", async () => {
-  // Side chat lives in better-sidebar's right column, which never mounts a
-  // session surface in this build ("先打开一个任务，再使用侧边栏"), so it cannot be opened here.
+test("chat beside the conversation", async ({ app, harness }) => {
+  harness.provider.push(textReply("Main answer."), textReply("Side answer."));
+  await send(app, "main question");
+  await expect(answer(app, "Main answer.")).toBeVisible();
+  await settled(app);
+
+  // A side chat runs in the right column, on a hidden fork of the task.
+  await app.keyboard.press("Control+Alt+B");
+  const sidebar = app.locator("[data-rightbar-col]");
+  await sidebar.getByText("侧边对话(beta)").click();
+  await composer(sidebar).fill("side question");
+  await sidebar.getByTitle("发送").click();
+  await expect(sidebar.locator(".dshc-answer", { hasText: "Side answer." })).toBeVisible();
+  await expect(sidebar.locator(".dshc-bubble-text", { hasText: "side question" })).toBeVisible();
+
+  // The task's own conversation is left as it was.
+  const main = app.locator(".conversation");
+  await expect(main.locator(".dshc-bubble-text", { hasText: "side question" })).toHaveCount(0);
+  await expect(main.locator(".dshc-answer", { hasText: "Side answer." })).toHaveCount(0);
+  expect(harness.provider.requests.at(-1)?.messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
 });
 
 test("reconnect after the Host restarts", async ({ app, harness }) => {

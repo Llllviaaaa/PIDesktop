@@ -8,7 +8,7 @@
 import type { StoreApi } from "zustand";
 import { describeError } from "../lib/errors";
 import { agent } from "../lib/agent";
-import { buildPromptPayload, harnessRuntimes } from "../lib/harnessRuntime";
+import { buildPromptPayload, HARNESS_SESSION_PREFIX, harnessRuntimes } from "../lib/harnessRuntime";
 import { insertManagedQueueItem } from "../lib/managedQueue";
 import { persistModelCatalog } from "../lib/modelCatalogCache";
 import { sameLocalPath } from "../lib/pathIdentity";
@@ -165,6 +165,19 @@ export class StoreContext {
         },
       };
     });
+  };
+
+  /**
+   * Record the session a new task's first prompt created. syncSession ran
+   * before it existed, so the task had no session file to show it by.
+   */
+  recordStartedSession = (runtimeId: string) => {
+    const sessionFile = harnessRuntimes.sessionFileOf(runtimeId);
+    if (!sessionFile) return;
+    if (this.get().runtimes[runtimeId]?.sessionFile !== sessionFile) this.updateRuntime(runtimeId, { sessionFile });
+    if (this.get().runtimeId === runtimeId && this.get().sessionFile !== sessionFile) {
+      this.set({ sessionFile, sessionId: sessionFile.slice(HARNESS_SESSION_PREFIX.length) });
+    }
   };
 
   setManagedQueueForRuntime = (runtimeId: string, queue: ManagedQueuedMessage[]) => {
