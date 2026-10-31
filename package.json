@@ -22,7 +22,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json --noEmit && tsc -p tsconfig.packages.json --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json --noEmit && tsc -p tsconfig.packages.json --noEmit && tsc -p tsconfig.e2e.json --noEmit",
     "lint": "eslint .",
     "prepare:harness-host": "node scripts/prepare-harness-host.mjs",
     "preview": "vite preview",
@@ -30,6 +30,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:stress": "vitest run --config vitest.stress.config.ts",
+    "test:e2e": "playwright test",
     "test:coverage": "vitest run --coverage",
     "test:harness-host": "npm run prepare:harness-host && node scripts/test-harness-host.mjs",
     "test:public-hygiene": "node scripts/test-public-repo-hygiene.mjs",
@@ -118,6 +119,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.64.1",
     "@tauri-apps/cli": "^2",
     "@types/mdast": "^4.0.4",
     "@types/picomatch": "^4.0.3",

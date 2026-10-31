@@ -76,7 +76,7 @@ export type SettingsPage =
   | "worktrees"
   | "debug";
 
-const DEFAULTS: AppSettings = {
+export const DEFAULTS: AppSettings = {
   provider: "",
   model: "",
   thinkingLevel: "medium",

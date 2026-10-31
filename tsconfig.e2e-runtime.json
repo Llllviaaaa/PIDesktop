@@ -1,0 +1,14 @@
+{
+  "//": "What Playwright resolves at run time (playwright.config.ts): the names dsh-aliases.ts maps for better-sidebar's host half, pointed at the real files.",
+  "extends": "./tsconfig.e2e.json",
+  "compilerOptions": {
+    "paths": {
+      "dsh-better-sidebar/*": ["./src/better-sidebar/*"],
+      "@deepseek-ai/dsh-tools": ["./packages/host/src/better-sidebar/shims/dsh-tools.ts"],
+      "@deepseek-ai/dsh-settings": ["./packages/host/src/better-sidebar/shims/dsh-settings.ts"],
+      "@deepseek-ai/dsh-llm": ["./packages/host/src/better-sidebar/shims/dsh-llm.ts"],
+      "@deepseek-ai/dsh-agent": ["./packages/host/src/better-sidebar/shims/dsh-agent.ts"],
+      "@deepseek-ai/dsh-subagent": ["./packages/host/src/better-sidebar/shims/dsh-subagent.ts"]
+    }
+  }
+}
