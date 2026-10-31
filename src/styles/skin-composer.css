@@ -1,6 +1,6 @@
 /*
  * DSH + Claude Style port: new-session home, usage dashboard,
- * 16-bit pixel pet companion, permission segments, and DSH-native InputBar card
+ * 16-bit pixel pet art, permission segments, and DSH-native InputBar card
  * (with zero gradient masks over the composer or transcript).
  */
 
@@ -276,7 +276,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── 16-bit Pixel Pet Companion on Composer & Settings ─────────────── */
+/* ── 16-bit Pixel Pet art (desktop pet and settings preview) ───────── */
 
 .pixel-pet-svg {
   width: 100%;
@@ -284,59 +284,6 @@
   display: block;
   image-rendering: pixelated;
   shape-rendering: crispEdges;
-}
-
-.codex-shot .composer-pixel-pet {
-  position: absolute;
-  right: 16px;
-  bottom: calc(100% - 3px);
-  z-index: 4;
-  display: inline-flex;
-  align-items: flex-end;
-  pointer-events: none;
-}
-
-.codex-shot .composer-pixel-pet-btn {
-  width: 46px;
-  height: 42px;
-  padding: 0;
-  margin: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  pointer-events: auto;
-  transition: transform 0.14s ease;
-}
-
-.codex-shot .composer-pixel-pet-btn:hover {
-  transform: translateY(-2px) scale(1.05);
-}
-
-.codex-shot .composer-pixel-pet-btn:active {
-  transform: scale(0.95);
-}
-
-.codex-shot .composer-pixel-pet-bubble {
-  position: absolute;
-  right: calc(100% + 6px);
-  bottom: 10px;
-  padding: 3px 9px;
-  border: 1px solid var(--dsh-claude-border-l2, var(--border));
-  border-radius: 8px;
-  background: var(--dsh-claude-raised, var(--popover));
-  color: var(--text-2);
-  font-family: var(--font-ui);
-  font-size: 11.5px;
-  line-height: 16px;
-  white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(20, 20, 19, 0.08);
-  pointer-events: none;
-  animation: pixel-pet-bubble-in 0.15s ease-out both;
-}
-
-@keyframes pixel-pet-bubble-in {
-  from { opacity: 0; transform: translateY(3px) scale(0.96); }
-  to { opacity: 1; transform: none; }
 }
 
 /* ── Permission Chip & Menu (`.chip-permission` + `.permission-menu`) ─ */

@@ -1480,7 +1480,6 @@ export default function App() {
 
   const renderComposer = (variant: "task-start" | "follow-up") => (
     <Composer
-      pet={activePet}
       variant={variant}
       isStreaming={isStreaming}
       isSwitchingModel={isSwitchingModel}
