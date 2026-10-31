@@ -28,6 +28,8 @@ npm audit --audit-level=high
 npm run typecheck
 npm run lint
 npm run test:unit
+npm run test:stress
+npm run test:e2e
 npm run build
 
 Set-Location src-tauri
