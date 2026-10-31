@@ -1,0 +1,88 @@
+name: Release build
+
+# Builds the unsigned Windows installers. A manual run only uploads them as a
+# workflow artifact; pushing a v* tag also attaches them to a draft release.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Windows installers
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: rustup toolchain install 1.96.1 --profile minimal
+      - name: Check the version matches the tag
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauri = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($tauri -ne $version) { Write-Error "tauri.conf.json is $tauri, package.json is $version"; exit 1 }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            Write-Error "Tag $env:GITHUB_REF_NAME does not match version $version"; exit 1
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - run: npm ci
+      # beforeBuildCommand compiles harness/pid-harness.exe and the frontend.
+      - run: npx tauri build
+      - name: Check the bundled Harness Host
+        shell: pwsh
+        run: |
+          foreach ($file in 'pid-harness.exe', 'build-manifest.json') {
+            if (-not (Test-Path "src-tauri/resources/harness/$file")) { Write-Error "Missing harness/$file"; exit 1 }
+          }
+          Get-Content src-tauri/resources/harness/build-manifest.json
+      - name: Collect installers and hashes
+        shell: pwsh
+        run: |
+          $out = New-Item -ItemType Directory -Force release
+          $bundle = 'src-tauri/target/release/bundle'
+          Copy-Item "$bundle/nsis/*.exe", "$bundle/msi/*.msi", src-tauri/target/release/pid-desktop.exe $out
+          Get-ChildItem $out -File | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Set-Content -Encoding utf8 "$out/SHA256SUMS.txt"
+          Get-Content "$out/SHA256SUMS.txt"
+          Get-ChildItem $out -File | Format-Table Name, @{ n = 'MB'; e = { [math]::Round($_.Length / 1MB, 1) } }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pi-desktop-${{ steps.version.outputs.version }}-unsigned
+          path: release/
+          if-no-files-found: error
+
+  draft-release:
+    name: Draft release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: release
+          merge-multiple: true
+      - name: Create a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" release/*
+          --draft --verify-tag --title "Pi Desktop ${GITHUB_REF_NAME#v}"
+          --notes-file docs/RELEASE_${GITHUB_REF_NAME#v}.md
