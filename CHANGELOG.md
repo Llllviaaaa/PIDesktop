@@ -4,6 +4,9 @@ Notable user-facing changes are documented in this file.
 
 ## Unreleased
 
+- Fix: opening Pi Desktop while it is already running (for example while it sits in the tray) started a second copy. It now brings the existing window to the front.
+- Fix: 设置 › 调试 › 打开日志目录 failed with `Not allowed to open path`; it now opens `~/.pid/logs`.
+
 ## 0.3.0
 
 Tasks now run on Pi Desktop's own Harness Host instead of the bundled Pi. See `docs/RELEASE_0.3.0.md` for what moves where when upgrading from 0.2.x, and for the release checklist.
