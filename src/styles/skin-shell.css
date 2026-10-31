@@ -8,7 +8,7 @@
  * - New session button (`.dsh-claude-new-session`): 20px circle plus badge that rotates 90deg on hover + keycaps for the configured new chat shortcut.
  * - Workspace header (`.sidebar-projects-header`): cross-fades between "工作区" and `进行中 | 已归档` segmented control (`.dsh-claude-ws-segments`), with flat archived session list (`.dsh-claude-archive-list`).
  * - Project & session rows: 28px height, 6px radius, project chevron on the right of the project name, 5px hollow circle dot on session rows, Win11 spinner on running rows.
- * - Account footer (`.dsh-claude-account-btn` + `.dsh-claude-account-popover`): 1px top hairline, 18px Anthropic avatar, upward popover card.
+ * - Settings footer (`.dsh-claude-account-btn`): 1px top hairline, gear icon, opens settings directly.
  */
 
 /* ── Frame & Scrollbars ────────────────────────────────────────────── */
@@ -941,10 +941,9 @@
   width: 18px;
   height: 18px;
   margin-right: 8px;
-  border-radius: 50%;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: contain;
+  display: inline-grid;
+  place-items: center;
+  color: var(--text-2);
 }
 
 .codex-shot .dsh-claude-account-label {
@@ -961,92 +960,6 @@
 
 .codex-shot .dsh-claude-account-user {
   font-weight: 500;
-  color: var(--text);
-}
-
-.codex-shot .dsh-claude-account-chevron {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-2);
-}
-
-.codex-shot .dsh-claude-account-popover {
-  position: absolute;
-  top: auto !important;
-  bottom: calc(100% + 8px) !important;
-  left: 10px;
-  right: 10px;
-  z-index: 90;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px !important;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border)) !important;
-  border-radius: 12px !important;
-  background: var(--dsh-claude-raised, var(--popover)) !important;
-  color: var(--text) !important;
-  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.08) !important;
-  overflow: hidden !important;
-}
-
-.codex-shot .dsh-claude-account-popover-header {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 8px 6px;
-}
-
-.codex-shot .dsh-claude-account-popover-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  line-height: 18px;
-}
-
-.codex-shot .dsh-claude-account-popover-sub {
-  font-size: 11px;
-  color: var(--text-3);
-  line-height: 15px;
-}
-
-.codex-shot .dsh-claude-account-popover button {
-  width: 100% !important;
-  height: 32px !important;
-  min-height: 32px !important;
-  border: 0 !important;
-  border-radius: 6px !important;
-  background: transparent !important;
-  color: var(--text) !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-  padding: 0 10px !important;
-  font-family: var(--font-ui) !important;
-  font-size: 12.5px !important;
-  font-weight: 500 !important;
-  text-align: left !important;
-  cursor: pointer !important;
-  box-shadow: none !important;
-  outline: none !important;
-  transition: background-color 0.12s ease, color 0.12s ease !important;
-}
-
-.codex-shot .dsh-claude-account-popover button:hover {
-  background: var(--dsh-claude-hover-bg, var(--hover)) !important;
-  color: var(--text) !important;
-}
-
-.codex-shot .dsh-claude-account-popover button svg {
-  color: var(--text-3);
-  flex-shrink: 0;
-}
-
-.codex-shot .dsh-claude-account-popover button:hover svg {
   color: var(--text);
 }
 

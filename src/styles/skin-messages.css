@@ -1520,10 +1520,10 @@
   justify-content: space-between;
   gap: 12px;
   min-height: 0;
-  padding: 9px 14px;
+  padding: 6px 10px 0 14px;
   border-bottom: 0;
   background: var(--dshc-code-banner);
-  color: var(--dshc-label-primary);
+  color: var(--dshc-label-secondary);
   font: 11px/18px var(--dshc-font-code);
 }
 
@@ -1545,14 +1545,14 @@
 
 .codex-shot .dshc-md .markdown-code pre {
   margin: 0;
-  padding: 16px;
+  padding: 6px 14px 12px;
   border: 0;
   border-radius: 0;
   background: var(--dshc-code-block);
   font-family: var(--dshc-font-code);
   font-size: calc(1em - 1px);
-  font-weight: 500;
-  line-height: calc(23px + var(--dshc-fd));
+  font-weight: 400;
+  line-height: calc(21px + var(--dshc-fd));
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -1564,7 +1564,7 @@
   background: none;
   color: inherit;
   font: inherit;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 /* Tables (MarkdownText tableScroll under the skin's bordered card). */

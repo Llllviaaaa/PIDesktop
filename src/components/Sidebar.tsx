@@ -14,7 +14,6 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  ChevronUp,
   Clock3,
   Folder,
   FolderOpen,
@@ -202,7 +201,6 @@ export function Sidebar({
   const requestedBranches = useRef(new Set<string>());
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [brandMenuOpen, setBrandMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<"active" | "archived">("active");
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
@@ -310,7 +308,6 @@ export function Sidebar({
   );
 
   const closePopovers = () => {
-    setBrandMenuOpen(false);
     setNotificationsOpen(false);
     setSearchOpen(false);
     setProjectMenu(null);
@@ -350,7 +347,6 @@ export function Sidebar({
       ? Math.max(54, Math.min(buttonRect.top - sidebarRect.top - 7, sidebarRect.height - 260))
       : 54;
     setProjectMenu((current) => current?.workspace === workspace ? null : { workspace, top });
-    setBrandMenuOpen(false);
     setNotificationsOpen(false);
     setSearchOpen(false);
     setThreadPreview(null);
@@ -411,7 +407,7 @@ export function Sidebar({
   };
 
   useEffect(() => {
-    const hasOpenPopover = brandMenuOpen || notificationsOpen || searchOpen || projectMenu || editingProject;
+    const hasOpenPopover = notificationsOpen || searchOpen || projectMenu || editingProject;
     if (!hasOpenPopover) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
       if (!sidebarRef.current?.contains(event.target as Node)) {
@@ -421,7 +417,7 @@ export function Sidebar({
     };
     document.addEventListener("pointerdown", closeOnOutsidePointer);
     return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [brandMenuOpen, editingProject, notificationsOpen, projectMenu, searchOpen]);
+  }, [editingProject, notificationsOpen, projectMenu, searchOpen]);
 
   useEffect(() => () => {
     if (previewCloseTimer.current !== null) window.clearTimeout(previewCloseTimer.current);
@@ -430,7 +426,6 @@ export function Sidebar({
   useSyncOnChange([searchRequested], () => {
     if (!searchRequested) return;
     setSearchOpen(true);
-    setBrandMenuOpen(false);
     setNotificationsOpen(false);
     setProjectMenu(null);
   });
@@ -468,7 +463,7 @@ export function Sidebar({
       <div className="sidebar-brand-row" data-dsh-claude-search-row="">
         <button
           type="button"
-          className={`codex-brand ${brandMenuOpen ? "active" : ""}`}
+          className="codex-brand"
           onClick={() => {
             onNewSession();
           }}
@@ -491,7 +486,6 @@ export function Sidebar({
             aria-expanded={searchOpen}
             onClick={() => {
               setSearchOpen((value) => !value);
-              setBrandMenuOpen(false);
               setNotificationsOpen(false);
               setProjectMenu(null);
             }}
@@ -506,7 +500,6 @@ export function Sidebar({
             aria-expanded={notificationsOpen}
             onClick={() => {
               setNotificationsOpen((value) => !value);
-              setBrandMenuOpen(false);
               setSearchOpen(false);
               setProjectMenu(null);
             }}
@@ -881,40 +874,17 @@ export function Sidebar({
       )}
 
       <div className="sidebar-footer codex-footer">
-        {brandMenuOpen && (
-          <div className="sidebar-popover dsh-claude-account-popover" data-sidebar-popover>
-            <div className="dsh-claude-account-popover-header">
-              <span className="dsh-claude-account-popover-name">Pi Desktop</span>
-              <span className="dsh-claude-account-popover-sub">本地工作区模式</span>
-            </div>
-            <div className="sidebar-popover-separator" />
-            <button type="button" onClick={() => { closePopovers(); onOpenSettings(); }}>
-              <Settings size={15} />设置
-            </button>
-          </div>
-        )}
         <button
           type="button"
           className="footer-account dsh-claude-account-btn"
-          data-open={brandMenuOpen ? "true" : undefined}
-          onClick={() => {
-            setBrandMenuOpen((value) => !value);
-            setNotificationsOpen(false);
-            setSearchOpen(false);
-            setProjectMenu(null);
-          }}
-          title="账户与设置"
+          onClick={() => { closePopovers(); onOpenSettings(); }}
+          title="设置"
         >
-          <span
-            className="dsh-claude-account-avatar"
-            style={{ backgroundImage: `url("${PI_BRAND_MARK_SVG}")` }}
-            aria-hidden="true"
-          />
-          <span className="dsh-claude-account-label">
-            <span className="dsh-claude-account-user">Pi Desktop</span>
+          <span className="dsh-claude-account-avatar" aria-hidden="true">
+            <Settings size={15} strokeWidth={1.7} />
           </span>
-          <span className="dsh-claude-account-chevron" aria-hidden="true">
-            {brandMenuOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+          <span className="dsh-claude-account-label">
+            <span className="dsh-claude-account-user">设置</span>
           </span>
         </button>
       </div>

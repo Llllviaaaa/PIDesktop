@@ -13,6 +13,10 @@ import "@fontsource-variable/noto-serif/wght.css";
 import "@fontsource-variable/jetbrains-mono/wght.css";
 import "./styles/index.css";
 
+// tokens.css defaults to the dark palette; until App reads settings, follow the system so the
+// first frames of a light window do not draw dark chips. App overwrites this once settings load.
+document.documentElement.dataset.theme ??= window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+
 const fixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("fixture") : null;
 const desktopPetWindow = new URLSearchParams(window.location.search).get("desktop-pet") === "1";
 
