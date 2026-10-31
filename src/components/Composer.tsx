@@ -23,9 +23,7 @@ import {
   X,
 } from "lucide-react";
 import type { AppSettings, AttachmentPayload, ManagedQueuedMessage, ModelInfo, SessionStats, SlashCommand } from "../types";
-import type { AppearancePetDefinition } from "../lib/appearanceCatalog";
 import type { TranscriptDensity } from "../lib/transcriptDensity";
-import { ClaudeComposerCrab } from "./ClaudeComposerCrab";
 import { ModelPicker } from "./ModelPicker";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
 
@@ -41,7 +39,6 @@ const PERMISSION_OPTIONS: Array<{
 ];
 
 interface ComposerProps {
-  pet?: AppearancePetDefinition;
   isStreaming: boolean;
   isSwitchingModel?: boolean;
   disabled?: boolean;
@@ -90,7 +87,6 @@ interface ComposerProps {
 }
 
 export const Composer = memo(function Composer({
-  pet,
   isStreaming,
   isSwitchingModel = false,
   disabled,
@@ -349,12 +345,6 @@ export const Composer = memo(function Composer({
         data-has-attachments={attachments.length > 0 ? "true" : undefined}
         data-dsh-claude-draft-empty={!text.trim() ? "" : undefined}
       >
-        <ClaudeComposerCrab
-          pet={pet}
-          isStreaming={isStreaming}
-          isThinking={isStreaming && thinkingLevel !== "off"}
-        />
-
         {commandMatches.length > 0 && (
           <div className="command-menu" role="menu" aria-label="快捷指令">
             {commandMatches.map((command) => (
