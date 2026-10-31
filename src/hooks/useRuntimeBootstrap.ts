@@ -71,7 +71,7 @@ export function useRuntimeBootstrap({
         onStatus: store.handleStatus,
         onLog: store.handleLog,
         onHostStatus: store.handleHostStatus,
-        onProtocolError: (message) => useAppStore.getState().appendLog(`Pi 协议错误：${message}`),
+        onProtocolError: (message) => useAppStore.getState().appendLog(`Harness 协议错误：${message}`),
       });
       if (disposed) {
         cleanup();

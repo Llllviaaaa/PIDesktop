@@ -255,7 +255,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
             <div className="models-empty-state">
               {loading ? <LoaderCircle size={20} className="spinner-icon" /> : <KeyRound size={20} />}
               <strong>{loading ? "正在启动模型服务…" : "选择一个提供商"}</strong>
-              <p>{isTauri ? "左侧列出了 Pi 支持的全部提供商。" : "模型设置需要在桌面应用中打开。"}</p>
+              <p>{isTauri ? "左侧列出了支持的全部提供商。" : "模型设置需要在桌面应用中打开。"}</p>
             </div>
           ) : (
             <ProviderDetail
@@ -326,7 +326,7 @@ function DefaultModelCard({ providers, hidden, form, update }: { providers: Prov
       <div className="models-default-row">
         <span>
           <strong>默认模型</strong>
-          <small>{staleDefault ? "当前默认模型的提供商尚未连接，新任务会改用 Pi 的默认值。" : "新任务使用的模型；在输入框中切换模型后，这里会更新为最后一次的选择。"}</small>
+          <small>{staleDefault ? "当前默认模型的提供商尚未连接，新任务需要在输入框中选择模型。" : "新任务使用的模型；在输入框中切换模型后，这里会更新为最后一次的选择。"}</small>
         </span>
         <ModelCombobox
           groups={options}
@@ -405,7 +405,7 @@ function ModelCombobox({ groups, providerId, modelId, warning, onChange }: {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <span>{current?.name ?? (modelId || "使用 Pi 默认值")}</span>
+        <span>{current?.name ?? (modelId || "不设默认模型")}</span>
         {modelId && <small>{providerName}</small>}
         <ChevronDown size={13} />
       </button>
@@ -418,7 +418,7 @@ function ModelCombobox({ groups, providerId, modelId, warning, onChange }: {
           <div className="models-combo-scroll" role="listbox">
             {!needle && (
               <button role="option" aria-selected={!modelId} className={`models-combo-option ${!modelId ? "selected" : ""}`} onClick={() => choose("", "")}>
-                <span><strong>使用 Pi 默认值</strong><small className="plain">由 Pi 的 settings.json 决定</small></span>
+                <span><strong>不设默认模型</strong><small className="plain">新任务需要在输入框中选择模型</small></span>
                 {!modelId && <Check size={13} />}
               </button>
             )}
@@ -520,7 +520,7 @@ function ProviderDetail({
         <div className="models-block">
           <h3>配置</h3>
           <dl className="models-config">
-            <div><dt>协议</dt><dd>{PROVIDER_APIS.find(([value]) => value === config.api)?.[1] ?? (config.api || "继承 Pi 默认")}</dd></div>
+            <div><dt>协议</dt><dd>{PROVIDER_APIS.find(([value]) => value === config.api)?.[1] ?? (config.api || "默认")}</dd></div>
             <div><dt>API 地址</dt><dd><code>{config.baseUrl || "—"}</code></dd></div>
             {config.baseUrl && <div><dt>请求地址</dt><dd><code>{endpointPreview(config.api, config.baseUrl)}</code></dd></div>}
           </dl>
@@ -637,7 +637,7 @@ function ModelList({ provider, hidden, custom, onVisibility, onEdit }: {
       </small>
       {provider.models.length === 0 ? (
         <div className="models-model-empty">
-          {custom ? <>还没有配置模型。<button className="models-link" onClick={onEdit}>添加模型</button></> : "Pi 暂未提供此提供商的模型目录，连接后刷新即可获取。"}
+          {custom ? <>还没有配置模型。<button className="models-link" onClick={onEdit}>添加模型</button></> : "内置目录中还没有此提供商的模型，连接后刷新即可获取。"}
         </div>
       ) : (
         <div className="models-model-list">
@@ -687,9 +687,9 @@ function draftFromConfig(config: ModelProviderConfig): ModelProviderInput {
 }
 
 const SOURCE_LABELS: Record<Exclude<CapabilitySource, "api">, { label: string; hint: string }> = {
-  catalog: { label: "Pi 目录", hint: "能力和上下文来自 Pi 内置目录中的同名模型" },
-  guess: { label: "按名称推测", hint: "Pi 目录中没有同名模型，能力按模型名称推测，上下文使用默认值，请确认" },
-  default: { label: "默认值", hint: "无法识别此模型，使用 Pi 自定义模型的默认值，请按实际情况修改" },
+  catalog: { label: "内置目录", hint: "能力和上下文来自内置目录中的同名模型" },
+  guess: { label: "按名称推测", hint: "内置目录中没有同名模型，能力按模型名称推测，上下文使用默认值，请确认" },
+  default: { label: "默认值", hint: "无法识别此模型，使用自定义模型的默认值，请按实际情况修改" },
 };
 
 function CapabilitySourceTag({ entry }: { entry: EnrichedModel | undefined }) {

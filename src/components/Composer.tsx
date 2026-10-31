@@ -605,7 +605,7 @@ export const Composer = memo(function Composer({
             className="composer-queue-summary"
             onClick={() => queuedMessages.length > 0 && setQueueOpen((value) => !value)}
             aria-expanded={queuedMessages.length > 0 ? queueOpen : undefined}
-            title={queuedMessages.length > 0 ? "查看待处理消息" : "Pi 内部待处理消息"}
+            title={queuedMessages.length > 0 ? "查看待处理消息" : "Agent 内部待处理消息"}
           >
             <ListOrdered size={14} />
             <strong>{pendingCount} 条待处理</strong>

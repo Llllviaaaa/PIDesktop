@@ -34,7 +34,7 @@ const STATUS_PRIORITY: Record<PetActivityStatus, number> = {
 function fallbackTitle(cwd: string, sessionFile: string | null): string {
   const source = sessionFile || cwd;
   const segments = source.split(/[\\/]/).filter(Boolean);
-  return segments[segments.length - 1]?.replace(/\.jsonl?$/i, "") || "Pi 任务";
+  return segments[segments.length - 1]?.replace(/\.jsonl?$/i, "") || "任务";
 }
 
 function activityTitle(sessions: SessionInfo[], cwd: string, sessionFile: string | null): string {

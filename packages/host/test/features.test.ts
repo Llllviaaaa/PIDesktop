@@ -114,7 +114,7 @@ describe("feature plugins in the host", () => {
 
     await call("session.prompt", { sessionId, content: "write a note" });
     const request = await until((n) => n.method === "ui/request");
-    expect(request.params).toMatchObject({ sessionId, kind: "confirm", title: "Allow file change?" });
+    expect(request.params).toMatchObject({ sessionId, kind: "confirm", title: "允许修改文件？" });
     expect((await call("ui.pending")).result.requests).toHaveLength(1);
     expect((await call("ui.respond", { requestId: request.params.requestId, value: true })).result).toEqual({});
     expect((await call("ui.respond", { requestId: request.params.requestId, value: true })).error?.code).toBe(ErrorCode.InvalidParams);

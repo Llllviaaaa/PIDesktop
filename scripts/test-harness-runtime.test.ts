@@ -167,7 +167,7 @@ describe("harness runtimes", () => {
     await runtimes.prompt(runtimeId, { message: "Copy a.txt", images: [] });
     // The write needs confirmation: answer it as the extension dialog would.
     const request = await nextQuestion();
-    expect(request).toMatchObject({ method: "confirm", title: "Allow file change?" });
+    expect(request).toMatchObject({ method: "confirm", title: "允许修改文件？" });
     await runtimes.respond(request, { confirmed: true });
     await until((event) => event.type === "turn-end");
 

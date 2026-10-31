@@ -32,7 +32,7 @@ test("event notifications", async () => {
   }, true);
   assert.equal(background.draft.kind, "completion");
   assert.equal(background.draft.body, "PIDesktop", "background completions name the project");
-  assert.equal(background.osTitle, "Pi 后台任务已完成");
+  assert.equal(background.osTitle, "后台任务已完成");
   assert.equal(background.requiresApproval, false, "completions must not demand interaction");
   assert.match(background.draft.id, /^runtime-a:completion:\d+$/, "ids stay unique per completion");
 
@@ -42,7 +42,7 @@ test("event notifications", async () => {
     sessionName: "Fix the approval gate",
   }, false);
   assert.equal(foreground.draft.body, "Fix the approval gate", "the active session is named by its title");
-  assert.equal(foreground.osTitle, "Pi 已完成");
+  assert.equal(foreground.osTitle, "任务已完成");
 
   const unnamed = completionNotification("runtime-a", { cwd: "C:\\x", sessionFile: null }, false);
   assert.equal(unnamed.draft.body, "本地编码任务已完成，可以开始检查。", "an unnamed session still reads as finished work");
@@ -57,7 +57,7 @@ test("event notifications", async () => {
   assert.ok(confirm, "a confirm request raises a notification");
   assert.equal(confirm.draft.kind, "approval");
   assert.equal(confirm.requiresApproval, true, "approvals stay on screen until acted on");
-  assert.equal(confirm.osTitle, "Pi 后台任务等待审批");
+  assert.equal(confirm.osTitle, "后台任务等待审批");
   assert.equal(confirm.draft.body, "打开任务以确认本地操作。", "background approvals tell the user where to go");
 
   const foregroundConfirm = uiRequestNotification("runtime-b", {
@@ -69,7 +69,7 @@ test("event notifications", async () => {
   } as ExtensionUIRequest, { cwd: "D:\\repo\\PIDesktop", sessionFile: null }, false);
   assert.ok(foregroundConfirm);
   assert.equal(foregroundConfirm.draft.body, "有一项本地操作正在等待你的决定。");
-  assert.equal(foregroundConfirm.osTitle, "Pi 需要审批");
+  assert.equal(foregroundConfirm.osTitle, "任务需要审批");
 
   const silent = uiRequestNotification("runtime-b", {
     type: "extension_ui_request",

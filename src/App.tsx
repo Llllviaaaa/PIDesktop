@@ -50,7 +50,8 @@ import {
   resolveAppearanceTheme,
   type PetAnimationState,
 } from "./lib/appearanceCatalog";
-import { aggregateDiffStats } from "./lib/gitDiffStats";
+import { aggregateDiffStats, perFileDiffStats } from "./lib/gitDiffStats";
+import { changesEditedBy, sessionEditedPaths } from "./lib/sessionEdits";
 import {
   nextTranscriptDensity,
   normalizeTranscriptDensity,
@@ -854,7 +855,7 @@ export default function App() {
   }, [isTauri]);
 
   const pickFolder = useCallback(async () => {
-    const selected = await open({ directory: true, multiple: false, title: "为 Pi 打开工作区" });
+    const selected = await open({ directory: true, multiple: false, title: "打开工作区" });
     if (typeof selected !== "string") return;
     selectWorkspace(selected);
   }, [selectWorkspace]);
@@ -939,7 +940,25 @@ export default function App() {
     () => Object.values(runtimes).filter((runtime) => runtime.extensionRequest && runtime.sessionFile).map((runtime) => runtime.sessionFile as string),
     [runtimes],
   );
-  const changedFiles = git?.files ?? [];
+  // Joined into one string so a streaming delta that edits nothing does not re-render the app.
+  const sessionEditedKey = useAppStore((state) => sessionEditedPaths(state.messages).join("\n"));
+  // The conversation's change card shows only what this session wrote, not every change in the checkout.
+  const sessionChanges = useMemo(
+    () => changesEditedBy(git?.files ?? [], sessionEditedKey ? sessionEditedKey.split("\n") : []),
+    [git?.files, sessionEditedKey],
+  );
+  const sessionDiffStats = useMemo(() => {
+    const perFile = perFileDiffStats(git?.diff);
+    const paths = new Set(sessionChanges.map((file) => file.path.replace(/\\/g, "/")));
+    let additions = 0;
+    let deletions = 0;
+    for (const [path, stats] of perFile) {
+      if (!paths.has(path)) continue;
+      additions += stats.add;
+      deletions += stats.del;
+    }
+    return { additions, deletions };
+  }, [git?.diff, sessionChanges]);
   // The checkout the review tab shows: the chosen project on a new task, else the thread's.
   const reviewGit = newTask ? draftGit : git;
   const gitDiffStats = useMemo(() => {
@@ -952,7 +971,7 @@ export default function App() {
     : draftWorkspace.split(/[\\/]/).filter(Boolean).pop() || "一个项目";
   const statusText = isCompacting
     ? "正在压缩上下文…"
-    : retryStatus || (isStreaming ? "Pi 正在工作…" : connected ? "就绪" : connection === "starting" ? "正在启动 Pi…" : "未连接");
+    : retryStatus || (isStreaming ? "Agent 正在工作…" : connected ? "就绪" : connection === "starting" ? "正在启动 Harness…" : "未连接");
   const sendFromComposer = useCallback(async (text: string, behavior?: "steer" | "followUp") => {
     const enteringConversation = newTask;
     const enterConversation = () => {
@@ -1639,6 +1658,7 @@ export default function App() {
             onOpenProject={(workspace) => navigateTo({ kind: "home", workspace })}
             onNewProjectSession={(workspace) => navigateTo({ kind: "home", workspace })}
             onArchiveSession={(session) => archiveConversations([session], session.cwd, "已归档对话")}
+            onSessionRestored={() => void store.refreshSessions()}
             onOpenProjectFolder={(workspace) => {
               revealWorkspaceInExplorer(workspace);
             }}
@@ -1761,7 +1781,7 @@ export default function App() {
                         }}>归档任务</button>
                         <div className="menu-separator" />
                         <button onClick={() => { setMoreOpen(false); setSettingsOpen(true); }}>设置</button>
-                        <button disabled={!connected} onClick={() => { setMoreOpen(false); void store.disconnect(); }}>断开 Pi</button>
+                        <button disabled={!connected} onClick={() => { setMoreOpen(false); void store.disconnect(); }}>断开连接</button>
                       </div>
                     )}
                   </div>
@@ -1901,8 +1921,8 @@ export default function App() {
                     density={transcriptDensity}
                     onOpenPlan={openSummary}
                   />
-                  {(git?.files.length ?? 0) > 0 && (
-                    <section className="conversation-change-card" aria-label="当前工作区变更">
+                  {sessionChanges.length > 0 && (
+                    <section className="conversation-change-card" aria-label="本任务的变更">
                       <div className="conversation-change-heading">
                         <button
                           type="button"
@@ -1913,18 +1933,18 @@ export default function App() {
                           <span className="conversation-change-icon"><FileDiff size={15} strokeWidth={1.7} /></span>
                           <div>
                             <strong>
-                              {changedFiles.length === 1
-                                ? `已编辑 ${changedFiles[0].path.split(/[\\/]/).pop()}`
-                                : `已编辑 ${changedFiles.length} 个文件`}
+                              {sessionChanges.length === 1
+                                ? `已编辑 ${sessionChanges[0].path.split(/[\\/]/).pop()}`
+                                : `已编辑 ${sessionChanges.length} 个文件`}
                             </strong>
                             <span>
-                              {gitDiffStats.additions > 0 && <em>+{gitDiffStats.additions}</em>}
+                              {sessionDiffStats.additions > 0 && <em>+{sessionDiffStats.additions}</em>}
                               {" "}
-                              {gitDiffStats.deletions > 0 && <b>-{gitDiffStats.deletions}</b>}
+                              {sessionDiffStats.deletions > 0 && <b>-{sessionDiffStats.deletions}</b>}
                             </span>
                           </div>
                         </button>
-                        <button type="button" className="change-card-secondary" onClick={() => void restoreGitFiles()}>撤销</button>
+                        <button type="button" className="change-card-secondary" onClick={() => void restoreGitFiles(sessionChanges.map((file) => file.path))}>撤销</button>
                         <button type="button" onClick={() => void requestReview({ mode: "uncommitted" })}>审核</button>
                       </div>
                     </section>

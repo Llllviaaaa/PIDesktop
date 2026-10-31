@@ -210,7 +210,7 @@ export function computerTools(ctx: Context, config: Config, run: HelperRunner = 
         const permission = await effective(env);
         if (mode === "control" && permission === "read-only") return textOutput("Interactive computer control is disabled in read-only mode", true);
         if (mode === "control" && config.confirmActions !== false && permission !== "full-access") {
-          const allowed = await ctx.ui.confirm(env.sessionId, "Allow computer control?", `Control ${source.title}. Pi Desktop will send mouse and keyboard input. Call computer_stop to end the session. Never enter passwords, recovery codes, or payment information.`, env.signal);
+          const allowed = await ctx.ui.confirm(env.sessionId, "允许操控电脑？", `操控 ${source.title}。Pi Desktop 会发送鼠标和键盘输入，调用 computer_stop 结束操控。不会输入密码、恢复码或支付信息。`, env.signal);
           if (!allowed) return textOutput("User denied computer control", true);
         }
         state.session = { mode, sourceId: source.id, sourceKind: source.kind, ...(source.kind === "window" ? { windowTitle: source.title } : {}) };

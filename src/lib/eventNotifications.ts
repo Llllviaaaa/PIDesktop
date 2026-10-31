@@ -65,7 +65,7 @@ export function completionNotification(
       cwd: context.cwd,
       sessionFile: context.sessionFile,
     },
-    osTitle: background ? "Pi 后台任务已完成" : "Pi 已完成",
+    osTitle: background ? "后台任务已完成" : "任务已完成",
     osBody: body,
     requiresApproval: false,
   };
@@ -91,7 +91,7 @@ export function uiRequestNotification(
       : "打开任务以回答问题。"
     : kind === "approval"
       ? "有一项本地操作正在等待你的决定。"
-      : "Pi 正在等待你的回答。";
+      : "Agent 正在等待你的回答。";
   return {
     draft: {
       id: `${runtimeId}:request:${request.id}`,
@@ -101,7 +101,7 @@ export function uiRequestNotification(
       cwd: context.cwd,
       sessionFile: context.sessionFile,
     },
-    osTitle: background ? "Pi 后台任务等待审批" : "Pi 需要审批",
+    osTitle: background ? "后台任务等待审批" : "任务需要审批",
     osBody: title,
     requiresApproval: true,
   };

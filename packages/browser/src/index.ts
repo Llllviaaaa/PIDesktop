@@ -82,7 +82,7 @@ export function browserTools(ctx: Context, config: Config, create: BrowserFactor
     const current = await mode(env);
     if (current === "read-only") return textOutput(READ_ONLY_REFUSAL, true);
     if (config.confirmActions === false || current === "full-access") return undefined;
-    return (await ctx.ui.confirm(env.sessionId, "Allow browser action?", summary, env.signal)) ? undefined : textOutput("Browser action denied by user", true);
+    return (await ctx.ui.confirm(env.sessionId, "允许浏览器操作？", summary, env.signal)) ? undefined : textOutput("Browser action denied by user", true);
   };
 
   const publish = async (env: ToolEnv, snapshot: PageSnapshot) => {
@@ -119,7 +119,7 @@ export function browserTools(ctx: Context, config: Config, create: BrowserFactor
       async execute({ url, tabId: tab }, env) {
         const current = await mode(env);
         if (config.confirmActions !== false && current !== "full-access" && current !== "read-only") {
-          if (!(await ctx.ui.confirm(env.sessionId, "Allow browser action?", `Open ${url}`, env.signal))) return textOutput("Browser action denied by user", true);
+          if (!(await ctx.ui.confirm(env.sessionId, "允许浏览器操作？", `打开 ${url}`, env.signal))) return textOutput("Browser action denied by user", true);
         }
         return act(env, "navigate", tab, (browser) => browser.navigate(url));
       },
@@ -170,7 +170,7 @@ export function browserTools(ctx: Context, config: Config, create: BrowserFactor
       async execute({ tabId: tab, ref: raw, x, y }, env) {
         const ref = parseElementRef(raw);
         if (ref === undefined && (x === undefined || y === undefined)) return textOutput("browser_click requires a ref from browser_inspect or x/y coordinates", true);
-        const refused = await allow(env, `Click ${raw || `(${x}, ${y})`}`);
+        const refused = await allow(env, `点击 ${raw || `(${x}, ${y})`}`);
         if (refused) return refused;
         return act(env, "click", tab, (browser) => (ref !== undefined ? browser.click(ref) : browser.clickAt(Number(x), Number(y))));
       },
@@ -181,7 +181,7 @@ export function browserTools(ctx: Context, config: Config, create: BrowserFactor
       description: "Type text into the focused element; optional ref to click first. Never enter passwords or payment data unless the user explicitly provides that exact input.",
       parameters: { type: "object", properties: { tabId, text: { type: "string" }, ref: { type: "string" } }, required: ["text"] },
       async execute({ tabId: tab, text, ref }, env) {
-        const refused = await allow(env, `Type ${text.length} characters into ${ref || "the focused element"}`);
+        const refused = await allow(env, `向 ${ref || "当前焦点元素"} 输入 ${text.length} 个字符`);
         if (refused) return refused;
         return act(env, "type", tab, (browser) => browser.type(parseElementRef(ref), undefined, text));
       },
@@ -192,7 +192,7 @@ export function browserTools(ctx: Context, config: Config, create: BrowserFactor
       description: "Press a key (e.g. Enter, Tab, Escape).",
       parameters: { type: "object", properties: { tabId, key: { type: "string" } }, required: ["key"] },
       async execute({ tabId: tab, key }, env) {
-        const refused = await allow(env, `Press ${key}`);
+        const refused = await allow(env, `按下 ${key}`);
         if (refused) return refused;
         return act(env, "press", tab, (browser) => browser.press(key));
       },
@@ -213,7 +213,7 @@ export function browserTools(ctx: Context, config: Config, create: BrowserFactor
       description: "Select an option in a <select> via CSS selector.",
       parameters: { type: "object", properties: { tabId, selector: { type: "string" }, value: { type: "string" } }, required: ["selector", "value"] },
       async execute({ tabId: tab, selector, value }, env) {
-        const refused = await allow(env, `Select ${value} in ${selector}`);
+        const refused = await allow(env, `在 ${selector} 中选择 ${value}`);
         if (refused) return refused;
         return act(env, "select", tab, (browser) => browser.select(undefined, selector, value));
       },

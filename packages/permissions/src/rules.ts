@@ -343,8 +343,8 @@ export function evaluateToolPermission(options: {
     if (mode === "full-access") return { action: "allow" };
     return {
       action: "confirm",
-      title: "Allow tool call?",
-      message: `${tool} matched rule ${customRule.id}`,
+      title: "允许调用工具？",
+      message: `${tool} 匹配了规则 ${customRule.id}`,
     };
   }
 
@@ -355,16 +355,16 @@ export function evaluateToolPermission(options: {
   if (isMemoryWrite && (mode === "ask" || mode === "workspace-write")) {
     return {
       action: "confirm",
-      title: "Update local memory?",
-      message: action === "clear" ? "Clear the Pi Desktop memory file" : `Store a durable preference using ${action}`,
+      title: "更新本地记忆？",
+      message: action === "clear" ? "清空 Pi Desktop 的记忆文件" : `用 ${action} 保存一条长期偏好`,
     };
   }
 
   if ((mode === "ask" || mode === "workspace-write") && isSubagent && subagentPermission === "workspace-write") {
     return {
       action: "confirm",
-      title: "Allow a subagent to edit this workspace?",
-      message: "The delegated worker may use read, edit, and write in the current workspace. Shell access is disabled.",
+      title: "允许子代理修改这个工作区？",
+      message: "子代理可以在当前工作区读取、编辑和写入文件，但不能使用 Shell。",
     };
   }
 
@@ -372,15 +372,15 @@ export function evaluateToolPermission(options: {
     const resolved = resolveAgainstWorkspace(outsideTarget, workspace);
     return {
       action: "confirm",
-      title: "Write outside workspace?",
-      message: `${tool}: ${outsideTarget}\nResolved: ${resolved}\n\nWorkspace: ${workspace}`,
+      title: "写入工作区以外的位置？",
+      message: `${tool}: ${outsideTarget}\n解析为：${resolved}\n\n工作区：${workspace}`,
     };
   }
 
   if (isWrite && targets.length === 0 && (mode === "ask" || mode === "workspace-write")) {
     return {
       action: "confirm",
-      title: "Allow unscoped file change?",
+      title: "允许修改未指定路径的文件？",
       message: `${tool}: ${JSON.stringify(input)}`,
     };
   }
@@ -388,7 +388,7 @@ export function evaluateToolPermission(options: {
   if (mode === "ask" && isWrite) {
     return {
       action: "confirm",
-      title: "Allow file change?",
+      title: "允许修改文件？",
       message: `${tool}: ${target || JSON.stringify(input)}`,
     };
   }
@@ -402,7 +402,7 @@ export function evaluateToolPermission(options: {
     if (rules.alwaysConfirmShell || mode === "ask" || mode === "workspace-write") {
       return {
         action: "confirm",
-        title: "Allow command?",
+        title: "允许执行命令？",
         message: command,
       };
     }
@@ -411,7 +411,7 @@ export function evaluateToolPermission(options: {
   if (!isKnownTool && (mode === "ask" || mode === "workspace-write")) {
     return {
       action: "confirm",
-      title: "Allow unclassified tool call?",
+      title: "允许调用未分类的工具？",
       message: `${tool}: ${JSON.stringify(input).slice(0, 1800)}`,
     };
   }

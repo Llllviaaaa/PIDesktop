@@ -30,8 +30,9 @@ describe("session logs as transcript messages", () => {
     const compacted = historyToUi(golden("context-length"));
     expect(compacted.map((message) => message.role)).toEqual(["user", "notice", "assistant"]);
     expect(compacted[1]).toMatchObject({ noticeKind: "compaction" });
-    expect(historyToUi(golden("provider-error"))[1]).toMatchObject({ role: "assistant", isError: true, content: "bad key" });
-    expect(historyToUi(golden("abort-stream"))[1]).toMatchObject({ isError: true, content: "Partial" });
+    expect(historyToUi(golden("provider-error"))[1]).toMatchObject({ role: "assistant", isError: true, isAborted: false, content: "bad key" });
+    // Stopping a turn keeps what it wrote and is not an error.
+    expect(historyToUi(golden("abort-stream"))[1]).toMatchObject({ isError: false, isAborted: true, content: "Partial" });
   });
 
   it("follow rewinds", () => {

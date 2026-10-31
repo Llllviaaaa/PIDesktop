@@ -101,7 +101,7 @@ describe("browser tools", () => {
     expect(text(await call("browser_click", { ref: "e1", tabId: "t2" }))).toContain("[image/png]");
     expect(await call("browser_inspect", {})).toMatchObject({ details: { action: "inspect" } });
     await call("browser_tabs", { action: "list" }, 1);
-    expect(asked).toEqual(["Open example.com", "Click e1"]);
+    expect(asked).toEqual(["打开 example.com", "点击 e1"]);
     expect(browsers.get(sessions[0]?.id ?? "")?.calls).toEqual(["navigate(\"example.com\")", "switch(t2)", "click(1)", "inspect()"]);
     expect(browsers.size).toBe(2);
     expect(live).toContainEqual({ type: "browser", url: "https://example.com/", title: "after" });
