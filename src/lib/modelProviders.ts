@@ -1,7 +1,7 @@
-import type { ProviderModelSummary, ProviderSummary } from "./providerService";
+import type { ProviderModelSummary, ProviderSummary } from "./harnessProviders";
 import type { ModelInfo, ModelProviderModel } from "../types";
 
-export type ProviderGroupId = "connected" | "subscription" | "apiKey" | "custom";
+export type ProviderGroupId = "connected" | "disconnected";
 
 export interface ProviderGroup {
   id: ProviderGroupId;
@@ -25,30 +25,22 @@ export function modelKey(providerId: string, modelId: string): string {
   return `${providerId}/${modelId}`;
 }
 
-/** Providers defined by the user in models.json rather than shipped with Pi. */
-export function isCustomProvider(provider: ProviderSummary, modelsJsonIds: ReadonlySet<string>): boolean {
-  return !provider.builtin && modelsJsonIds.has(provider.id);
+/** Providers the user defined in the Host's providers.json, which the page can edit and delete. */
+export function isCustomProvider(provider: ProviderSummary, configIds: ReadonlySet<string>): boolean {
+  return configIds.has(provider.id);
 }
 
-export function groupProviders(
-  providers: readonly ProviderSummary[],
-  modelsJsonIds: ReadonlySet<string>,
-  query = "",
-): ProviderGroup[] {
+export function groupProviders(providers: readonly ProviderSummary[], query = ""): ProviderGroup[] {
   const needle = query.trim().toLowerCase();
   const matches = (provider: ProviderSummary) => !needle
     || provider.name.toLowerCase().includes(needle)
     || provider.id.toLowerCase().includes(needle)
     || provider.models.some((model) => model.id.toLowerCase().includes(needle) || model.name.toLowerCase().includes(needle));
-  const groups: Record<ProviderGroupId, ProviderSummary[]> = { connected: [], subscription: [], apiKey: [], custom: [] };
+  const groups: Record<ProviderGroupId, ProviderSummary[]> = { connected: [], disconnected: [] };
   for (const provider of providers) {
-    if (!matches(provider)) continue;
-    if (provider.configured) groups.connected.push(provider);
-    else if (isCustomProvider(provider, modelsJsonIds) || !provider.builtin) groups.custom.push(provider);
-    else if (provider.oauthMethod) groups.subscription.push(provider);
-    else groups.apiKey.push(provider);
+    if (matches(provider)) groups[provider.configured ? "connected" : "disconnected"].push(provider);
   }
-  const labels: Record<ProviderGroupId, string> = { connected: "已连接", subscription: "订阅登录", apiKey: "API 密钥", custom: "本地与自定义" };
+  const labels: Record<ProviderGroupId, string> = { connected: "已连接", disconnected: "未连接" };
   return (Object.keys(groups) as ProviderGroupId[])
     .filter((id) => groups[id].length > 0)
     .map((id) => ({ id, label: labels[id], providers: groups[id] }));
@@ -56,28 +48,19 @@ export function groupProviders(
 
 /** Short Chinese description of where a connected provider's credential comes from. */
 export function credentialSourceText(provider: ProviderSummary): string {
-  if (!provider.configured) return "未连接";
-  switch (provider.source) {
+  switch (provider.keySource) {
     case "stored":
-      return provider.authType === "oauth" ? "订阅账号登录" : "API 密钥 · 保存在 auth.json";
+      return "API 密钥 · 加密保存在本机";
     case "environment":
-      return provider.sourceLabel ? `环境变量 ${provider.sourceLabel}` : "环境变量";
-    case "models_json_key":
-      return "models.json 中的密钥";
-    case "models_json_command":
-      return "models.json 中的命令";
-    case "runtime":
-      return "运行时密钥";
-    case "fallback":
-      return "无需密钥";
+      return "环境变量中的密钥";
     default:
-      return provider.sourceLabel || "已连接";
+      return "未连接";
   }
 }
 
-/** Only credentials saved by login can be removed from here; env vars and models.json stay user-owned. */
+/** Only a key saved here can be removed here; a `$VARIABLE` reference stays the user's. */
 export function canDisconnect(provider: ProviderSummary): boolean {
-  return provider.configured && provider.source === "stored";
+  return provider.keySource === "stored";
 }
 
 export function formatTokenCount(value: number | null | undefined): string {
@@ -187,11 +170,10 @@ function catalogScore(entry: CatalogMatch): number {
   return (entry.model.contextWindow ? 2 : 0) + (entry.model.maxTokens ? 1 : 0) + (FIRST_PARTY.has(entry.providerId) ? 1 : 0);
 }
 
-/** Index Pi's builtin catalogs by normalized model ID, keeping the most complete entry per ID. */
+/** Index the providers' model lists by normalized model ID, keeping the most complete entry per ID. */
 export function buildModelCatalog(providers: readonly ProviderSummary[]): ModelCatalog {
   const catalog = new Map<string, CatalogMatch>();
   for (const provider of providers) {
-    if (!provider.builtin) continue;
     for (const model of provider.models) {
       const key = normalizeModelId(model.id);
       if (!key) continue;

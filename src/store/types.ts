@@ -4,7 +4,7 @@
  * fields they need with the slice hooks in src/store/selectors.ts.
  */
 import type { TranscriptEvent } from "../lib/transcript";
-import type { PiRuntimeStatus } from "../lib/agent";
+import type { RuntimeStatus } from "../lib/agent";
 import type { HostStatus } from "../lib/harnessRuntime";
 import type {
   AgentBrowserState,
@@ -52,7 +52,7 @@ export interface RuntimeSlice {
   /** Whether the Harness Host can be reached (src/lib/harnessRuntime.ts). */
   hostStatus: HostStatus;
   cwd: string;
-  piLog: string[];
+  hostLog: string[];
   lastError: string | null;
   sessionFile: string | null;
   sessionId: string | null;
@@ -71,7 +71,7 @@ export interface RuntimeSlice {
   restoreRuntimes: (preferredRuntimeId?: string | null) => Promise<boolean>;
   switchSession: (cwd: string, sessionFile: string) => Promise<void>;
   disconnect: () => Promise<void>;
-  handleStatus: (status: PiRuntimeStatus) => void;
+  handleStatus: (status: RuntimeStatus) => void;
   handleLog: (runtimeId: string, line: string) => void;
   handleHostStatus: (status: HostStatus) => void;
   /** Start the Host again after it crashed too often for Rust to restart it. */

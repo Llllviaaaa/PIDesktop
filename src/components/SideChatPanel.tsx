@@ -8,7 +8,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle, MessageSquare, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { buildPromptPayload, harnessRuntimes } from "../lib/harnessRuntime";
-import { agent, respondToExtension, subscribeToPi } from "../lib/agent";
+import { agent, respondToExtension, subscribeToRuntimes } from "../lib/agent";
 import {
   completeAssistant,
   endToolCall,
@@ -185,7 +185,7 @@ export function SideChatPanel({
     setError(null);
     void (async () => {
       try {
-        unsubscribe = await subscribeToPi({
+        unsubscribe = await subscribeToRuntimes({
           onEvent: handleEvent,
           onStatus: (status) => {
             if (!disposed && status.runtimeId === runtimeRef.current && status.status === "exited") {

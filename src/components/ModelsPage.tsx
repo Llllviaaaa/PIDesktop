@@ -3,7 +3,6 @@ import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queries";
 import { describeError } from "../lib/errors";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Brain,
   Check,
@@ -11,12 +10,9 @@ import {
   CircleAlert,
   CircleCheck,
   CloudDownload,
-  Copy,
-  ExternalLink,
   Image,
   KeyRound,
   LoaderCircle,
-  LogIn,
   Pencil,
   Plus,
   RefreshCw,
@@ -25,14 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { agent } from "../lib/agent";
-import {
-  providerService,
-  type AuthEventSummary,
-  type AuthMethod,
-  type ProviderDialogRequest,
-  type ProviderModelSummary,
-  type ProviderSummary,
-} from "../lib/providerService";
+import { harnessProviders, type ProviderModelSummary, type ProviderSummary } from "../lib/harnessProviders";
 import {
   buildModelCatalog,
   canDisconnect,
@@ -61,17 +50,6 @@ const THINKING_LEVELS: Array<[string, string]> = [
   ["off", "关闭"], ["minimal", "最少"], ["low", "低"], ["medium", "中"], ["high", "高"], ["xhigh", "极高"], ["max", "最高"],
 ];
 
-interface LoginState {
-  id: string;
-  providerId: string;
-  method: AuthMethod;
-  authUrl?: string;
-  device?: { userCode?: string; verificationUri?: string };
-  progress?: string;
-  promptType?: AuthEventSummary["promptType"];
-  dialog: ProviderDialogRequest | null;
-}
-
 interface CheckState {
   providerId: string;
   status: "checking" | "ok" | "error";
@@ -84,10 +62,6 @@ function errorText(error: unknown): string {
   return describeError(error);
 }
 
-function isCancelled(error: unknown): boolean {
-  return /cancel|abort/i.test(errorText(error));
-}
-
 const NO_PROVIDERS: ProviderSummary[] = [];
 const NO_CONFIGS: ModelProviderConfig[] = [];
 
@@ -97,7 +71,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
   const queryClient = useQueryClient();
   const providersQuery = useQuery({
     queryKey: queryKeys.modelProviders(),
-    queryFn: () => providerService.list(),
+    queryFn: () => harnessProviders.list(),
     enabled: isTauri,
   });
   // models.json only marks which providers are custom; it never holds up the list.
@@ -108,12 +82,11 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
   });
   const providers = providersQuery.data ?? NO_PROVIDERS;
   const configs = configsQuery.data ?? NO_CONFIGS;
-  // "Refresh" asks the provider service to re-read credentials and models.json first.
+  // The Host reads providers.json on every change, so refreshing is reading it again.
   const refreshMutation = useMutation({
     mutationFn: async () => {
-      await providerService.refresh();
       await Promise.all([
-        queryClient.fetchQuery({ queryKey: queryKeys.modelProviders(), queryFn: () => providerService.list(), staleTime: 0 }),
+        queryClient.fetchQuery({ queryKey: queryKeys.modelProviders(), queryFn: () => harnessProviders.list(), staleTime: 0 }),
         queryClient.invalidateQueries({ queryKey: queryKeys.modelConfigs() }),
       ]);
     },
@@ -129,41 +102,14 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
   const loadError = failure ? errorText(failure) : "";
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [login, setLogin] = useState<LoginState | null>(null);
+  /** The provider whose key is being saved. */
+  const [connecting, setConnecting] = useState<string | null>(null);
   const [check, setCheck] = useState<CheckState | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const [editor, setEditor] = useState<ModelProviderInput | null>(null);
-  const loginRef = useRef<LoginState | null>(null);
-
-  // Read through a function: TypeScript would otherwise keep the narrowing from an earlier check.
-  const activeLogin = () => loginRef.current;
-  const setLoginState = (next: LoginState | null) => {
-    loginRef.current = next;
-    setLogin(next);
-  };
-  const patchLogin = (id: string, patch: (current: LoginState) => LoginState) => {
-    const current = activeLogin();
-    if (current?.id === id) setLoginState(patch(current));
-  };
-
-  useEffect(() => providerService.onDialog((request) => {
-    const current = loginRef.current;
-    if (!current) {
-      void providerService.respond(request, undefined);
-      return;
-    }
-    setLoginState({ ...current, dialog: request });
-  }), []);
-
-  // Leaving the page must not strand a browser login waiting on a callback.
-  useEffect(() => () => {
-    const current = loginRef.current;
-    if (current) void providerService.cancel(current.id).catch(() => undefined);
-  }, []);
-
   const modelsJsonIds = useMemo(() => new Set(configs.map((config) => config.id)), [configs]);
   const catalog = useMemo(() => buildModelCatalog(providers), [providers]);
-  const groups = useMemo(() => groupProviders(providers, modelsJsonIds, query), [providers, modelsJsonIds, query]);
+  const groups = useMemo(() => groupProviders(providers, query), [providers, query]);
   const selected = providers.find((provider) => provider.id === selectedId) ?? groups[0]?.providers[0] ?? null;
   const hidden = useMemo(() => new Set(form.hiddenModels ?? []), [form.hiddenModels]);
 
@@ -173,73 +119,42 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
     void reloadProviderCatalog();
   };
 
-  const startLogin = async (provider: ProviderSummary, method: AuthMethod, apiKey?: string) => {
-    if (activeLogin()) return;
-    const id = crypto.randomUUID();
-    setLoginState({ id, providerId: provider.id, method, dialog: null });
+  const connect = async (provider: ProviderSummary, apiKey: string) => {
+    if (connecting !== null) return;
+    setConnecting(provider.id);
     setNotice(null);
     setCheck(null);
-    let openedAuthUrl = false;
     try {
-      const next = await providerService.login(provider.id, method, {
-        apiKey,
-        requestId: id,
-        onAuth: (event) => {
-          if (event.type === "auth_url" && event.url && !openedAuthUrl) {
-            openedAuthUrl = true;
-            void openUrl(event.url).catch(() => undefined);
-          }
-          patchLogin(id, (current) => {
-            switch (event.type) {
-              case "auth_url": return { ...current, authUrl: event.url };
-              case "device_code": return { ...current, device: { userCode: event.userCode, verificationUri: event.verificationUri } };
-              case "prompt": return { ...current, promptType: event.promptType };
-              default: return { ...current, progress: event.message };
-            }
-          });
-        },
-      });
-      applyProviders(next, method === "oauth" ? `已登录 ${provider.name}` : `已连接 ${provider.name}`);
+      await harnessProviders.setKey(provider.id, apiKey);
+      applyProviders(await harnessProviders.list(), `已连接 ${provider.name}`);
     } catch (error) {
-      if (!isCancelled(error)) setNotice({ kind: "error", text: `连接 ${provider.name} 失败：${errorText(error)}` });
+      setNotice({ kind: "error", text: `连接 ${provider.name} 失败：${errorText(error)}` });
     } finally {
-      if (activeLogin()?.id === id) setLoginState(null);
+      setConnecting(null);
     }
   };
 
-  const cancelLogin = () => {
-    const current = loginRef.current;
-    if (!current) return;
-    if (current.dialog) void providerService.respond(current.dialog, undefined);
-    void providerService.cancel(current.id).catch(() => undefined);
-  };
-
-  const answerDialog = (value: string | undefined) => {
-    const current = loginRef.current;
-    if (!current?.dialog) return;
-    void providerService.respond(current.dialog, value);
-    setLoginState({ ...current, dialog: null });
-  };
-
   const disconnect = async (provider: ProviderSummary) => {
-    const what = provider.authType === "oauth" ? "退出登录" : "删除已保存的 API 密钥";
-    if (!window.confirm(`${what}并断开 ${provider.name}？`)) return;
+    if (!window.confirm(`删除已保存的 API 密钥并断开 ${provider.name}？`)) return;
     try {
-      applyProviders(await providerService.logout(provider.id), `已断开 ${provider.name}`);
+      await harnessProviders.setKey(provider.id, "");
+      applyProviders(await harnessProviders.list(), `已断开 ${provider.name}`);
       setCheck(null);
     } catch (error) {
       setNotice({ kind: "error", text: `断开失败：${errorText(error)}` });
     }
   };
 
-  const runCheck = async (provider: ProviderSummary, modelId: string) => {
+  /** Asks the provider for its models: a cheap call that proves the key and the address. */
+  const runCheck = async (provider: ProviderSummary) => {
     setCheck({ providerId: provider.id, status: "checking", message: "" });
-    try {
-      const result = await providerService.check(provider.id, modelId);
-      setCheck({ providerId: provider.id, status: "ok", message: `连接正常，响应用时 ${(result.latencyMs / 1000).toFixed(1)} 秒` });
-    } catch (error) {
-      setCheck({ providerId: provider.id, status: "error", message: errorText(error) });
-    }
+    const started = Date.now();
+    const result = await harnessProviders.check(provider.id);
+    setCheck({
+      providerId: provider.id,
+      status: result.ok ? "ok" : "error",
+      message: result.ok ? `${result.message}，用时 ${((Date.now() - started) / 1000).toFixed(1)} 秒` : result.message,
+    });
   };
 
   const setModelsVisible = (provider: ProviderSummary, modelIds: readonly string[], visible: boolean) => {
@@ -314,7 +229,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
                     <ProviderAvatar provider={provider} />
                     <span>
                       <strong>{provider.name}</strong>
-                      <small>{provider.configured ? `${provider.models.length} 个模型` : provider.oauthMethod ? "可用订阅登录" : isCustomProvider(provider, modelsJsonIds) ? "自定义" : `${provider.models.length} 个模型`}</small>
+                      <small>{`${provider.models.length} 个模型`}</small>
                     </span>
                     {provider.configured && <i className="models-dot" aria-label="已连接" />}
                   </button>
@@ -348,16 +263,12 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
               provider={selected}
               custom={isCustomProvider(selected, modelsJsonIds)}
               config={config}
-              login={login?.providerId === selected.id ? login : null}
-              loginBusy={login !== null}
+              connecting={connecting === selected.id}
               check={check?.providerId === selected.id ? check : null}
               hidden={hidden}
-              defaultModel={form.provider === selected.id ? form.model : ""}
-              onLogin={(method, apiKey) => void startLogin(selected, method, apiKey)}
-              onCancelLogin={cancelLogin}
-              onAnswer={answerDialog}
+              onConnect={(apiKey) => void connect(selected, apiKey)}
               onDisconnect={() => void disconnect(selected)}
-              onCheck={(modelId) => void runCheck(selected, modelId)}
+              onCheck={() => void runCheck(selected)}
               onVisibility={(modelIds, visible) => setModelsVisible(selected, modelIds, visible)}
               onEdit={() => config && setEditor(draftFromConfig(config))}
               onDelete={() => void deleteCustom(selected)}
@@ -535,34 +446,26 @@ function ModelCombobox({ groups, providerId, modelId, warning, onChange }: {
 }
 
 function ProviderDetail({
-  provider, custom, config, login, loginBusy, check, hidden, defaultModel,
-  onLogin, onCancelLogin, onAnswer, onDisconnect, onCheck, onVisibility, onEdit, onDelete,
+  provider, custom, config, connecting, check, hidden,
+  onConnect, onDisconnect, onCheck, onVisibility, onEdit, onDelete,
 }: {
   provider: ProviderSummary;
   custom: boolean;
   config: ModelProviderConfig | undefined;
-  login: LoginState | null;
-  loginBusy: boolean;
+  connecting: boolean;
   check: CheckState | null;
   hidden: ReadonlySet<string>;
-  defaultModel: string;
-  onLogin: (method: AuthMethod, apiKey?: string) => void;
-  onCancelLogin: () => void;
-  onAnswer: (value: string | undefined) => void;
+  onConnect: (apiKey: string) => void;
   onDisconnect: () => void;
-  onCheck: (modelId: string) => void;
+  onCheck: () => void;
   onVisibility: (modelIds: readonly string[], visible: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   const [replacingKey, setReplacingKey] = useState(false);
-  const [checkModel, setCheckModel] = useState(() => {
-    const visible = provider.models.find((model) => !hidden.has(modelKey(provider.id, model.id)));
-    return (defaultModel && provider.models.some((model) => model.id === defaultModel) ? defaultModel : visible?.id) ?? provider.models[0]?.id ?? "";
-  });
-  // Finishing a sign-in, or the provider's configured state changing, ends key replacement.
-  useSyncOnChange([login, provider.configured], () => {
-    if (!login) setReplacingKey(false);
+  // Saving a key, or the provider's configured state changing, ends key replacement.
+  useSyncOnChange([connecting, provider.configured], () => {
+    if (!connecting) setReplacingKey(false);
   });
 
   return (
@@ -582,28 +485,23 @@ function ProviderDetail({
           <ConnectedState provider={provider} custom={custom} onDisconnect={onDisconnect} onReplaceKey={() => setReplacingKey(true)} onEdit={onEdit} />
         ) : (
           <ConnectForm
-            provider={provider}
             custom={custom}
-            busy={loginBusy}
+            busy={connecting}
             replacing={replacingKey}
-            onLogin={onLogin}
+            onConnect={onConnect}
             onCancelReplace={() => setReplacingKey(false)}
             onEdit={onEdit}
           />
         )}
-        {login && <LoginPanel login={login} onCancel={onCancelLogin} onAnswer={onAnswer} />}
       </div>
 
-      {provider.configured && provider.models.length > 0 && (
+      {provider.configured && (
         <div className="models-block">
           <h3>检查连接</h3>
           <div className="models-check">
-            <select value={checkModel} onChange={(event) => setCheckModel(event.target.value)} aria-label="用于检查的模型">
-              {provider.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
-            </select>
-            <button className="secondary-button compact" disabled={!checkModel || check?.status === "checking"} onClick={() => onCheck(checkModel)}>
+            <button className="secondary-button compact" disabled={check?.status === "checking"} onClick={onCheck}>
               {check?.status === "checking" ? <LoaderCircle size={13} className="spinner-icon" /> : <CircleCheck size={13} />}
-              {check?.status === "checking" ? "正在检查" : "发送测试请求"}
+              {check?.status === "checking" ? "正在检查" : "检查连接"}
             </button>
           </div>
           {check && check.status !== "checking" && (
@@ -612,7 +510,7 @@ function ProviderDetail({
               <span>{check.message}</span>
             </p>
           )}
-          <small className="models-hint">会向所选模型发送一条很短的请求，可能产生极少量费用。</small>
+          <small className="models-hint">会向提供商请求模型列表，不调用模型，不产生费用。</small>
         </div>
       )}
 
@@ -643,10 +541,9 @@ function ConnectedState({ provider, custom, onDisconnect, onReplaceKey, onEdit }
   onReplaceKey: () => void;
   onEdit: () => void;
 }) {
-  // The Host's providers say where their key is through sourceLabel (src/lib/harnessProviders.ts).
-  const hint = provider.sourceLabel === "环境变量"
+  const hint = provider.keySource === "environment"
     ? "密钥来自环境变量引用（$变量），由 Harness 在使用时读取。如需更换，请修改环境变量后重启应用。"
-    : provider.configured ? "密钥加密保存在本机的 ~/.pid/secrets.dat，只供本应用使用。" : "";
+    : "密钥加密保存在本机的 ~/.pid/secrets.dat，只供本应用使用。";
   return (
     <div className="models-connected">
       <CircleCheck size={16} />
@@ -655,159 +552,54 @@ function ConnectedState({ provider, custom, onDisconnect, onReplaceKey, onEdit }
         {hint && <small>{hint}</small>}
       </span>
       <div className="models-actions">
-        {provider.source === "stored" && provider.authType === "api_key" && <button className="secondary-button compact" onClick={onReplaceKey}><KeyRound size={13} />更换密钥</button>}
-        {custom && provider.source?.startsWith("models_json") && <button className="secondary-button compact" onClick={onEdit}><Pencil size={13} />编辑配置</button>}
-        {canDisconnect(provider) && <button className="secondary-button compact danger" onClick={onDisconnect}>{provider.authType === "oauth" ? "退出登录" : "删除密钥"}</button>}
+        {provider.keySource === "stored" && <button className="secondary-button compact" onClick={onReplaceKey}><KeyRound size={13} />更换密钥</button>}
+        {custom && provider.keySource === "environment" && <button className="secondary-button compact" onClick={onEdit}><Pencil size={13} />编辑配置</button>}
+        {canDisconnect(provider) && <button className="secondary-button compact danger" onClick={onDisconnect}>删除密钥</button>}
       </div>
     </div>
   );
 }
 
-function ConnectForm({ provider, custom, busy, replacing, onLogin, onCancelReplace, onEdit }: {
-  provider: ProviderSummary;
+function ConnectForm({ custom, busy, replacing, onConnect, onCancelReplace, onEdit }: {
   custom: boolean;
   busy: boolean;
   replacing: boolean;
-  onLogin: (method: AuthMethod, apiKey?: string) => void;
+  onConnect: (apiKey: string) => void;
   onCancelReplace: () => void;
   onEdit: () => void;
 }) {
-  const methods: AuthMethod[] = [
-    ...(provider.oauthMethod && !replacing ? ["oauth" as const] : []),
-    ...(provider.apiKeyMethod ? ["api_key" as const] : []),
-  ];
-  const [method, setMethod] = useState<AuthMethod>(methods[0] ?? "api_key");
   const [apiKey, setApiKey] = useState("");
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (apiKey.trim()) onLogin("api_key", apiKey.trim());
+    if (apiKey.trim()) onConnect(apiKey.trim());
   };
-
-  if (methods.length === 0) {
-    return <p className="models-hint">此提供商通过外部方式认证（例如云厂商凭据），请参考 Pi 的 providers 文档完成配置。</p>;
-  }
   return (
     <div className="models-connect">
-      {methods.length > 1 && (
-        <div className="models-segmented" role="tablist">
-          <button role="tab" aria-selected={method === "oauth"} className={method === "oauth" ? "active" : ""} onClick={() => setMethod("oauth")}>订阅登录</button>
-          <button role="tab" aria-selected={method === "api_key"} className={method === "api_key" ? "active" : ""} onClick={() => setMethod("api_key")}>API 密钥</button>
-        </div>
-      )}
-      {method === "oauth" ? (
-        <div className="models-oauth">
-          <p>使用 <strong>{provider.oauthMethod}</strong> 账号登录。会在浏览器中打开授权页面，完成后自动返回。</p>
-          <button className="primary-button compact" disabled={busy} onClick={() => onLogin("oauth")}>
-            <LogIn size={13} />登录
+      <form className="models-key-form" onSubmit={submit}>
+        <div className="models-key-row">
+          <span className="models-key-input">
+            <KeyRound size={13} />
+            <input
+              type="password"
+              autoComplete="new-password"
+              spellCheck={false}
+              placeholder="API 密钥"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              disabled={busy}
+            />
+          </span>
+          <button type="submit" className="primary-button compact" disabled={busy || !apiKey.trim()}>
+            {busy ? <LoaderCircle size={13} className="spinner-icon" /> : null}{replacing ? "保存" : "连接"}
           </button>
+          {replacing && <button type="button" className="secondary-button compact" onClick={onCancelReplace}>取消</button>}
         </div>
-      ) : (
-        <form className="models-key-form" onSubmit={submit}>
-          <div className="models-key-row">
-            <span className="models-key-input">
-              <KeyRound size={13} />
-              <input
-                type="password"
-                autoComplete="new-password"
-                spellCheck={false}
-                placeholder={provider.apiKeyMethod ?? "API 密钥"}
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                disabled={busy}
-              />
-            </span>
-            <button type="submit" className="primary-button compact" disabled={busy || !apiKey.trim()}>
-              {busy ? <LoaderCircle size={13} className="spinner-icon" /> : null}{replacing ? "保存" : "连接"}
-            </button>
-            {replacing && <button type="button" className="secondary-button compact" onClick={onCancelReplace}>取消</button>}
-          </div>
-          <small className="models-hint">
-            {custom
-              ? <>密钥加密保存在本机的 ~/.pid/secrets.dat。也可以在 <button type="button" className="models-link" onClick={onEdit}>编辑配置</button> 中填写 $环境变量。</>
-              : "密钥加密保存在本机的 ~/.pid/secrets.dat，只供本应用使用。"}
-          </small>
-        </form>
-      )}
-    </div>
-  );
-}
-
-function LoginPanel({ login, onCancel, onAnswer }: { login: LoginState; onCancel: () => void; onAnswer: (value: string | undefined) => void }) {
-  const [value, setValue] = useState("");
-  const [copied, setCopied] = useState("");
-  const dialogId = login.dialog?.id;
-  const [answeringDialog, setAnsweringDialog] = useState(dialogId);
-  if (answeringDialog !== dialogId) {
-    setAnsweringDialog(dialogId);
-    setValue("");
-  }
-  const deviceCode = login.device?.userCode;
-  const verificationUri = login.device?.verificationUri;
-  const authUrl = login.authUrl;
-  const copy = (text: string, key: string) => {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(key);
-      window.setTimeout(() => setCopied(""), 1400);
-    });
-  };
-  const dialog = login.dialog;
-  const title = login.method === "api_key"
-    ? "正在验证密钥…"
-    : login.device ? "等待在浏览器中输入代码…" : login.authUrl ? "等待浏览器完成授权…" : "正在准备登录…";
-  const inputLabel = login.promptType === "manual_code"
-    ? "浏览器没有自动返回？把授权码或回调地址粘贴到这里"
-    : dialog?.title;
-
-  return (
-    <div className="models-login" aria-live="polite">
-      <header>
-        <LoaderCircle size={14} className="spinner-icon" />
-        <strong>{title}</strong>
-        <button className="secondary-button compact" onClick={onCancel}>取消</button>
-      </header>
-      {login.progress && <p className="models-hint">{login.progress}</p>}
-      {deviceCode && (
-        <div className="models-device">
-          <span>在 {verificationUri ?? "授权页面"} 输入以下代码：</span>
-          <code>{deviceCode}</code>
-          <div className="models-actions">
-            <button className="secondary-button compact" onClick={() => copy(deviceCode, "code")}>{copied === "code" ? <Check size={13} /> : <Copy size={13} />}复制代码</button>
-            {verificationUri && <button className="secondary-button compact" onClick={() => void openUrl(verificationUri)}><ExternalLink size={13} />打开页面</button>}
-          </div>
-        </div>
-      )}
-      {authUrl && !login.device && (
-        <div className="models-actions">
-          <button className="secondary-button compact" onClick={() => void openUrl(authUrl)}><ExternalLink size={13} />重新打开授权页面</button>
-          <button className="secondary-button compact" onClick={() => copy(authUrl, "url")}>{copied === "url" ? <Check size={13} /> : <Copy size={13} />}复制链接</button>
-        </div>
-      )}
-      {dialog?.method === "select" && (
-        <div className="models-choices">
-          <p>{dialog.title}</p>
-          {dialog.options.map((option) => (
-            <button key={option} className="secondary-button compact" onClick={() => onAnswer(option)}>{option}</button>
-          ))}
-        </div>
-      )}
-      {dialog?.method === "input" && (
-        <form className="models-key-form" onSubmit={(event) => { event.preventDefault(); if (value.trim()) onAnswer(value.trim()); }}>
-          <label className="models-field-label">{inputLabel}</label>
-          <div className="models-key-row">
-            <span className="models-key-input">
-              <input
-                autoFocus={login.promptType !== "manual_code"}
-                type={login.promptType === "secret" ? "password" : "text"}
-                spellCheck={false}
-                placeholder={dialog.placeholder}
-                value={value}
-                onChange={(event) => setValue(event.target.value)}
-              />
-            </span>
-            <button type="submit" className="secondary-button compact" disabled={!value.trim()}>提交</button>
-          </div>
-        </form>
-      )}
+        <small className="models-hint">
+          {custom
+            ? <>密钥加密保存在本机的 ~/.pid/secrets.dat。也可以在 <button type="button" className="models-link" onClick={onEdit}>编辑配置</button> 中填写 $环境变量。</>
+            : "密钥加密保存在本机的 ~/.pid/secrets.dat，只供本应用使用。"}
+        </small>
+      </form>
     </div>
   );
 }

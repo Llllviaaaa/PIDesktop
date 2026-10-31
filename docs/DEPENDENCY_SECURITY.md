@@ -14,20 +14,13 @@ CI runs `cargo audit` so new vulnerabilities fail the job. Maintenance warnings 
 
 ### TLS root and certificate verification advisories
 
-`RUSTSEC-2026-0382` / `CVE-2026-111943` affects `rustls-webpki <0.103.16`.
-`RUSTSEC-2026-0381` affects `webpki-roots <1.0.10`, including the `0.26.11`
-compatibility crate. Both entered through `ureq 2.12.1` and `rustls 0.23.46`.
-
-`ureq 2.12.1` has no later 2.x release and requires `webpki-roots ^0.26`. That
-crate only re-exports `TLS_SERVER_ROOTS`, which is the only symbol `ureq` reads.
-`src-tauri/Cargo.toml` pins `rustls-webpki` to `0.103.16` and `webpki-roots` 1.x
-to `1.0.10`. crates.io has no patched 0.26 release, so `[patch.crates-io]`
-replaces that package with `vendor/webpki-roots-compat`, which keeps the
-required name and version and re-exports the patched 1.0.10 roots. `cargo audit`
-ignores the local path package and sees only `webpki-roots 1.0.10`. Remove the
-pin and patch when `ureq` depends on a patched release directly. Do not ignore
-either advisory: the patched crates are on the Windows request path used by the
-package marketplace and model discovery.
+`RUSTSEC-2026-0382` (`rustls-webpki <0.103.16`) and `RUSTSEC-2026-0381`
+(`webpki-roots <1.0.10`) entered through `ureq 2.12.1` and `rustls 0.23.46`,
+which the desktop used for the package marketplace and model discovery. Both
+moved to the Harness Host in V2, and 0.3.0 removes `ureq`, `rustls`, both
+crates, their pins and the `vendor/webpki-roots-compat` patch from
+`src-tauri`. If a Rust HTTPS client comes back, require the patched releases
+directly rather than restoring the patch.
 
 ### GLib `VariantStrIter` advisory
 

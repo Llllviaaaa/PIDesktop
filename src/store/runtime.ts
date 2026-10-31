@@ -33,7 +33,7 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
     connection: "disconnected",
     hostStatus: "connected",
     cwd: "",
-    piLog: [],
+    hostLog: [],
     lastError: null,
     sessionFile: null,
     sessionId: null,
@@ -361,7 +361,7 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
       harnessRuntimes.reconnectNow();
     },
 
-    appendLog: (line) => set((state) => ({ piLog: [...state.piLog.slice(-399), redactSensitiveText(line)] })),
+    appendLog: (line) => set((state) => ({ hostLog: [...state.hostLog.slice(-399), redactSensitiveText(line)] })),
 
     reloadProviderCatalog: async () => {
       const runtimeId = get().runtimeId;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { describeError } from "../lib/errors";
-import { subscribeToPi } from "../lib/agent";
+import { subscribeToRuntimes } from "../lib/agent";
 import { sameLocalPath } from "../lib/pathIdentity";
 import { useAppStore } from "../store";
 import type { ConnectionState, SessionInfo } from "../types";
@@ -66,7 +66,7 @@ export function useRuntimeBootstrap({
     let cleanup: (() => void) | undefined;
     void (async () => {
       const store = useAppStore.getState();
-      cleanup = await subscribeToPi({
+      cleanup = await subscribeToRuntimes({
         onEvent: store.handleEvent,
         onStatus: store.handleStatus,
         onLog: store.handleLog,

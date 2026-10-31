@@ -138,23 +138,23 @@ export interface PiStartResult {
   sessionForked: boolean;
 }
 
-export interface PiRuntimeStatus {
+export interface RuntimeStatus {
   runtimeId: string;
   status: string;
   code?: number | null;
   cwd?: string;
 }
 
-export interface PiListeners {
+export interface RuntimeListeners {
   onEvent: (runtimeId: string, event: TranscriptEvent) => void;
-  onStatus?: (status: PiRuntimeStatus) => void;
+  onStatus?: (status: RuntimeStatus) => void;
   onLog?: (runtimeId: string, line: string) => void;
   onProtocolError?: (message: string) => void;
   onHostStatus?: (status: HostStatus) => void;
 }
 
 /** Hear the runtimes' events and the Host's status. Host runtimes have no process to exit or log of their own. */
-export async function subscribeToPi(listeners: PiListeners): Promise<() => void> {
+export async function subscribeToRuntimes(listeners: RuntimeListeners): Promise<() => void> {
   const stopEvents = harnessRuntimes.subscribe(listeners.onEvent);
   const stopStatus = listeners.onHostStatus === undefined ? undefined : harnessRuntimes.onHostStatus(listeners.onHostStatus);
   return () => {

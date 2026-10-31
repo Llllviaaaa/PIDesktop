@@ -24,9 +24,9 @@ describe("model providers on the harness engine", () => {
       models: [{ id: "big", name: "Big", reasoning: true, input: ["text", "image"], contextWindow: 200_000, maxTokens: 32_000 }],
     });
     const summary = summaryFromHost(host, [{ id: "big" }, { id: "small" }]);
-    expect(summary).toMatchObject({ id: "claude", builtin: false, configured: true, oauthMethod: null });
+    expect(summary).toMatchObject({ id: "claude", configured: true, keySource: "stored" });
     expect(summary.models.map((model) => [model.id, model.name, model.maxTokens])).toEqual([["big", "Big", 32_000], ["small", "small", null]]);
-    expect(summaryFromHost({ ...host, keySource: "none" }, []).configured).toBe(false);
+    expect(summaryFromHost({ ...host, keySource: "none" }, [])).toMatchObject({ configured: false, keySource: "none" });
   });
 
   it("map the form back to a Host draft", () => {
