@@ -197,6 +197,11 @@ pub fn run() {
     KEEP_AWAKE.store(settings.prevent_sleep, Ordering::Relaxed);
 
     tauri::Builder::default()
+        // Must be registered first: a second launch hands off here and exits before
+        // it can start its own window, tray icon or Harness Host.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {

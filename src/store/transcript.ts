@@ -210,6 +210,7 @@ export function createTranscriptSlice(set: SetState, get: GetState, ctx: StoreCo
           await harnessRuntimes.queue(runtimeId, behavior === "followUp" ? "followUp" : "steer", payload);
         } else {
           await harnessRuntimes.prompt(runtimeId, payload);
+          ctx.recordStartedSession(runtimeId);
           // The task has started: its model and thinking level now live in the runtime.
           ctx.queuedModelSelection = null;
           ctx.queuedThinkingLevel = null;

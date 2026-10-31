@@ -180,6 +180,12 @@ export class HarnessRuntimes {
     return this.runtimes.has(runtimeId);
   }
 
+  /** The runtime's session as a session file, once it has one: a new task's session starts with its first prompt. */
+  sessionFileOf(runtimeId: string): string | undefined {
+    const sessionId = this.runtimes.get(runtimeId)?.sessionId;
+    return sessionId === undefined ? undefined : `${HARNESS_SESSION_PREFIX}${sessionId}`;
+  }
+
   /** Answer a confirm, select or input the Host asked through `ui/request`. */
   async respond(request: ExtensionUIRequest, response: { value?: string; confirmed?: boolean; cancelled?: true }): Promise<void> {
     const local = this.localQuestions.get(request.id);
