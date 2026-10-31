@@ -420,7 +420,12 @@ fn commit_message_input(recent_subjects: &str, changes: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Tests run in parallel and the clock on Windows is coarse, so two tests could get the
+    // same stamp and `git init` the same directory. The counter keeps every name distinct.
+    static NEXT_TEST_ID: AtomicU64 = AtomicU64::new(1);
 
     fn temp_dir(label: &str) -> PathBuf {
         let stamp = SystemTime::now()
@@ -428,8 +433,9 @@ mod tests {
             .expect("system clock should be after Unix epoch")
             .as_nanos();
         let directory = std::env::temp_dir().join(format!(
-            "pid-desktop-{label}-{}-{stamp}",
-            std::process::id()
+            "pid-desktop-{label}-{}-{}-{stamp}",
+            std::process::id(),
+            NEXT_TEST_ID.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&directory).expect("temporary directory should be created");
         directory
