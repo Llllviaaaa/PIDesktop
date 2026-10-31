@@ -67,12 +67,17 @@ npm audit --audit-level=high
 npm run typecheck
 npm run lint
 npm run test:unit
+npm run test:stress
+npm run test:e2e
 npm run build
 ```
 
 Unit suites run under Vitest (`npm test`, or `npm run test:watch` while
 working, `npm run test:coverage` for a report). `npm run test:unit` adds the
 repository and Harness Host executable checks that CI also runs.
+`npm run test:stress` is the Host's load and leak test, and `npm run test:e2e`
+drives the e2e build in the installed Edge against a real Harness Host; CI runs
+both on every pull request.
 
 Desktop build:
 
