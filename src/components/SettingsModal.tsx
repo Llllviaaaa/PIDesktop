@@ -440,7 +440,7 @@ export function SettingsModal({
         </div>
         <label className="settings-search">
           <Search size={15} />
-          <input autoFocus placeholder="搜索设置…" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <input placeholder="搜索设置…" value={query} onChange={(event) => setQuery(event.target.value)} />
           {query && <button onClick={() => setQuery("")}><X size={13} /></button>}
         </label>
         <nav className="settings-nav-scroll">
@@ -467,7 +467,6 @@ export function SettingsModal({
             <span className={`settings-save-status ${saveState}`} aria-live="polite">
               {saveState === "pending" || saveState === "saving" ? "正在保存…" : saveState === "saved" ? "已保存" : saveState === "error" ? "保存失败" : ""}
             </span>
-            <button className="icon-button" onClick={closeSettings} title="关闭设置"><X size={18} /></button>
           </div>
         </header>
         <div className="settings-page-scroll">
