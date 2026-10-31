@@ -190,7 +190,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
     <div className="models-page">
       <div className="settings-page-heading models-heading">
         <div>
-          <h1>模型</h1>
+          <h1>模型与连接</h1>
           <p>连接模型提供商，选择新任务默认使用的模型，并决定哪些模型出现在输入框的模型选择器中。</p>
         </div>
         <button className="secondary-button compact" disabled={loading || !isTauri} onClick={() => void refresh()} title="重新读取凭据和 models.json">
@@ -236,7 +236,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
                 ))}
               </section>
             ))}
-            {!loading && groups.length === 0 && !loadError && <div className="models-list-empty">没有匹配的提供商</div>}
+            {!loading && groups.length === 0 && !loadError && <div className="models-list-empty">{query ? "没有匹配的提供商" : "还没有可用的提供商"}</div>}
           </div>
           <button className="models-add" onClick={() => setEditor(emptyDraft())} disabled={!isTauri}>
             <Plus size={13} />添加自定义提供商
@@ -254,8 +254,8 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
           ) : !selected ? (
             <div className="models-empty-state">
               {loading ? <LoaderCircle size={20} className="spinner-icon" /> : <KeyRound size={20} />}
-              <strong>{loading ? "正在启动模型服务…" : "选择一个提供商"}</strong>
-              <p>{isTauri ? "左侧列出了支持的全部提供商。" : "模型设置需要在桌面应用中打开。"}</p>
+              <strong>{loading ? "正在启动模型服务…" : providers.length === 0 ? "还没有模型提供商" : "选择一个提供商"}</strong>
+              <p>{!isTauri ? "模型设置需要在桌面应用中打开。" : providers.length === 0 ? "点击左下角“添加自定义提供商”，接入 OpenAI 兼容的网关或本地模型。" : "从左侧选择提供商，连接后即可在输入框中使用它的模型。"}</p>
             </div>
           ) : (
             <ProviderDetail

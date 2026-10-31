@@ -68,8 +68,9 @@
   width: min(480px, 100%);
   margin-right: auto;
   padding: 12px;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--text) 4%, var(--panel));
+  background: transparent;
 }
 
 .codex-shot .dsh-claude-home-panel-head {
@@ -128,7 +129,7 @@
   min-width: 0;
   padding: 5px 8px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--text) 11%, var(--panel));
+  background: color-mix(in srgb, var(--text) 4%, transparent);
 }
 
 .codex-shot .dsh-claude-home-stat-label {
@@ -167,24 +168,24 @@
 .codex-shot .dsh-claude-home-heat-cell {
   position: relative;
   aspect-ratio: 1;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--text) 11%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 
 .codex-shot .dsh-claude-home-heat-cell[data-level="1"] {
-  background: color-mix(in srgb, #3b6ecf 22%, transparent);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .codex-shot .dsh-claude-home-heat-cell[data-level="2"] {
-  background: color-mix(in srgb, #3b6ecf 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .codex-shot .dsh-claude-home-heat-cell[data-level="3"] {
-  background: color-mix(in srgb, #3b6ecf 68%, transparent);
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
 .codex-shot .dsh-claude-home-heat-cell[data-level="4"] {
-  background: #3b6ecf;
+  background: var(--accent);
 }
 
 .codex-shot .dsh-claude-home-heat-cell[data-tip]:hover::after {

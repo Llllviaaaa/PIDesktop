@@ -163,13 +163,16 @@ export function ClaudeHomeDashboard({
       outputTokens: usage?.outputTokens ?? Math.round(totalTokens * 0.28),
       activeDays: dayMessages.size,
       peakHour: peakHourIndex >= 0 ? formatHour(peakHourIndex) : "—",
-      topModel: currentModelId || "claude-sonnet-4-5",
+      topModel: currentModelId || "—",
       cells,
       funLine: pickFunBookLine(totalTokens),
     };
   }, [currentModelId, mountedAt, range, sessions, usageQuery.data]);
 
   const totalColumns = 26;
+
+  // A first run has nothing to chart; an all-zero panel reads as unfinished.
+  if (sessions.length === 0 && !usageQuery.data?.messages) return null;
 
   return (
     <div className="dsh-claude-home-panel">
@@ -239,7 +242,7 @@ export function ClaudeHomeDashboard({
               <span className="dsh-claude-home-stat-value">{stats.peakHour}</span>
             </div>
             <div className="dsh-claude-home-stat" data-stat="model">
-              <span className="dsh-claude-home-stat-label">最常用模型</span>
+              <span className="dsh-claude-home-stat-label">当前模型</span>
               <span className="dsh-claude-home-stat-value" title={stats.topModel}>{stats.topModel}</span>
             </div>
           </div>
