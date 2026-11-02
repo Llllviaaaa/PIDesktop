@@ -938,9 +938,13 @@ export default function App() {
     return { additions: add, deletions: del };
   }, [reviewGit?.diff]);
   const reviewFileCount = reviewGit?.files.length ?? 0;
-  const taskWorkspaceName = quickChat
-    ? "快速对话"
-    : draftWorkspace.split(/[\\/]/).filter(Boolean).pop() || "一个项目";
+  const taskWorkspaceName = draftWorkspace.split(/[\\/]/).filter(Boolean).pop() ?? "";
+  // The home headline names the chosen project; without one it asks for one.
+  const homeHeadline = quickChat
+    ? "接下来聊些什么？"
+    : taskWorkspaceName
+      ? `接下来在 ${taskWorkspaceName} 做什么？`
+      : "选一个项目开始";
   const statusText = isCompacting
     ? "正在压缩上下文…"
     : retryStatus || (isStreaming ? "Agent 正在工作…" : connected ? "就绪" : connection === "starting" ? "正在启动 Harness…" : "未连接");
@@ -1864,7 +1868,7 @@ export default function App() {
                 <div className="new-task-screen codex-home vetta-home dsh-claude-home">
                   <div className="vetta-home-intro dsh-claude-hero-headline">
                     <h1 className="new-task-heading">
-                      {quickChat ? "接下来聊些什么？" : `接下来在 ${taskWorkspaceName} 做什么？`}
+                      {homeHeadline}
                     </h1>
                   </div>
                   {store.lastError && <p className="new-task-error">{store.lastError}</p>}

@@ -23,14 +23,15 @@
   gap: 14px;
 }
 
-/* Headline */
+/* Headline. Its auto top margin and the composer's split the free height, so
+   the headline and the usage card sit centred above the composer, as in DSH and Codex. */
 .codex-shot .dsh-claude-hero-headline {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 10px;
   width: 100%;
-  margin: 0 0 8px;
+  margin: auto 0 8px;
   padding: 8px 0 0;
 }
 
@@ -42,7 +43,7 @@
   font-weight: 500;
   line-height: 26px;
   letter-spacing: 0;
-  text-align: left;
+  text-align: center;
 }
 
 .codex-shot .dsh-claude-home-composer-wrap {
@@ -66,7 +67,7 @@
   gap: 12px;
   box-sizing: border-box;
   width: min(480px, 100%);
-  margin-right: auto;
+  margin: 0 auto;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -80,39 +81,26 @@
   gap: 12px;
 }
 
-.codex-shot .dsh-claude-home-tabs,
-.codex-shot .dsh-claude-home-ranges {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.codex-shot .dsh-claude-home-tab,
-.codex-shot .dsh-claude-home-range {
-  appearance: none;
-  margin: 0;
-  padding: 1px 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-3);
+.codex-shot .dsh-claude-home-panel-title {
+  color: var(--text-2);
   font-family: var(--font-ui);
   font-size: 12px;
-  line-height: 18px;
-  cursor: pointer;
-}
-
-.codex-shot .dsh-claude-home-tab:hover:not([data-active]),
-.codex-shot .dsh-claude-home-range:hover:not([data-active]) {
-  background: color-mix(in srgb, var(--text) 5%, transparent);
-  color: var(--text);
-}
-
-.codex-shot .dsh-claude-home-tab[data-active],
-.codex-shot .dsh-claude-home-range[data-active] {
-  background: color-mix(in srgb, var(--text) 10%, var(--panel));
-  color: var(--text);
   font-weight: 500;
+  line-height: 18px;
+}
+
+.codex-shot .dsh-claude-home-panel-note,
+.codex-shot .dsh-claude-home-foot {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.codex-shot .dsh-claude-home-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
 }
 
 .codex-shot .dsh-claude-home-stats {
@@ -216,64 +204,6 @@
   left: auto;
   right: 0;
   transform: none;
-}
-
-.codex-shot .dsh-claude-home-fun {
-  color: var(--text-3);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.codex-shot .dsh-claude-home-models {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 4px 0;
-}
-
-.codex-shot .dsh-claude-home-model {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.codex-shot .dsh-claude-home-model-swatch {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  background: #2f5fc4;
-}
-
-.codex-shot .dsh-claude-home-model-name {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 18px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.codex-shot .dsh-claude-home-model-split {
-  margin-left: auto;
-  color: var(--text-3);
-  font-size: 12px;
-  line-height: 18px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.codex-shot .dsh-claude-home-model-share {
-  flex: none;
-  width: 44px;
-  color: var(--text);
-  font-size: 12px;
-  line-height: 18px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ── 16-bit Pixel Pet art (desktop pet and settings preview) ───────── */
