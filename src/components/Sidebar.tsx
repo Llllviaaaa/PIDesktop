@@ -9,7 +9,6 @@ import {
 import {
   Archive,
   ArchiveRestore,
-  MessageSquare,
   Bell,
   Check,
   CheckCircle2,
@@ -147,21 +146,24 @@ function relativeTime(session: SessionInfo): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-/** Sidebar row timestamp: "2h", "5d" — short enough to sit beside a truncated title. */
+/** Sidebar row timestamp: "2小时", "5天" — short enough to sit beside a truncated title. */
 function compactRelativeTime(session: SessionInfo): string {
   const parsedCreated = session.createdAt ? Date.parse(session.createdAt) : 0;
   const timestamp = session.updatedAt || parsedCreated;
   if (!timestamp) return "";
   const minutes = Math.floor(Math.max(0, Date.now() - timestamp) / 60_000);
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes}分钟`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
+  if (hours < 24) return `${hours}小时`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d`;
+  if (days < 30) return `${days}天`;
   const months = Math.floor(days / 30);
-  return months < 12 ? `${months}mo` : `${Math.floor(days / 365)}y`;
+  return months < 12 ? `${months}个月` : `${Math.floor(days / 365)}年`;
 }
+
+/** Rows a project shows before "展开其余 N 个会话". */
+const VISIBLE_THREADS_PER_PROJECT = 5;
 
 export function Sidebar({
   sessions,
@@ -693,9 +695,16 @@ export function Sidebar({
         ) : groups.map(([workspace, chats]) => {
           const collapsed = !query.trim() && collapsedProjectPaths.some((path) => pathsEqual(path, workspace));
           const expanded = Boolean(query.trim()) || expandedProjects[workspace];
-          const visibleChats = expanded ? chats : chats.slice(0, 4);
+          const visibleChats = expanded ? chats : chats.slice(0, VISIBLE_THREADS_PER_PROJECT);
+          const hiddenChatCount = chats.length - VISIBLE_THREADS_PER_PROJECT;
           const projectPinned = projectConfig(workspace).pinned;
           const isEditing = editingProject === workspace;
+          // A collapsed project still has to say when one of its sessions needs the user.
+          const projectStatus = chats.some((session) => approvalSessionFiles.some((file) => sameLocalPath(file, session.file)))
+            ? "approval"
+            : chats.some((session) => runningSessionFiles.some((file) => sameLocalPath(file, session.file)))
+              ? "running"
+              : null;
           return (
             <section className={`project-block ${cwd && pathsEqual(workspace, cwd) ? "is-current" : ""}`} key={workspace}>
               <div className="project-header-row">
@@ -727,6 +736,14 @@ export function Sidebar({
                     >
                       <Folder size={15} strokeWidth={1.7} />
                       <span className="project-name">{displayProjectName(workspace)}</span>
+                      {collapsed && projectStatus && (
+                        <span
+                          className="thread-status project-status"
+                          data-status={projectStatus}
+                          title={projectStatus === "approval" ? "有会话等待审批" : "有会话正在运行"}
+                        />
+                      )}
+                      {collapsed && chats.length > 0 && <span className="project-count">{chats.length}</span>}
                     </button>
                     <button
                       type="button"
@@ -760,6 +777,7 @@ export function Sidebar({
                   const approval = approvalSessionFiles.some((file) => sameLocalPath(file, session.file));
                   const active = !newTaskActive && sameLocalPath(session.file, currentSessionFile);
                   const pinned = pinnedSessionFiles.includes(session.file);
+                  const status = approval ? "approval" : running ? "running" : active ? "active" : "idle";
                   return (
                     <div
                       className={`thread-row-shell ${active ? "active" : ""}`}
@@ -778,14 +796,17 @@ export function Sidebar({
                         }}
                         title={sessionTitle(session)}
                       >
-                        <MessageSquare className="thread-row-icon" size={15} strokeWidth={1.6} aria-hidden />
+                        <span
+                          className="thread-status"
+                          data-status={status}
+                          title={approval ? "等待审批" : running ? "运行中" : undefined}
+                        />
                         <span className="thread-title">{sessionTitle(session)}</span>
-                        {!running && !approval && <span className="thread-row-time">{compactRelativeTime(session)}</span>}
+                        {approval
+                          ? <span className="thread-row-time thread-row-badge">待审批</span>
+                          : <span className="thread-row-time">{compactRelativeTime(session)}</span>}
                       </button>
                       <div className="thread-row-actions">
-                        {(running || approval) && (
-                          <span className={`thread-dot ${approval ? "approval" : "running"}`} title={approval ? "等待审批" : "运行中"} />
-                        )}
                         <button
                           type="button"
                           className={pinned ? "is-pinned" : ""}
@@ -814,13 +835,13 @@ export function Sidebar({
                     </div>
                   );
                 })}
-                {!query.trim() && chats.length > 4 && (
+                {!query.trim() && hiddenChatCount > 0 && (
                   <button
                     type="button"
                     className="expand-threads"
                     onClick={() => setExpandedProjects((current) => ({ ...current, [workspace]: !current[workspace] }))}
                   >
-                    {expanded ? "收起" : "展开显示"}
+                    {expanded ? "收起" : `展开其余 ${hiddenChatCount} 个会话`}
                   </button>
                 )}
               </div>}
