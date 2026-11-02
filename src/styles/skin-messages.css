@@ -2126,6 +2126,16 @@
   background: var(--dsh-claude-hover-bg, var(--hover));
 }
 
+/* 撤销 / 审核 are buttons and need an edge; the card-wide border-l1 above all but
+   vanishes on the dark card (#242320), so they take the stronger border. */
+.codex-shot .conversation-change-heading > button:not(.conversation-change-open) {
+  border: 1px solid var(--dsh-claude-border-l2, var(--border-strong));
+}
+
+:root[data-theme="dark"] .codex-shot .conversation-change-heading > button:not(.conversation-change-open) {
+  border-color: color-mix(in srgb, var(--text) 20%, transparent);
+}
+
 /* The change card closing the last turn, above its actions; Codex's 「已编辑 N 个文件」 list. */
 .codex-shot .dshc-turn-footer {
   margin: 10px 0 4px;
