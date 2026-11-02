@@ -978,6 +978,79 @@
   border: 1px solid var(--dsh-claude-border-l1, var(--border));
 }
 
+/* `@` mention rows: icon, name, the folder it lives in, and Tab for folders. */
+.codex-shot .mention-menu-heading,
+.codex-shot .mention-menu-status {
+  padding: 4px 10px 2px;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.codex-shot .mention-menu-status {
+  padding: 6px 10px 8px;
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+.codex-shot .command-menu button.mention-item {
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: auto;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.codex-shot .mention-item > svg {
+  color: var(--text-3);
+}
+
+.codex-shot .mention-item-name {
+  overflow: hidden;
+  font: 13px/18px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .mention-item-path {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.codex-shot .mention-item-hint {
+  padding: 0 5px;
+  border: 1px solid var(--dsh-claude-border-l1, var(--border));
+  border-radius: 4px;
+  color: var(--text-3);
+  font: 10.5px/16px var(--font-ui);
+  visibility: hidden;
+}
+
+.codex-shot .mention-item.active .mention-item-hint {
+  visibility: visible;
+}
+
+.codex-shot .command-menu button.mention-item:hover,
+.codex-shot .command-menu button.mention-item.active {
+  background: var(--dsh-claude-hover-bg, var(--hover));
+}
+
 .codex-shot .composer-actions-menu button.active,
 .codex-shot .permission-menu button.active,
 .codex-shot .model-picker-list button.active,

@@ -22,7 +22,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { AppSettings, AttachmentPayload, ManagedQueuedMessage, ModelInfo, SessionStats, SlashCommand } from "../types";
+import type { AppSettings, AttachmentPayload, ManagedQueuedMessage, ModelInfo, SessionStats, SlashCommand, WorkspaceDirEntry } from "../types";
 import type { TranscriptDensity } from "../lib/transcriptDensity";
 import { ModelPicker } from "./ModelPicker";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
@@ -39,8 +39,9 @@ const PERMISSION_OPTIONS: Array<{
   { value: "full-access", label: "完全访问", description: "允许修改文件并执行命令，不再逐项确认" },
 ];
 
-/** The command menu scrolls; this only bounds how many rows it renders. */
+/** The suggestion menus scroll; these only bound how many rows they render. */
 const MAX_COMMAND_MATCHES = 50;
+const MAX_MENTION_RESULTS = 50;
 
 interface ComposerProps {
   isStreaming: boolean;
@@ -79,6 +80,8 @@ interface ComposerProps {
   onAttachFiles?: (paths: string[]) => void;
   /** Images pasted or dropped without a path on disk, already read. */
   onAttachPayloads?: (attachments: AttachmentPayload[]) => void;
+  /** Workspace files for an `@` mention; without it `@` is plain text. */
+  onSearchFiles?: (query: string, signal: AbortSignal) => Promise<WorkspaceDirEntry[]>;
   onRemoveAttachment: (path: string) => void;
   onModelChange: (model: ModelInfo) => void;
   onThinkingChange: (level: string) => void;
@@ -127,6 +130,7 @@ export const Composer = memo(function Composer({
   onPickAttachments,
   onAttachFiles,
   onAttachPayloads,
+  onSearchFiles,
   onRemoveAttachment,
   onModelChange,
   onThinkingChange,
@@ -150,10 +154,13 @@ export const Composer = memo(function Composer({
   const [permissionOpen, setPermissionOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
-  const [commandIndex, setCommandIndex] = useState(0);
-  // Escape hides the command menu for the draft it was pressed on; typing brings it back.
-  const [commandMenuDismissedFor, setCommandMenuDismissedFor] = useState<string | null>(null);
-  const commandMenuRef = useRef<HTMLDivElement>(null);
+  // One highlighted row for whichever suggestion menu is open (/ commands or @ files).
+  const [suggestionIndex, setSuggestionIndex] = useState(0);
+  // Escape hides the suggestions for the draft it was pressed on; typing brings them back.
+  const [suggestionsDismissedFor, setSuggestionsDismissedFor] = useState<string | null>(null);
+  const suggestionMenuRef = useRef<HTMLDivElement>(null);
+  const [caret, setCaret] = useState(0);
+  const [fileResults, setFileResults] = useState<{ query: string; entries: WorkspaceDirEntry[] } | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -298,19 +305,73 @@ export const Composer = memo(function Composer({
         .slice(0, MAX_COMMAND_MATCHES),
     [commandQuery, commands],
   );
-  const commandMenuOpen = commandMatches.length > 0 && commandMenuDismissedFor !== text;
-  const activeCommand = commandMenuOpen ? commandMatches[Math.min(commandIndex, commandMatches.length - 1)] : undefined;
-  useSyncOnChange([commandQuery], () => setCommandIndex(0));
-  useEffect(() => {
-    if (!commandMenuOpen) return;
-    commandMenuRef.current
-      ?.querySelector<HTMLElement>(`[data-command-index="${commandIndex}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [commandIndex, commandMenuOpen]);
+  const suggestionsDismissed = suggestionsDismissedFor === text;
+  const commandMenuOpen = commandMatches.length > 0 && !suggestionsDismissed;
+  const activeCommand = commandMenuOpen ? commandMatches[Math.min(suggestionIndex, commandMatches.length - 1)] : undefined;
   const chooseCommand = (command: SlashCommand) => {
     setText(`/${command.name} `);
     textareaRef.current?.focus();
   };
+
+  // An `@` at the start or after whitespace, running up to the caret, is a file mention.
+  const mention = useMemo(() => {
+    if (!onSearchFiles || disabled) return null;
+    const match = /(^|\s)@([^\s@"]*)$/.exec(text.slice(0, caret));
+    return match ? { query: match[2], start: caret - match[2].length - 1 } : null;
+  }, [caret, disabled, onSearchFiles, text]);
+  const mentionQuery = mention?.query ?? null;
+  const mentionMenuOpen = mention !== null && !commandMenuOpen && !suggestionsDismissed;
+  // The last results stay up while the next query runs, so the list does not blink per keystroke.
+  const mentionEntries = fileResults?.entries ?? [];
+  const mentionLoading = mentionMenuOpen && fileResults?.query !== mentionQuery;
+  useSyncOnChange([mentionMenuOpen], () => {
+    if (!mentionMenuOpen) setFileResults(null);
+  });
+  const activeEntry = mentionMenuOpen ? mentionEntries[Math.min(suggestionIndex, mentionEntries.length - 1)] : undefined;
+  const searchFilesRef = useRef(onSearchFiles);
+  searchFilesRef.current = onSearchFiles;
+  useEffect(() => {
+    if (!mentionMenuOpen || mentionQuery === null) return;
+    const controller = new AbortController();
+    // Listing a folder is instant; a search waits for the user to pause.
+    const timer = window.setTimeout(() => {
+      void (searchFilesRef.current?.(mentionQuery, controller.signal) ?? Promise.resolve([]))
+        .catch((): WorkspaceDirEntry[] => [])
+        .then((entries) => {
+          if (!controller.signal.aborted) setFileResults({ query: mentionQuery, entries: entries.slice(0, MAX_MENTION_RESULTS) });
+        });
+    }, mentionQuery === "" || mentionQuery.endsWith("/") ? 0 : 120);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [mentionMenuOpen, mentionQuery]);
+
+  /** Replaces the `@query` before the caret; a folder opened with Tab keeps the menu going. */
+  const chooseEntry = (entry: WorkspaceDirEntry, enterFolder: boolean) => {
+    if (!mention) return;
+    const quoted = /\s/.test(entry.path);
+    const keepBrowsing = enterFolder && entry.isDir && !quoted;
+    const reference = quoted ? `@"${entry.path}"` : `@${entry.path}`;
+    const inserted = keepBrowsing ? `${reference}/` : `${reference}${entry.isDir ? "/" : ""} `;
+    const next = `${text.slice(0, mention.start)}${inserted}${text.slice(caret)}`;
+    const nextCaret = mention.start + inserted.length;
+    setText(next);
+    setCaret(nextCaret);
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const suggestionCount = commandMenuOpen ? commandMatches.length : mentionMenuOpen ? mentionEntries.length : 0;
+  useSyncOnChange([commandQuery, mentionQuery], () => setSuggestionIndex(0));
+  useEffect(() => {
+    if (suggestionCount === 0) return;
+    suggestionMenuRef.current
+      ?.querySelector<HTMLElement>(`[data-suggestion-index="${suggestionIndex}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [suggestionCount, suggestionIndex]);
   const visibleWorkspaces = useMemo(() => {
     const normalized = workspaceQuery.trim().toLowerCase();
     return workspaceOptions
@@ -454,18 +515,18 @@ export const Composer = memo(function Composer({
         data-dsh-claude-draft-empty={!text.trim() ? "" : undefined}
       >
         {commandMenuOpen && (
-          <div className="command-menu" id="composer-command-menu" role="listbox" aria-label="快捷指令" ref={commandMenuRef}>
+          <div className="command-menu" id="composer-suggestions" role="listbox" aria-label="快捷指令" ref={suggestionMenuRef}>
             {commandMatches.map((command, index) => (
               <button
                 key={`${command.source}-${command.name}`}
-                id={`composer-command-${index}`}
-                data-command-index={index}
+                id={`composer-suggestion-${index}`}
+                data-suggestion-index={index}
                 type="button"
                 className={`command-menu-item${command === activeCommand ? " active" : ""}`}
                 role="option"
                 aria-selected={command === activeCommand}
                 tabIndex={-1}
-                onMouseEnter={() => setCommandIndex(index)}
+                onMouseEnter={() => setSuggestionIndex(index)}
                 // Keep focus in the textarea so the keys keep driving the menu.
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => chooseCommand(command)}
@@ -475,6 +536,44 @@ export const Composer = memo(function Composer({
                 <em className="command-item-source">{command.source}</em>
               </button>
             ))}
+          </div>
+        )}
+
+        {mentionMenuOpen && (
+          <div className="command-menu mention-menu" id="composer-suggestions" role="listbox" aria-label="引用文件" ref={suggestionMenuRef}>
+            <div className="mention-menu-heading" aria-hidden="true">
+              {mentionQuery?.endsWith("/") ? mentionQuery : "文件与文件夹"}
+            </div>
+            {mentionEntries.map((entry, index) => {
+              // Inside a folder the heading already names it; a search shows where each hit lives.
+              const folder = !mentionQuery?.endsWith("/") && entry.path.includes("/")
+                ? entry.path.slice(0, entry.path.lastIndexOf("/"))
+                : "";
+              return (
+                <button
+                  key={entry.path}
+                  id={`composer-suggestion-${index}`}
+                  data-suggestion-index={index}
+                  type="button"
+                  className={`mention-item${entry === activeEntry ? " active" : ""}`}
+                  role="option"
+                  aria-selected={entry === activeEntry}
+                  tabIndex={-1}
+                  title={entry.path}
+                  onMouseEnter={() => setSuggestionIndex(index)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => chooseEntry(entry, entry.isDir)}
+                >
+                  {entry.isDir ? <Folder size={14} /> : <File size={14} />}
+                  <span className="mention-item-name">{entry.name}{entry.isDir ? "/" : ""}</span>
+                  <small className="mention-item-path">{folder}</small>
+                  {entry.isDir && <kbd className="mention-item-hint">Tab 进入</kbd>}
+                </button>
+              );
+            })}
+            {mentionEntries.length === 0 && (
+              <div className="mention-menu-status">{mentionLoading ? "正在查找…" : "没有匹配的文件"}</div>
+            )}
           </div>
         )}
 
@@ -507,30 +606,37 @@ export const Composer = memo(function Composer({
             data-phase={isStreaming ? "streaming" : "idle"}
             placeholder={disabled ? "正在准备…" : isStreaming ? "继续指示…" : "发消息，用 / 调用命令，@ 引用文件…"}
             role="combobox"
-            aria-expanded={commandMenuOpen}
-            aria-controls={commandMenuOpen ? "composer-command-menu" : undefined}
-            aria-activedescendant={activeCommand ? `composer-command-${commandMatches.indexOf(activeCommand)}` : undefined}
+            aria-expanded={commandMenuOpen || mentionMenuOpen}
+            aria-controls={commandMenuOpen || mentionMenuOpen ? "composer-suggestions" : undefined}
+            aria-activedescendant={suggestionCount > 0 ? `composer-suggestion-${Math.min(suggestionIndex, suggestionCount - 1)}` : undefined}
             aria-autocomplete="list"
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => {
+              setText(event.target.value);
+              setCaret(event.target.selectionStart);
+            }}
+            onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
             onPaste={handlePaste}
             onKeyDown={(event) => {
-              if (commandMenuOpen && !event.nativeEvent.isComposing) {
-                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                  event.preventDefault();
-                  const step = event.key === "ArrowDown" ? 1 : -1;
-                  setCommandIndex((index) => (index + step + commandMatches.length) % commandMatches.length);
-                  return;
-                }
-                if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
-                  event.preventDefault();
-                  if (activeCommand) chooseCommand(activeCommand);
-                  return;
-                }
+              if ((commandMenuOpen || mentionMenuOpen) && !event.nativeEvent.isComposing) {
                 if (event.key === "Escape") {
                   event.preventDefault();
                   event.stopPropagation();
-                  setCommandMenuDismissedFor(text);
+                  setSuggestionsDismissedFor(text);
                   return;
+                }
+                if (suggestionCount > 0) {
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    const step = event.key === "ArrowDown" ? 1 : -1;
+                    setSuggestionIndex((index) => (Math.min(index, suggestionCount - 1) + step + suggestionCount) % suggestionCount);
+                    return;
+                  }
+                  if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+                    event.preventDefault();
+                    if (activeCommand) chooseCommand(activeCommand);
+                    else if (activeEntry) chooseEntry(activeEntry, event.key === "Tab");
+                    return;
+                  }
                 }
               }
               const shouldSubmit = requireCtrlEnter ? event.ctrlKey || event.metaKey : !event.shiftKey;

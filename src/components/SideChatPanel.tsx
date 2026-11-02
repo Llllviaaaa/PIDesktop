@@ -20,6 +20,7 @@ import {
 } from "../lib/transcript";
 import { sameLocalPath } from "../lib/pathIdentity";
 import { loadAttachmentFiles, mergeAttachments } from "../lib/attachments";
+import { findMentionCandidates } from "../lib/workspaceSearch";
 import type {
   AppSettings,
   AttachmentPayload,
@@ -457,6 +458,7 @@ export function SideChatPanel({
           onPickAttachments={() => void pickAttachments()}
           onAttachFiles={(files) => void attachFiles(files)}
           onAttachPayloads={(added) => setAttachments((current) => mergeAttachments(current, added))}
+          onSearchFiles={cwd ? (query, signal) => findMentionCandidates(cwd, query, signal) : undefined}
           onRemoveAttachment={(path) => setAttachments((current) => current.filter((item) => item.path !== path))}
           onModelChange={(next) => void changeModel(next)}
           onThinkingChange={(level) => void changeThinking(level)}
