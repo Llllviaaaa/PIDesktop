@@ -24,7 +24,8 @@ test("run a scheduled task now", async ({ app, harness }) => {
 });
 
 test("save a custom provider", async ({ app, harness }) => {
-  await app.getByTitle("设置", { exact: true }).click();
+  await app.getByTitle("设置与帮助").click();
+  await app.getByRole("menuitem", { name: "模型与连接" }).click();
   await app.getByRole("button", { name: /模型与连接/ }).click();
   await app.getByRole("button", { name: "添加自定义提供商" }).click();
   const editor = app.getByRole("dialog", { name: "添加自定义提供商" });

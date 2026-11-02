@@ -6,9 +6,9 @@
  * - Top bar: 24px bottom fade band, centered `[data-dsh-view-tabs]` segmented control.
  * - Sidebar brand row (`[data-dsh-claude-search-row]`): Pi mark + wordmark on the left, search (Ctrl+K) and notification icon buttons on the right.
  * - New session button (`.dsh-claude-new-session`): 20px circle plus badge that rotates 90deg on hover + keycaps for the configured new chat shortcut.
- * - Workspace header (`.sidebar-projects-header`): cross-fades between "工作区" and `进行中 | 已归档` segmented control (`.dsh-claude-ws-segments`), with flat archived session list (`.dsh-claude-archive-list`).
+ * - Workspace header (`.sidebar-projects-header`): "工作区"/"最近" label plus 筛选与分组 and 打开项目 buttons; the archived view is a flat list (`.dsh-claude-archive-list`).
  * - Project & session rows: 28px height, 6px radius, project chevron on the right of the project name, 5px hollow circle dot on session rows, Win11 spinner on running rows.
- * - Settings footer (`.dsh-claude-account-btn`): 1px top hairline, gear icon, opens settings directly.
+ * - Settings footer (`.dsh-claude-account-btn`): 1px top hairline, gear icon, opens a menu of settings pages and docs.
  */
 
 /* ── Frame & Scrollbars ────────────────────────────────────────────── */
@@ -511,7 +511,7 @@
   color: var(--accent, #d97757);
 }
 
-/* Workspace section header & `进行中 | 已归档` segmented switch (L394-427) */
+/* Workspace section header: label on the left, 筛选与分组 + 打开项目 on the right. */
 .codex-shot .sidebar-projects-header {
   position: relative;
   display: flex;
@@ -528,76 +528,92 @@
   font-weight: 500;
   line-height: 16px;
   user-select: none;
-  transition: opacity 0.16s ease;
 }
 
-.codex-shot .dsh-claude-ws-segments {
-  position: absolute;
-  left: -2px;
-  top: 50%;
-  transform: translateY(-50%);
+.codex-shot .sidebar-projects-back {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
-  border-radius: 7px;
-  background: var(--dsh-claude-hover-bg, rgba(0, 0, 0, 0.06));
-  transition: opacity 0.16s ease, visibility 0.16s ease;
-}
-
-:root[data-theme="dark"] .codex-shot .dsh-claude-ws-segments {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.codex-shot .sidebar-projects-header[data-dsh-claude-ws-view="active"] .dsh-claude-ws-segments {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.codex-shot .sidebar-projects-header[data-dsh-claude-ws-view="active"]:hover .dsh-claude-ws-segments,
-.codex-shot .sidebar-projects-header[data-dsh-claude-ws-view="archived"] .dsh-claude-ws-segments {
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: auto !important;
-}
-
-.codex-shot .sidebar-projects-header[data-dsh-claude-ws-view="active"]:hover .sidebar-projects-label,
-.codex-shot .sidebar-projects-header[data-dsh-claude-ws-view="archived"] .sidebar-projects-label {
-  opacity: 0 !important;
-}
-
-.codex-shot .dsh-claude-ws-segment {
-  appearance: none;
-  border: 0 !important;
+  height: 22px;
+  margin-left: -4px;
+  padding: 0 6px 0 2px;
+  border: 0;
+  border-radius: 5px;
   background: transparent;
-  color: var(--text-3);
+  color: var(--text-2);
   font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 500;
-  line-height: 18px;
-  height: 20px;
-  padding: 0 8px;
-  border-radius: 5px;
   cursor: pointer;
-  user-select: none;
+}
+
+.codex-shot .sidebar-projects-back:hover {
+  background: var(--dsh-claude-hover-bg, var(--hover));
+  color: var(--text);
+}
+
+.codex-shot .sidebar-projects-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.codex-shot .sidebar-projects-tools > button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 
-.codex-shot .dsh-claude-ws-segment:hover {
+.codex-shot .sidebar-projects-tools > button:hover,
+.codex-shot .sidebar-projects-tools > button.active {
+  background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
 }
 
-.codex-shot .dsh-claude-ws-segment[aria-checked="true"] {
-  background: #ffffff;
-  color: var(--text);
-  box-shadow: 0 1px 2px rgba(20, 20, 19, 0.1);
+.codex-shot .sidebar-popover.sidebar-filter-menu {
+  top: calc(100% + 4px);
+  right: 0;
+  left: auto;
+  width: 168px;
+  padding: 4px;
 }
 
-:root[data-theme="dark"] .codex-shot .dsh-claude-ws-segment[aria-checked="true"] {
-  background: rgba(255, 255, 255, 0.14);
-  color: var(--dsh-claude-ink-strong, var(--text));
-  box-shadow: none;
+.codex-shot .sidebar-popover-caption {
+  padding: 4px 7px 2px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.codex-shot .sidebar-filter-menu button,
+.codex-shot .sidebar-footer-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.codex-shot .sidebar-filter-menu button > span,
+.codex-shot .sidebar-footer-menu button > span {
+  flex: 1 1 auto;
+}
+
+.codex-shot .sidebar-filter-menu button > svg {
+  color: var(--accent, #d97757);
 }
 
 /* Archived flat list (`.dsh-claude-archive-list` L412-427) */
@@ -990,6 +1006,36 @@
 .codex-shot .dsh-claude-account-user {
   font-weight: 500;
   color: var(--text);
+}
+
+.codex-shot .dsh-claude-account-chevron {
+  flex: none;
+  color: var(--text-3);
+  transition: transform 0.12s ease;
+}
+
+.codex-shot .dsh-claude-account-btn:not([data-open="true"]) .dsh-claude-account-chevron {
+  transform: rotate(180deg);
+}
+
+.codex-shot .sidebar-popover.sidebar-footer-menu {
+  top: auto;
+  bottom: calc(100% + 4px);
+  left: 12px;
+  right: 12px;
+  padding: 4px;
+}
+
+.codex-shot .sidebar-footer-menu button > svg {
+  flex: none;
+  color: var(--text-2);
+}
+
+.codex-shot .sidebar-footer-menu kbd,
+.codex-shot .sidebar-footer-menu .sidebar-footer-menu-trail {
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 11px;
 }
 
 .codex-shot .thread-hover-card {
