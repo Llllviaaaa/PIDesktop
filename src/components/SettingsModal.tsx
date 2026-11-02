@@ -1050,11 +1050,12 @@ function GitPage({ form, update }: { form: AppSettings; update: Update }) {
         </select>
       </Row>
       <Row title="分支前缀"><input value={form.branchPrefix} onChange={(event) => update("branchPrefix", event.target.value)} placeholder="pi/" /></Row>
+      <Row title="允许强制推送" description="关闭时，Agent 执行 git push --force、-f、--force-with-lease 或 + 分支名这类会改写远程分支的推送会被直接拦下，完全访问模式也一样。"><Switch label="允许强制推送" checked={form.allowForcePush} onChange={(value) => update("allowForcePush", value)} /></Row>
     </Card>
     <Card title="生成指令">
       <label className="stacked-setting"><span>提交消息</span><textarea value={form.commitMessageInstructions} onChange={(event) => update("commitMessageInstructions", event.target.value)} placeholder="生成提交消息时额外遵守的要求，例如“用英文写，正文引用工单号”" /></label>
     </Card>
-    {/* allowForcePush and the PR instruction text stay in settings.json but nothing reads them yet, so they have no rows. */}
+    {/* pullRequestInstructions stays in settings.json, but the app creates no pull requests yet, so it has no row. */}
   </>;
 }
 

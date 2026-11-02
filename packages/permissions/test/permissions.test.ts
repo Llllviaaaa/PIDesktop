@@ -4,7 +4,7 @@ import { Sessions } from "@pid/session";
 import { SystemPrompt } from "@pid/system-prompt";
 import { Tools, textOutput, type ToolEnv } from "@pid/tools";
 import { Ui } from "@pid/ui";
-import { Permissions, rulesFromConfig, type Config } from "../src/index.ts";
+import { evaluateToolPermission, isForcePush, Permissions, rulesFromConfig, type Config } from "../src/index.ts";
 
 async function setup(config: Config = {}, withUi = true) {
   const ctx = new Context();
@@ -78,8 +78,74 @@ describe("permissions", () => {
   });
 
   it("reads rule defaults like the Pi guard", () => {
-    expect(rulesFromConfig({})).toEqual({ alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, shellAllowPrefixes: [], toolRules: [] });
+    expect(rulesFromConfig({})).toEqual({ alwaysConfirmShell: true, blockWriteOutsideWorkspace: true, allowForcePush: false, shellAllowPrefixes: [], toolRules: [] });
     expect(rulesFromConfig({ toolRules: [{ id: "x", enabled: true, toolPattern: "*", action: "allow" } as never, { bogus: true } as never] }).toolRules)
       .toEqual([{ id: "x", enabled: true, toolPattern: "*", action: "allow", commandPrefix: "", pathPrefix: "" }]);
+  });
+});
+
+describe("Settings → 允许强制推送", () => {
+  const shell = (command: string, allowForcePush?: boolean, mode: "ask" | "full-access" = "full-access") =>
+    evaluateToolPermission({
+      mode,
+      rules: { ...rulesFromConfig({}), ...(allowForcePush === undefined ? {} : { allowForcePush }) },
+      workspace: "D:/repo",
+      toolName: "bash",
+      input: { command },
+    });
+
+  it("recognises the ways a push can rewrite a remote branch", () => {
+    for (const command of [
+      "git push --force",
+      "git push origin main --force",
+      "git push --force-with-lease origin HEAD",
+      "git push --force-with-lease=main:abc123",
+      "git push -f",
+      "git push -uf origin main",
+      "git push origin +main",
+      "git push origin +HEAD:main",
+      "git -C ../repo push --force",
+      "git -c push.default=current push -f",
+      "npm test && git push --force",
+      "git add . ; git commit -m wip; git push -f",
+      "\"C:/Program Files/Git/cmd/git.exe\" push --force",
+    ]) {
+      expect(isForcePush(command), command).toBe(true);
+    }
+    for (const command of [
+      "git push",
+      "git push origin main",
+      "git push -u origin feature",
+      "git push --follow-tags",
+      "git push --set-upstream origin fix/foo",
+      "git fetch --force",
+      "git commit -m \"push --force later\"",
+      "echo git push",
+      "git status | grep force",
+    ]) {
+      expect(isForcePush(command), command).toBe(false);
+    }
+  });
+
+  it("blocks a force push by default, in every mode, ahead of other rules", () => {
+    expect(shell("git push --force")).toMatchObject({ action: "block" });
+    expect(shell("git push -f", false, "ask")).toMatchObject({ action: "block" });
+    expect(shell("git push origin main")).toEqual({ action: "allow" });
+    // A custom allow rule for bash does not lift it.
+    const withAllowRule = evaluateToolPermission({
+      mode: "ask",
+      rules: { ...rulesFromConfig({ toolRules: [{ id: "all-bash", enabled: true, toolPattern: "bash", action: "allow", commandPrefix: "", pathPrefix: "" }] }) },
+      workspace: "D:/repo",
+      toolName: "bash",
+      input: { command: "git push --force" },
+    });
+    expect(withAllowRule).toMatchObject({ action: "block" });
+  });
+
+  it("lets a force push through the usual checks once the setting is on", () => {
+    expect(shell("git push --force", true)).toEqual({ action: "allow" });
+    expect(shell("git push --force", true, "ask")).toMatchObject({ action: "confirm" });
+    expect(rulesFromConfig({ allowForcePush: true }).allowForcePush).toBe(true);
+    expect(rulesFromConfig({}).allowForcePush).toBe(false);
   });
 });
