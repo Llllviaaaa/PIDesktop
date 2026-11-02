@@ -113,8 +113,10 @@ export async function main(argv: readonly string[]): Promise<void> {
     ],
   });
   host.ctx.logger.exporter(stderrExporter);
-  // ~/.pid/logs: the desktop writes its own log beside this one.
-  host.ctx.logger.exporter(logFileExporter(join(dataDir, "logs")));
+  // ~/.pid/logs: the desktop writes its own log beside this one. Its level follows
+  // Settings → 日志等级, which every desktop message (the first arrives at start) carries.
+  const fileLog = logFileExporter(join(dataDir, "logs"));
+  host.ctx.logger.exporter(fileLog);
   await host.start();
 
   // The feature plugins follow harness.json and providers.json (ADR 0013).
@@ -154,6 +156,8 @@ export async function main(argv: readonly string[]): Promise<void> {
         const command = parseControlLine(line);
         if (command === undefined) return;
         if ("desktop" in command) {
+          const level = command.desktop.settings.logLevel;
+          fileLog.setLevel(typeof level === "string" ? level : undefined);
           for (const note of applyDesktopMessage(dataDir, command.desktop)) logger.info("%s", note);
         }
         await reload();

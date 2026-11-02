@@ -81,6 +81,7 @@ export function harnessFromDesktop(message: DesktopMessage): DesktopHarness {
       defaultAgentMode: str(settings.agentMode, "agent") as NonNullable<HarnessConfig["permissions"]["defaultAgentMode"]>,
       alwaysConfirmShell: bool(settings.alwaysConfirmShell, true),
       blockWriteOutsideWorkspace: bool(settings.blockWriteOutsideWorkspace, true),
+      allowForcePush: bool(settings.allowForcePush, false),
       shellAllowPrefixes: str(settings.shellAllowPrefixes).split(/[\n,]/).map((item) => item.trim()).filter(Boolean),
       toolRules: list<ToolPermissionRule>(settings.toolRules),
     },

@@ -51,6 +51,8 @@ export interface Config {
   alwaysConfirmShell?: boolean;
   /** Default true. */
   blockWriteOutsideWorkspace?: boolean;
+  /** Default false: a shell `git push --force` (and the like) is blocked. */
+  allowForcePush?: boolean;
   shellAllowPrefixes?: string[];
   toolRules?: ToolPermissionRule[];
 }
@@ -60,6 +62,7 @@ export function rulesFromConfig(config: Config): PermissionRules {
   return {
     alwaysConfirmShell: config.alwaysConfirmShell !== false,
     blockWriteOutsideWorkspace: config.blockWriteOutsideWorkspace !== false,
+    allowForcePush: config.allowForcePush === true,
     shellAllowPrefixes: (config.shellAllowPrefixes ?? []).map((prefix) => prefix.trim()).filter(Boolean),
     toolRules: parseToolRules(Buffer.from(JSON.stringify(config.toolRules ?? [])).toString("base64")),
   };

@@ -37,6 +37,8 @@ export function agentModeSystemInstructions(mode: AgentMode): string {
 export interface PermissionRules {
   alwaysConfirmShell: boolean;
   blockWriteOutsideWorkspace: boolean;
+  /** Settings → 允许强制推送. Off (the default) blocks a shell `git push` that would rewrite a remote branch. */
+  allowForcePush?: boolean;
   /** Command prefixes that skip shell confirmation under ask / workspace-write. */
   shellAllowPrefixes: string[];
   toolRules: ToolPermissionRule[];
@@ -209,6 +211,32 @@ export function pathsFromToolInput(input: Record<string, unknown>): string[] {
   return [...new Set(paths)];
 }
 
+/**
+ * True when a shell command runs a `git push` that can rewrite a remote branch:
+ * `--force`, `--force-with-lease`, a short-flag cluster holding `f` (`-f`, `-uf`),
+ * or a `+` refspec (`+main`, `+HEAD:main`). Each `;`, `&&`, `||`, `|` or line
+ * break starts a new command, and git's own options may sit before `push`.
+ */
+export function isForcePush(command: string): boolean {
+  for (const segment of command.split(/&&|\|\||[;|\n]/)) {
+    const words = segment.trim().split(/\s+/).map((word) => word.replace(/^["']|["']$/g, ""));
+    const git = words.findIndex((word) => /(^|[\\/])git(\.exe)?$/i.test(word));
+    if (git < 0) continue;
+    // `git -C dir push`, `git -c key=value push`, `git --no-pager push`.
+    let index = git + 1;
+    while (index < words.length && words[index].startsWith("-")) {
+      index += words[index] === "-C" || words[index] === "-c" ? 2 : 1;
+    }
+    if (words[index] !== "push") continue;
+    for (const word of words.slice(index + 1)) {
+      if (/^--force(-with-lease)?(=|$)/.test(word)) return true;
+      if (/^-[a-zA-Z]*f[a-zA-Z]*$/.test(word)) return true;
+      if (/^\+[^\s]/.test(word)) return true;
+    }
+  }
+  return false;
+}
+
 export function shellCommandFromInput(input: Record<string, unknown>): string {
   if (typeof input.command === "string") return input.command;
   try {
@@ -329,6 +357,15 @@ export function evaluateToolPermission(options: {
     return {
       action: "block",
       reason: `${isBrowserDownload ? "Browser download" : "Write"} outside workspace blocked by rule: ${outsideTarget} → ${resolved}`,
+    };
+  }
+
+  // A force push rewrites history others may have; like workspace confinement it holds
+  // in every mode and ahead of custom allow rules, until the user turns it on in settings.
+  if (isShell && rules.allowForcePush !== true && isForcePush(command)) {
+    return {
+      action: "block",
+      reason: "强制推送已被设置禁止（设置 → Git 与工程 → 允许强制推送）。需要改写远程分支时，请让用户先打开这个开关。",
     };
   }
 

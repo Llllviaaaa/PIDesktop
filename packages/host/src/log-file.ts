@@ -12,11 +12,27 @@ export const LOG_KEEP_DAYS = 7;
 const DEBUG = 3;
 const DAY_MS = 24 * 60 * 60_000;
 
+/** Settings → 日志等级: the least severe kind of message the file keeps. */
+export type LogFileLevel = "error" | "warn" | "info" | "debug";
+
+/**
+ * Severity by message type. Cordis numbers WARN (2) above INFO (1), so its own
+ * threshold cannot keep warnings while dropping info; the file filters by type.
+ */
+const SEVERITY: Record<string, number> = { error: 0, warn: 1, info: 2, debug: 3 };
+
+/** A setting the file does not know keeps everything, as before the setting was read. */
+function severityLimit(level: string | undefined): number {
+  return level !== undefined && level in SEVERITY ? SEVERITY[level] : SEVERITY.debug;
+}
+
 export interface LogFileOptions {
   /** The file name before the date: `host` writes `host-YYYY-MM-DD.log`. */
   prefix?: string;
   keepDays?: number;
   now?: () => Date;
+  /** The starting level; `setLevel` changes it. Everything is kept by default. */
+  level?: LogFileLevel;
 }
 
 /** The local date, as the file name shows it. */
@@ -39,11 +55,15 @@ export function pruneLogs(dir: string, prefix: string, keepDays: number, now: Da
   return removed;
 }
 
-/** An exporter writing to today's file in `dir`; `close` ends the file. */
-export function logFileExporter(dir: string, options: LogFileOptions = {}): Exporter & { close(): Promise<void> } {
+/** An exporter writing to today's file in `dir`; `close` ends the file, `setLevel` filters it. */
+export function logFileExporter(
+  dir: string,
+  options: LogFileOptions = {},
+): Exporter & { close(): Promise<void>; setLevel(level: string | undefined): void } {
   const prefix = options.prefix ?? "host";
   const keepDays = options.keepDays ?? LOG_KEEP_DAYS;
   const now = options.now ?? (() => new Date());
+  let limit = severityLimit(options.level);
   mkdirSync(dir, { recursive: true });
   let current: { day: string; stream: WriteStream } | undefined;
 
@@ -63,13 +83,18 @@ export function logFileExporter(dir: string, options: LogFileOptions = {}): Expo
     return stream;
   };
 
-  const exporter: Exporter & { close(): Promise<void> } = {
+  const exporter: Exporter & { close(): Promise<void>; setLevel(level: string | undefined): void } = {
     colors: false,
+    // Cordis passes everything; the type filter below decides what the file keeps.
     levels: { default: DEBUG },
     export(message) {
+      if ((SEVERITY[message.type] ?? SEVERITY.debug) > limit) return;
       const date = now();
       const text = redactSensitiveText(Logger.format(exporter, message));
       streamFor(date).write(`${date.toISOString()} ${message.type.padEnd(5)} [${message.name}] ${text}\n`);
+    },
+    setLevel(level) {
+      limit = severityLimit(level);
     },
     close() {
       const stream = current?.stream;

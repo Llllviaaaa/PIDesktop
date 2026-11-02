@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ToolCall } from "../src/components/ToolCall";
+import { shellOutputText, ToolCall } from "../src/components/ToolCall";
+import { presentToolCall } from "../src/lib/toolPresentation";
 import { test } from "vitest";
 
 /** The row's visible words, tags removed, so assertions read the way the row does. */
@@ -103,4 +104,20 @@ test("tool call", async () => {
   assert.match(liveShell, /class="dshc-spinner"/);
   assert.match(liveShell, /运行中/);
   assert.match(words(liveShell), /正在运行 npm test/);
+});
+
+test("shell output follows the 对话中的命令输出 setting", () => {
+  const output = Array.from({ length: 120 }, (_, index) => `line ${index + 1}`).join("\n");
+  const call = { id: "shell-long", name: "bash", args: { command: "seq 120" }, result: output, running: false };
+  const presented = presentToolCall(call);
+  // 摘要, and no setting at all, keep the clipped preview.
+  for (const mode of ["summary", undefined] as const) {
+    const shown = shellOutputText(presented, call, mode);
+    assert.match(shown, /^line 80$/m);
+    assert.doesNotMatch(shown, /^line 81$/m);
+  }
+  // 完整 shows every line the command printed.
+  const full = shellOutputText(presented, call, "full");
+  assert.equal(full.split("\n").length, 120);
+  assert.match(full, /^line 120$/m);
 });

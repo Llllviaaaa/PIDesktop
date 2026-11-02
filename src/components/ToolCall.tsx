@@ -1,6 +1,6 @@
 import { useContext, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { UiToolCall } from "../types";
+import type { AppSettings, UiToolCall } from "../types";
 import {
   displayPath,
   normalizedToolName,
@@ -9,6 +9,7 @@ import {
   type ToolPresentation,
   type ToolSearchHit,
 } from "../lib/toolPresentation";
+import { useAppStore } from "../store";
 import { WorkspaceFileOpenContext } from "./Markdown";
 import { useFileActions } from "./WorkspaceOpeners";
 import { DisclosureRow, TextShimmer } from "./TranscriptPrimitives";
@@ -135,8 +136,7 @@ function StateDot({ state }: { state: RowState }) {
   );
 }
 
-function TerminalCard({ presented, state }: { presented: ToolPresentation; state: RowState }) {
-  const output = (presented.preview ?? "").replace(/\s+$/, "");
+function TerminalCard({ presented, state, output }: { presented: ToolPresentation; state: RowState; output: string }) {
   return (
     <div className="dshc-terminal tool-card is-terminal" data-body={output ? "" : undefined}>
       <div className="dshc-terminal-header">
@@ -257,8 +257,20 @@ function IoCard({ input, output, error }: { input?: string; output?: string; err
   );
 }
 
+/**
+ * A command's output as the transcript shows it, per Settings → 对话中的命令输出:
+ * 完整 is everything it printed, 摘要 (and no setting) the clipped preview.
+ */
+export function shellOutputText(presented: ToolPresentation, call: UiToolCall, mode: AppSettings["terminalOutput"] | undefined): string {
+  const text = mode === "full" && typeof call.result === "string" ? call.result : presented.preview ?? "";
+  return text.replace(/\r\n/g, "\n").replace(/\s+$/, "");
+}
+
 function ToolBody({ presented, call, state }: { presented: ToolPresentation; call: UiToolCall; state: RowState }) {
-  if (presented.kind === "shell") return <TerminalCard presented={presented} state={state} />;
+  const shellOutputMode = useAppStore((store) => store.settings?.terminalOutput);
+  if (presented.kind === "shell") {
+    return <TerminalCard presented={presented} state={state} output={shellOutputText(presented, call, shellOutputMode)} />;
+  }
   if (presented.diff && presented.diff.length > 0) return <DiffCard lines={presented.diff} path={presented.path} />;
   if (presented.kind === "read") {
     return <ReadCard text={(presented.preview ?? "").replace(/\s+$/, "") || "(空)"} path={presented.path} />;

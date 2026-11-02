@@ -103,6 +103,42 @@
   gap: 2px 12px;
 }
 
+/* Settings → 显示建议提示词: starting points under the usage card. */
+.codex-shot .home-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: min(480px, 100%);
+  margin: 0 auto;
+}
+
+.codex-shot .home-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--dsh-claude-border-l1, var(--border));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font: 12.5px/1 var(--font-ui);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.codex-shot .home-suggestion:hover {
+  border-color: var(--dsh-claude-border-l2, var(--border-strong));
+  background: var(--dsh-claude-hover-bg, var(--hover));
+  color: var(--text);
+}
+
+.codex-shot .home-suggestion > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
 .codex-shot .dsh-claude-home-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -38,6 +38,7 @@ const desktopSettings = {
   agentMode: "plan",
   alwaysConfirmShell: false,
   blockWriteOutsideWorkspace: true,
+  allowForcePush: true,
   shellAllowPrefixes: "git status\n npm test ,",
   toolRules: [{ id: "r", enabled: true, toolPattern: "bash", action: "block", commandPrefix: "rm", pathPrefix: "" }],
   hooksEnabled: false,
@@ -69,6 +70,7 @@ describe("desktop settings", () => {
       defaultAgentMode: "plan",
       alwaysConfirmShell: false,
       blockWriteOutsideWorkspace: true,
+      allowForcePush: true,
       shellAllowPrefixes: ["git status", "npm test"],
       toolRules: desktopSettings.toolRules,
     });
