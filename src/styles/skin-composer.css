@@ -864,6 +864,66 @@
   background: var(--dsh-claude-hover-bg, var(--hover));
 }
 
+/* A file dragged over the composer: accent ring. The card's theme rules above
+   use !important and :focus-within, so this matches at least as specifically. */
+:root .codex-shot .composer-card.unified[data-composer-card][data-drag-over="true"] {
+  border-color: var(--accent, #d97757) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #d97757) 20%, transparent) !important;
+}
+
+/* `+` menu rows: icon, then the label over a one-line hint, then the check. */
+.codex-shot .composer-actions-menu {
+  min-width: 240px;
+}
+
+.codex-shot .composer-actions-menu button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 14px;
+  grid-template-areas:
+    "icon label check"
+    "icon hint check";
+  align-items: center;
+  column-gap: 9px;
+  row-gap: 1px;
+  height: auto;
+  padding: 6px 9px;
+  text-align: left;
+}
+
+.codex-shot .composer-actions-menu button > svg:first-child {
+  grid-area: icon;
+  color: var(--text-2);
+}
+
+.codex-shot .composer-actions-menu button > span {
+  grid-area: label;
+  grid-column: auto;
+  line-height: 18px;
+}
+
+.codex-shot .composer-actions-menu .composer-actions-hint {
+  grid-area: hint;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .composer-actions-menu button > .composer-actions-check {
+  grid-area: check;
+  grid-column: auto;
+  margin: 0;
+  color: var(--accent, #d97757);
+}
+
+.codex-shot .composer-actions-heading {
+  padding: 4px 9px 2px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
 /* ── Slash Command Menu Enhanced Layout ───────────────────────────── */
 
 .codex-shot .command-menu {

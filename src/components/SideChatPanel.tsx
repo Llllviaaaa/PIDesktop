@@ -19,6 +19,7 @@ import {
   type TranscriptEvent,
 } from "../lib/transcript";
 import { sameLocalPath } from "../lib/pathIdentity";
+import { loadAttachmentFiles, mergeAttachments } from "../lib/attachments";
 import type {
   AppSettings,
   AttachmentPayload,
@@ -290,24 +291,14 @@ export function SideChatPanel({
     if (runtimeId) void harnessRuntimes.abort(runtimeId).finally(() => setIsStreaming(false));
   };
 
+  const attachFiles = async (files: string[]) => {
+    const loaded = await loadAttachmentFiles(files, reportError);
+    setAttachments((current) => mergeAttachments(current, loaded));
+  };
+
   const pickAttachments = async () => {
     const selected = await open({ multiple: true, directory: false, title: "向侧边聊天添加文件" });
-    const files = typeof selected === "string" ? [selected] : selected ?? [];
-    const loaded = await Promise.all(files.map(async (file) => {
-      try {
-        return await agent.readAttachment(file);
-      } catch (reason) {
-        reportError(reason);
-        return null;
-      }
-    }));
-    setAttachments((current) => {
-      const next = [...current];
-      for (const item of loaded) {
-        if (item && !next.some((existing) => existing.path === item.path)) next.push(item);
-      }
-      return next;
-    });
+    await attachFiles(typeof selected === "string" ? [selected] : selected ?? []);
   };
 
   const changeModel = async (next: ModelInfo) => {
@@ -464,6 +455,8 @@ export function SideChatPanel({
           onSend={submit}
           onStop={stop}
           onPickAttachments={() => void pickAttachments()}
+          onAttachFiles={(files) => void attachFiles(files)}
+          onAttachPayloads={(added) => setAttachments((current) => mergeAttachments(current, added))}
           onRemoveAttachment={(path) => setAttachments((current) => current.filter((item) => item.path !== path))}
           onModelChange={(next) => void changeModel(next)}
           onThinkingChange={(level) => void changeThinking(level)}

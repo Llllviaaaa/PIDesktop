@@ -21,6 +21,7 @@ import {
   workspacePanelMaxWidth as panelMaxWidth,
 } from "./lib/panelLayout";
 import { describeError } from "./lib/errors";
+import { loadAttachmentFiles, mergeAttachments } from "./lib/attachments";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -846,29 +847,24 @@ export default function App() {
     selectWorkspace(selected);
   }, [selectWorkspace]);
 
+  const attachFiles = useCallback(async (files: string[]) => {
+    const loaded = await loadAttachmentFiles(files, (error) => {
+      appendLog(`附件读取失败：${describeError(error)}`);
+      showErrorToast(`无法添加附件：${describeError(error)}`);
+    });
+    setAttachments((current) => mergeAttachments(current, loaded));
+  }, [appendLog, showErrorToast]);
+  const attachPayloads = useCallback((added: AttachmentPayload[]) => {
+    setAttachments((current) => mergeAttachments(current, added));
+  }, []);
   const pickAttachments = useCallback(async () => {
     const selected = await open({
       multiple: true,
       directory: false,
       title: "向任务添加文件",
     });
-    const files = typeof selected === "string" ? [selected] : selected ?? [];
-    const loaded = await Promise.all(files.map(async (file) => {
-      try {
-        return await agent.readAttachment(file);
-      } catch (error) {
-        appendLog(`附件读取失败：${describeError(error)}`);
-        return null;
-      }
-    }));
-    setAttachments((current) => {
-      const next = [...current];
-      for (const item of loaded) {
-        if (item && !next.some((existing) => existing.path === item.path)) next.push(item);
-      }
-      return next;
-    });
-  }, [appendLog]);
+    await attachFiles(typeof selected === "string" ? [selected] : selected ?? []);
+  }, [attachFiles]);
 
   /**
    * Opens a file a link points at. The new sidebar's file viewer is not wired
@@ -1495,6 +1491,8 @@ export default function App() {
       onSend={sendFromComposer}
       onStop={stopFromComposer}
       onPickAttachments={pickAttachments}
+      onAttachFiles={(files) => void attachFiles(files)}
+      onAttachPayloads={attachPayloads}
       onRemoveAttachment={removeComposerAttachment}
       onModelChange={changeComposerModel}
       onThinkingChange={changeComposerThinking}
