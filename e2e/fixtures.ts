@@ -63,7 +63,8 @@ export const test = base.extend<{ harness: Harness; app: Page }>({
   },
 });
 
-export const composer = (page: Page | Locator) => page.getByPlaceholder(/发消息|继续指示/);
+/** The composer's textarea; its placeholder changes with the state, its class does not. */
+export const composer = (page: Page | Locator) => page.locator("textarea.composer-input");
 
 /** Type `text` into the composer and send it. */
 export async function send(page: Page, text: string): Promise<void> {
