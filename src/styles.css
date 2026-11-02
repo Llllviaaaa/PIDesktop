@@ -2374,15 +2374,6 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.codex-shot .thread-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #3b82f6;
-  flex: 0 0 auto;
-}
-.codex-shot .thread-dot.running { background: #3b82f6; }
-.codex-shot .thread-dot.approval { background: #eab308; }
 .codex-shot .expand-threads {
   border: 0;
   background: transparent;
@@ -4118,7 +4109,6 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 }
 .codex-shot .thread-row-actions > button:hover { background: rgba(0, 0, 0, .07); color: #3c3e43; }
 .codex-shot .thread-row-actions > button.is-pinned { color: #62666e; }
-.codex-shot .thread-row-actions .thread-dot { margin: 0 3px 0 1px; }
 .codex-shot .thread-hover-card {
   position: absolute;
   z-index: 76;
