@@ -39,6 +39,17 @@ const PERMISSION_OPTIONS: Array<{
   { value: "full-access", label: "完全访问", description: "允许修改文件并执行命令，不再逐项确认" },
 ];
 
+/** What a message sent while the agent works does; the labels match the settings page. */
+const STREAMING_BEHAVIOR_OPTIONS: Array<{
+  value: "steer" | "followUp";
+  chip: string;
+  label: string;
+  description: string;
+}> = [
+  { value: "steer", chip: "调整", label: "调整当前任务", description: "插进正在进行的任务" },
+  { value: "followUp", chip: "排队", label: "排队到下一轮", description: "等这一轮做完再发送" },
+];
+
 /** The suggestion menus scroll; these only bound how many rows they render. */
 const MAX_COMMAND_MATCHES = 50;
 const MAX_MENTION_RESULTS = 50;
@@ -153,6 +164,7 @@ export const Composer = memo(function Composer({
   const [actionsOpen, setActionsOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [streamingMenuOpen, setStreamingMenuOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   // One highlighted row for whichever suggestion menu is open (/ commands or @ files).
   const [suggestionIndex, setSuggestionIndex] = useState(0);
@@ -198,7 +210,7 @@ export const Composer = memo(function Composer({
   useEffect(() => setStreamingBehavior(defaultFollowUpBehavior), [defaultFollowUpBehavior]);
 
   useEffect(() => {
-    if (!workspaceOpen && !environmentOpen && !actionsOpen && !permissionOpen && !modelMenuOpen) return;
+    if (!workspaceOpen && !environmentOpen && !actionsOpen && !permissionOpen && !modelMenuOpen && !streamingMenuOpen) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
       if (!target) return;
@@ -210,10 +222,16 @@ export const Composer = memo(function Composer({
       if (actionsOpen && !target.closest(".composer-actions-menu, .composer-add-trigger")) setActionsOpen(false);
       if (permissionOpen && !target.closest(".permission-context-wrap")) setPermissionOpen(false);
       if (modelMenuOpen && !target.closest(".model-picker-wrap")) setModelMenuOpen(false);
+      if (streamingMenuOpen && !target.closest(".streaming-behavior-wrap")) setStreamingMenuOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [actionsOpen, environmentOpen, modelMenuOpen, permissionOpen, workspaceOpen]);
+  }, [actionsOpen, environmentOpen, modelMenuOpen, permissionOpen, streamingMenuOpen, workspaceOpen]);
+
+  // The behaviour menu only means something while a turn runs.
+  useEffect(() => {
+    if (!isStreaming) setStreamingMenuOpen(false);
+  }, [isStreaming]);
 
   useEffect(() => {
     if (!isSwitchingModel) return;
@@ -381,6 +399,16 @@ export const Composer = memo(function Composer({
   }, [workspaceOptions, workspaceQuery]);
   const workspaceName = workspace.split(/[\\/]/).filter(Boolean).pop() || "选择项目";
   const activePermission = PERMISSION_OPTIONS.find((option) => option.value === permissionMode) ?? PERMISSION_OPTIONS[1];
+  const activeStreamingBehavior = STREAMING_BEHAVIOR_OPTIONS.find((option) => option.value === streamingBehavior) ?? STREAMING_BEHAVIOR_OPTIONS[0];
+  // The placeholder says what Enter will do now, and only offers @ where it works.
+  const commandHint = onSearchFiles ? "用 / 调用命令，@ 引用文件…" : "用 / 调用命令…";
+  const placeholder = disabled
+    ? "正在准备…"
+    : isStreaming
+      ? streamingBehavior === "steer" ? "补充指示，会插入正在进行的任务…" : "写下一条消息，这一轮结束后发送…"
+      : variant === "task-start"
+        ? `描述要做的事，${commandHint}`
+        : `继续对话，${commandHint}`;
 
   const submit = async () => {
     if (disabled || isSwitchingModel || (!text.trim() && attachments.length === 0)) return;
@@ -407,6 +435,7 @@ export const Composer = memo(function Composer({
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         if (modelMenuOpen) setModelMenuOpen(false);
+        else if (streamingMenuOpen) setStreamingMenuOpen(false);
         else if (actionsOpen) setActionsOpen(false);
         else if (permissionOpen) setPermissionOpen(false);
         else if (environmentOpen) setEnvironmentOpen(false);
@@ -604,7 +633,7 @@ export const Composer = memo(function Composer({
             className="composer-input"
             // DSH's composer marker: better-sidebar inserts file references at this textarea's caret.
             data-phase={isStreaming ? "streaming" : "idle"}
-            placeholder={disabled ? "正在准备…" : isStreaming ? "继续指示…" : "发消息，用 / 调用命令，@ 引用文件…"}
+            placeholder={placeholder}
             role="combobox"
             aria-expanded={commandMenuOpen || mentionMenuOpen}
             aria-controls={commandMenuOpen || mentionMenuOpen ? "composer-suggestions" : undefined}
@@ -741,13 +770,50 @@ export const Composer = memo(function Composer({
               </div>
             )}
             {isStreaming && (
-              <label className="compact-select queue-mode">
-                <select value={streamingBehavior} onChange={(event) => setStreamingBehavior(event.target.value as "steer" | "followUp")}>
-                  <option value="steer">调整</option>
-                  <option value="followUp">跟进</option>
-                </select>
-                <ChevronDown size={12} />
-              </label>
+              <div className="streaming-behavior-wrap permission-context-wrap">
+                <button
+                  type="button"
+                  className={`chip chip-permission chip-streaming-behavior ${streamingMenuOpen ? "active" : ""}`}
+                  onClick={() => {
+                    setActionsOpen(false);
+                    setPermissionOpen(false);
+                    setStreamingMenuOpen((value) => !value);
+                  }}
+                  title={`运行中发送：${activeStreamingBehavior.label} · ${activeStreamingBehavior.description}`}
+                  aria-label={`运行中发送：${activeStreamingBehavior.label}`}
+                  aria-haspopup="menu"
+                  aria-expanded={streamingMenuOpen}
+                >
+                  {streamingBehavior === "steer" ? <CornerUpRight size={13} strokeWidth={1.75} /> : <ListOrdered size={13} strokeWidth={1.75} />}
+                  <span>{activeStreamingBehavior.chip}</span>
+                  <ChevronDown size={11} strokeWidth={1.75} />
+                </button>
+                {streamingMenuOpen && (
+                  <div className="permission-menu" role="menu" aria-label="运行中发送">
+                    <div className="permission-menu-heading">运行中发送消息时</div>
+                    {STREAMING_BEHAVIOR_OPTIONS.map((option) => (
+                      <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={streamingBehavior === option.value}
+                        className={streamingBehavior === option.value ? "active" : ""}
+                        key={option.value}
+                        onClick={() => {
+                          setStreamingBehavior(option.value);
+                          setStreamingMenuOpen(false);
+                          textareaRef.current?.focus();
+                        }}
+                      >
+                        <div className="permission-menu-copy">
+                          <strong>{option.label}</strong>
+                          <small>{option.description}</small>
+                        </div>
+                        {streamingBehavior === option.value && <Check size={14} />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
