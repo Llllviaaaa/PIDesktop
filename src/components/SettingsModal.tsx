@@ -1034,8 +1034,8 @@ function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }
     </Card>
     <Card title="集成终端">
       <Row title="集成终端 Shell" description="终端面板里新建标签页时默认使用的 Shell；“+”旁的菜单仍可临时选择其他 Shell。"><select value={form.terminalShell} onChange={(event) => update("terminalShell", event.target.value)}>{shells.map((shell) => <option key={shell} value={shell}>{shell}</option>)}</select></Row>
+      <Row title="对话中的命令输出" description="展开命令时显示的输出：摘要最多 80 行，完整显示命令打印的全部内容。"><select value={form.terminalOutput} onChange={(event) => update("terminalOutput", event.target.value as AppSettings["terminalOutput"])}><option value="summary">摘要</option><option value="full">完整输出</option></select></Row>
     </Card>
-    {/* terminalOutput stays in settings.json but nothing reads it yet, so it has no row. */}
   </>;
 }
 
