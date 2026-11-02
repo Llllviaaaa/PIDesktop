@@ -422,7 +422,7 @@ export function SettingsModal({
       {page === "hooks" && <HooksPage form={form} update={update} />}
       {page === "git" && <GitPage form={form} update={update} />}
       {page === "worktrees" && <WorktreesPage cwd={cwd} worktrees={worktrees} loading={loadingData} onCreated={(item) => queryClient.setQueryData<WorktreeInfo[]>(queryKeys.worktrees(cwd), (items) => [...(items ?? []), item])} />}
-      {page === "debug" && <DebugPage />}
+      {page === "debug" && <DebugPage form={form} update={update} />}
     </>
   );
 
@@ -1072,7 +1072,7 @@ function WorktreesPage({ cwd, worktrees, loading, onCreated }: { cwd: string; wo
   </>;
 }
 
-function DebugPage() {
+function DebugPage({ form, update }: { form: AppSettings; update: Update }) {
   const [diagnosticsState, setDiagnosticsState] = useState<{ busy: boolean; message: string }>({ busy: false, message: "" });
   const openLogs = async () => {
     try {
@@ -1095,8 +1095,8 @@ function DebugPage() {
   };
   return <>
     <PageHeading title="调试" description="诊断选项。" />
-    {/* logLevel stays in settings.json but neither the Host nor the desktop reads it yet, so it has no row. */}
     <Card title="诊断">
+      <Row title="日志等级" description="Harness 日志文件记录到哪一级：错误只记错误，调试记录全部内容。"><select value={form.logLevel} onChange={(event) => update("logLevel", event.target.value as AppSettings["logLevel"])}><option value="error">错误</option><option value="warn">警告</option><option value="info">信息</option><option value="debug">调试</option></select></Row>
       <Row title="日志" description="Harness 和桌面端的日志，每天一个文件，保留 7 天，密钥已脱敏。"><button className="secondary-button" onClick={() => void openLogs()}><FolderOpen size={14} />打开日志目录</button></Row>
       <Row title="诊断包" description={diagnosticsState.message || "最近的日志、版本号和脱敏后的配置，打包成 zip，由你保存后附在问题报告里。"}><button className="secondary-button" disabled={diagnosticsState.busy} onClick={() => void exportBundle()}><FileDown size={14} />导出诊断包</button></Row>
     </Card>
