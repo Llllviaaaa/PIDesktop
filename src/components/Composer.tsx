@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
 import {
   ArrowUp,
   Bot,
@@ -26,6 +26,7 @@ import type { AppSettings, AttachmentPayload, ManagedQueuedMessage, ModelInfo, S
 import type { TranscriptDensity } from "../lib/transcriptDensity";
 import { ModelPicker } from "./ModelPicker";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
+import { imageAttachmentFromBlob } from "../lib/attachments";
 
 const PERMISSION_OPTIONS: Array<{
   value: AppSettings["permissionMode"];
@@ -37,6 +38,9 @@ const PERMISSION_OPTIONS: Array<{
   { value: "workspace-write", label: "工作区写入", description: "可修改当前工作区，命令仍按规则确认" },
   { value: "full-access", label: "完全访问", description: "允许修改文件并执行命令，不再逐项确认" },
 ];
+
+/** The command menu scrolls; this only bounds how many rows it renders. */
+const MAX_COMMAND_MATCHES = 50;
 
 interface ComposerProps {
   isStreaming: boolean;
@@ -71,6 +75,10 @@ interface ComposerProps {
   onSend: (text: string, behavior?: "steer" | "followUp") => Promise<boolean | void> | boolean | void;
   onStop: () => void;
   onPickAttachments: () => void;
+  /** Files dropped onto the composer from the desktop, by path. */
+  onAttachFiles?: (paths: string[]) => void;
+  /** Images pasted or dropped without a path on disk, already read. */
+  onAttachPayloads?: (attachments: AttachmentPayload[]) => void;
   onRemoveAttachment: (path: string) => void;
   onModelChange: (model: ModelInfo) => void;
   onThinkingChange: (level: string) => void;
@@ -117,6 +125,8 @@ export const Composer = memo(function Composer({
   onSend,
   onStop,
   onPickAttachments,
+  onAttachFiles,
+  onAttachPayloads,
   onRemoveAttachment,
   onModelChange,
   onThinkingChange,
@@ -140,6 +150,12 @@ export const Composer = memo(function Composer({
   const [permissionOpen, setPermissionOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [commandIndex, setCommandIndex] = useState(0);
+  // Escape hides the command menu for the draft it was pressed on; typing brings it back.
+  const [commandMenuDismissedFor, setCommandMenuDismissedFor] = useState<string | null>(null);
+  const commandMenuRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const normalizedContextPercent = typeof contextUsage?.percent === "number" && Number.isFinite(contextUsage.percent)
@@ -212,13 +228,89 @@ export const Composer = memo(function Composer({
     if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current);
   }, []);
 
+  // The desktop webview takes file drops itself and reports them with their paths;
+  // only a drop that lands on this composer's card attaches to it.
+  const attachFilesRef = useRef(onAttachFiles);
+  attachFilesRef.current = onAttachFiles;
+  const canAttachFiles = Boolean(onAttachFiles) && !disabled;
+  useEffect(() => {
+    if (!canAttachFiles || !("__TAURI_INTERNALS__" in window)) return;
+    const overCard = (position: { x: number; y: number }) => {
+      const rect = cardRef.current?.getBoundingClientRect();
+      if (!rect) return false;
+      const x = position.x / window.devicePixelRatio;
+      const y = position.y / window.devicePixelRatio;
+      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    };
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => getCurrentWebview().onDragDropEvent(({ payload }) => {
+      if (payload.type === "leave") {
+        setDragOver(false);
+        return;
+      }
+      const over = overCard(payload.position);
+      if (payload.type === "drop") {
+        setDragOver(false);
+        if (over && payload.paths.length > 0) attachFilesRef.current?.(payload.paths);
+        return;
+      }
+      setDragOver(over);
+    })).then((stop) => {
+      if (cancelled) stop();
+      else unlisten = stop;
+    }).catch(() => {
+      // Without the drag-and-drop event the composer still takes pastes and the + menu.
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      setDragOver(false);
+    };
+  }, [canAttachFiles]);
+
+  const attachImageFiles = async (files: File[]) => {
+    const payloads = (await Promise.all(files.map(imageAttachmentFromBlob)))
+      .filter((item): item is AttachmentPayload => item !== null);
+    if (payloads.length > 0) onAttachPayloads?.(payloads);
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!onAttachPayloads || disabled) return;
+    const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+    // Text wins when the clipboard has both, as when copying from a rich document.
+    if (images.length === 0 || event.clipboardData.getData("text/plain")) return;
+    event.preventDefault();
+    void attachImageFiles(images);
+  };
+
+  // Outside the desktop (the browser build) drops arrive as files without paths.
+  const browserDrop = onAttachPayloads && !disabled && !("__TAURI_INTERNALS__" in window);
+
   const commandQuery = text.startsWith("/") && !text.includes(" ") ? text.slice(1).toLowerCase() : null;
   const commandMatches = useMemo(
     () => commandQuery === null
       ? []
-      : commands.filter((command) => command.name.toLowerCase().includes(commandQuery)).slice(0, 8),
+      : commands
+        .filter((command) => command.name.toLowerCase().includes(commandQuery))
+        // Names that start with the query come before ones that only contain it.
+        .sort((left, right) => Number(!left.name.toLowerCase().startsWith(commandQuery)) - Number(!right.name.toLowerCase().startsWith(commandQuery)))
+        .slice(0, MAX_COMMAND_MATCHES),
     [commandQuery, commands],
   );
+  const commandMenuOpen = commandMatches.length > 0 && commandMenuDismissedFor !== text;
+  const activeCommand = commandMenuOpen ? commandMatches[Math.min(commandIndex, commandMatches.length - 1)] : undefined;
+  useSyncOnChange([commandQuery], () => setCommandIndex(0));
+  useEffect(() => {
+    if (!commandMenuOpen) return;
+    commandMenuRef.current
+      ?.querySelector<HTMLElement>(`[data-command-index="${commandIndex}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [commandIndex, commandMenuOpen]);
+  const chooseCommand = (command: SlashCommand) => {
+    setText(`/${command.name} `);
+    textareaRef.current?.focus();
+  };
   const visibleWorkspaces = useMemo(() => {
     const normalized = workspaceQuery.trim().toLowerCase();
     return workspaceOptions
@@ -339,24 +431,44 @@ export const Composer = memo(function Composer({
       )}
 
       <div
+        ref={cardRef}
         className={`composer-card unified ${showWorkspaceChips ? "with-chips" : "follow-up"}`}
         data-composer-card=""
+        data-drag-over={dragOver ? "true" : undefined}
+        onDragOver={browserDrop ? (event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          setDragOver(true);
+        } : undefined}
+        onDragLeave={browserDrop ? (event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false);
+        } : undefined}
+        onDrop={browserDrop ? (event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          setDragOver(false);
+          void attachImageFiles(Array.from(event.dataTransfer.files));
+        } : undefined}
         data-composer-variant={isInlineVariant ? "inline" : "hero"}
         data-has-attachments={attachments.length > 0 ? "true" : undefined}
         data-dsh-claude-draft-empty={!text.trim() ? "" : undefined}
       >
-        {commandMatches.length > 0 && (
-          <div className="command-menu" role="menu" aria-label="快捷指令">
-            {commandMatches.map((command) => (
+        {commandMenuOpen && (
+          <div className="command-menu" id="composer-command-menu" role="listbox" aria-label="快捷指令" ref={commandMenuRef}>
+            {commandMatches.map((command, index) => (
               <button
                 key={`${command.source}-${command.name}`}
+                id={`composer-command-${index}`}
+                data-command-index={index}
                 type="button"
-                className="command-menu-item"
-                role="menuitem"
-                onClick={() => {
-                  setText(`/${command.name} `);
-                  textareaRef.current?.focus();
-                }}
+                className={`command-menu-item${command === activeCommand ? " active" : ""}`}
+                role="option"
+                aria-selected={command === activeCommand}
+                tabIndex={-1}
+                onMouseEnter={() => setCommandIndex(index)}
+                // Keep focus in the textarea so the keys keep driving the menu.
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => chooseCommand(command)}
               >
                 <span className="command-item-name">/{command.name}</span>
                 <small className="command-item-desc">{command.description || command.source}</small>
@@ -394,8 +506,33 @@ export const Composer = memo(function Composer({
             // DSH's composer marker: better-sidebar inserts file references at this textarea's caret.
             data-phase={isStreaming ? "streaming" : "idle"}
             placeholder={disabled ? "正在准备…" : isStreaming ? "继续指示…" : "发消息，用 / 调用命令，@ 引用文件…"}
+            role="combobox"
+            aria-expanded={commandMenuOpen}
+            aria-controls={commandMenuOpen ? "composer-command-menu" : undefined}
+            aria-activedescendant={activeCommand ? `composer-command-${commandMatches.indexOf(activeCommand)}` : undefined}
+            aria-autocomplete="list"
             onChange={(event) => setText(event.target.value)}
+            onPaste={handlePaste}
             onKeyDown={(event) => {
+              if (commandMenuOpen && !event.nativeEvent.isComposing) {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  const step = event.key === "ArrowDown" ? 1 : -1;
+                  setCommandIndex((index) => (index + step + commandMatches.length) % commandMatches.length);
+                  return;
+                }
+                if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+                  event.preventDefault();
+                  if (activeCommand) chooseCommand(activeCommand);
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setCommandMenuDismissedFor(text);
+                  return;
+                }
+              }
               const shouldSubmit = requireCtrlEnter ? event.ctrlKey || event.metaKey : !event.shiftKey;
               if (event.key === "Enter" && shouldSubmit && !event.nativeEvent.isComposing) {
                 event.preventDefault();
@@ -465,16 +602,19 @@ export const Composer = memo(function Composer({
             </div>
             {actionsOpen && (
               <div className="composer-actions-menu" role="menu">
-                <button type="button" onClick={() => { setActionsOpen(false); onPickAttachments(); }}>
-                  <Paperclip size={14} /><span>添加文件或图片</span>
+                <div className="composer-actions-heading">添加</div>
+                <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); onPickAttachments(); }}>
+                  <Paperclip size={14} />
+                  <span>文件或图片</span>
+                  <small className="composer-actions-hint">可直接粘贴或拖入</small>
                 </button>
                 <div className="composer-actions-separator" role="separator" />
                 <div className="composer-actions-heading">工作模式</div>
                 {([
-                  ["agent", "执行", Bot],
-                  ["plan", "计划", ListChecks],
-                  ["ask", "问答", MessageCircleQuestion],
-                ] as const).map(([value, label, Icon]) => (
+                  ["agent", "执行", "可以修改代码、运行命令", Bot],
+                  ["plan", "计划", "只读梳理方案，不改文件", ListChecks],
+                  ["ask", "问答", "只读回答问题，不改文件", MessageCircleQuestion],
+                ] as const).map(([value, label, description, Icon]) => (
                   <button
                     type="button"
                     role="menuitemradio"
@@ -488,29 +628,8 @@ export const Composer = memo(function Composer({
                   >
                     <Icon size={14} />
                     <span>{label}</span>
-                    {agentMode === value && <Check size={14} />}
-                  </button>
-                ))}
-                <div className="composer-actions-separator" role="separator" />
-                <div className="composer-actions-heading">权限说明</div>
-                {PERMISSION_OPTIONS.map((option) => (
-                  <button
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={permissionMode === option.value}
-                    className={permissionMode === option.value ? "active" : ""}
-                    key={option.value}
-                    onClick={() => {
-                      setActionsOpen(false);
-                      void onPermissionChange?.(option.value);
-                    }}
-                  >
-                    <CircleCheck size={14} />
-                    <span className="permission-menu-copy">
-                      <strong>{option.label}</strong>
-                      <small>{option.description}</small>
-                    </span>
-                    {permissionMode === option.value && <Check size={14} />}
+                    <small className="composer-actions-hint">{description}</small>
+                    {agentMode === value && <Check className="composer-actions-check" size={14} />}
                   </button>
                 ))}
               </div>
