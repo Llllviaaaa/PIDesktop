@@ -538,12 +538,12 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
   const savedMissing = form.defaultFileOpener !== "system" && !editors.some((editor) => editor.id === form.defaultFileOpener);
   return <>
     <PageHeading title="常规" description="控制 Pi Desktop 的启动、消息发送和项目文件打开方式。" />
-    {/* suggestedPrompts stays in settings.json but the home page shows no suggestions yet, so it has no row. */}
     <Card title="任务">
       <Row title="跟进消息行为" description="Agent 工作时再次发送消息所执行的操作。"><select value={form.followUpBehavior} onChange={(event) => update("followUpBehavior", event.target.value as AppSettings["followUpBehavior"])}><option value="steer">调整当前任务</option><option value="followUp">排队到下一轮</option></select></Row>
       <Row title="使用 Ctrl+Enter 发送" description="Enter 插入换行，Ctrl+Enter 发送提示词。"><Switch label="使用 Ctrl+Enter 发送" checked={form.requireCtrlEnter} onChange={(value) => update("requireCtrlEnter", value)} /></Row>
       <Row title="显示推理过程" description="在任务中保留可展开的推理内容。"><Switch label="显示推理过程" checked={form.showThinking} onChange={(value) => update("showThinking", value)} /></Row>
       <Row title="对话详细程度" description="摘要隐藏工具轨迹，详细默认展开工作过程。也可在对话里用 Ctrl+O 切换。"><select value={form.transcriptDensity} onChange={(event) => update("transcriptDensity", event.target.value as AppSettings["transcriptDensity"])}><option value="summary">摘要</option><option value="normal">普通</option><option value="verbose">详细</option></select></Row>
+      <Row title="显示建议提示词" description="选好项目后，在新会话首页显示几条可点击的入门提示，点一下会填进输入框。"><Switch label="显示建议提示词" checked={form.suggestedPrompts} onChange={(value) => update("suggestedPrompts", value)} /></Row>
     </Card>
     <Card title="应用">
       <Row title="恢复上次任务" description="启动时重新打开上一次任务及其会话；前端刷新时会直接接回仍在运行的任务。"><Switch label="恢复上次任务" checked={form.autoConnect} onChange={(value) => update("autoConnect", value)} /></Row>

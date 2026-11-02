@@ -82,6 +82,7 @@ import {
 import { ExtensionDialog, extensionRequestHeadline } from "./components/ExtensionDialog";
 import { ConversationMessages } from "./components/ConversationMessages";
 import { SessionChangeCard } from "./components/SessionChangeCard";
+import { HomeSuggestions } from "./components/HomeSuggestions";
 import { ClaudeHomeDashboard } from "./components/ClaudeHomeDashboard";
 import { ActiveGoalBar } from "./components/ActiveGoalBar";
 import { LivePlanBar } from "./components/LivePlanBar";
@@ -1877,6 +1878,11 @@ export default function App() {
                     sessions={sessions}
                     currentModelId={model?.id}
                   />
+
+                  {/* Project-specific starting points; without a project there is nothing to point them at. */}
+                  {settings?.suggestedPrompts !== false && !quickChat && taskWorkspaceName && (
+                    <HomeSuggestions onPick={(prompt) => useAppStore.setState({ composerPrefill: prompt })} />
+                  )}
 
                   <div className="dsh-claude-home-composer-wrap">
                     {renderComposer("task-start")}
