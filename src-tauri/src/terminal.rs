@@ -245,9 +245,11 @@ fn allow_ctrl_c_in_children() {
 fn allow_ctrl_c_in_children() {}
 
 /// The shells this machine can start, in the order the tab menu lists them.
+/// The one chosen in Settings → 集成终端 Shell comes first: a new tab with no
+/// shell of its own starts the first in this list.
 #[tauri::command(async)]
-pub fn terminal_shells() -> Vec<String> {
-    [
+pub fn terminal_shells(state: State<'_, crate::AppState>) -> Vec<String> {
+    let available = [
         ShellKind::WindowsPowerShell,
         ShellKind::PowerShell7,
         ShellKind::CommandPrompt,
@@ -257,7 +259,22 @@ pub fn terminal_shells() -> Vec<String> {
     .into_iter()
     .filter(|kind| shell_available(*kind))
     .map(|kind| kind.label().to_string())
-    .collect()
+    .collect();
+    let preferred = state
+        .settings
+        .lock()
+        .map(|settings| settings.terminal_shell.clone())
+        .unwrap_or_default();
+    preferred_first(available, &preferred)
+}
+
+/// Moves `preferred` to the front when it is among `shells`; otherwise leaves the order alone.
+fn preferred_first(mut shells: Vec<String>, preferred: &str) -> Vec<String> {
+    if let Some(index) = shells.iter().position(|shell| shell == preferred) {
+        let chosen = shells.remove(index);
+        shells.insert(0, chosen);
+    }
+    shells
 }
 
 #[tauri::command]
@@ -433,6 +450,34 @@ pub fn terminal_close(state: State<'_, crate::AppState>, id: String) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn puts_the_chosen_shell_first_when_it_is_available() {
+        let shells = || {
+            vec![
+                "PowerShell".to_string(),
+                "Command Prompt".to_string(),
+                "Git Bash".to_string(),
+            ]
+        };
+        assert_eq!(
+            preferred_first(shells(), "Git Bash"),
+            ["Git Bash", "PowerShell", "Command Prompt"]
+        );
+        assert_eq!(
+            preferred_first(shells(), "PowerShell"),
+            ["PowerShell", "Command Prompt", "Git Bash"]
+        );
+        // A shell this machine lacks, or none chosen, keeps the default order.
+        assert_eq!(
+            preferred_first(shells(), "WSL"),
+            ["PowerShell", "Command Prompt", "Git Bash"]
+        );
+        assert_eq!(
+            preferred_first(shells(), ""),
+            ["PowerShell", "Command Prompt", "Git Bash"]
+        );
+    }
 
     #[test]
     fn keeps_a_character_split_across_reads_intact() {

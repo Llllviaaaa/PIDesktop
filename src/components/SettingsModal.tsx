@@ -1024,12 +1024,18 @@ function ComputerPage({ form, update }: { form: AppSettings; update: Update }) {
 }
 
 function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }) {
+  // The shells this machine can start; the saved choice stays listed even if it went missing.
+  const shellsQuery = useQuery({ queryKey: ["terminal-shells"], queryFn: () => agent.terminalShells().catch((): string[] => []) });
+  const shells = [...new Set([...(shellsQuery.data ?? []), form.terminalShell].filter(Boolean))].sort();
   return <>
-    <PageHeading title="环境" description="配置新聊天的工作环境。" />
+    <PageHeading title="环境" description="配置新聊天的工作环境和集成终端。" />
     <Card title="新聊天">
       <Row title="默认工作环境" description="在当前检出中工作，或为任务创建隔离 Git Worktree。"><select value={form.defaultTaskEnvironment} onChange={(event) => update("defaultTaskEnvironment", event.target.value as AppSettings["defaultTaskEnvironment"])}><option value="local">Local（当前工作区）</option><option value="worktree">Worktree（隔离检出）</option></select></Row>
     </Card>
-    {/* terminalShell and terminalOutput stay in settings.json but nothing reads them yet, so they have no rows. */}
+    <Card title="集成终端">
+      <Row title="集成终端 Shell" description="终端面板里新建标签页时默认使用的 Shell；“+”旁的菜单仍可临时选择其他 Shell。"><select value={form.terminalShell} onChange={(event) => update("terminalShell", event.target.value)}>{shells.map((shell) => <option key={shell} value={shell}>{shell}</option>)}</select></Row>
+    </Card>
+    {/* terminalOutput stays in settings.json but nothing reads it yet, so it has no row. */}
   </>;
 }
 
