@@ -317,6 +317,7 @@ fn explain_push_error(error: AppError) -> AppError {
 /// frontend sends it to the Harness Host's `llm.complete` (P6a).
 #[tauri::command(async)]
 pub(crate) fn git_commit_message_prompt(
+    state: State<'_, AppState>,
     cwd: String,
     paths: Option<Vec<String>>,
 ) -> Result<String, AppError> {
@@ -326,7 +327,15 @@ pub(crate) fn git_commit_message_prompt(
         return Err(AppError::InvalidInput("没有可以描述的改动".to_string()));
     }
     let recent = run_git(&root, &["log", "-8", "--format=%s"]).unwrap_or_default();
-    Ok(commit_message_input(&recent, &changes))
+    // Settings → Git 与工程 → 提交消息: the user's own rules for the message.
+    let instructions = state
+        .settings
+        .lock()
+        .map_err(|_| AppError::Locked("state lock poisoned".to_string()))?
+        .commit_message_instructions
+        .trim()
+        .to_string();
+    Ok(commit_message_input(&recent, &changes, &instructions))
 }
 
 /// The diff (and new files' contents) of what the commit would contain.
@@ -392,7 +401,7 @@ fn truncate_for_prompt(mut text: String, limit: usize) -> String {
     text
 }
 
-fn commit_message_input(recent_subjects: &str, changes: &str) -> String {
+fn commit_message_input(recent_subjects: &str, changes: &str, instructions: &str) -> String {
     let recent = recent_subjects
         .lines()
         .map(str::trim)
@@ -407,12 +416,18 @@ fn commit_message_input(recent_subjects: &str, changes: &str) -> String {
             recent.join("\n")
         )
     };
+    // The user's instructions follow the defaults, so where the two differ theirs read last and win.
+    let extra = if instructions.is_empty() {
+        String::new()
+    } else {
+        format!("\n## 用户的额外要求\n\n{instructions}\n")
+    };
     format!(
         "为下面的 Git 改动写一条提交说明。\n\
          - 第一行是摘要，不超过 72 个字符，说清楚改了什么。\n\
          - 改动不止一处时，空一行后用几行正文说明改了什么、为什么改。\n\
          - 只输出提交说明本身：不要解释，不要加引号或代码块。\n\
-         {style}\n\n\
+         {style}\n{extra}\n\
          ## 改动\n\n{changes}\n\n"
     )
 }
@@ -581,6 +596,16 @@ mod tests {
         );
         fs::remove_dir_all(directory).ok();
         fs::remove_dir_all(remote).ok();
+    }
+
+    #[test]
+    fn adds_the_users_commit_instructions_only_when_set() {
+        let plain = commit_message_input("fix: a", "diff", "");
+        assert!(!plain.contains("额外要求"));
+        let with_rules = commit_message_input("fix: a", "diff", "用英文写，正文引用工单号");
+        assert!(with_rules.contains("## 用户的额外要求\n\n用英文写，正文引用工单号"));
+        // The changes still close the prompt, after the instructions.
+        assert!(with_rules.find("额外要求").unwrap() < with_rules.find("## 改动").unwrap());
     }
 
     #[test]

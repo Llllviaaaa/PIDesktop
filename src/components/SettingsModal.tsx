@@ -1035,7 +1035,7 @@ function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }
 
 function GitPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="Git 与审查" description="设置代码分支与审查结果的呈现方式。" />
+    <PageHeading title="Git 与审查" description="设置代码分支、审查结果的呈现方式以及提交说明的生成要求。" />
     <Card title="分支与审查">
       <Row title="代码审查呈现方式" description="审查完成后在当前对话继续，或为审查结果创建独立会话。">
         <select value={form.reviewDelivery} onChange={(event) => update("reviewDelivery", event.target.value as AppSettings["reviewDelivery"])}>
@@ -1045,7 +1045,10 @@ function GitPage({ form, update }: { form: AppSettings; update: Update }) {
       </Row>
       <Row title="分支前缀"><input value={form.branchPrefix} onChange={(event) => update("branchPrefix", event.target.value)} placeholder="pi/" /></Row>
     </Card>
-    {/* allowForcePush and the commit / PR instruction texts stay in settings.json but nothing reads them yet, so they have no rows. */}
+    <Card title="生成指令">
+      <label className="stacked-setting"><span>提交消息</span><textarea value={form.commitMessageInstructions} onChange={(event) => update("commitMessageInstructions", event.target.value)} placeholder="生成提交消息时额外遵守的要求，例如“用英文写，正文引用工单号”" /></label>
+    </Card>
+    {/* allowForcePush and the PR instruction text stay in settings.json but nothing reads them yet, so they have no rows. */}
   </>;
 }
 
