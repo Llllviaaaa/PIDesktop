@@ -1427,7 +1427,7 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .marketplace-confirm > span { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .marketplace-confirm strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .marketplace-confirm small { color: var(--text-3); font-size: 10.5px; line-height: 1.45; }
-.usage-hero { display: grid; grid-template-columns: repeat(4,1fr); gap: 9px; margin-bottom: 27px; }
+.usage-hero { display: grid; grid-template-columns: repeat(3,1fr); gap: 9px; margin-bottom: 27px; }
 .usage-hero > span { min-height: 94px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 14px; }
 .usage-hero small { color: var(--text-3); font-size: 9.5px; }
 .usage-hero strong { font-size: 21px; letter-spacing: -.02em; }

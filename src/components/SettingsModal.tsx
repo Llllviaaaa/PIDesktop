@@ -422,7 +422,7 @@ export function SettingsModal({
       {page === "hooks" && <HooksPage form={form} update={update} />}
       {page === "git" && <GitPage form={form} update={update} />}
       {page === "worktrees" && <WorktreesPage cwd={cwd} worktrees={worktrees} loading={loadingData} onCreated={(item) => queryClient.setQueryData<WorktreeInfo[]>(queryKeys.worktrees(cwd), (items) => [...(items ?? []), item])} />}
-      {page === "debug" && <DebugPage form={form} update={update} />}
+      {page === "debug" && <DebugPage />}
     </>
   );
 
@@ -538,12 +538,12 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
   const savedMissing = form.defaultFileOpener !== "system" && !editors.some((editor) => editor.id === form.defaultFileOpener);
   return <>
     <PageHeading title="常规" description="控制 Pi Desktop 的启动、消息发送和项目文件打开方式。" />
+    {/* suggestedPrompts stays in settings.json but the home page shows no suggestions yet, so it has no row. */}
     <Card title="任务">
       <Row title="跟进消息行为" description="Agent 工作时再次发送消息所执行的操作。"><select value={form.followUpBehavior} onChange={(event) => update("followUpBehavior", event.target.value as AppSettings["followUpBehavior"])}><option value="steer">调整当前任务</option><option value="followUp">排队到下一轮</option></select></Row>
       <Row title="使用 Ctrl+Enter 发送" description="Enter 插入换行，Ctrl+Enter 发送提示词。"><Switch label="使用 Ctrl+Enter 发送" checked={form.requireCtrlEnter} onChange={(value) => update("requireCtrlEnter", value)} /></Row>
       <Row title="显示推理过程" description="在任务中保留可展开的推理内容。"><Switch label="显示推理过程" checked={form.showThinking} onChange={(value) => update("showThinking", value)} /></Row>
       <Row title="对话详细程度" description="摘要隐藏工具轨迹，详细默认展开工作过程。也可在对话里用 Ctrl+O 切换。"><select value={form.transcriptDensity} onChange={(event) => update("transcriptDensity", event.target.value as AppSettings["transcriptDensity"])}><option value="summary">摘要</option><option value="normal">普通</option><option value="verbose">详细</option></select></Row>
-      <Row title="显示建议提示词" description="在新任务页显示与编程相关的快捷提示词。"><Switch label="显示建议提示词" checked={form.suggestedPrompts} onChange={(value) => update("suggestedPrompts", value)} /></Row>
     </Card>
     <Card title="应用">
       <Row title="恢复上次任务" description="启动时重新打开上一次任务及其会话；前端刷新时会直接接回仍在运行的任务。"><Switch label="恢复上次任务" checked={form.autoConnect} onChange={(value) => update("autoConnect", value)} /></Row>
@@ -808,10 +808,11 @@ function ArchivedPage({ archived, loading, onRestore, onDelete }: { archived: Se
 function UsagePage({ usage }: { usage: UsageSummary | null }) {
   const number = (value?: number) => (value ?? 0).toLocaleString();
   return <>
-    <PageHeading title="使用情况和计费" description="查看由本机会话记录汇总的活动数据。" />
+    <PageHeading title="使用情况" description="查看由本机会话记录汇总的活动数据。" />
     {!usage ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在计算使用情况…</div> : <>
-      <div className="usage-hero"><span><small>累计 token</small><strong>{number(usage.totalTokens)}</strong></span><span><small>记录费用</small><strong>${usage.totalCost.toFixed(4)}</strong></span><span><small>任务</small><strong>{number(usage.sessions)}</strong></span><span><small>消息</small><strong>{number(usage.messages)}</strong></span></div>
-      <Card title="Token 活动"><div className="usage-breakdown"><span><i style={{ width: `${Math.max(5, usage.inputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输入</strong><em>{number(usage.inputTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.outputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输出</strong><em>{number(usage.outputTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.reasoningTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>推理</strong><em>{number(usage.reasoningTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.cacheReadTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>缓存读取</strong><em>{number(usage.cacheReadTokens)}</em></span></div></Card>
+      {/* The Host records no costs and no reasoning tokens (agent.usageSummary fills both with 0), so neither is shown. */}
+      <div className="usage-hero"><span><small>累计 token</small><strong>{number(usage.totalTokens)}</strong></span><span><small>任务</small><strong>{number(usage.sessions)}</strong></span><span><small>消息</small><strong>{number(usage.messages)}</strong></span></div>
+      <Card title="Token 活动"><div className="usage-breakdown"><span><i style={{ width: `${Math.max(5, usage.inputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输入</strong><em>{number(usage.inputTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.outputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输出</strong><em>{number(usage.outputTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.cacheReadTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>缓存读取</strong><em>{number(usage.cacheReadTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.cacheWriteTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>缓存写入</strong><em>{number(usage.cacheWriteTokens)}</em></span></div></Card>
     </>}
     <div className="settings-info"><BarChart3 size={17} /><span>这些数据由本机的会话记录计算；实际账单和订阅额度以模型提供商为准。</span></div>
   </>;
@@ -1024,20 +1025,17 @@ function ComputerPage({ form, update }: { form: AppSettings; update: Update }) {
 
 function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="环境" description="配置新聊天的工作环境和集成终端。" />
+    <PageHeading title="环境" description="配置新聊天的工作环境。" />
     <Card title="新聊天">
       <Row title="默认工作环境" description="在当前检出中工作，或为任务创建隔离 Git Worktree。"><select value={form.defaultTaskEnvironment} onChange={(event) => update("defaultTaskEnvironment", event.target.value as AppSettings["defaultTaskEnvironment"])}><option value="local">Local（当前工作区）</option><option value="worktree">Worktree（隔离检出）</option></select></Row>
     </Card>
-    <Card title="集成终端">
-      <Row title="集成终端 Shell" description="终端面板里“+”新建标签页时使用的 Shell；“+”旁的菜单可临时选择其他 Shell。"><select value={form.terminalShell} onChange={(event) => update("terminalShell", event.target.value)}><option>PowerShell</option><option>PowerShell 7</option><option>Command Prompt</option><option>Git Bash</option><option>WSL</option></select></Row>
-      <Row title="对话中的命令输出"><select value={form.terminalOutput} onChange={(event) => update("terminalOutput", event.target.value as AppSettings["terminalOutput"])}><option value="summary">摘要</option><option value="full">完整输出</option></select></Row>
-    </Card>
+    {/* terminalShell and terminalOutput stay in settings.json but nothing reads them yet, so they have no rows. */}
   </>;
 }
 
 function GitPage({ form, update }: { form: AppSettings; update: Update }) {
   return <>
-    <PageHeading title="Git 与审查" description="设置代码分支、审查结果呈现以及提交说明生成规范。" />
+    <PageHeading title="Git 与审查" description="设置代码分支与审查结果的呈现方式。" />
     <Card title="分支与审查">
       <Row title="代码审查呈现方式" description="审查完成后在当前对话继续，或为审查结果创建独立会话。">
         <select value={form.reviewDelivery} onChange={(event) => update("reviewDelivery", event.target.value as AppSettings["reviewDelivery"])}>
@@ -1046,12 +1044,8 @@ function GitPage({ form, update }: { form: AppSettings; update: Update }) {
         </select>
       </Row>
       <Row title="分支前缀"><input value={form.branchPrefix} onChange={(event) => update("branchPrefix", event.target.value)} placeholder="pi/" /></Row>
-      <Row title="允许强制推送" description="允许重写远程分支的工作流。"><Switch label="允许强制推送" checked={form.allowForcePush} onChange={(value) => update("allowForcePush", value)} /></Row>
     </Card>
-    <Card title="生成指令">
-      <label className="stacked-setting"><span>提交消息</span><textarea value={form.commitMessageInstructions} onChange={(event) => update("commitMessageInstructions", event.target.value)} placeholder="生成提交消息时使用的可选指令" /></label>
-      <label className="stacked-setting"><span>拉取请求说明</span><textarea value={form.pullRequestInstructions} onChange={(event) => update("pullRequestInstructions", event.target.value)} placeholder="生成 PR 说明时使用的可选指令" /></label>
-    </Card>
+    {/* allowForcePush and the commit / PR instruction texts stay in settings.json but nothing reads them yet, so they have no rows. */}
   </>;
 }
 
@@ -1069,7 +1063,7 @@ function WorktreesPage({ cwd, worktrees, loading, onCreated }: { cwd: string; wo
   </>;
 }
 
-function DebugPage({ form, update }: { form: AppSettings; update: Update }) {
+function DebugPage() {
   const [diagnosticsState, setDiagnosticsState] = useState<{ busy: boolean; message: string }>({ busy: false, message: "" });
   const openLogs = async () => {
     try {
@@ -1092,8 +1086,8 @@ function DebugPage({ form, update }: { form: AppSettings; update: Update }) {
   };
   return <>
     <PageHeading title="调试" description="诊断选项。" />
+    {/* logLevel stays in settings.json but neither the Host nor the desktop reads it yet, so it has no row. */}
     <Card title="诊断">
-      <Row title="日志等级"><select value={form.logLevel} onChange={(event) => update("logLevel", event.target.value as AppSettings["logLevel"])}><option value="error">错误</option><option value="warn">警告</option><option value="info">信息</option><option value="debug">调试</option></select></Row>
       <Row title="日志" description="Harness 和桌面端的日志，每天一个文件，保留 7 天，密钥已脱敏。"><button className="secondary-button" onClick={() => void openLogs()}><FolderOpen size={14} />打开日志目录</button></Row>
       <Row title="诊断包" description={diagnosticsState.message || "最近的日志、版本号和脱敏后的配置，打包成 zip，由你保存后附在问题报告里。"}><button className="secondary-button" disabled={diagnosticsState.busy} onClick={() => void exportBundle()}><FileDown size={14} />导出诊断包</button></Row>
     </Card>
