@@ -89,6 +89,20 @@ export function toolRowCopy(presented: ToolPresentation, call: UiToolCall): { ti
   }
 }
 
+/** A running row's title in the progressive: 读取 → 正在读取, 运行命令 → 正在运行. */
+export function runningToolTitle(title: string): string {
+  switch (title) {
+    case "运行命令":
+      return "正在运行";
+    case "工具调用":
+      return "正在调用工具";
+    case "MCP":
+      return "正在调用 MCP";
+    default:
+      return `正在${title}`;
+  }
+}
+
 function ToolGlyph({ presented }: { presented: ToolPresentation }) {
   switch (presented.kind) {
     case "read":
@@ -383,8 +397,9 @@ export function ToolCall({
       {state !== "ok" && <span className="dshc-visually-hidden">{state === "running" ? "运行中" : "失败"}</span>}
       <DisclosureRow
         rowClassName="dshc-tool-row"
-        icon={<ToolGlyph presented={presented} />}
-        title={title}
+        // The row still working shows it in its glyph and verb, not only in the shimmer.
+        icon={state === "running" ? <StateSpinner size={12} /> : <ToolGlyph presented={presented} />}
+        title={state === "running" ? runningToolTitle(title) : title}
         running={state === "running"}
         open={open}
         expandable={expandable}

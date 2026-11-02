@@ -33,7 +33,6 @@ import type { ISidebarRight } from "@deepseek-ai/dsh-client-ui-sidebar-right/cli
 import {
   ArrowLeft,
   ArrowRight,
-  FileDiff,
   Folder,
   Globe2,
   Menu,
@@ -82,6 +81,7 @@ import {
 } from "./components/DesktopPetWindow";
 import { ExtensionDialog, extensionRequestHeadline } from "./components/ExtensionDialog";
 import { ConversationMessages } from "./components/ConversationMessages";
+import { SessionChangeCard } from "./components/SessionChangeCard";
 import { ClaudeHomeDashboard } from "./components/ClaudeHomeDashboard";
 import { ActiveGoalBar } from "./components/ActiveGoalBar";
 import { LivePlanBar } from "./components/LivePlanBar";
@@ -930,18 +930,7 @@ export default function App() {
     () => changesEditedBy(git?.files ?? [], sessionEditedKey ? sessionEditedKey.split("\n") : []),
     [git?.files, sessionEditedKey],
   );
-  const sessionDiffStats = useMemo(() => {
-    const perFile = perFileDiffStats(git?.diff);
-    const paths = new Set(sessionChanges.map((file) => file.path.replace(/\\/g, "/")));
-    let additions = 0;
-    let deletions = 0;
-    for (const [path, stats] of perFile) {
-      if (!paths.has(path)) continue;
-      additions += stats.add;
-      deletions += stats.del;
-    }
-    return { additions, deletions };
-  }, [git?.diff, sessionChanges]);
+  const sessionFileStats = useMemo(() => perFileDiffStats(git?.diff), [git?.diff]);
   // The checkout the review tab shows: the chosen project on a new task, else the thread's.
   const reviewGit = newTask ? draftGit : git;
   const gitDiffStats = useMemo(() => {
@@ -1907,35 +1896,16 @@ export default function App() {
                     conversationKey={`${runtimeId ?? "none"}:${sessionFile ?? "new"}`}
                     density={transcriptDensity}
                     onOpenPlan={openSummary}
+                    lastTurnFooter={sessionChanges.length > 0 ? (
+                      <SessionChangeCard
+                        files={sessionChanges}
+                        stats={sessionFileStats}
+                        onOpenFile={openPreviewFile}
+                        onRestore={() => void restoreGitFiles(sessionChanges.map((file) => file.path))}
+                        onReview={() => void requestReview({ mode: "uncommitted" })}
+                      />
+                    ) : undefined}
                   />
-                  {sessionChanges.length > 0 && (
-                    <section className="conversation-change-card" aria-label="本任务的变更">
-                      <div className="conversation-change-heading">
-                        <button
-                          type="button"
-                          className="conversation-change-open"
-                          onClick={openReview}
-                          title="查看变更"
-                        >
-                          <span className="conversation-change-icon"><FileDiff size={15} strokeWidth={1.7} /></span>
-                          <div>
-                            <strong>
-                              {sessionChanges.length === 1
-                                ? `已编辑 ${sessionChanges[0].path.split(/[\\/]/).pop()}`
-                                : `已编辑 ${sessionChanges.length} 个文件`}
-                            </strong>
-                            <span>
-                              {sessionDiffStats.additions > 0 && <em>+{sessionDiffStats.additions}</em>}
-                              {" "}
-                              {sessionDiffStats.deletions > 0 && <b>-{sessionDiffStats.deletions}</b>}
-                            </span>
-                          </div>
-                        </button>
-                        <button type="button" className="change-card-secondary" onClick={() => void restoreGitFiles(sessionChanges.map((file) => file.path))}>撤销</button>
-                        <button type="button" onClick={() => void requestReview({ mode: "uncommitted" })}>审核</button>
-                      </div>
-                    </section>
-                  )}
                   {/* ConversationPlan already renders update_plan; skip the plan extension's text copy. */}
                   {Object.entries(extensionWidgets).filter(([key]) => key !== "pidesktop-plan").map(([key, lines]) => (
                     <div className="extension-widget" key={key}>{lines.map((line, lineIndex) => <div key={lineIndex}>{line}</div>)}</div>

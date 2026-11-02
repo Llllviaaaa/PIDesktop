@@ -96,9 +96,11 @@ test("tool call", async () => {
       running: true,
     },
   }));
-  // A running row keeps its glyph and sweeps its words with the host's shimmer.
+  // A running row turns its glyph into the spinner, says its verb in the progressive,
+  // and still sweeps its words with the host's shimmer.
   assert.match(liveShell, /data-state="running"/);
   assert.match(liveShell, /data-shimmer="true"/);
+  assert.match(liveShell, /class="dshc-spinner"/);
   assert.match(liveShell, /运行中/);
-  assert.match(words(liveShell), /运行命令 npm test/);
+  assert.match(words(liveShell), /正在运行 npm test/);
 });

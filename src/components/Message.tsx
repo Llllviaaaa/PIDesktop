@@ -167,6 +167,54 @@ export function buildProcessSummary(thinking: number, outputs: number, tools: nu
   return parts.join("，") || "执行 1 次思考";
 }
 
+/**
+ * A process group's header in what its calls did, as Codex's 「运行了命令」 reads:
+ * 「执行 1 次思考，读取 2 个文件，运行 1 条命令」. Files count once however often
+ * they were touched; kinds keep the order they first ran in.
+ */
+export function summarizeProcessGroup(thinking: number, calls: UiToolCall[]): string {
+  const parts: string[] = [];
+  if (thinking > 0) parts.push(`执行 ${thinking} 次思考`);
+  const buckets = new Map<string, { label: (count: number) => string; keys: Set<string> }>();
+  const bucket = (id: string, label: (count: number) => string, key: string) => {
+    const entry = buckets.get(id) ?? { label, keys: new Set<string>() };
+    entry.keys.add(key);
+    buckets.set(id, entry);
+  };
+  for (const call of calls) {
+    const presented = presentToolCall(call);
+    const fileKey = presented.path?.replace(/\\/g, "/") || call.id;
+    switch (presented.kind) {
+      case "read":
+        bucket("read", (count) => `读取 ${count} 个文件`, fileKey);
+        break;
+      case "write":
+      case "edit":
+        bucket("edit", (count) => `编辑 ${count} 个文件`, fileKey);
+        break;
+      case "shell":
+        bucket("shell", (count) => `运行 ${count} 条命令`, call.id);
+        break;
+      case "search":
+        bucket("search", (count) => `搜索 ${count} 次`, call.id);
+        break;
+      case "web-search":
+      case "browser":
+        bucket("web", (count) => `访问网页 ${count} 次`, call.id);
+        break;
+      case "plan":
+        bucket("plan", () => "更新计划", call.id);
+        break;
+      default:
+        bucket("other", (count) => `调用 ${count} 次工具`, call.id);
+    }
+  }
+  const toolParts = [...buckets.values()].map(({ label, keys }) => label(keys.size));
+  // Past three kinds the header stops being a glance; the group lists the rest.
+  parts.push(...(toolParts.length > 3 ? [...toolParts.slice(0, 3), "等"] : toolParts));
+  return parts.join("，").replace("，等", " 等") || "执行 1 次思考";
+}
+
 export type ProcessSegment =
   | { kind: "text"; key: string; text: string }
   | {
@@ -561,6 +609,7 @@ export const Message = memo(function Message({
   density = "normal",
   editing = false,
   plan,
+  footer,
   onOpenPlan,
   onEdit,
   onRewind,
@@ -588,6 +637,8 @@ export const Message = memo(function Message({
   editing?: boolean;
   /** The plan this turn finished with; hidden while the turn works, when the composer shows it. */
   plan?: TaskPlanSummary;
+  /** Closes a settled turn between its answer and its actions (the session's change card). */
+  footer?: ReactNode;
   onOpenPlan?: () => void;
   onEdit?: (message: UiMessage) => void;
   onRewind?: (message: UiMessage) => Promise<boolean>;
@@ -974,7 +1025,10 @@ export const Message = memo(function Message({
         grouped={grouped}
         live={active}
         autoOpen={active}
-        summary={buildProcessSummary(segment.thinking, 0, segment.tools)}
+        summary={summarizeProcessGroup(
+          segment.thinking,
+          segment.members.flatMap(({ step }) => (step.kind === "tool" ? [step.call] : [])),
+        )}
         activity={segment.activity}
       >
         {segment.members.map(({ step, index }) => renderStep(step, index))}
@@ -1058,6 +1112,7 @@ export const Message = memo(function Message({
           overtimeAllowed={!hasRunningTool}
         />
       )}
+      {footer && !working && <div className="dshc-turn-footer">{footer}</div>}
       {hasContent && !working && (
         <MessageIconActions
           text={message.content}

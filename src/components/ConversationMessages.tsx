@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronUp } from "lucide-react";
 import { useAppStore } from "../store";
 import type { UiMessage } from "../types";
@@ -25,6 +25,7 @@ export function ConversationMessages({
   onCancelEdit,
   onSubmitEdit,
   onOpenPlan,
+  lastTurnFooter,
   scrollerRef,
   autoFollowRef,
   lastAutoScrollAtRef,
@@ -41,6 +42,8 @@ export function ConversationMessages({
   onCancelEdit: () => void;
   onSubmitEdit: (message: UiMessage, text: string) => Promise<boolean>;
   onOpenPlan?: () => void;
+  /** Shown inside the newest reply, above its actions; after the thread when no reply closes it. */
+  lastTurnFooter?: ReactNode;
   scrollerRef: { current: HTMLDivElement | null };
   autoFollowRef: { current: boolean };
   lastAutoScrollAtRef: { current: number };
@@ -210,6 +213,7 @@ export function ConversationMessages({
           density={transcriptDensity}
           editing={editingMessageId === message.id}
           plan={turnPlans.get(message.id)}
+          footer={message.id === lastAssistantId ? lastTurnFooter : undefined}
           onOpenPlan={message.id === latestPlanMessageId ? onOpenPlan : undefined}
           onEdit={message.role === "user" ? onEdit : undefined}
           onRewind={message.role === "user" ? onRewind : undefined}
@@ -217,6 +221,9 @@ export function ConversationMessages({
           onSubmitEdit={onSubmitEdit}
         />
       ))}
+      {lastTurnFooter && lastAssistantId === null && !isStreaming && (
+        <div className="dshc-turn-footer">{lastTurnFooter}</div>
+      )}
       {userTurns.length > 1 && (
         <nav
           className="dsh-claude-turn-rail"
