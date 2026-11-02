@@ -22,6 +22,7 @@ import {
 } from "./lib/panelLayout";
 import { describeError } from "./lib/errors";
 import { loadAttachmentFiles, mergeAttachments } from "./lib/attachments";
+import { findMentionCandidates } from "./lib/workspaceSearch";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -1493,6 +1494,7 @@ export default function App() {
       onPickAttachments={pickAttachments}
       onAttachFiles={(files) => void attachFiles(files)}
       onAttachPayloads={attachPayloads}
+      onSearchFiles={workspaceCwd && !quickChat ? (query, signal) => findMentionCandidates(workspaceCwd, query, signal) : undefined}
       onRemoveAttachment={removeComposerAttachment}
       onModelChange={changeComposerModel}
       onThinkingChange={changeComposerThinking}
