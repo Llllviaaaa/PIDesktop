@@ -10,15 +10,24 @@ import {
   Archive,
   ArchiveRestore,
   Bell,
+  BookOpen,
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronUp,
   Clock3,
+  Cpu,
+  ExternalLink,
   Folder,
   FolderOpen,
+  FolderPlus,
   GitBranch,
   GitPullRequest,
+  Keyboard,
+  ListFilter,
   MoreHorizontal,
+  Palette,
   Pin,
   Plus,
   Search,
@@ -29,7 +38,9 @@ import {
   Trash2,
   MessageCircleQuestion,
   X,
+  type LucideIcon,
 } from "lucide-react";
+import type { SettingsPage } from "./SettingsModal";
 import { PI_BRAND_MARK_SVG } from "../lib/claudeCrabSheets";
 import { agent } from "../lib/agent";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -71,8 +82,11 @@ interface SidebarProps {
   onOpenProjectFolder: (workspace: string) => void;
   onCreateWorktree: (workspace: string) => void | Promise<void>;
   onArchiveProject: (workspace: string, sessions: SessionInfo[]) => void | Promise<void>;
-  onOpenSettings: () => void;
+  onOpenSettings: (page: SettingsPage) => void;
+  onOpenDocs: () => void;
   onPickFolder: () => void;
+  /** Shown beside 设置 in the footer menu, e.g. "Ctrl+,". */
+  settingsShortcut?: string;
   /** Shown as keycaps on the new session row, e.g. "Ctrl+Shift+N". */
   newChatShortcut?: string;
   /** Set by the Ctrl+K shortcut; the sidebar opens its search and then reports back. */
@@ -164,6 +178,32 @@ function compactRelativeTime(session: SessionInfo): string {
 
 /** Rows a project shows before "展开其余 N 个会话". */
 const VISIBLE_THREADS_PER_PROJECT = 5;
+/** Rows the flat "按时间" list shows before it folds. */
+const VISIBLE_RECENT_THREADS = 15;
+
+type SidebarGroupMode = "project" | "recent";
+
+/** The settings pages the footer menu jumps to directly. */
+const FOOTER_SETTINGS_PAGES: ReadonlyArray<readonly [SettingsPage, string, LucideIcon]> = [
+  ["general", "设置", Settings],
+  ["providers", "模型与连接", Cpu],
+  ["appearance", "外观", Palette],
+  ["shortcuts", "快捷键", Keyboard],
+];
+
+const GROUP_MODE_KEY = "pid-desktop:sidebar-group-mode";
+
+function readGroupMode(): SidebarGroupMode {
+  try {
+    return window.localStorage.getItem(GROUP_MODE_KEY) === "recent" ? "recent" : "project";
+  } catch {
+    return "project";
+  }
+}
+
+function sessionTimestamp(session: SessionInfo): number {
+  return session.updatedAt || (session.createdAt ? Date.parse(session.createdAt) : 0) || 0;
+}
 
 export function Sidebar({
   sessions,
@@ -189,7 +229,9 @@ export function Sidebar({
   onCreateWorktree,
   onArchiveProject,
   onOpenSettings,
+  onOpenDocs,
   onPickFolder,
+  settingsShortcut,
   newChatShortcut,
   searchRequested = false,
   onSearchRequestHandled,
@@ -205,6 +247,17 @@ export function Sidebar({
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<"active" | "archived">("active");
+  const [groupMode, setGroupMode] = useState<SidebarGroupMode>(readGroupMode);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(GROUP_MODE_KEY, groupMode);
+    } catch {
+      // The mode is a convenience; losing it only resets to 按项目.
+    }
+  }, [groupMode]);
+  const [recentExpanded, setRecentExpanded] = useState(false);
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const [footerMenuOpen, setFooterMenuOpen] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [collapsedProjectPaths, setCollapsedProjectPaths] = useState(() => readStringList(COLLAPSED_PROJECTS_KEY));
   useEffect(() => {
@@ -304,6 +357,14 @@ export function Sidebar({
     return sortSidebarProjectGroups([...result.entries()], projectConfigs, stableSessionOrder, sidebarOrder.workspaces);
   }, [pinnedSessionFiles, projectConfigs, query, sessions, sidebarOrder.workspaces, stableSessionOrder]);
 
+  // 按时间: every visible session in one list, pinned first, then most recently updated.
+  const recentSessions = useMemo(() => groups
+    .flatMap(([, chats]) => chats)
+    .sort((left, right) => {
+      const pinnedOrder = Number(pinnedSessionFiles.includes(right.file)) - Number(pinnedSessionFiles.includes(left.file));
+      return pinnedOrder || sessionTimestamp(right) - sessionTimestamp(left);
+    }), [groups, pinnedSessionFiles]);
+
   const unreadNotificationCount = useMemo(
     () => notifications.reduce((count, item) => count + Number(!item.read), 0),
     [notifications],
@@ -314,6 +375,8 @@ export function Sidebar({
     setSearchOpen(false);
     setProjectMenu(null);
     setThreadPreview(null);
+    setFilterMenuOpen(false);
+    setFooterMenuOpen(false);
   };
 
   const toggleStringSetting = (
@@ -409,7 +472,7 @@ export function Sidebar({
   };
 
   useEffect(() => {
-    const hasOpenPopover = notificationsOpen || searchOpen || projectMenu || editingProject;
+    const hasOpenPopover = notificationsOpen || searchOpen || projectMenu || editingProject || filterMenuOpen || footerMenuOpen;
     if (!hasOpenPopover) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
       if (!sidebarRef.current?.contains(event.target as Node)) {
@@ -417,9 +480,16 @@ export function Sidebar({
         setEditingProject(null);
       }
     };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && (filterMenuOpen || footerMenuOpen || projectMenu)) closePopovers();
+    };
     document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [editingProject, notificationsOpen, projectMenu, searchOpen]);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [editingProject, filterMenuOpen, footerMenuOpen, notificationsOpen, projectMenu, searchOpen]);
 
   useEffect(() => () => {
     if (previewCloseTimer.current !== null) window.clearTimeout(previewCloseTimer.current);
@@ -452,6 +522,70 @@ export function Sidebar({
     setExpandedForSession(currentSessionFile);
     setProjectCollapsed(activeSession.cwd, false);
   });
+
+  const renderThreadRow = (session: SessionInfo) => {
+    const running = runningSessionFiles.some((file) => sameLocalPath(file, session.file));
+    const approval = approvalSessionFiles.some((file) => sameLocalPath(file, session.file));
+    const active = !newTaskActive && sameLocalPath(session.file, currentSessionFile);
+    const pinned = pinnedSessionFiles.includes(session.file);
+    const status = approval ? "approval" : running ? "running" : active ? "active" : "idle";
+    return (
+      <div
+        className={`thread-row-shell ${active ? "active" : ""}`}
+        key={session.file}
+        onMouseEnter={(event) => showThreadPreview(session, event.currentTarget)}
+        onMouseLeave={schedulePreviewClose}
+      >
+        <button
+          type="button"
+          className={`thread-row ${active ? "active" : ""}`}
+          onClick={() => {
+            closePopovers();
+            setQuery("");
+            setProjectCollapsed(session.cwd, false);
+            onOpenSession(session);
+          }}
+          title={sessionTitle(session)}
+        >
+          <span
+            className="thread-status"
+            data-status={status}
+            title={approval ? "等待审批" : running ? "运行中" : undefined}
+          />
+          <span className="thread-title">{sessionTitle(session)}</span>
+          {approval
+            ? <span className="thread-row-time thread-row-badge">待审批</span>
+            : <span className="thread-row-time">{compactRelativeTime(session)}</span>}
+        </button>
+        <div className="thread-row-actions">
+          <button
+            type="button"
+            className={pinned ? "is-pinned" : ""}
+            title={pinned ? "取消置顶" : "置顶对话"}
+            aria-label={pinned ? "取消置顶对话" : "置顶对话"}
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleStringSetting(session.file, pinnedSessionFiles, setPinnedSessionFiles, PINNED_SESSIONS_KEY);
+            }}
+          >
+            <Pin size={14} />
+          </button>
+          <button
+            type="button"
+            title="归档对话"
+            aria-label="归档对话"
+            onClick={(event) => {
+              event.stopPropagation();
+              setThreadPreview(null);
+              void onArchiveSession(session);
+            }}
+          >
+            <Archive size={14} />
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <aside
@@ -611,28 +745,72 @@ export function Sidebar({
         </button>
       </nav>
 
-      <div className="sidebar-projects-header" data-dsh-claude-ws-view={workspaceView}>
-        <span className="sidebar-projects-label" data-dsh-claude-ws-label="">工作区</span>
-        <div className="dsh-claude-ws-segments" role="radiogroup" aria-label="会话视图切换">
+      <div className="sidebar-projects-header" data-ws-view={workspaceView}>
+        {workspaceView === "archived" ? (
           <button
             type="button"
-            role="radio"
-            aria-checked={workspaceView === "active"}
-            className="dsh-claude-ws-segment"
+            className="sidebar-projects-back"
+            title="返回会话列表"
             onClick={() => setWorkspaceView("active")}
           >
-            进行中
+            <ChevronLeft size={13} strokeWidth={1.8} />
+            <span>已归档</span>
+          </button>
+        ) : (
+          <span className="sidebar-projects-label">{groupMode === "recent" ? "最近" : "工作区"}</span>
+        )}
+        <div className="sidebar-projects-tools">
+          <button
+            type="button"
+            className={filterMenuOpen ? "active" : ""}
+            title="筛选与分组"
+            aria-label="筛选与分组"
+            aria-expanded={filterMenuOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+              const open = !filterMenuOpen;
+              closePopovers();
+              setFilterMenuOpen(open);
+            }}
+          >
+            <ListFilter size={14} strokeWidth={1.8} />
           </button>
           <button
             type="button"
-            role="radio"
-            aria-checked={workspaceView === "archived"}
-            className="dsh-claude-ws-segment"
-            onClick={() => setWorkspaceView("archived")}
+            title="打开项目文件夹"
+            aria-label="打开项目文件夹"
+            onClick={() => { closePopovers(); onPickFolder(); }}
           >
-            已归档
+            <FolderPlus size={14} strokeWidth={1.8} />
           </button>
         </div>
+        {filterMenuOpen && (
+          <div className="sidebar-popover sidebar-filter-menu" data-sidebar-popover role="menu">
+            <div className="sidebar-popover-caption">分组方式</div>
+            {([["project", "按项目"], ["recent", "按时间"]] as const).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                role="menuitemradio"
+                aria-checked={workspaceView === "active" && groupMode === mode}
+                onClick={() => { setGroupMode(mode); setWorkspaceView("active"); setFilterMenuOpen(false); }}
+              >
+                <span>{label}</span>
+                {workspaceView === "active" && groupMode === mode && <Check size={14} />}
+              </button>
+            ))}
+            <div className="sidebar-popover-separator" />
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={workspaceView === "archived"}
+              onClick={() => { setWorkspaceView(workspaceView === "archived" ? "active" : "archived"); setFilterMenuOpen(false); }}
+            >
+              <span>已归档会话</span>
+              {workspaceView === "archived" && <Check size={14} />}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="sidebar-scroll" data-dsh-claude-ws-view={workspaceView}>
@@ -691,6 +869,15 @@ export function Sidebar({
           <div className="sidebar-empty">
             <span>{query ? "没有匹配项" : "打开项目以开始"}</span>
             <button type="button" className="text-link" onClick={onPickFolder}>选择文件夹</button>
+          </div>
+        ) : groupMode === "recent" ? (
+          <div className="thread-list thread-list-recent">
+            {(recentExpanded || query.trim() ? recentSessions : recentSessions.slice(0, VISIBLE_RECENT_THREADS)).map(renderThreadRow)}
+            {!query.trim() && recentSessions.length > VISIBLE_RECENT_THREADS && (
+              <button type="button" className="expand-threads" onClick={() => setRecentExpanded((value) => !value)}>
+                {recentExpanded ? "收起" : `展开其余 ${recentSessions.length - VISIBLE_RECENT_THREADS} 个会话`}
+              </button>
+            )}
           </div>
         ) : groups.map(([workspace, chats]) => {
           const collapsed = !query.trim() && collapsedProjectPaths.some((path) => pathsEqual(path, workspace));
@@ -772,69 +959,7 @@ export function Sidebar({
                 )}
               </div>
               {!collapsed && <div className="thread-list">
-                {visibleChats.map((session) => {
-                  const running = runningSessionFiles.some((file) => sameLocalPath(file, session.file));
-                  const approval = approvalSessionFiles.some((file) => sameLocalPath(file, session.file));
-                  const active = !newTaskActive && sameLocalPath(session.file, currentSessionFile);
-                  const pinned = pinnedSessionFiles.includes(session.file);
-                  const status = approval ? "approval" : running ? "running" : active ? "active" : "idle";
-                  return (
-                    <div
-                      className={`thread-row-shell ${active ? "active" : ""}`}
-                      key={session.file}
-                      onMouseEnter={(event) => showThreadPreview(session, event.currentTarget)}
-                      onMouseLeave={schedulePreviewClose}
-                    >
-                      <button
-                        type="button"
-                        className={`thread-row ${active ? "active" : ""}`}
-                        onClick={() => {
-                          closePopovers();
-                          setQuery("");
-                          setProjectCollapsed(workspace, false);
-                          onOpenSession(session);
-                        }}
-                        title={sessionTitle(session)}
-                      >
-                        <span
-                          className="thread-status"
-                          data-status={status}
-                          title={approval ? "等待审批" : running ? "运行中" : undefined}
-                        />
-                        <span className="thread-title">{sessionTitle(session)}</span>
-                        {approval
-                          ? <span className="thread-row-time thread-row-badge">待审批</span>
-                          : <span className="thread-row-time">{compactRelativeTime(session)}</span>}
-                      </button>
-                      <div className="thread-row-actions">
-                        <button
-                          type="button"
-                          className={pinned ? "is-pinned" : ""}
-                          title={pinned ? "取消置顶" : "置顶对话"}
-                          aria-label={pinned ? "取消置顶对话" : "置顶对话"}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            toggleStringSetting(session.file, pinnedSessionFiles, setPinnedSessionFiles, PINNED_SESSIONS_KEY);
-                          }}
-                        >
-                          <Pin size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          title="归档对话"
-                          aria-label="归档对话"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setThreadPreview(null);
-                            void onArchiveSession(session);
-                          }}
-                        >
-                          <Archive size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                {visibleChats.map(renderThreadRow)}
                 {!query.trim() && hiddenChatCount > 0 && (
                   <button
                     type="button"
@@ -895,11 +1020,41 @@ export function Sidebar({
       )}
 
       <div className="sidebar-footer codex-footer">
+        {footerMenuOpen && (
+          <div className="sidebar-popover sidebar-footer-menu" data-sidebar-popover role="menu">
+            {FOOTER_SETTINGS_PAGES.map(([page, label, Icon]) => (
+              <button
+                key={page}
+                type="button"
+                role="menuitem"
+                onClick={() => { closePopovers(); onOpenSettings(page); }}
+              >
+                <Icon size={15} strokeWidth={1.7} />
+                <span>{label}</span>
+                {page === "general" && settingsShortcut && <kbd>{settingsShortcut}</kbd>}
+              </button>
+            ))}
+            <div className="sidebar-popover-separator" />
+            <button type="button" role="menuitem" onClick={() => { closePopovers(); onOpenDocs(); }}>
+              <BookOpen size={15} strokeWidth={1.7} />
+              <span>Pi 文档</span>
+              <ExternalLink className="sidebar-footer-menu-trail" size={13} strokeWidth={1.7} />
+            </button>
+          </div>
+        )}
         <button
           type="button"
           className="footer-account dsh-claude-account-btn"
-          onClick={() => { closePopovers(); onOpenSettings(); }}
-          title="设置"
+          data-open={footerMenuOpen}
+          aria-haspopup="menu"
+          aria-expanded={footerMenuOpen}
+          onClick={(event) => {
+            event.stopPropagation();
+            const open = !footerMenuOpen;
+            closePopovers();
+            setFooterMenuOpen(open);
+          }}
+          title="设置与帮助"
         >
           <span className="dsh-claude-account-avatar" aria-hidden="true">
             <Settings size={15} strokeWidth={1.7} />
@@ -907,6 +1062,7 @@ export function Sidebar({
           <span className="dsh-claude-account-label">
             <span className="dsh-claude-account-user">设置</span>
           </span>
+          <ChevronUp className="dsh-claude-account-chevron" size={14} strokeWidth={1.8} aria-hidden="true" />
         </button>
       </div>
     </aside>

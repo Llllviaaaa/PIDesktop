@@ -1662,7 +1662,9 @@ export default function App() {
               workspace,
               `已归档 ${projectSessions.length} 个对话`,
             )}
-            onOpenSettings={() => openSettingsPage("general")}
+            onOpenSettings={openSettingsPage}
+            onOpenDocs={() => void openUrl("https://pi.dev")}
+            settingsShortcut={settings?.shortcutSettings ?? "Ctrl+,"}
             onPickFolder={() => void pickFolder()}
             newChatShortcut={settings?.shortcutNewChat ?? "Ctrl+Shift+N"}
             searchRequested={sidebarSearchRequested}
