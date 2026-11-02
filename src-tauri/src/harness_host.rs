@@ -28,7 +28,7 @@ use base64::Engine;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
-use crate::config::{app_config_dir, pi_agent_dir, without_mcp_secrets, AppSettings};
+use crate::config::{app_config_dir, without_mcp_secrets, AppSettings};
 use crate::error::AppError;
 
 /// The page origins the host answers for: Tauri's on Windows (http, or
@@ -164,7 +164,6 @@ pub(crate) fn desktop_message(settings: &AppSettings) -> Result<String, AppError
         "desktop": {
             "settings": without_mcp_secrets(settings),
             "configDir": app_config_dir().to_string_lossy(),
-            "piAgentDir": pi_agent_dir().to_string_lossy(),
             "executable": executable,
         }
     });
@@ -405,7 +404,6 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(line.trim()).expect("json");
         assert_eq!(value["desktop"]["settings"]["mcpServers"][0]["id"], "fs");
         assert!(value["desktop"]["configDir"].is_string());
-        assert!(value["desktop"]["piAgentDir"].is_string());
     }
 
     #[test]

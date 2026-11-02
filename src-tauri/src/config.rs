@@ -15,15 +15,6 @@ pub(crate) struct AppSettings {
     pub(crate) thinking_level: String,
     /// `provider/model` keys the user hid from the composer model picker.
     pub(crate) hidden_models: Vec<String>,
-    /// Where Pi kept its sessions, if not `~/.pi/agent/sessions`; only read to
-    /// import them into the Harness Host (P6b).
-    #[serde(alias = "session_dir")]
-    pub(crate) session_dir: String,
-    /// Pi ran on the app's own config directory (`pi-agent`) instead of the
-    /// terminal's. Pi is gone (P6c); this only says where its models.json and
-    /// auth.json are for the Host's one-time import. The settings page no
-    /// longer sends it, so `set_settings` keeps the stored value.
-    pub(crate) separate_pi_config: bool,
     pub(crate) agent_mode: String,
     #[serde(alias = "permission_mode")]
     pub(crate) permission_mode: String,
@@ -206,8 +197,6 @@ impl Default for AppSettings {
             model: String::new(),
             thinking_level: "medium".to_string(),
             hidden_models: Vec::new(),
-            session_dir: String::new(),
-            separate_pi_config: false,
             agent_mode: "agent".to_string(),
             permission_mode: "ask".to_string(),
             always_confirm_shell: true,
@@ -539,38 +528,6 @@ pub(crate) fn save_settings(settings: &AppSettings) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Mirrors `AppSettings::separate_pi_config` for code that has no settings at hand.
-static SEPARATE_PI_CONFIG: AtomicBool = AtomicBool::new(false);
-
-/// The config directory the terminal `pi` used.
-pub(crate) fn shared_pi_agent_dir() -> PathBuf {
-    std::env::var_os("PI_CODING_AGENT_DIR")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|home| home.join(".pi").join("agent")))
-        .unwrap_or_else(|| PathBuf::from(".pi").join("agent"))
-}
-
-/// The app's own Pi config directory, used when the settings kept the app apart from the terminal.
-pub(crate) fn app_pi_agent_dir() -> PathBuf {
-    app_config_dir().join("pi-agent")
-}
-
-/// Where Pi's models.json, auth.json, skills, themes and pets were: what the
-/// one-time imports into the Harness Host read (P5a, P6a).
-pub(crate) fn pi_agent_dir() -> PathBuf {
-    if SEPARATE_PI_CONFIG.load(Ordering::Relaxed) {
-        app_pi_agent_dir()
-    } else {
-        shared_pi_agent_dir()
-    }
-}
-
-/// Remember which Pi config directory the settings named.
-pub(crate) fn remember_pi_config(separate: bool) {
-    SEPARATE_PI_CONFIG.store(separate, Ordering::Relaxed);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -634,13 +591,5 @@ mod tests {
         resolve_mcp_secret_placeholders(&mut incoming, &current)
             .expect("placeholder should resolve from current settings");
         assert_eq!(incoming.mcp_servers[0].env["TOKEN"], "existing-secret");
-    }
-
-    #[test]
-    fn pi_imports_read_the_terminal_config_unless_the_app_had_its_own() {
-        // The process-wide switch is left alone here: other tests read the config directory too.
-        assert!(!SEPARATE_PI_CONFIG.load(Ordering::Relaxed));
-        assert_eq!(pi_agent_dir(), shared_pi_agent_dir());
-        assert_eq!(app_pi_agent_dir(), app_config_dir().join("pi-agent"));
     }
 }

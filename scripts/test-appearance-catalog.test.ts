@@ -15,7 +15,7 @@ test("appearance catalog", async () => {
   const userTheme: ResourceItem = {
     kind: "theme",
     name: "ocean",
-    path: "C:\\Users\\demo\\.pi\\agent\\themes\\ocean.json",
+    path: "C:\\Users\\demo\\.pid\\themes\\ocean.json",
     scope: "user",
   };
 
@@ -41,7 +41,7 @@ test("appearance catalog", async () => {
   const userPet: ResourceItem = {
     kind: "pet",
     name: "orb",
-    path: "C:\\Users\\demo\\.pi\\agent\\pets\\orb",
+    path: "C:\\Users\\demo\\.pid\\pets\\orb",
     scope: "user",
   };
   let requestedAsset = "";
@@ -61,7 +61,7 @@ test("appearance catalog", async () => {
     },
   );
 
-  assert.equal(requestedAsset, "C:\\Users\\demo\\.pi\\agent\\pets\\orb\\sprites\\orb.webp");
+  assert.equal(requestedAsset, "C:\\Users\\demo\\.pid\\pets\\orb\\sprites\\orb.webp");
   assert.equal(parsedPet.id, "pet:orb");
   assert.equal(parsedPet.assetDataUrl, "data:image/webp;base64,YWJj");
   assert.equal(parsedPet.spritesheet, undefined);
@@ -86,7 +86,7 @@ test("appearance catalog", async () => {
         },
       },
     }),
-    { ...userPet, name: "anya-chibi", path: "C:\\Users\\demo\\.pi\\agent\\pets\\anya-chibi" },
+    { ...userPet, name: "anya-chibi", path: "C:\\Users\\demo\\.pid\\pets\\anya-chibi" },
     async (file) => ({
       path: file,
       fileName: "spritesheet.webp",

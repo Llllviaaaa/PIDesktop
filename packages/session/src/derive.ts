@@ -130,7 +130,6 @@ export function summarize(header: SessionHeader, events: readonly SessionEvent[]
     ...(header.forkedFrom === undefined ? {} : { forkedFrom: header.forkedFrom }),
     ...(header.parent === undefined ? {} : { parent: header.parent }),
     ...(header.side === true ? { side: true as const } : {}),
-    ...(header.importedFrom === undefined ? {} : { importedFrom: header.importedFrom }),
   };
 }
 

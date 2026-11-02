@@ -115,8 +115,6 @@ export interface AppSettings {
   thinkingLevel: string;
   /** `provider/model` keys hidden from the composer model picker. */
   hiddenModels?: string[];
-  /** Where Pi kept its sessions, if not `~/.pi/agent/sessions`; only read to import them (P6b). */
-  sessionDir: string;
   agentMode: "agent" | "plan" | "ask";
   permissionMode: "read-only" | "ask" | "workspace-write" | "full-access";
   /** Shell/bash/exec always requires confirmation (unless full-access). */

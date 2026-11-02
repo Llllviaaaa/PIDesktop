@@ -50,7 +50,6 @@ const commands: Record<string, (args: Args) => unknown> = {
   list_terminal_apps: () => [],
   terminal_shells: () => [],
   list_resources: () => [],
-  legacy_project_resources: () => 0,
   get_local_memory: () => "",
   quick_chat_dir: () => workspace,
   "plugin:event|listen": () => ++nextCallback,

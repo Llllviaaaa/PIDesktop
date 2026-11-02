@@ -21,8 +21,6 @@ export interface DesktopMessage {
   settings: Record<string, unknown>;
   /** The desktop's config directory: memory.md, mcp-secrets.dat, browser-profile. */
   configDir: string;
-  /** Pi's agent directory, whose models.json is imported once. */
-  piAgentDir?: string;
   /** The desktop executable, which doubles as the computer-use helper. */
   executable?: string;
 }
