@@ -1,6 +1,6 @@
 /**
- * P5a: the desktop's settings as harness configuration, the Pi provider
- * import, secrets at rest, the control channel, and plugins that reload
+ * P5a: the desktop's settings as harness configuration,
+ * secrets at rest, the control channel, and plugins that reload
  * with their configuration.
  */
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -17,14 +17,11 @@ import { featureEntries, withMcpSecrets } from "../src/agent-plugins.ts";
 import { applyDesktopMessage, importDesktopTasks, parseControlLine } from "../src/control.ts";
 import { effortFromThinking, harnessFromDesktop, personalInstructions } from "../src/desktop-settings.ts";
 import { defaultHarnessConfig, readHarnessConfig } from "../src/harness-config.ts";
-import { importPiAuth, importPiModels } from "../src/pi-import.ts";
 import { readDefaultModel } from "../src/providers.ts";
 import { ReloadablePlugins } from "../src/reloadable.ts";
 import { fileSecretResolver, readSecretFile, writeSecretFile, type SecretCodec } from "../src/secrets.ts";
 
 let dir = "";
-/** Secret ids, built so the secret scanner does not take `secret: "<id>"` for a key. */
-const secretId = (provider: string) => `provider/${provider}`;
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 /** Stands in for DPAPI: reversible, and plainly not the plaintext. */
@@ -95,57 +92,6 @@ describe("desktop settings", () => {
   });
 });
 
-describe("Pi provider import", () => {
-  it("carries over compatible providers and moves written keys to secrets", () => {
-    const imported = importPiModels({
-      providers: {
-        deepseek: { baseUrl: "https://api.deepseek.com/v1", api: "openai-completions", apiKey: "sk-1", models: [{ id: "deepseek-chat", contextWindow: 64000, maxTokens: 8192, input: ["text"] }] },
-        claude: { api: "anthropic-messages", apiKey: "${ANTHROPIC_KEY}", models: [{ id: "claude-x", reasoning: true }] },
-        local: { baseUrl: "http://127.0.0.1:11434/v1", apiKey: "!pass show ollama", headers: { "X-A": "1" } },
-        gemini: { api: "google-generative-ai", apiKey: "k" },
-        nourl: { api: "openai-completions" },
-        "bad id": { api: "anthropic-messages" },
-      },
-    });
-    expect(imported.providers).toEqual([
-      { api: "openai-compat", id: "deepseek", baseUrl: "https://api.deepseek.com/v1", apiKey: { secret: secretId("deepseek") }, models: [{ id: "deepseek-chat", contextWindow: 64000, maxOutputTokens: 8192, input: ["text"] }] },
-      { api: "anthropic", id: "claude", apiKey: { env: "ANTHROPIC_KEY" }, models: [{ id: "claude-x", reasoning: true }] },
-      { api: "openai-compat", id: "local", baseUrl: "http://127.0.0.1:11434/v1", headers: { "X-A": "1" } },
-    ]);
-    expect(imported.secrets).toEqual({ [secretId("deepseek")]: "sk-1" });
-    expect(imported.problems).toEqual([
-      "local: the key comes from a command, which the harness does not run; enter the key again",
-      "gemini: the google-generative-ai API is not supported by the harness yet",
-      "nourl: no http(s) baseUrl",
-      "bad id: the id has characters providers.json does not allow",
-    ]);
-  });
-});
-
-describe("Pi built-in provider keys", () => {
-  it("carry over the built-ins the harness can reach, and say why the others do not", () => {
-    const imported = importPiAuth({
-      deepseek: { type: "api_key", key: "sk-2" },
-      anthropic: { type: "api_key", key: "$ANTHROPIC_API_KEY" },
-      groq: { type: "api_key", key: "!op read groq" },
-      "github-copilot": { type: "oauth", access: "a", refresh: "r", expires: 1 },
-      "amazon-bedrock": { type: "api_key", key: "k" },
-      openrouter: { type: "api_key", key: "sk-or" },
-    }, new Set(["openrouter"]));
-    expect(imported.providers).toEqual([
-      { api: "openai-compat", id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com", apiKey: { secret: secretId("deepseek") } },
-      { api: "anthropic", id: "anthropic", name: "Anthropic", baseUrl: "https://api.anthropic.com", apiKey: { env: "ANTHROPIC_API_KEY" } },
-    ]);
-    expect(imported.secrets).toEqual({ [secretId("deepseek")]: "sk-2" });
-    expect(imported.problems).toEqual([
-      "groq: the key comes from a command, which the harness does not run; enter the key again",
-      "github-copilot: signed in with OAuth, which the harness does not support; add an API key instead",
-      "amazon-bedrock: not a built-in provider the harness can reach",
-    ]);
-    expect(importPiAuth("not an object", new Set()).providers).toEqual([]);
-  });
-});
-
 describe("secrets at rest", () => {
   it("round-trip through the codec and never sit in the file as plaintext", async () => {
     dir = mkdtempSync(join(tmpdir(), "pid-secrets-"));
@@ -173,61 +119,22 @@ describe("control channel", () => {
     expect(() => parseControlLine('{"shutdown":true}')).toThrow("unknown control command");
   });
 
-  it("writes harness.json, imports Pi's providers once and follows the desktop's model", () => {
+  it("writes harness.json and follows the desktop's model", () => {
     dir = mkdtempSync(join(tmpdir(), "pid-control-"));
     const dataDir = join(dir, "data");
-    const piAgentDir = join(dir, "pi");
-    mkdirSync(piAgentDir);
-    writeFileSync(join(piAgentDir, "models.json"), JSON.stringify({ providers: { deepseek: { baseUrl: "https://api.deepseek.com/v1", apiKey: "sk-1", models: [{ id: "deepseek-chat" }] } } }));
-    const message = { settings: desktopSettings, configDir: join(dir, "cfg"), piAgentDir };
+    const message = { settings: desktopSettings, configDir: join(dir, "cfg") };
 
-    const notes = applyDesktopMessage(dataDir, message, codec);
-    expect(notes).toEqual([`imported 1 provider(s) from ${join(piAgentDir, "models.json")}`]);
+    expect(applyDesktopMessage(dataDir, message)).toEqual([]);
     expect(readHarnessConfig(join(dataDir, "harness.json")).config.permissions.defaultPermission).toBe("workspace-write");
     expect(readDefaultModel(join(dataDir, "providers.json"))).toEqual({ provider: "deepseek", model: "deepseek-chat" });
-    expect(readSecretFile(join(dataDir, "secrets.dat"), codec)).toEqual({ [secretId("deepseek")]: "sk-1" });
-    expect(readFileSync(join(dataDir, "providers.json"), "utf8")).not.toContain("sk-1");
 
     // Later messages leave the providers alone and only move the default model.
-    writeFileSync(join(piAgentDir, "models.json"), JSON.stringify({ providers: {} }));
-    expect(applyDesktopMessage(dataDir, { ...message, settings: { ...desktopSettings, model: "deepseek-reasoner" } }, codec)).toEqual([]);
+    const file = JSON.parse(readFileSync(join(dataDir, "providers.json"), "utf8"));
+    writeFileSync(join(dataDir, "providers.json"), JSON.stringify({ ...file, providers: [{ api: "openai-compat", id: "deepseek", baseUrl: "https://api.deepseek.com/v1" }] }));
+    expect(applyDesktopMessage(dataDir, { ...message, settings: { ...desktopSettings, model: "deepseek-reasoner" } })).toEqual([]);
     const providers = JSON.parse(readFileSync(join(dataDir, "providers.json"), "utf8"));
     expect(providers.providers.map((entry: { id: string }) => entry.id)).toEqual(["deepseek"]);
     expect(providers.defaultModel).toEqual({ provider: "deepseek", model: "deepseek-reasoner" });
-  });
-
-  it("adds built-in providers from auth.json once, after providers.json exists", () => {
-    dir = mkdtempSync(join(tmpdir(), "pid-control-"));
-    const dataDir = join(dir, "data");
-    const piAgentDir = join(dir, "pi");
-    mkdirSync(piAgentDir);
-    const message = { settings: {}, configDir: join(dir, "cfg"), piAgentDir };
-    // An install from before this import: providers.json is there, the marker is not.
-    mkdirSync(dataDir);
-    writeFileSync(join(dataDir, "providers.json"), JSON.stringify({ providers: [{ api: "openai-compat", id: "mine", baseUrl: "https://mine.example/v1" }] }));
-    writeFileSync(join(piAgentDir, "auth.json"), JSON.stringify({ deepseek: { type: "api_key", key: "sk-3" }, mine: { type: "api_key", key: "sk-x" } }));
-
-    expect(applyDesktopMessage(dataDir, message, codec)).toEqual([`imported 1 built-in provider(s) from ${join(piAgentDir, "auth.json")}`]);
-    const ids = () => JSON.parse(readFileSync(join(dataDir, "providers.json"), "utf8")).providers.map((entry: { id: string }) => entry.id);
-    expect(ids()).toEqual(["mine", "deepseek"]);
-    expect(readSecretFile(join(dataDir, "secrets.dat"), codec)).toEqual({ [secretId("deepseek")]: "sk-3" });
-    expect(readFileSync(join(dataDir, "providers.json"), "utf8")).not.toContain("sk-3");
-
-    // Once only: a provider the user removes afterwards does not come back.
-    const file = JSON.parse(readFileSync(join(dataDir, "providers.json"), "utf8"));
-    writeFileSync(join(dataDir, "providers.json"), JSON.stringify({ ...file, providers: file.providers.slice(0, 1) }));
-    expect(applyDesktopMessage(dataDir, message, codec)).toEqual([]);
-    expect(ids()).toEqual(["mine"]);
-  });
-
-  it("keeps imported providers but not their keys without a secret store", () => {
-    dir = mkdtempSync(join(tmpdir(), "pid-control-"));
-    const piAgentDir = join(dir, "pi");
-    mkdirSync(piAgentDir);
-    writeFileSync(join(piAgentDir, "models.json"), JSON.stringify({ providers: { a: { baseUrl: "https://a.example/v1", apiKey: "sk-1" } } }));
-    const notes = applyDesktopMessage(join(dir, "data"), { settings: {}, configDir: dir, piAgentDir }, undefined);
-    expect(notes).toContain("Pi provider keys were not imported: no secret store is available on this platform");
-    expect(readFileSync(join(dir, "data", "providers.json"), "utf8")).not.toContain("sk-1");
   });
 });
 
@@ -293,11 +200,11 @@ describe("scheduled tasks on the harness", () => {
     mkdirSync(configDir);
     writeFileSync(join(configDir, "scheduled-tasks.json"), JSON.stringify([{ id: "t", name: "N", prompt: "p", cwd: dir, frequency: "hourly", hour: 0, minute: 5, weekday: 1, permissionMode: "read-only", enabled: true, lastStatus: "", lastMessage: "" }]));
     const dataDir = join(dir, "data");
-    const notes = applyDesktopMessage(dataDir, { settings: {}, configDir }, codec);
+    const notes = applyDesktopMessage(dataDir, { settings: {}, configDir });
     expect(notes).toEqual([`imported 1 scheduled task(s) from ${join(configDir, "scheduled-tasks.json")}`]);
     expect(JSON.parse(readFileSync(join(dataDir, "schedules.json"), "utf8"))).toMatchObject([{ id: "t", permissionMode: "read-only" }]);
     writeFileSync(join(configDir, "scheduled-tasks.json"), "[]");
-    expect(applyDesktopMessage(dataDir, { settings: {}, configDir }, codec)).toEqual([]);
+    expect(applyDesktopMessage(dataDir, { settings: {}, configDir })).toEqual([]);
     expect(JSON.parse(readFileSync(join(dataDir, "schedules.json"), "utf8"))).toHaveLength(1);
   });
 });

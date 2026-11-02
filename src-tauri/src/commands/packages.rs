@@ -14,10 +14,6 @@ pub(crate) struct ResourceItem {
     pub(crate) version: Option<String>,
 }
 
-/// The folders of skills, themes and pets, which live where the Harness Host
-/// reads them (P6a): `~/.pid/<folder>` for the user, `<project>/.pid/<folder>`.
-const PID_RESOURCE_FOLDERS: [&str; 3] = ["skills", "themes", "pets"];
-
 #[tauri::command(async)]
 pub(crate) fn list_resources(cwd: String) -> Result<Vec<ResourceItem>, AppError> {
     let mut items = Vec::new();
@@ -61,79 +57,6 @@ pub(crate) fn appearance_directory(
             "unsupported appearance extension scope: {scope}"
         ))),
     }
-}
-
-/// The skills, themes and pets under `source` that `destination` does not have
-/// yet, copied unless `dry_run`; returns how many there are. An entry already
-/// in `destination` is never replaced, and one that fails to copy is skipped.
-pub(crate) fn copy_missing_resources(source: &Path, destination: &Path, dry_run: bool) -> usize {
-    let mut count = 0;
-    for folder in PID_RESOURCE_FOLDERS {
-        let Ok(entries) = fs::read_dir(source.join(folder)) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let target = destination.join(folder).join(entry.file_name());
-            if target.exists() {
-                continue;
-            }
-            if dry_run {
-                count += 1;
-                continue;
-            }
-            if fs::create_dir_all(destination.join(folder)).is_err() {
-                continue;
-            }
-            let path = entry.path();
-            let copied = if path.is_dir() {
-                copy_appearance_directory(&path, &target).is_ok()
-            } else {
-                fs::copy(&path, &target).is_ok()
-            };
-            if copied {
-                count += 1;
-            }
-        }
-    }
-    count
-}
-
-/// Copy the user's skills, themes and pets from Pi's config directory to
-/// `~/.pid` once (P6a). A marker keeps an entry the user removes from
-/// `~/.pid` afterwards from coming back.
-pub(crate) fn migrate_pi_resources() {
-    let data_dir = harness_data_dir();
-    let marker = data_dir.join(".pi-resources-copied");
-    if marker.exists() {
-        return;
-    }
-    copy_missing_resources(&pi_agent_dir(), &data_dir, false);
-    if fs::create_dir_all(&data_dir).is_ok() {
-        let _ = fs::write(&marker, "");
-    }
-}
-
-/// How many skills, themes and pets the workspace's `.pi/` has that its
-/// `.pid/` lacks; settings offer to copy them over.
-#[tauri::command(async)]
-pub(crate) fn legacy_project_resources(cwd: String) -> Result<usize, AppError> {
-    let workspace = validate_workspace_directory(&cwd)?;
-    Ok(copy_missing_resources(
-        &workspace.join(".pi"),
-        &workspace.join(".pid"),
-        true,
-    ))
-}
-
-/// Copy the workspace's `.pi/` skills, themes and pets into `.pid/`.
-#[tauri::command(async)]
-pub(crate) fn migrate_project_resources(cwd: String) -> Result<usize, AppError> {
-    let workspace = validate_workspace_directory(&cwd)?;
-    Ok(copy_missing_resources(
-        &workspace.join(".pi"),
-        &workspace.join(".pid"),
-        false,
-    ))
 }
 
 pub(crate) fn validate_json_object(path: &Path, label: &str) -> Result<(), AppError> {
@@ -316,41 +239,6 @@ pub(crate) fn collect_resources(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn copies_missing_skills_themes_and_pets_without_replacing_any() {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should be after Unix epoch")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "pid-desktop-resource-copy-{}-{stamp}",
-            std::process::id()
-        ));
-        let source = root.join("pi");
-        let destination = root.join("pid");
-        fs::create_dir_all(source.join("skills/review")).expect("skill fixture");
-        fs::write(
-            source.join("skills/review/SKILL.md"),
-            "---\nname: review\n---\n",
-        )
-        .expect("skill file");
-        fs::create_dir_all(source.join("themes")).expect("theme fixture");
-        fs::write(source.join("themes/ocean.json"), "{}").expect("theme file");
-        fs::create_dir_all(destination.join("themes")).expect("existing theme dir");
-        fs::write(destination.join("themes/ocean.json"), "mine").expect("existing theme");
-
-        assert_eq!(copy_missing_resources(&source, &destination, true), 1);
-        assert!(!destination.join("skills/review").exists());
-        assert_eq!(copy_missing_resources(&source, &destination, false), 1);
-        assert!(destination.join("skills/review/SKILL.md").is_file());
-        assert_eq!(
-            fs::read_to_string(destination.join("themes/ocean.json")).expect("theme"),
-            "mine"
-        );
-        assert_eq!(copy_missing_resources(&source, &destination, false), 0);
-        fs::remove_dir_all(root).ok();
-    }
 
     #[test]
     fn imports_theme_and_pet_extensions_into_project_scope() {

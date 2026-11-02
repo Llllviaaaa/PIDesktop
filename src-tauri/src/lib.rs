@@ -218,9 +218,6 @@ pub fn run() {
     });
 
     let settings = load_settings();
-    // Pi is gone (P6c); its old config directory is only read by the one-time imports.
-    remember_pi_config(settings.separate_pi_config);
-    migrate_pi_resources();
     #[cfg(windows)]
     KEEP_AWAKE.store(settings.prevent_sleep, Ordering::Relaxed);
 
@@ -285,8 +282,6 @@ pub fn run() {
             git_push,
             git_commit_message_prompt,
             list_resources,
-            legacy_project_resources,
-            migrate_project_resources,
             open_appearance_directory,
             install_appearance_extension,
             list_workspace_dir,

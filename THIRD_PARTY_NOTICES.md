@@ -8,7 +8,7 @@ Pi Desktop installers include the Harness Host as one executable compiled with B
 - Upstream: https://github.com/earendil-works/pi
 - License: MIT
 - Copyright: Mario Zechner and contributors
-- Used for: the one-time import reads Pi's session, `models.json` and `auth.json` formats, and `packages/host/src/pi-builtins.ts` lists provider endpoints taken from Pi's model catalog. The test samples in `packages/host/test/fixtures/pi-sessions` were written by Pi's `SessionManager`.
+- Used for: nothing at run time since 0.3; the Harness Host neither runs Pi nor reads its files. The theme file format follows Pi's.
 
 ## Bun runtime
 

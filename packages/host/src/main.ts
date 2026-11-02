@@ -24,7 +24,6 @@ import * as diagnostics from "./diagnostics.ts";
 import * as featuresRpc from "./features-rpc.ts";
 import { readHarnessConfig } from "./harness-config.ts";
 import * as llmRpc from "./llm-rpc.ts";
-import * as piSessions from "./pi-sessions.ts";
 import * as providerAdmin from "./provider-admin.ts";
 import { ReloadablePlugins } from "./reloadable.ts";
 import { RpcGateway } from "./rpc.ts";
@@ -104,7 +103,6 @@ export async function main(argv: readonly string[]): Promise<void> {
       [diagnostics],
       [scheduleRpc],
       [llmRpc, { defaultModel }],
-      [piSessions, { stateFile: join(dataDir, "pi-import.json") }],
       [{
         name: "pid-config-rpc",
         inject: ["rpc"],
@@ -156,7 +154,7 @@ export async function main(argv: readonly string[]): Promise<void> {
         const command = parseControlLine(line);
         if (command === undefined) return;
         if ("desktop" in command) {
-          for (const note of applyDesktopMessage(dataDir, command.desktop, codec)) logger.info("%s", note);
+          for (const note of applyDesktopMessage(dataDir, command.desktop)) logger.info("%s", note);
         }
         await reload();
       }).catch((error: unknown) => logger.error("control command failed: %s", error));

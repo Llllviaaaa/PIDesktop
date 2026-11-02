@@ -79,8 +79,6 @@ import {
   type DesktopPetWindowState,
 } from "./components/DesktopPetWindow";
 import { ExtensionDialog, extensionRequestHeadline } from "./components/ExtensionDialog";
-import { PiImportOffer } from "./components/PiImportOffer";
-import { describeImport, piImport } from "./lib/piImport";
 import { ConversationMessages } from "./components/ConversationMessages";
 import { ClaudeHomeDashboard } from "./components/ClaudeHomeDashboard";
 import { ActiveGoalBar } from "./components/ActiveGoalBar";
@@ -188,18 +186,6 @@ export default function App() {
       current.showToast(`导出失败：${describeError(error)}`, "error");
     }
   }, []);
-  // Pi's past tasks, offered once (P6b).
-  const [piImportPending, setPiImportPending] = useState<number | null>(null);
-  const haveSettings = settings !== null;
-  const piSessionDir = settings?.sessionDir;
-  useEffect(() => {
-    if (!isTauri || !haveSettings) return;
-    let cancelled = false;
-    void piImport.status(piSessionDir).then((status) => {
-      if (!cancelled && !status.prompted && status.pending > 0) setPiImportPending(status.pending);
-    }, () => undefined);
-    return () => { cancelled = true; };
-  }, [haveSettings, isTauri, piSessionDir]);
   const cycleTranscriptDensity = useCallback(() => {
     setTranscriptDensity(nextTranscriptDensity(transcriptDensity));
   }, [setTranscriptDensity, transcriptDensity]);
@@ -2000,15 +1986,6 @@ export default function App() {
           onClose={() => setCommitDialog(null)}
           onDone={finishCommit}
         />
-      )}
-      {piImportPending !== null && !settingsOpen && (
-        <PiImportOffer sessionDir={piSessionDir} pending={piImportPending} onDone={(report) => {
-          setPiImportPending(null);
-          if (report !== null && report.imported > 0) {
-            void store.refreshSessions();
-            store.showToast(describeImport(report), "info");
-          }
-        }} />
       )}
       {settingsOpen && <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}><SettingsModal initialPage={settingsPage} settings={settings} cwd={cwd} appearanceCatalog={appearanceCatalog} onReloadAppearance={reloadAppearanceCatalog} onSave={store.saveSettings} onClose={() => setSettingsOpen(false)} /></Suspense>}
 

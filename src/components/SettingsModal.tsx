@@ -19,7 +19,6 @@ import {
   FolderOpen,
   GitBranch,
   Globe2,
-  History,
   Network,
   MonitorCog,
   Palette,
@@ -40,10 +39,8 @@ import {
   ArrowUp,
   X,
 } from "lucide-react";
-import type { PiImportProgress } from "@pid/protocol";
 import { agent } from "../lib/agent";
 import { exportDiagnostics, logsDir } from "../lib/diagnostics";
-import { describeImport, piImport } from "../lib/piImport";
 import { useAppStore } from "../store";
 import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
 import { PetAvatar } from "./PetCompanion";
@@ -80,7 +77,6 @@ export const DEFAULTS: AppSettings = {
   provider: "",
   model: "",
   thinkingLevel: "medium",
-  sessionDir: "",
   agentMode: "agent",
   permissionMode: "ask",
   alwaysConfirmShell: true,
@@ -404,7 +400,6 @@ export function SettingsModal({
         }}
       />}
       {page === "shortcuts" && <ShortcutsPage form={form} update={update} />}
-      {page === "archived" && <PiImportSection sessionDir={form.sessionDir} />}
       {page === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
         await agent.restoreSession(session.file);
         dropArchived(session.file);
@@ -418,7 +413,7 @@ export function SettingsModal({
       }} />}
       {page === "usage" && <UsagePage usage={usage} />}
       {page === "providers" && <ModelsPage form={form} update={update} />}
-      {page === "skills" && <SkillsPage cwd={cwd} resources={resources} loading={loadingData} onMigrated={() => void queryClient.invalidateQueries({ queryKey: queryKeys.resources(cwd) })} />}
+      {page === "skills" && <SkillsPage resources={resources} loading={loadingData} />}
       {page === "mcp" && <McpPage form={form} update={update} />}
       {page === "browser" && <BrowserPage form={form} update={update} />}
       {page === "computer" && <ComputerPage form={form} update={update} />}
@@ -803,33 +798,6 @@ function ShortcutsPage({ form, update }: { form: AppSettings; update: Update }) 
   </>;
 }
 
-/** Import Pi's past tasks again, e.g. after declining the offer (P6b). */
-function PiImportSection({ sessionDir }: { sessionDir: string }) {
-  const statusQuery = useQuery({ queryKey: ["pi-import-status", sessionDir], queryFn: () => piImport.status(sessionDir) });
-  const [progress, setProgress] = useState<PiImportProgress | null>(null);
-  const [result, setResult] = useState<string | null>(null);
-  const run = async () => {
-    setResult(null);
-    try {
-      const report = await piImport.run(sessionDir, setProgress);
-      setResult(describeImport(report));
-      await statusQuery.refetch();
-      await useAppStore.getState().refreshSessions();
-    } catch (reason) {
-      setResult(`导入失败：${describeError(reason)}`);
-    } finally {
-      setProgress(null);
-    }
-  };
-  const pending = statusQuery.data?.pending ?? 0;
-  return <Card title="Pi 的历史任务">
-    <Row title="导入到 Harness" description={statusQuery.isError ? "Harness Host 未连接，暂时无法检查。" : pending > 0 ? `还有 ${pending} 个 Pi 任务没有导入。原文件只读取，不会改动。` : "没有需要导入的 Pi 任务。"}>
-      <button className="secondary-button" disabled={progress !== null || pending === 0} onClick={() => void run()}>{progress !== null ? `正在导入 ${progress.done}/${progress.total}…` : "导入"}</button>
-    </Row>
-    {result !== null && <div className="settings-info"><History size={17} /><span>{result}</span></div>}
-  </Card>;
-}
-
 function ArchivedPage({ archived, loading, onRestore, onDelete }: { archived: SessionInfo[]; loading: boolean; onRestore: (session: SessionInfo) => Promise<void>; onDelete: (session: SessionInfo) => Promise<void> }) {
   return <>
     <PageHeading title="已归档的聊天" description="查看和恢复此前归档的聊天。" />
@@ -938,27 +906,10 @@ function HooksPage({ form, update }: { form: AppSettings; update: Update }) {
   </>;
 }
 
-function SkillsPage({ cwd, resources, loading, onMigrated }: { cwd: string; resources: ResourceItem[]; loading: boolean; onMigrated: () => void }) {
+function SkillsPage({ resources, loading }: { resources: ResourceItem[]; loading: boolean }) {
   const skills = resources.filter((item) => item.kind === "skill");
-  // Since P6a skills, themes and pets live in .pid/; a project can still carry them in Pi's .pi/.
-  const legacyQuery = useQuery({
-    queryKey: ["legacy-project-resources", cwd],
-    queryFn: () => (cwd ? agent.legacyProjectResources(cwd).catch(() => 0) : Promise.resolve(0)),
-  });
-  const [migrating, setMigrating] = useState(false);
-  const migrate = async () => {
-    setMigrating(true);
-    try {
-      await agent.migrateProjectResources(cwd);
-      await legacyQuery.refetch();
-      onMigrated();
-    } finally {
-      setMigrating(false);
-    }
-  };
   return <>
     <PageHeading title="技能" description="查看用户（~/.pid/skills）和当前项目（.pid/skills、.agents/skills）中可供 Agent 调用的技能。" />
-    {(legacyQuery.data ?? 0) > 0 && <div className="settings-info"><Sparkles size={17} /><span>当前项目的 <code>.pi/</code> 里还有 {legacyQuery.data} 个技能、主题或宠物，不会再被加载。</span><button className="secondary-button" disabled={migrating} onClick={() => void migrate()}>{migrating ? "正在复制…" : "复制到 .pid/"}</button></div>}
     <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} />正在发现技能…</div> : skills.length === 0 ? <div className="settings-empty"><Sparkles size={22} />未发现技能</div> : <div className="resource-list">{skills.map((item) => <button key={`${item.scope}-${item.path}`} onClick={() => void openPath(item.path).catch(() => undefined)}><span className="resource-kind skill">技能</span><span><strong>{item.name}</strong><small>{item.path}</small></span><em>{item.scope === "project" ? "项目" : "用户"}</em><ChevronRight size={14} /></button>)}</div>}</Card>
     <div className="settings-info"><Sparkles size={17} /><span>技能由 <code>SKILL.md</code> 定义。项目技能只在当前工作区受信任后加载。</span></div>
   </>;

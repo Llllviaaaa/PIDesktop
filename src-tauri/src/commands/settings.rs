@@ -170,8 +170,6 @@ pub(crate) fn set_settings(
     if !settings.custom_instructions.trim().is_empty() {
         ensure_personal_instructions(&settings.custom_instructions)?;
     }
-    // Pi's old config directory is no longer on the settings page; keep where it was.
-    settings.separate_pi_config = current.separate_pi_config;
     save_settings(&settings)?;
     #[cfg(windows)]
     crate::KEEP_AWAKE.store(settings.prevent_sleep, Ordering::Relaxed);
