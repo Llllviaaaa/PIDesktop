@@ -10,6 +10,7 @@ import {
   isUserMessageOverLineLimit,
   Message,
   processSegments,
+  summarizeProcessGroup,
   USER_MESSAGE_COLLAPSED_LINES,
 } from "../src/components/Message";
 import { test } from "vitest";
@@ -33,6 +34,27 @@ test("message actions", async () => {
   assert.equal(formatRunDuration(83_000).map((part) => part.text).join(""), "1分23秒");
   assert.equal(buildProcessSummary(2, 0, 3), "执行 2 次思考，调用 3 次工具");
   assert.equal(buildProcessSummary(0, 1, 1), "输出 1 次，调用 1 次工具");
+  const call = (id: string, name: string, args: Record<string, unknown>) => ({ id, name, args, running: false });
+  assert.equal(
+    summarizeProcessGroup(1, [
+      call("r1", "read", { path: "a.ts" }),
+      call("r2", "read", { path: "a.ts" }),
+      call("r3", "read", { path: "b.ts" }),
+      call("e1", "edit", { path: "a.ts", old_string: "x", new_string: "y" }),
+      call("s1", "bash", { command: "npm test" }),
+    ]),
+    "执行 1 次思考，读取 2 个文件，编辑 1 个文件，运行 1 条命令",
+  );
+  assert.equal(
+    summarizeProcessGroup(0, [
+      call("r1", "read", { path: "a.ts" }),
+      call("e1", "edit", { path: "a.ts", old_string: "x", new_string: "y" }),
+      call("s1", "bash", { command: "ls" }),
+      call("p1", "update_plan", { items: [] }),
+    ]),
+    "读取 1 个文件，编辑 1 个文件，运行 1 条命令 等",
+  );
+  assert.equal(summarizeProcessGroup(2, []), "执行 2 次思考");
 
   // The host's grouping: a narration closes the open group and stands on its own.
   const segments = processSegments([
@@ -157,9 +179,10 @@ test("message actions", async () => {
   // A working turn (普通 = DSH 标准) keeps the group still gathering calls open under its header, and ends on the running line.
   assert.doesNotMatch(streamingWork, /dshc-turn-process/);
   assert.match(streamingWork, /class="dshc-group-title" aria-expanded="true"/);
-  assert.match(streamingWork, /执行 1 次思考，调用 1 次工具/);
+  assert.match(streamingWork, /执行 1 次思考，读取 1 个文件/);
   assert.match(streamingWork, /Planning the read/);
-  assert.match(words(streamingWork), /读取 README\.md/);
+  // The read still running says so in its verb.
+  assert.match(words(streamingWork), /正在读取 README\.md/);
   assert.match(streamingWork, /data-chat-running=""/);
   assert.match(streamingWork, /正在调用工具/);
   assert.doesNotMatch(streamingWork, /"path"/);

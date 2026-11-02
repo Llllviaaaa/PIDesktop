@@ -2126,6 +2126,113 @@
   background: var(--dsh-claude-hover-bg, var(--hover));
 }
 
+/* The change card closing the last turn, above its actions; Codex's 「已编辑 N 个文件」 list. */
+.codex-shot .dshc-turn-footer {
+  margin: 10px 0 4px;
+}
+
+.codex-shot .dshc-turn-footer .conversation-change-card {
+  margin: 0;
+  box-shadow: none;
+}
+
+.codex-shot .dshc-turn-footer .conversation-change-heading {
+  min-height: 44px;
+  padding: 6px 8px 6px 6px;
+}
+
+.codex-shot .dshc-turn-footer .conversation-change-open {
+  gap: 10px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: 8px;
+}
+
+.codex-shot .dshc-turn-footer .conversation-change-icon {
+  width: 30px;
+  height: 30px;
+}
+
+.codex-shot .dshc-turn-footer .conversation-change-heading strong {
+  font-size: 13.5px;
+}
+
+.codex-shot .conversation-change-stat {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.codex-shot .conversation-change-stat em {
+  color: var(--green, #16a34a);
+  font-style: normal;
+}
+
+.codex-shot .conversation-change-stat b {
+  color: var(--red, #dc2626);
+  font-weight: 500;
+}
+
+.codex-shot .conversation-change-chevron {
+  flex: none;
+  color: var(--text-3);
+  transform: rotate(-90deg);
+  transition: transform 0.12s ease;
+}
+
+.codex-shot .conversation-change-card[data-open] .conversation-change-chevron {
+  transform: none;
+}
+
+.codex-shot .conversation-change-files {
+  margin: 0;
+  padding: 2px 6px 6px;
+  border-top: 1px solid var(--dsh-claude-border-l1, var(--border));
+  list-style: none;
+}
+
+.codex-shot .conversation-change-card .conversation-change-files button {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: 13px/18px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.codex-shot .conversation-change-file-name {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .conversation-change-file-folder {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-shot .conversation-change-files .conversation-change-stat {
+  margin-left: auto;
+}
+
+.codex-shot .conversation-change-card .conversation-change-files .conversation-change-more {
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
 .codex-shot .title-diff-chip {
   border: 1px solid var(--dsh-claude-border-l1, var(--border));
   border-radius: 999px;
