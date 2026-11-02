@@ -3,9 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { agent } from "../lib/agent";
 import type { SessionInfo, UsageSummary } from "../types";
 
-type HomeRange = "all" | "30d" | "7d";
-type HomeTab = "overview" | "models";
-
 const BOOKS: Array<{ tokens: number; title: string }> = [
   { tokens: 7_600, title: "《道德经》" },
   { tokens: 29_000, title: "《动物农场》" },
@@ -23,6 +20,9 @@ const BOOKS: Array<{ tokens: number; title: string }> = [
   { tokens: 1_400_000, title: "《哈利·波特》全集" },
 ];
 
+/** The activity grid's span: 26 weeks, ending on today. */
+const HEAT_WEEKS = 26;
+
 function formatCompactTokens(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) return "0";
   if (tokens >= 1_000_000_000) {
@@ -38,13 +38,6 @@ function formatCompactTokens(tokens: number): string {
     return `${val}k`;
   }
   return Math.round(tokens).toLocaleString();
-}
-
-function formatHour(hour: number): string {
-  if (hour === 0) return "上午 12 点";
-  if (hour < 12) return `上午 ${hour} 点`;
-  if (hour === 12) return "下午 12 点";
-  return `下午 ${hour - 12} 点`;
 }
 
 function pickFunBookLine(tokens: number): string | null {
@@ -67,6 +60,16 @@ function isoDateKey(timestamp: number): string {
   return `${year}-${month}-${day}`;
 }
 
+function sessionTimestamp(session: SessionInfo): number {
+  return session.updatedAt || (session.createdAt ? Date.parse(session.createdAt) : 0) || 0;
+}
+
+/**
+ * The home page's usage card. It shows only what is recorded: the Host's
+ * `usage.summary` totals, and the session list's own dates and counts. The
+ * Host keeps no per-day or per-model token figures, so the card has none, and
+ * a total it could not read shows as 「—」 rather than an estimate.
+ */
 export function ClaudeHomeDashboard({
   sessions,
   currentModelId,
@@ -74,8 +77,6 @@ export function ClaudeHomeDashboard({
   sessions: SessionInfo[];
   currentModelId?: string;
 }) {
-  const [tab, setTab] = useState<HomeTab>("overview");
-  const [range, setRange] = useState<HomeRange>("all");
   const [mountedAt] = useState(() => Date.now());
 
   const usageQuery = useQuery<UsageSummary>({
@@ -83,203 +84,97 @@ export function ClaudeHomeDashboard({
     queryFn: () => agent.usageSummary(),
     staleTime: 15_000,
   });
+  const usage = usageQuery.data;
 
-  const stats = useMemo(() => {
-    const now = mountedAt;
-    const cutoff = range === "7d"
-      ? now - 7 * 86_400_000
-      : range === "30d"
-        ? now - 30 * 86_400_000
-        : 0;
-
-    const filteredSessions = sessions.filter((session) => {
-      const ts = session.updatedAt || (session.createdAt ? Date.parse(session.createdAt) : 0);
-      return cutoff === 0 || ts >= cutoff;
-    });
-
-    const dayMessages = new Map<string, number>();
-    const hourCounts = new Array<number>(24).fill(0);
-    let totalMessagesFromSessions = 0;
-
-    for (const session of filteredSessions) {
-      const ts = session.updatedAt || (session.createdAt ? Date.parse(session.createdAt) : 0);
-      const count = Math.max(1, session.messageCount || 1);
-      totalMessagesFromSessions += count;
-      if (ts > 0) {
-        const key = isoDateKey(ts);
-        dayMessages.set(key, (dayMessages.get(key) ?? 0) + count);
-        const h = new Date(ts).getHours();
-        hourCounts[h] = (hourCounts[h] ?? 0) + count;
-      }
+  const activity = useMemo(() => {
+    // Sessions by the day they were last updated: the only date a session carries.
+    const sessionsByDay = new Map<string, number>();
+    for (const session of sessions) {
+      const timestamp = sessionTimestamp(session);
+      if (timestamp <= 0) continue;
+      const key = isoDateKey(timestamp);
+      sessionsByDay.set(key, (sessionsByDay.get(key) ?? 0) + 1);
     }
-
-    let peakHourIndex = -1;
-    let peakHourMax = 0;
-    hourCounts.forEach((val, idx) => {
-      if (val > peakHourMax) {
-        peakHourMax = val;
-        peakHourIndex = idx;
-      }
-    });
-
-    const usage = usageQuery.data;
-    const totalSessionCount = Math.max(1, sessions.length);
-    const ratio = range === "all" ? 1 : filteredSessions.length / totalSessionCount;
-    const totalTokens = usage
-      ? Math.round(usage.totalTokens * (range === "all" ? 1 : Math.max(0.05, ratio)))
-      : totalMessagesFromSessions * 1_450;
-    const sessionCount = range === "all" && usage ? Math.max(usage.sessions, filteredSessions.length) : filteredSessions.length;
-    const messageCount = range === "all" && usage ? Math.max(usage.messages, totalMessagesFromSessions) : totalMessagesFromSessions;
-
-    // 26 weeks (182 days) heat grid aligned to end on the current week
-    const today = new Date();
+    const today = new Date(mountedAt);
     today.setHours(0, 0, 0, 0);
-    const totalCells = 26 * 7;
-    const maxDayMsg = Math.max(1, ...dayMessages.values());
-    const avgTokensPerMsg = messageCount > 0 ? totalTokens / messageCount : 1_200;
-
-    const cells: Array<{ date: string; label: string; tokens: number; level: number }> = [];
-    for (let i = totalCells - 1; i >= 0; i--) {
-      const d = new Date(today.getTime() - i * 86_400_000);
-      const key = isoDateKey(d.getTime());
-      const msgCount = dayMessages.get(key) ?? 0;
-      const dayTokens = Math.round(msgCount * avgTokensPerMsg);
-      const share = msgCount / maxDayMsg;
-      const level = msgCount === 0 ? 0 : share < 0.25 ? 1 : share < 0.5 ? 2 : share < 0.8 ? 3 : 4;
-      const shortDate = `${d.getMonth() + 1}月${d.getDate()}日`;
+    const totalCells = HEAT_WEEKS * 7;
+    const busiest = Math.max(1, ...sessionsByDay.values());
+    const cells: Array<{ date: string; label: string; level: number }> = [];
+    let activeDays = 0;
+    for (let offset = totalCells - 1; offset >= 0; offset -= 1) {
+      const day = new Date(today.getTime() - offset * 86_400_000);
+      const key = isoDateKey(day.getTime());
+      const count = sessionsByDay.get(key) ?? 0;
+      if (count > 0) activeDays += 1;
+      const share = count / busiest;
       cells.push({
         date: key,
-        label: `${shortDate} — ${formatCompactTokens(dayTokens)} Token`,
-        tokens: dayTokens,
-        level,
+        label: `${day.getMonth() + 1}月${day.getDate()}日 — ${count > 0 ? `${count} 个会话有更新` : "没有会话更新"}`,
+        level: count === 0 ? 0 : share < 0.25 ? 1 : share < 0.5 ? 2 : share < 0.8 ? 3 : 4,
       });
     }
+    return { cells, activeDays };
+  }, [mountedAt, sessions]);
 
-    return {
-      sessions: sessionCount,
-      messages: messageCount,
-      tokens: totalTokens,
-      inputTokens: usage?.inputTokens ?? Math.round(totalTokens * 0.72),
-      outputTokens: usage?.outputTokens ?? Math.round(totalTokens * 0.28),
-      activeDays: dayMessages.size,
-      peakHour: peakHourIndex >= 0 ? formatHour(peakHourIndex) : "—",
-      topModel: currentModelId || "—",
-      cells,
-      funLine: pickFunBookLine(totalTokens),
-    };
-  }, [currentModelId, mountedAt, range, sessions, usageQuery.data]);
+  // A first run has nothing to show; an all-zero panel reads as unfinished.
+  if (sessions.length === 0 && !usage?.messages) return null;
 
-  const totalColumns = 26;
-
-  // A first run has nothing to chart; an all-zero panel reads as unfinished.
-  if (sessions.length === 0 && !usageQuery.data?.messages) return null;
+  const sessionCount = usage?.sessions ?? sessions.length;
+  const messageCount = usage?.messages ?? sessions.reduce((sum, session) => sum + (session.messageCount || 0), 0);
+  const missing = "—";
+  const stats: Array<{ key: string; label: string; value: string; title?: string }> = [
+    { key: "sessions", label: "会话", value: sessionCount.toLocaleString() },
+    { key: "messages", label: "消息", value: messageCount.toLocaleString() },
+    { key: "tokens", label: "总 Token", value: usage ? formatCompactTokens(usage.totalTokens) : missing },
+    {
+      key: "io",
+      label: "输入 / 输出",
+      value: usage ? `${formatCompactTokens(usage.inputTokens)} / ${formatCompactTokens(usage.outputTokens)}` : missing,
+    },
+    { key: "cache", label: "缓存读取", value: usage ? formatCompactTokens(usage.cacheReadTokens) : missing },
+    { key: "model", label: "当前模型", value: currentModelId || missing, title: currentModelId },
+  ];
+  const funLine = usage ? pickFunBookLine(usage.totalTokens) : null;
 
   return (
     <div className="dsh-claude-home-panel">
       <div className="dsh-claude-home-panel-head">
-        <div className="dsh-claude-home-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            className="dsh-claude-home-tab"
-            data-active={tab === "overview" ? "" : undefined}
-            aria-selected={tab === "overview"}
-            onClick={() => setTab("overview")}
-          >
-            概览
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className="dsh-claude-home-tab"
-            data-active={tab === "models" ? "" : undefined}
-            aria-selected={tab === "models"}
-            onClick={() => setTab("models")}
-          >
-            模型
-          </button>
-        </div>
-        <div className="dsh-claude-home-ranges" role="group" aria-label="统计时间范围">
-          {([
-            ["all", "全部"],
-            ["30d", "30 天"],
-            ["7d", "7 天"],
-          ] as const).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              className="dsh-claude-home-range"
-              data-active={range === key ? "" : undefined}
-              onClick={() => setRange(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <span className="dsh-claude-home-panel-title">使用概览</span>
+        {!usage && !usageQuery.isLoading && (
+          <span className="dsh-claude-home-panel-note">暂时读不到 Token 用量</span>
+        )}
       </div>
 
-      {tab === "overview" ? (
-        <>
-          <div className="dsh-claude-home-stats">
-            <div className="dsh-claude-home-stat" data-stat="sessions">
-              <span className="dsh-claude-home-stat-label">会话</span>
-              <span className="dsh-claude-home-stat-value">{stats.sessions.toLocaleString()}</span>
-            </div>
-            <div className="dsh-claude-home-stat" data-stat="calls">
-              <span className="dsh-claude-home-stat-label">消息</span>
-              <span className="dsh-claude-home-stat-value">{stats.messages.toLocaleString()}</span>
-            </div>
-            <div className="dsh-claude-home-stat" data-stat="tokens">
-              <span className="dsh-claude-home-stat-label">总 Token</span>
-              <span className="dsh-claude-home-stat-value">{formatCompactTokens(stats.tokens)}</span>
-            </div>
-            <div className="dsh-claude-home-stat" data-stat="days">
-              <span className="dsh-claude-home-stat-label">活跃天数</span>
-              <span className="dsh-claude-home-stat-value">{stats.activeDays.toLocaleString()}</span>
-            </div>
-            <div className="dsh-claude-home-stat" data-stat="peak">
-              <span className="dsh-claude-home-stat-label">高峰时段</span>
-              <span className="dsh-claude-home-stat-value">{stats.peakHour}</span>
-            </div>
-            <div className="dsh-claude-home-stat" data-stat="model">
-              <span className="dsh-claude-home-stat-label">当前模型</span>
-              <span className="dsh-claude-home-stat-value" title={stats.topModel}>{stats.topModel}</span>
-            </div>
+      <div className="dsh-claude-home-stats">
+        {stats.map((stat) => (
+          <div className="dsh-claude-home-stat" data-stat={stat.key} key={stat.key}>
+            <span className="dsh-claude-home-stat-label">{stat.label}</span>
+            <span className="dsh-claude-home-stat-value" title={stat.title}>{stat.value}</span>
           </div>
+        ))}
+      </div>
 
-          <div className="dsh-claude-home-heat">
-            {stats.cells.map((cell, index) => {
-              const col = Math.floor(index / 7);
-              const edge = col < 3 ? "start" : col >= totalColumns - 3 ? "end" : undefined;
-              return (
-                <span
-                  key={cell.date}
-                  className="dsh-claude-home-heat-cell"
-                  data-level={cell.level > 0 ? String(cell.level) : undefined}
-                  data-tip={cell.label}
-                  data-edge={edge}
-                  aria-label={cell.label}
-                />
-              );
-            })}
-          </div>
+      <div className="dsh-claude-home-heat" aria-label={`近 ${HEAT_WEEKS} 周的会话活动`}>
+        {activity.cells.map((cell, index) => {
+          const col = Math.floor(index / 7);
+          const edge = col < 3 ? "start" : col >= HEAT_WEEKS - 3 ? "end" : undefined;
+          return (
+            <span
+              key={cell.date}
+              className="dsh-claude-home-heat-cell"
+              data-level={cell.level > 0 ? String(cell.level) : undefined}
+              data-tip={cell.label}
+              data-edge={edge}
+              aria-label={cell.label}
+            />
+          );
+        })}
+      </div>
 
-          {stats.funLine && (
-            <span className="dsh-claude-home-fun">{stats.funLine}</span>
-          )}
-        </>
-      ) : (
-        <div className="dsh-claude-home-models">
-          <div className="dsh-claude-home-model">
-            <span className="dsh-claude-home-model-swatch" data-rank="0" />
-            <span className="dsh-claude-home-model-name">{stats.topModel}</span>
-            <span className="dsh-claude-home-model-split">
-              入 {formatCompactTokens(stats.inputTokens)} · 出 {formatCompactTokens(stats.outputTokens)}
-            </span>
-            <span className="dsh-claude-home-model-share">100%</span>
-          </div>
-        </div>
-      )}
+      <div className="dsh-claude-home-foot">
+        <span>近 {HEAT_WEEKS} 周有 {activity.activeDays} 天有会话更新</span>
+        {funLine && <span>{funLine}</span>}
+      </div>
     </div>
   );
 }
