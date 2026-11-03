@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 /**
- * The browser E2E suite (e2e/, docs/REFACTOR_V2_P7.md 3.4): the app built
+ * The browser E2E suite (e2e/, docs/archive/REFACTOR_V2_P7.md 3.4): the app built
  * with `vite build --mode e2e`, which fakes Tauri (src/dev/tauriStub.ts),
  * against a real Harness Host each test starts in this process
  * (packages/host/test/e2e-host.ts). It drives the installed Edge or Chrome,

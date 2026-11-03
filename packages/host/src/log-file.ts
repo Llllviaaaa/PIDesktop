@@ -1,5 +1,5 @@
 /**
- * The Host's log on disk (docs/REFACTOR_V2_P7.md, 3.3): one file a day,
+ * The Host's log on disk (docs/archive/REFACTOR_V2_P7.md, 3.3): one file a day,
  * `<dir>/host-YYYY-MM-DD.log`, kept for a week. Every line is redacted, and
  * debug messages (RPC traces) are kept, which stderr leaves out.
  */

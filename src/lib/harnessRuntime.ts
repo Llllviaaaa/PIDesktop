@@ -12,7 +12,7 @@
  * When the connection closes (the Host crashed, or Rust restarted it), the
  * runtimes reconnect with a backoff, catch up on what their sessions logged
  * meanwhile, and end a turn the Host no longer runs as interrupted
- * (docs/REFACTOR_V2_P7.md, 3.1).
+ * (docs/archive/REFACTOR_V2_P7.md, 3.1).
  */
 import type {
   CheckpointDiffResult,

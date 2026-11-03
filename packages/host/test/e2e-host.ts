@@ -1,5 +1,5 @@
 /**
- * The Harness Host the browser E2E suite talks to (docs/REFACTOR_V2_P7.md,
+ * The Harness Host the browser E2E suite talks to (docs/archive/REFACTOR_V2_P7.md,
  * 3.4): the plugins `main.ts` loads, on a temporary data directory, with one
  * extra model, `scripted/m`, whose replies the test lines up. Production code
  * has no switch for this; only the suite (e2e/) imports it.

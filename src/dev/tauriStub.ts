@@ -1,5 +1,5 @@
 /**
- * Tauri, faked for the browser E2E suite (docs/REFACTOR_V2_P7.md, 3.4).
+ * Tauri, faked for the browser E2E suite (docs/archive/REFACTOR_V2_P7.md, 3.4).
  * `vite build --mode e2e` loads this before the app (vite.config.ts); no
  * other build contains it. It answers the desktop's own commands with fixed
  * data and points the app at the Harness Host the test started, given in the

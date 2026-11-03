@@ -9,7 +9,7 @@ Notable user-facing changes are documented in this file.
 
 ## 0.3.0
 
-Tasks now run on Pi Desktop's own Harness Host instead of the bundled Pi. See `docs/RELEASE_0.3.0.md` for what moves where when upgrading from 0.2.x, and for the release checklist.
+Tasks now run on Pi Desktop's own Harness Host instead of the bundled Pi. See `docs/archive/RELEASE_0.3.0.md` for what moves where when upgrading from 0.2.x, and for the release checklist.
 
 - Pi is no longer bundled. Sessions, model providers, keys, scheduled tasks and logs live under `~/.pid`; keys are encrypted with DPAPI in `~/.pid/secrets.dat`. Pi's own folder is only read, never changed.
 - On first launch, custom providers from Pi's `models.json`, API keys from Pi's `auth.json`, your skills, themes and pets, and the desktop's scheduled tasks move over once. Pi's past tasks can be imported from the offer on first launch or later from 设置 › 已归档 › 导入到 Harness.
