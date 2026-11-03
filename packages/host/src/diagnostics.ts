@@ -1,5 +1,5 @@
 /**
- * Settings › 调试 (docs/REFACTOR_V2_P7.md, 3.3): where the logs are, and a
+ * Settings › 调试 (docs/archive/REFACTOR_V2_P7.md, 3.3): where the logs are, and a
  * diagnostics bundle the user saves and can attach to a report. The bundle is
  * a zip of the last week's logs (the Host's and the desktop's, both in
  * `<dataDir>/logs`), the versions involved, and `harness.json`; every file in

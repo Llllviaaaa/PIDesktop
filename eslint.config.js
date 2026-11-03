@@ -5,9 +5,9 @@ import tseslint from "typescript-eslint";
 
 /**
  * Four environments live in this repository and they do not share globals:
- * the Vite renderer under src/, the assertion scripts under scripts/, the
- * Pi extensions under src-tauri/resources/ that run inside the Pi runtime,
- * and the Harness packages under packages/ that run in the Harness Host.
+ * the Vite renderer under src/, the assertion suites under tests/ and the
+ * scripts under scripts/, the Pi extensions under src-tauri/resources/ that
+ * run inside the Pi runtime, and the Harness packages under packages/ that run in the Harness Host.
  */
 export default tseslint.config(
   {
@@ -64,7 +64,7 @@ export default tseslint.config(
   },
 
   {
-    files: ["scripts/**/*.{ts,tsx,mjs}", "*.config.{js,ts}", "vite.config.ts"],
+    files: ["scripts/**/*.{ts,tsx,mjs}", "tests/**/*.{ts,tsx}", "*.config.{js,ts}", "vite.config.ts"],
     languageOptions: {
       globals: { ...globals.node },
     },

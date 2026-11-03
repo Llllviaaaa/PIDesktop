@@ -2,11 +2,9 @@
 
 Pi Desktop is a **local-only**, Codex-style Windows desktop coding agent. Its engine is the **Harness Host**, a local process built from the `packages/` in this repository: one host serves every task, with the agent loop, tools, permissions, sessions, MCP, browser, computer use and scheduling as plugins. The UI may follow Codex Desktop patterns; it is not a cloud agent platform.
 
-Pi Desktop began as a desktop client for the [Pi coding agent](https://pi.dev). Since 0.3 (the V2 refactor, [docs/REFACTOR_V2_PLAN.md](docs/REFACTOR_V2_PLAN.md)) it no longer runs or bundles Pi; Pi's providers, keys, skills, themes, pets and past tasks are imported once.
+Pi Desktop began as a desktop client for the [Pi coding agent](https://pi.dev). Since 0.3 (the V2 refactor, [docs/archive/REFACTOR_V2_PLAN.md](docs/archive/REFACTOR_V2_PLAN.md)) it no longer runs or bundles Pi; Pi's providers, keys, skills, themes, pets and past tasks are imported once.
 
 Pi Desktop is an independent community project. It is not affiliated with or endorsed by OpenAI. References to Codex describe interaction patterns and compatibility goals, not product ownership.
-
-Roadmap under these constraints: [PRODUCT_PLAN.md](./PRODUCT_PLAN.md). Feature boundary vs Codex-style workflow: [CODEX_PARITY.md](./CODEX_PARITY.md).
 
 ## Current capabilities
 
@@ -31,7 +29,7 @@ Roadmap under these constraints: [PRODUCT_PLAN.md](./PRODUCT_PLAN.md). Feature b
 - Full-screen settings center for appearance, notifications, personalization, shortcuts, archives, usage, models, skills, permissions, terminal, Git, worktrees, and advanced configuration
 - Persisted process, appearance, behavior, provider, permission, Git, notification, and session settings
 
-See [CODEX_PARITY.md](CODEX_PARITY.md) for the feature-by-feature boundary and [PRODUCT_PLAN.md](PRODUCT_PLAN.md) for what we will fill in locally. UI parity does **not** include cloud environments, account/billing, or a built-in OS sandbox; those stay out of scope or optional user isolation.
+UI parity does **not** include cloud environments, account/billing, or a built-in OS sandbox; those stay out of scope or optional user isolation.
 
 ## Architecture
 

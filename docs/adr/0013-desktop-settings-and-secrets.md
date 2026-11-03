@@ -5,7 +5,7 @@
 
 ## 背景
 
-P5 要把桌面端切换到 Harness 引擎（见 [V2 重构方案](../REFACTOR_V2_PLAN.md) 的 P5 一行，以及 P5 细化方案 `docs/REFACTOR_V2_P5.md`）。这一步需要满足三件事：
+P5 要把桌面端切换到 Harness 引擎（见 [V2 重构方案](../archive/REFACTOR_V2_PLAN.md) 的 P5 一行，以及 P5 细化方案 `docs/archive/REFACTOR_V2_P5.md`）。这一步需要满足三件事：
 
 - 桌面端的设置能传到 Host 并生效；
 - Host 能用上 DPAPI 加密保存的 key；

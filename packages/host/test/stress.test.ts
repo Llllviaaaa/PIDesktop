@@ -1,5 +1,5 @@
 /**
- * The Host under load (docs/REFACTOR_V2_P7.md, 3.2): twenty sessions running
+ * The Host under load (docs/archive/REFACTOR_V2_P7.md, 3.2): twenty sessions running
  * at once each keep a whole, ordered log and hear only their own
  * notifications; creating, running and deleting two hundred sessions leaves
  * the heap and the active handles near where they started.

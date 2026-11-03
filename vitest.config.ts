@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 import { DSH_ALIASES } from "./dsh-aliases";
 
 /**
- * The assertion suites under scripts/ used to be 46 standalone tsx processes
+ * The assertion suites under tests/ (once under scripts/) used to be 46 standalone tsx processes
  * chained with && , which ran serially and reported nothing but a line of
  * prose each. Vitest runs them in parallel, isolates each file so one suite's
  * globals cannot leak into the next, and can measure coverage.
@@ -15,7 +15,7 @@ export default defineConfig({
   resolve: { alias: DSH_ALIASES },
   test: {
     // packages/ holds the Harness packages of the V2 refactor (docs/adr/0005).
-    include: ["scripts/**/*.test.ts", "scripts/**/*.test.tsx", "packages/*/test/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "packages/*/test/**/*.test.ts"],
     // The load and leak test runs on its own: npm run test:stress (vitest.stress.config.ts).
     exclude: ["**/node_modules/**", "packages/host/test/stress.test.ts"],
     environment: "node",

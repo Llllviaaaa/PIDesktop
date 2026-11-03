@@ -2,7 +2,7 @@
  * Reloading the plugins that hold processes and timers (MCP servers, the
  * browser, computer control) again and again leaves nothing behind: each
  * reload replaces the tools, and disposing them ends the child processes and
- * clears the timers (docs/REFACTOR_V2_P7.md, 3.2).
+ * clears the timers (docs/archive/REFACTOR_V2_P7.md, 3.2).
  */
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

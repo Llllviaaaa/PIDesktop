@@ -43,7 +43,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # The Host's load and leak test, kept out of test:unit (docs/REFACTOR_V2_P7.md 3.2).
+      # The Host's load and leak test, kept out of test:unit (docs/archive/REFACTOR_V2_P7.md 3.2).
       - run: npm run test:stress
       # Drives the runner's preinstalled Edge, so no browser download is needed.
       - run: npm run test:e2e
