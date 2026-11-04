@@ -7,7 +7,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Context } from "@deepseek-ai/cordis";
+import type { Context, Plugin } from "@deepseek-ai/cordis";
 import { AgentLoop } from "@pid/agent-loop";
 import * as browser from "@pid/browser";
 import * as checkpoints from "@pid/checkpoints";
@@ -93,36 +93,134 @@ function fileRevision(file: string): string {
   }
 }
 
-/** The configured feature plugins, keyed so a reload only touches what changed. */
-export function featureEntries(dataDir: string, config: HarnessConfig, options: FeatureOptions = {}): ReloadableEntry[] {
+export interface BuiltinPluginDefinition {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  hasHost: boolean;
+  hasClient: boolean;
+  plugin: Plugin;
+  config?: unknown;
+}
+
+/** Full catalog of built-in reloadable feature plugins, enabled and disabled alike (ADR 0016). */
+export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig, options: FeatureOptions = {}): BuiltinPluginDefinition[] {
   const providersFile = join(dataDir, "providers.json");
   const permissions = options.permission === undefined ? config.permissions : { ...config.permissions, defaultPermission: options.permission };
   const { secretsFile, ...mcpConfig } = config.mcp;
   const mcpSecrets = secretsFile !== undefined && options.codec !== undefined
     ? readSecretFile<Record<string, McpServerSecrets>>(secretsFile, options.codec)
     : {};
-  const entries: Array<ReloadableEntry | false> = [
-    // The file's text is part of the config so an edited providers.json reloads the adapters.
-    { key: "providers", plugin: providers, config: { file: providersFile, revision: fileRevision(providersFile) } },
-    { key: "permissions", plugin: Permissions, config: permissions },
+
+  const definitions: Array<BuiltinPluginDefinition | false> = [
     {
-      key: "prompt-context",
+      id: "providers",
+      name: "模型服务商路由 (providers)",
+      description: "加载 providers.json 并管理模型适配器与密钥解析",
+      // The file's text is part of the config so an edited providers.json reloads the adapters.
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: providers,
+      config: { file: providersFile, revision: fileRevision(providersFile) },
+    },
+    {
+      id: "permissions",
+      name: "工具权限策略 (permissions)",
+      description: "执行会话读写、命令白名单与自定义工具审批门禁",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: Permissions,
+      config: permissions,
+    },
+    {
+      id: "prompt-context",
+      name: "上下文与提示词组装 (prompt-context)",
+      description: "注入工作区上下文文件（AGENTS.md / CLAUDE.md）、技能目录与自定义指令",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
       plugin: promptContext,
       config: { dataDir, contextFiles: config.contextFiles.enabled, instructions: config.prompt.instructions },
     },
-    config.plan.enabled && { key: "plan", plugin: plan },
-    config.memory.enabled && { key: "memory", plugin: memory, config: { file: config.memory.file ?? join(dataDir, "memory.md") } },
-    config.subagents.enabled && { key: "subagents", plugin: subagents, config: config.subagents },
-    { key: "mcp", plugin: Mcp, config: { ...mcpConfig, servers: withMcpSecrets(mcpConfig.servers ?? [], mcpSecrets) } },
-    config.computer.enabled && {
-      key: "computer",
+    {
+      id: "plan",
+      name: "任务计划追踪 (plan)",
+      description: "提供 update_plan 工具并在对话提示词中维护分步计划状态",
+      enabled: config.plan.enabled,
+      hasHost: true,
+      hasClient: false,
+      plugin: plan,
+    },
+    {
+      id: "memory",
+      name: "本地长期记忆 (memory)",
+      description: "维护并向系统提示词注入持久化的本地记忆文件",
+      enabled: config.memory.enabled,
+      hasHost: true,
+      hasClient: false,
+      plugin: memory,
+      config: { file: config.memory.file ?? join(dataDir, "memory.md") },
+    },
+    {
+      id: "subagents",
+      name: "并行子代理 (subagents)",
+      description: "支持派发受并发控制的子会话代理执行独立探索或编码子任务",
+      enabled: config.subagents.enabled,
+      hasHost: true,
+      hasClient: false,
+      plugin: subagents,
+      config: config.subagents,
+    },
+    {
+      id: "mcp",
+      name: "MCP 服务器桥接 (mcp)",
+      description: "连接 STDIO 与 HTTP MCP 服务器并将其工具暴露给模型",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: Mcp,
+      config: { ...mcpConfig, servers: withMcpSecrets(mcpConfig.servers ?? [], mcpSecrets) },
+    },
+    {
+      id: "computer",
+      name: "本机桌面控制 (computer)",
+      description: "提供桌面截图、窗口焦点与键鼠自动化工具",
+      enabled: config.computer.enabled,
+      hasHost: true,
+      hasClient: false,
       plugin: computer,
       config: { ...config.computer, helper: config.computer.helper ?? options.computerHelper },
     },
-    config.browser.enabled && { key: "browser", plugin: browser, config: config.browser },
-    { key: "hooks", plugin: hooks, config: config.hooks },
-    options.scheduler !== undefined && config.schedule.enabled && {
-      key: "schedule",
+    {
+      id: "browser",
+      name: "内置自动化浏览器 (browser)",
+      description: "基于本机 Edge/Chrome CDP 提供网页浏览与交互工具",
+      enabled: config.browser.enabled,
+      hasHost: true,
+      hasClient: false,
+      plugin: browser,
+      config: config.browser,
+    },
+    {
+      id: "hooks",
+      name: "生命周期命令钩子 (hooks)",
+      description: "在会话轮次与工具执行前后触发用户自定义脚本",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: hooks,
+      config: config.hooks,
+    },
+    options.scheduler !== undefined && {
+      id: "schedule",
+      name: "本地定时任务 (schedule)",
+      description: "按周期调度后台无人值守会话并记录运行历史",
+      enabled: config.schedule.enabled,
+      hasHost: true,
+      hasClient: false,
       plugin: Schedule,
       config: {
         tasksFile: join(dataDir, "schedules.json"),
@@ -131,7 +229,14 @@ export function featureEntries(dataDir: string, config: HarnessConfig, options: 
       },
     },
   ];
-  return entries.filter((entry): entry is ReloadableEntry => entry !== false);
+  return definitions.filter((entry): entry is BuiltinPluginDefinition => entry !== false);
+}
+
+/** The configured feature plugins, keyed so a reload only touches what changed. */
+export function featureEntries(dataDir: string, config: HarnessConfig, options: FeatureOptions = {}): ReloadableEntry[] {
+  return builtinFeatureDefinitions(dataDir, config, options)
+    .filter((entry) => entry.enabled)
+    .map((entry) => ({ key: entry.id, plugin: entry.plugin, ...(entry.config === undefined ? {} : { config: entry.config }) }));
 }
 
 /** Core and features at once, for a run that never reloads (headless, tests). */

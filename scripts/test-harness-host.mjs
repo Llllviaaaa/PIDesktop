@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
@@ -111,6 +111,50 @@ ${JSON.stringify(created)}`);
   assert.equal(permission, "read-only", `desktop settings must reload the permissions plugin
 ${stderr}`);
   assert.ok(existsSync(join(dataDir, "harness.json")), "desktop settings must be written to harness.json");
+
+  // Dynamic external full-stack (.ts + .tsx) plugin inside the compiled Bun binary (ADR 0016).
+  const extPluginDir = join(dataDir, "smoke-ext-src");
+  mkdirSync(extPluginDir, { recursive: true });
+  writeFileSync(join(extPluginDir, "package.json"), JSON.stringify({
+    name: "smoke-ext",
+    version: "0.1.0",
+    pid: { id: "smoke-ext", name: "Smoke Ext", host: "./index.ts", client: "./client.tsx" },
+  }));
+  writeFileSync(join(extPluginDir, "index.ts"), `
+    import { Context } from "@deepseek-ai/cordis";
+    import { textOutput } from "@pid/tools";
+    export const name = "smoke-ext";
+    export const inject = ["tools"];
+    export function apply(ctx: Context) {
+      if (!(ctx instanceof Context)) throw new Error("duplicate Cordis instance");
+      ctx.effect(() => ctx.tools.register({
+        name: "smoke_ext_tool",
+        description: "Smoke dynamic tool",
+        parameters: { type: "object" },
+        execute: () => textOutput("ok"),
+      }), "smoke_ext_tool");
+    }
+  `);
+  writeFileSync(join(extPluginDir, "client.tsx"), `
+    import { useState } from "react";
+    export function SmokePanel() {
+      const [ready] = useState(true);
+      return <div>{ready ? "smoke-client-ready" : ""}</div>;
+    }
+  `);
+  const installedExt = await call(8, "plugin.install", { channel: "local", spec: extPluginDir, link: true });
+  assert.equal(installedExt.result?.plugin?.status, "active", `pid-harness.exe must load external .ts plugins via Bun.plugin\n${JSON.stringify(installedExt)}\n${stderr}`);
+  const clientRes = await fetch(`http://127.0.0.1:${port}/plugins/smoke-ext/client.js`, { headers: { origin: pageOrigin } });
+  assert.equal(clientRes.status, 200, "pid-harness.exe must serve compiled .tsx client bundles");
+  const clientJs = await clientRes.text();
+  assert.match(clientJs, /window\.__ModuleLoader__\.load/);
+  assert.match(clientJs, /smoke-client-ready/);
+
+  // Re-sending desktop settings must preserve user plugins in plugins.json.
+  child.stdin.write(`${JSON.stringify({ desktop: { settings: { permissionMode: "read-only", mcpEnabled: false }, configDir: dataDir } })}\n`);
+  await new Promise((resolveWait) => setTimeout(resolveWait, 300));
+  const listedPlugins = await call(9, "plugin.list", {});
+  assert.equal(listedPlugins.result?.plugins?.find((p) => p.id === "smoke-ext")?.status, "active", "desktop settings sync must not overwrite user plugins");
 
   // The Host logs to <data-dir>/logs and bundles those logs for a report.
   const bundle = join(dataDir, "diagnostics.zip");

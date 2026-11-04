@@ -7,7 +7,7 @@ import { defineConfig } from "@playwright/test";
  * (packages/host/test/e2e-host.ts). It drives the installed Edge or Chrome,
  * so no browser download is needed: PID_E2E_CHANNEL picks one (default msedge).
  */
-const port = 4173;
+const port = Number(process.env.PID_E2E_PORT ?? 4173);
 export const E2E_ORIGIN = `http://127.0.0.1:${port}`;
 
 export default defineConfig({

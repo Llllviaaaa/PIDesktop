@@ -7,15 +7,16 @@
 import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { ScriptedProvider, useScriptedProvider } from "@pid/testkit";
-import { corePlugins, featureEntries } from "../src/agent-plugins.ts";
+import { builtinFeatureDefinitions, corePlugins, type BuiltinPluginDefinition } from "../src/agent-plugins.ts";
 import * as betterSidebar from "../src/better-sidebar/index.ts";
 import * as diagnostics from "../src/diagnostics.ts";
 import * as featuresRpc from "../src/features-rpc.ts";
-import { defaultHarnessConfig } from "../src/harness-config.ts";
+import { readHarnessConfig } from "../src/harness-config.ts";
 import { createHost, type Host } from "../src/host.ts";
 import * as llmRpc from "../src/llm-rpc.ts";
+import { PluginManager } from "../src/plugin-manager.ts";
+import * as pluginsRpc from "../src/plugins-rpc.ts";
 import * as providerAdmin from "../src/provider-admin.ts";
-import { ReloadablePlugins } from "../src/reloadable.ts";
 import { RpcGateway } from "../src/rpc.ts";
 import * as scheduleRpc from "../src/schedule-rpc.ts";
 import * as sessionsRpc from "../src/sessions-rpc.ts";
@@ -64,21 +65,40 @@ export async function startE2eHost(options: E2eHostOptions): Promise<E2eHost> {
         apply: (ctx: Context) => ctx.effect(() => ctx.rpc.method("config.reload", async () => ({ reloaded: await reload() })), "config.reload"),
       }],
       [providerAdmin, { file: join(dataDir, "providers.json"), secretsFile: join(dataDir, "secrets.dat"), reload: () => reload() }],
-      [betterSidebar, { dataDir }],
       [{ name: "e2e-scripted-model", inject: ["llm"], apply: (ctx: never) => useScriptedProvider(ctx, provider) }],
     ],
   });
   await host.start();
-  const features = new ReloadablePlugins(host.ctx);
-  reload = () => features.apply(featureEntries(dataDir, defaultHarnessConfig(), { scheduler: { defaultModel } }));
-  await reload();
+  const sidebarBuiltin: BuiltinPluginDefinition = {
+    id: "better-sidebar",
+    name: "工作台侧边栏 (better-sidebar)",
+    description: "提供右侧文件树、编辑器、Diff、文件预览与集成终端宿主服务",
+    enabled: true,
+    hasHost: true,
+    hasClient: true,
+    plugin: betterSidebar,
+    config: { dataDir },
+  };
+  const pluginManager = new PluginManager(host.ctx, {
+    dataDir,
+    version: "0.0.0-e2e",
+    builtins: () => [
+      ...builtinFeatureDefinitions(dataDir, readHarnessConfig(join(dataDir, "harness.json")).config, { scheduler: { defaultModel } }),
+      sidebarBuiltin,
+    ],
+    onChanged: (payload) => host.ctx.rpc.broadcast("plugin/changed", payload),
+    onTrustChanged: (payload) => host.ctx.rpc.broadcast("workspace/trustChanged", payload),
+  });
+  await host.ctx.plugin(pluginsRpc, { manager: pluginManager });
+  reload = () => pluginManager.sync({ reason: "reloaded" });
+  await pluginManager.sync();
   const port = await host.ctx.webServer.listen(options.port ?? 0);
   return {
     host,
     port,
     baseUrl: `http://127.0.0.1:${port}/`,
     async stop() {
-      await features.dispose();
+      await pluginManager.dispose();
       await host.stop();
     },
   };

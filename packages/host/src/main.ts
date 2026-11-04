@@ -14,10 +14,12 @@ import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { Logger, type Context, type Exporter } from "@deepseek-ai/cordis";
-import { corePlugins, featureEntries } from "./agent-plugins.ts";
+import { builtinFeatureDefinitions, corePlugins, type BuiltinPluginDefinition } from "./agent-plugins.ts";
 import * as betterSidebar from "./better-sidebar/index.ts";
 import { runHeadless } from "./headless.ts";
 import { createHost } from "./host.ts";
+import { PluginManager } from "./plugin-manager.ts";
+import * as pluginsRpc from "./plugins-rpc.ts";
 import { readDefaultModel } from "./providers.ts";
 import { applyDesktopMessage, parseControlLine } from "./control.ts";
 import * as diagnostics from "./diagnostics.ts";
@@ -25,7 +27,6 @@ import * as featuresRpc from "./features-rpc.ts";
 import { readHarnessConfig } from "./harness-config.ts";
 import * as llmRpc from "./llm-rpc.ts";
 import * as providerAdmin from "./provider-admin.ts";
-import { ReloadablePlugins } from "./reloadable.ts";
 import { RpcGateway } from "./rpc.ts";
 import * as scheduleRpc from "./schedule-rpc.ts";
 import * as sessionsRpc from "./sessions-rpc.ts";
@@ -109,7 +110,6 @@ export async function main(argv: readonly string[]): Promise<void> {
         apply: (ctx: Context) => ctx.effect(() => ctx.rpc.method("config.reload", async () => ({ reloaded: await reload() })), "config.reload"),
       }],
       [providerAdmin, { file: providersFile, secretsFile: join(dataDir, "secrets.dat"), ...(codec === undefined ? {} : { codec }), reload: () => reload() }],
-      [betterSidebar, { dataDir }],
     ],
   });
   host.ctx.logger.exporter(stderrExporter);
@@ -119,21 +119,45 @@ export async function main(argv: readonly string[]): Promise<void> {
   host.ctx.logger.exporter(fileLog);
   await host.start();
 
-  // The feature plugins follow harness.json and providers.json (ADR 0013).
-  const features = new ReloadablePlugins(host.ctx);
+  // Built-in feature plugins + dynamic user/workspace plugins (ADR 0013, 0016).
   const logger = host.ctx.logger("harness");
+  const sidebarBuiltin: BuiltinPluginDefinition = {
+    id: "better-sidebar",
+    name: "工作台侧边栏 (better-sidebar)",
+    description: "提供右侧文件树、编辑器、Diff、文件预览与集成终端宿主服务",
+    enabled: true,
+    hasHost: true,
+    hasClient: true,
+    plugin: betterSidebar,
+    config: { dataDir },
+  };
+  const pluginManager = new PluginManager(host.ctx, {
+    dataDir,
+    version: HOST_VERSION,
+    builtins: () => {
+      const { config, problems } = readHarnessConfig(join(dataDir, "harness.json"));
+      for (const problem of problems) logger.warn("%s", problem);
+      return [
+        ...builtinFeatureDefinitions(dataDir, config, {
+          scheduler: { defaultModel },
+          ...(process.env.PID_COMPUTER_HELPER ? { computerHelper: process.env.PID_COMPUTER_HELPER } : {}),
+          ...(codec === undefined ? {} : { codec }),
+        }),
+        sidebarBuiltin,
+      ];
+    },
+    onChanged: (payload) => host.ctx.rpc.broadcast("plugin/changed", payload),
+    onTrustChanged: (payload) => host.ctx.rpc.broadcast("workspace/trustChanged", payload),
+  });
+  await host.ctx.plugin(pluginsRpc, { manager: pluginManager });
+
   reload = async () => {
-    const { config, problems } = readHarnessConfig(join(dataDir, "harness.json"));
-    for (const problem of problems) logger.warn("%s", problem);
-    const changed = await features.apply(featureEntries(dataDir, config, {
-      scheduler: { defaultModel },
-      ...(process.env.PID_COMPUTER_HELPER ? { computerHelper: process.env.PID_COMPUTER_HELPER } : {}),
-      ...(codec === undefined ? {} : { codec }),
-    }));
+    const changed = await pluginManager.sync({ reason: "reloaded" });
     if (changed.length > 0) logger.info("loaded %s", changed.join(", "));
     return changed;
   };
-  await reload();
+  const initialChanged = await pluginManager.sync();
+  if (initialChanged.length > 0) logger.info("loaded %s", initialChanged.join(", "));
 
   const port = await host.ctx.webServer.listen(options.port);
   process.stdout.write(`${JSON.stringify({ port })}\n`);
@@ -142,7 +166,7 @@ export async function main(argv: readonly string[]): Promise<void> {
   const shutdown = (): void => {
     if (stopping) return;
     stopping = true;
-    void host.stop().finally(() => process.exit(0));
+    void pluginManager.dispose().then(() => host.stop()).finally(() => process.exit(0));
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
