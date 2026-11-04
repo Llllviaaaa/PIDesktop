@@ -1,8 +1,7 @@
 /**
  * Stand-in for the `@deepseek-ai/dsh-llm` values better-sidebar's host imports.
- * They serve the commit-message suggestion and the side chat, both of which
- * run on DSH's `llm` and `agents` services; PIDesktop provides neither, so
- * those routes answer "unavailable" before reaching these.
+ * Connects commit-message generation in better-sidebar's Git panel to the
+ * Harness Host's `LlmService` stream chunks.
  */
 export interface UserMessageInput {
   content: unknown
@@ -17,8 +16,39 @@ export function ReasoningEffortId(value: string): string {
   return value
 }
 
+export interface AssembledTextBlock {
+  type: 'text'
+  text: string
+}
+
 export class BlockAssembler {
-  constructor() {
-    throw new Error('PIDesktop provides no DSH llm service')
+  private text = ''
+  finish: { kind?: string } | undefined
+
+  push(chunk: unknown): void {
+    const record = chunk as {
+      type?: unknown
+      text?: unknown
+      delta?: unknown
+      reason?: unknown
+      kind?: unknown
+    } | null
+    if (record === null || typeof record !== 'object') return
+    if (record.type === 'text-delta' && typeof record.text === 'string') {
+      this.text += record.text
+    } else if (record.type === 'text' && typeof record.delta === 'string') {
+      this.text += record.delta
+    } else if (record.type === 'finish') {
+      const kind = typeof record.reason === 'string'
+        ? record.reason
+        : typeof record.kind === 'string'
+          ? record.kind
+          : 'stop'
+      this.finish = { kind }
+    }
+  }
+
+  blocks(): AssembledTextBlock[] {
+    return this.text === '' ? [] : [{ type: 'text', text: this.text }]
   }
 }

@@ -109,6 +109,7 @@ export interface ServerStatus {
 export interface McpClient {
   connect(): Promise<McpConnectResult>;
   setNotificationHandler(handler: McpNotificationHandler): void;
+  setDisconnectHandler?(handler: (error: Error) => void): void;
   listTools(): Promise<McpTool[]>;
   callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<McpToolResult>;
   listResources(): Promise<McpResource[]>;
@@ -147,8 +148,10 @@ class StdioMcpClient implements McpClient {
   private buffer = "";
   private decoder = new StringDecoder("utf8");
   private closing = false;
+  private initialized = false;
   private stderrTail = "";
   private notificationHandler: McpNotificationHandler | undefined;
+  private disconnectHandler: ((error: Error) => void) | undefined;
 
   constructor(private config: McpServerConfig) {}
 
@@ -168,7 +171,11 @@ class StdioMcpClient implements McpClient {
     });
     this.child.once("error", (error) => this.failAll(error));
     this.child.once("close", (code) => {
-      if (!this.closing) this.failAll(new Error(this.stderrTail.trim() || `MCP server exited with code ${code}`));
+      if (!this.closing) {
+        const err = new Error(this.stderrTail.trim() || `MCP server exited with code ${code}`);
+        this.failAll(err);
+        if (this.initialized) this.disconnectHandler?.(err);
+      }
     });
     const result = await this.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
@@ -180,6 +187,7 @@ class StdioMcpClient implements McpClient {
       throw new Error(`MCP server selected unsupported protocol version ${negotiated}`);
     }
     this.notify("notifications/initialized");
+    this.initialized = true;
     return { protocolVersion: negotiated, capabilities: result.capabilities || {} };
   }
 
@@ -201,6 +209,11 @@ class StdioMcpClient implements McpClient {
 
   setNotificationHandler(handler: McpNotificationHandler): void {
     this.notificationHandler = handler;
+  }
+
+  setDisconnectHandler(handler: (error: Error) => void): void {
+    this.disconnectHandler = handler;
+    void this.disconnectHandler;
   }
 
   async listResources(): Promise<McpResource[]> {
@@ -351,6 +364,7 @@ class HttpMcpClient implements McpClient {
   private sessionId: string | undefined;
   private negotiatedVersion: string | undefined;
   private notificationHandler: McpNotificationHandler | undefined;
+  private disconnectHandler: ((error: Error) => void) | undefined;
   private eventStreamAbort: AbortController | undefined;
   private eventStreamTask: Promise<void> | undefined;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -376,6 +390,11 @@ class HttpMcpClient implements McpClient {
 
   setNotificationHandler(handler: McpNotificationHandler): void {
     this.notificationHandler = handler;
+  }
+
+  setDisconnectHandler(handler: (error: Error) => void): void {
+    this.disconnectHandler = handler;
+    void this.disconnectHandler;
   }
 
   async listTools(): Promise<McpTool[]> {

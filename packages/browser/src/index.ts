@@ -11,11 +11,13 @@
  * `{ type: "browser" }` delta.
  */
 import type { Context } from "@deepseek-ai/cordis";
+import "@pid/commands";
 import type { Session } from "@pid/session";
 import { textOutput, type ToolDefinition, type ToolEnv, type ToolOutput } from "@pid/tools";
 import "@pid/ui";
 import {
   BrowserSession,
+  findBrowserExecutable,
   grokSnapshotText,
   parseElementRef,
   tabsText,
@@ -286,4 +288,31 @@ export function apply(ctx: Context, config: Config = {}): void {
   }));
   for (const definition of tools) ctx.effect(() => ctx.tools.register(definition), `${name}: ${definition.name}`);
   ctx.effect(() => () => void closeAll(), `${name}: close browsers`);
+  ctx.inject(["commands"], (inner) => {
+    inner.effect(() => inner.commands.register({
+      name: "browser-diagnose",
+      description: "检查内置自动化浏览器的本机可执行文件与配置状态",
+      source: "browser",
+      execute() {
+        let executableLine: string;
+        try {
+          executableLine = `- **检测到的浏览器**：\`${findBrowserExecutable(config.executable)}\``;
+        } catch (error) {
+          executableLine = `- **检测到的浏览器**：未找到（${error instanceof Error ? error.message : String(error)}）`;
+        }
+        return {
+          output: [
+            "### Agent 浏览器诊断",
+            "",
+            executableLine,
+            `- **无头模式（Headless）**：${config.headless !== false ? "开启" : "关闭"}`,
+            `- **交互操作前审批**：${config.confirmActions !== false ? "开启" : "关闭"}`,
+            `- **会话数据目录**：${config.profileDir ? `持久化（\`${config.profileDir}\`）` : "临时目录（会话空闲或退出后自动清理）"}`,
+            `- **空闲回收时长**：${Math.max(1, config.idleMinutes ?? 10)} 分钟`,
+            `- **已注册工具数**：${tools.length}`,
+          ].join("\n"),
+        };
+      },
+    }), `${name}: /browser-diagnose`);
+  });
 }

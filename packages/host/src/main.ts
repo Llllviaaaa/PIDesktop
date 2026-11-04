@@ -21,6 +21,7 @@ import { createHost } from "./host.ts";
 import { PluginManager } from "./plugin-manager.ts";
 import * as pluginsRpc from "./plugins-rpc.ts";
 import { readDefaultModel } from "./providers.ts";
+import * as commandsRpc from "./commands-rpc.ts";
 import { applyDesktopMessage, parseControlLine } from "./control.ts";
 import * as diagnostics from "./diagnostics.ts";
 import * as featuresRpc from "./features-rpc.ts";
@@ -91,6 +92,7 @@ export async function main(argv: readonly string[]): Promise<void> {
   const defaultModel = () => readDefaultModel(providersFile);
   const codec = await dpapiCodec();
   let reload: () => Promise<string[]> = async () => [];
+  const managerRef: { current?: PluginManager } = {};
   const host = createHost({
     version: HOST_VERSION,
     dataDir,
@@ -99,6 +101,7 @@ export async function main(argv: readonly string[]): Promise<void> {
       [RpcGateway, { token }],
       ...corePlugins(dataDir, codec === undefined ? {} : { codec }),
       [sessionsRpc, { defaultModel }],
+      [commandsRpc, { manager: () => managerRef.current }],
       [uiRpc],
       [featuresRpc],
       [diagnostics],
@@ -129,7 +132,7 @@ export async function main(argv: readonly string[]): Promise<void> {
     hasHost: true,
     hasClient: true,
     plugin: betterSidebar,
-    config: { dataDir },
+    config: { dataDir, defaultModel },
   };
   const pluginManager = new PluginManager(host.ctx, {
     dataDir,
@@ -149,6 +152,7 @@ export async function main(argv: readonly string[]): Promise<void> {
     onChanged: (payload) => host.ctx.rpc.broadcast("plugin/changed", payload),
     onTrustChanged: (payload) => host.ctx.rpc.broadcast("workspace/trustChanged", payload),
   });
+  managerRef.current = pluginManager;
   await host.ctx.plugin(pluginsRpc, { manager: pluginManager });
 
   reload = async () => {

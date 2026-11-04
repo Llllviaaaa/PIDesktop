@@ -94,7 +94,8 @@ export interface SessionStats {
 export interface SlashCommand {
   name: string;
   description?: string;
-  source: "extension" | "prompt" | "skill";
+  argsHint?: string;
+  source: string;
   sourceInfo?: unknown;
 }
 
@@ -225,6 +226,11 @@ export interface SessionInfo {
   messageCount: number;
   createdAt?: string;
   updatedAt?: number;
+}
+
+export interface SessionSearchMatch {
+  session: SessionInfo;
+  snippet: string;
 }
 
 export interface DesktopHookConfig {

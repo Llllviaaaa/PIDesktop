@@ -15,6 +15,11 @@ import {
   type AppendResult,
   type CheckpointDiffResult,
   type CheckpointListResult,
+  type McpGetPromptResult,
+  type McpPromptsResult,
+  type McpReadResourceResult,
+  type McpResourcesResult,
+  type McpServerStatus,
   type McpStatusResult,
   type PermissionGetResult,
   type PlanGetResult,
@@ -41,6 +46,44 @@ export function apply(ctx: Context): void {
     if (!Number.isInteger(p.userSeq)) throw new RpcError(ErrorCode.InvalidParams, "userSeq must be the seq of a user message");
     return p.userSeq as number;
   };
+  const recordOf = (params: unknown): Record<string, unknown> => {
+    if (params === undefined || params === null) return {};
+    if (typeof params !== "object" || Array.isArray(params)) {
+      throw new RpcError(ErrorCode.InvalidParams, "params must be an object");
+    }
+    return params as Record<string, unknown>;
+  };
+  const optionalStr = (p: Record<string, unknown>, key: string): string | undefined => {
+    const raw = p[key];
+    if (raw === undefined) return undefined;
+    if (typeof raw !== "string") throw new RpcError(ErrorCode.InvalidParams, `${key} must be a string`);
+    const trimmed = raw.trim();
+    return trimmed === "" ? undefined : trimmed;
+  };
+  const requiredStr = (p: Record<string, unknown>, key: string): string => {
+    const value = optionalStr(p, key);
+    if (value === undefined) throw new RpcError(ErrorCode.InvalidParams, `${key} must be a non-empty string`);
+    return value;
+  };
+  const formatMcpStatuses = (): McpServerStatus[] =>
+    ctx.mcp.statuses().map(({ config, connected, toolCount, protocolVersion, hasResources, hasPrompts, error }) => ({
+      id: config.id,
+      name: config.name || config.id,
+      transport: config.transport,
+      connected,
+      toolCount,
+      ...(protocolVersion === undefined ? {} : { protocolVersion }),
+      resources: hasResources === true,
+      prompts: hasPrompts === true,
+      ...(error === undefined ? {} : { error }),
+    }));
+
+  ctx.on("mcp/changed", () => {
+    ctx.rpc.broadcast("mcp/changed", { servers: formatMcpStatuses() });
+  });
+  void ctx.mcp.ready.then(() => {
+    ctx.rpc.broadcast("mcp/changed", { servers: formatMcpStatuses() });
+  });
 
   const methods: Record<string, (params: unknown) => unknown> = {
     "permission.get": async (params): Promise<PermissionGetResult> => ctx.permissions.modes((await session(params)).target),
@@ -84,19 +127,72 @@ export function apply(ctx: Context): void {
 
     "mcp.status": async (): Promise<McpStatusResult> => {
       await ctx.mcp.ready;
-      return {
-        servers: ctx.mcp.statuses().map(({ config, connected, toolCount, protocolVersion, hasResources, hasPrompts, error }) => ({
-          id: config.id,
-          name: config.name || config.id,
-          transport: config.transport,
-          connected,
-          toolCount,
-          ...(protocolVersion === undefined ? {} : { protocolVersion }),
-          resources: hasResources === true,
-          prompts: hasPrompts === true,
-          ...(error === undefined ? {} : { error }),
-        })),
-      };
+      return { servers: formatMcpStatuses() };
+    },
+
+    "mcp.reconnect": async (params): Promise<McpStatusResult> => {
+      const p = recordOf(params);
+      const serverId = optionalStr(p, "serverId");
+      try {
+        await ctx.mcp.reconnect(serverId);
+      } catch (error) {
+        throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+      }
+      return { servers: formatMcpStatuses() };
+    },
+
+    "mcp.resources": async (params): Promise<McpResourcesResult> => {
+      const p = recordOf(params);
+      const serverId = optionalStr(p, "serverId");
+      try {
+        const resources = await ctx.mcp.listAllResources(serverId);
+        return { resources };
+      } catch (error) {
+        throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+      }
+    },
+
+    "mcp.readResource": async (params): Promise<McpReadResourceResult> => {
+      const p = recordOf(params);
+      const serverId = optionalStr(p, "serverId");
+      const uri = requiredStr(p, "uri");
+      try {
+        return await ctx.mcp.readServerResource(serverId, uri);
+      } catch (error) {
+        throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+      }
+    },
+
+    "mcp.prompts": async (params): Promise<McpPromptsResult> => {
+      const p = recordOf(params);
+      const serverId = optionalStr(p, "serverId");
+      try {
+        const prompts = await ctx.mcp.listAllPrompts(serverId);
+        return { prompts };
+      } catch (error) {
+        throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+      }
+    },
+
+    "mcp.getPrompt": async (params): Promise<McpGetPromptResult> => {
+      const p = recordOf(params);
+      const serverId = optionalStr(p, "serverId");
+      const name = requiredStr(p, "name");
+      const rawArgs = p.arguments;
+      const args: Record<string, string> = {};
+      if (rawArgs !== undefined) {
+        if (typeof rawArgs !== "object" || rawArgs === null || Array.isArray(rawArgs)) {
+          throw new RpcError(ErrorCode.InvalidParams, "arguments must be a string map");
+        }
+        for (const [key, value] of Object.entries(rawArgs as Record<string, unknown>)) {
+          if (typeof value === "string") args[key] = value;
+        }
+      }
+      try {
+        return await ctx.mcp.getServerPrompt(serverId, name, args);
+      } catch (error) {
+        throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+      }
     },
 
     "usage.summary": async (): Promise<UsageSummaryResult> => {

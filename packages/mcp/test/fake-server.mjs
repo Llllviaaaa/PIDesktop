@@ -11,6 +11,7 @@ if (process.env.FAKE_MCP_PIDS) writeFileSync(join(process.env.FAKE_MCP_PIDS, Str
 
 const uri = "fixture://note";
 let version = 1;
+let dynamicToolAdded = false;
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 const reply = (id, result) => send({ jsonrpc: "2.0", id, result });
@@ -31,10 +32,25 @@ readline.createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line
         tools: [
           { name: "echo", description: "Echo text", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } },
           { name: "fail", description: "Always fails", inputSchema: { type: "object" } },
+          ...(dynamicToolAdded
+            ? [{ name: "added_live", description: "Hot-added tool", inputSchema: { type: "object" } }]
+            : []),
         ],
       });
     case "tools/call":
       if (message.params.name === "fail") return reply(message.id, { content: [{ type: "text", text: "it broke" }], isError: true });
+      if (message.params.name === "added_live") return reply(message.id, { content: [{ type: "text", text: "live-ok" }] });
+      if (message.params.arguments?.text === "__emit_tools_changed__") {
+        dynamicToolAdded = true;
+        reply(message.id, { content: [{ type: "text", text: "emitting" }] });
+        setTimeout(() => send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" }), 20);
+        return;
+      }
+      if (message.params.arguments?.text === "__exit_now__") {
+        reply(message.id, { content: [{ type: "text", text: "bye" }] });
+        setTimeout(() => process.exit(1), 20);
+        return;
+      }
       return reply(message.id, { content: [{ type: "text", text: `echo: ${message.params.arguments.text}` }] });
     case "resources/list":
       return reply(message.id, { resources: [{ uri, name: "Note", mimeType: "text/plain" }] });

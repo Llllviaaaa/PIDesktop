@@ -18,6 +18,7 @@ import type {
 import { gitClient } from "./gitClient";
 import { harnessProviders } from "./harnessProviders";
 import { harnessRuntimes, type HostStatus } from "./harnessRuntime";
+import { mcpClient } from "./mcpClient";
 import { pluginClient } from "./pluginClient";
 import type { TranscriptEvent } from "./transcript";
 import { scheduleClient } from "./scheduleClient";
@@ -61,6 +62,7 @@ export const agent = {
   runScheduledTask: scheduleClient.run,
   cancelScheduledTask: scheduleClient.cancel,
   listSessions: sessionClient.list,
+  searchSessions: sessionClient.search,
   sessionHistory: sessionClient.history,
   exportSessionMarkdown: sessionClient.exportMarkdown,
   listArchivedSessions: sessionClient.listArchived,
@@ -89,6 +91,12 @@ export const agent = {
   removePlugin: pluginClient.remove,
   listWorkspaceTrust: pluginClient.trustList,
   setWorkspaceTrust: pluginClient.setTrust,
+  mcpStatus: mcpClient.status,
+  mcpReconnect: mcpClient.reconnect,
+  mcpResources: mcpClient.resources,
+  mcpReadResource: mcpClient.readResource,
+  mcpPrompts: mcpClient.prompts,
+  mcpGetPrompt: mcpClient.getPrompt,
   readAttachment: (file: string) => invoke<AttachmentPayload>("read_attachment", { file }),
   gitSnapshot: gitClient.snapshot,
   gitRepositoryRoot: gitClient.repositoryRoot,

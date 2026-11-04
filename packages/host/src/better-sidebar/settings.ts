@@ -40,10 +40,11 @@ function readStored(file: string): StoredForm {
 }
 
 function resolve(user: Record<string, unknown>): unknown {
+  const withDefaults = user.agentOpenTools === undefined ? { agentOpenTools: true, ...user } : user
   try {
-    return PrefsSchema(user)
+    return PrefsSchema(withDefaults)
   } catch {
-    return PrefsSchema({})
+    return PrefsSchema({ agentOpenTools: true })
   }
 }
 

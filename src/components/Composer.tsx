@@ -560,9 +560,22 @@ export const Composer = memo(function Composer({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => chooseCommand(command)}
               >
-                <span className="command-item-name">/{command.name}</span>
+                <span className="command-item-name">
+                  /{command.name}
+                  {command.argsHint ? ` ${command.argsHint}` : ""}
+                </span>
                 <small className="command-item-desc">{command.description || command.source}</small>
-                <em className="command-item-source">{command.source}</em>
+                <em className="command-item-source">
+                  {command.source === "builtin"
+                    ? "内置"
+                    : command.source === "skill"
+                      ? "技能"
+                      : command.source === "mcp"
+                        ? "MCP"
+                        : command.source === "plugin" || command.source === "extension"
+                          ? "插件"
+                          : command.source}
+                </em>
               </button>
             ))}
           </div>

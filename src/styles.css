@@ -1016,6 +1016,33 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .mcp-server-editor > header > div { display: flex; align-items: center; gap: 8px; }
 .mcp-server-fields .setting-row:last-child { border-bottom: 0; }
 .mcp-server-fields textarea { width: min(410px, 45vw); min-height: 74px; resize: vertical; font: 10px/1.45 var(--code-font); }
+.mcp-status-pill { font-style: normal; font-size: 10.5px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+.mcp-status-pill.connected { color: #16a34a; border-color: color-mix(in srgb, #16a34a 35%, var(--border)); background: color-mix(in srgb, #16a34a 10%, transparent); }
+.mcp-status-pill.disconnected { color: #dc2626; border-color: color-mix(in srgb, #dc2626 35%, var(--border)); background: color-mix(in srgb, #dc2626 10%, transparent); }
+.mcp-live-banner, .mcp-server-error { display: flex; align-items: center; gap: 8px; padding: 8px 13px; font-size: 11.5px; border-radius: 7px; margin-bottom: 12px; border: 1px solid var(--border); background: color-mix(in srgb, var(--accent-custom) 5%, var(--panel)); color: var(--text-2); }
+.mcp-live-banner.is-error, .mcp-server-error { color: #dc2626; border-color: color-mix(in srgb, #dc2626 32%, var(--border)); background: color-mix(in srgb, #dc2626 7%, var(--panel)); }
+.mcp-server-error { margin: 0; border-radius: 0; border-left: 0; border-right: 0; border-top: 0; }
+.mcp-inspector { border-top: 1px solid var(--border); background: color-mix(in srgb, var(--app) 55%, var(--panel)); }
+.mcp-inspector-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 15px; }
+.mcp-inspector-bar small { color: var(--text-3); font-size: 11px; }
+.mcp-inspector-body { border-top: 1px solid var(--border); padding: 11px 15px 14px; display: flex; flex-direction: column; gap: 10px; }
+.mcp-inspector-tabs { display: flex; align-items: center; gap: 6px; }
+.mcp-inspector-tabs > button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text-2); padding: 4px 10px; font-size: 11.5px; cursor: pointer; }
+.mcp-inspector-tabs > button.active { color: var(--text); border-color: var(--border-strong); font-weight: 600; }
+.mcp-inspector-tabs > button.mcp-inspector-refresh { margin-left: auto; font-size: 11px; color: var(--text-3); }
+.mcp-inspector-list { display: flex; flex-direction: column; gap: 7px; }
+.mcp-inspector-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); }
+.mcp-inspector-meta { min-width: 0; display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.mcp-inspector-meta strong { font-size: 12px; color: var(--text); }
+.mcp-inspector-meta code { font: 11px var(--code-font); color: var(--text-3); overflow-wrap: anywhere; }
+.mcp-inspector-meta small { font-size: 11px; color: var(--text-2); }
+.mcp-prompt-args { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.mcp-prompt-args input { min-width: 150px; flex: 1; padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--app); color: var(--text); font-size: 11.5px; }
+.mcp-inspector-empty { display: flex; align-items: center; gap: 7px; color: var(--text-3); font-size: 11.5px; padding: 8px 2px; }
+.mcp-inspector-error { color: #dc2626; font-size: 11.5px; padding: 4px 2px; }
+.mcp-inspector-preview { border: 1px solid var(--border); border-radius: 7px; background: var(--panel); overflow: hidden; margin-top: 6px; }
+.mcp-inspector-preview > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 11.5px; }
+.mcp-inspector-preview pre { margin: 0; padding: 10px; max-height: 220px; overflow: auto; font: 11px/1.45 var(--code-font); color: var(--text); white-space: pre-wrap; word-break: break-word; }
 .appearance-picker-block { padding: 14px; }
 .appearance-picker-block + .setting-row, .setting-row + .appearance-picker-block { border-top: 1px solid var(--border); }
 .theme-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }

@@ -1,4 +1,5 @@
-import type { SessionInfo, UiMessage } from "../types";
+import type { SessionSearchResult } from "@pid/protocol";
+import type { SessionInfo, SessionSearchMatch, UiMessage } from "../types";
 import { HARNESS_SESSION_PREFIX, harnessRuntimes } from "./harnessRuntime";
 import { sessionInfoFromHost } from "./hostSessions";
 import { historyToUi } from "./transcript";
@@ -40,5 +41,25 @@ export const sessionClient = {
   },
   async delete(file: string): Promise<void> {
     await harnessRuntimes.call("session.delete", { sessionId: hostId(file) });
+  },
+  async search(
+    query: string,
+    options: { cwd?: string; includeArchived?: boolean; limit?: number } = {},
+  ): Promise<SessionSearchMatch[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    try {
+      const { hits } = await harnessRuntimes.call<SessionSearchResult>("session.search", {
+        query: trimmed,
+        ...(options.cwd ? { cwd: options.cwd } : {}),
+        ...(options.includeArchived ? { includeArchived: true } : {}),
+        ...(options.limit ? { limit: options.limit } : {}),
+      });
+      return hits
+        .filter((hit) => hit.session.parent === undefined && hit.session.side !== true)
+        .map((hit) => ({ session: sessionInfoFromHost(hit.session), snippet: hit.snippet }));
+    } catch {
+      return [];
+    }
   },
 };

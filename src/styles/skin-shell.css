@@ -798,6 +798,27 @@
   border-radius: 6px;
 }
 
+.codex-shot .thread-search-snippet {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0 10px 5px 23px;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.codex-shot .thread-row-shell:hover .thread-search-snippet {
+  color: var(--text-2);
+}
+
 .codex-shot .thread-row {
   height: 28px;
   min-height: 28px;

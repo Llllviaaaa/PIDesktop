@@ -37,6 +37,17 @@ export interface SessionDelta {
   [key: string]: unknown;
 }
 
+export interface SessionSearchOptions {
+  cwd?: string;
+  includeArchived?: boolean;
+  limit?: number;
+}
+
+export interface SessionSearchHit {
+  session: SessionSummary;
+  snippet: string;
+}
+
 /**
  * Where logs live. `append` is called synchronously as each event commits,
  * so an event is with storage before anyone hears of it.
@@ -49,6 +60,8 @@ export interface SessionStorage {
   list(): Promise<SessionSummary[]>;
   /** Remove the log for good; false when there was none. */
   delete(id: string): Promise<boolean>;
+  /** Full-text search across session titles, paths and messages; optional on minimal stores. */
+  search?(query: string, options?: SessionSearchOptions): Promise<SessionSearchHit[]>;
 }
 
 /** Keeps logs in memory; the default until a persistence plugin registers. */
@@ -250,6 +263,11 @@ export class Sessions extends Service {
     return session;
   }
 
+  /** Return an already-loaded in-memory session without hitting storage. */
+  peek(id: string): Session | undefined {
+    return this.open.get(id);
+  }
+
   /** The session with `id`, loaded from storage on first use. */
   async get(id: string): Promise<Session | undefined> {
     const opened = this.open.get(id);
@@ -275,6 +293,41 @@ export class Sessions extends Service {
     const stored = new Map((await this.storage.list()).map((summary) => [summary.id, summary]));
     for (const session of this.open.values()) stored.set(session.id, session.summary());
     return [...stored.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  /** Full-text search across sessions; falls back to in-memory scan when storage provides no FTS index. */
+  async search(query: string, options: SessionSearchOptions = {}): Promise<SessionSearchHit[]> {
+    const trimmed = query.trim();
+    if (trimmed === "") return [];
+    const limit = Math.max(1, Math.min(options.limit ?? 30, 100));
+    if (this.storage.search !== undefined) {
+      const hits = await this.storage.search(trimmed, { ...options, limit });
+      return hits.map((hit) => {
+        const live = this.open.get(hit.session.id);
+        return live === undefined ? hit : { ...hit, session: live.summary() };
+      });
+    }
+    const lower = trimmed.toLowerCase();
+    const all = await this.list();
+    const hits: SessionSearchHit[] = [];
+    for (const summary of all) {
+      if (summary.parent !== undefined || summary.side === true) continue;
+      if (options.includeArchived !== true && summary.archived) continue;
+      if (options.cwd !== undefined && options.cwd !== "" && summary.cwd.toLowerCase() !== options.cwd.toLowerCase()) continue;
+      const loaded = await this.get(summary.id);
+      const body = (loaded?.state().messages ?? [])
+        .flatMap((msg) => msg.content.map((b) => ("text" in b && typeof b.text === "string" ? b.text : "")))
+        .join("\n");
+      const haystack = `${summary.title ?? ""}\n${summary.firstMessage ?? ""}\n${summary.cwd}\n${body}`;
+      const at = haystack.toLowerCase().indexOf(lower);
+      if (at === -1) continue;
+      const start = Math.max(0, at - 24);
+      const end = Math.min(haystack.length, at + trimmed.length + 48);
+      const snippet = `${start > 0 ? "…" : ""}${haystack.slice(start, end).replace(/\s+/g, " ").trim()}${end < haystack.length ? "…" : ""}`;
+      hits.push({ session: summary, snippet });
+      if (hits.length >= limit) break;
+    }
+    return hits;
   }
 
   /** Delete a session's log. The caller makes sure nothing is running in it. */

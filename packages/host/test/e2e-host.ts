@@ -9,6 +9,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import { ScriptedProvider, useScriptedProvider } from "@pid/testkit";
 import { builtinFeatureDefinitions, corePlugins, type BuiltinPluginDefinition } from "../src/agent-plugins.ts";
 import * as betterSidebar from "../src/better-sidebar/index.ts";
+import * as commandsRpc from "../src/commands-rpc.ts";
 import * as diagnostics from "../src/diagnostics.ts";
 import * as featuresRpc from "../src/features-rpc.ts";
 import { readHarnessConfig } from "../src/harness-config.ts";
@@ -46,6 +47,7 @@ export async function startE2eHost(options: E2eHostOptions): Promise<E2eHost> {
   const { dataDir, provider } = options;
   const defaultModel = () => E2E_MODEL;
   let reload: () => Promise<string[]> = async () => [];
+  const managerRef: { current?: PluginManager } = {};
   const host = createHost({
     version: "0.0.0-e2e",
     dataDir,
@@ -54,6 +56,7 @@ export async function startE2eHost(options: E2eHostOptions): Promise<E2eHost> {
       [RpcGateway, { token: options.token }],
       ...corePlugins(dataDir),
       [sessionsRpc, { defaultModel }],
+      [commandsRpc, { manager: () => managerRef.current }],
       [uiRpc],
       [featuresRpc],
       [diagnostics],
@@ -77,7 +80,7 @@ export async function startE2eHost(options: E2eHostOptions): Promise<E2eHost> {
     hasHost: true,
     hasClient: true,
     plugin: betterSidebar,
-    config: { dataDir },
+    config: { dataDir, defaultModel },
   };
   const pluginManager = new PluginManager(host.ctx, {
     dataDir,
@@ -89,6 +92,7 @@ export async function startE2eHost(options: E2eHostOptions): Promise<E2eHost> {
     onChanged: (payload) => host.ctx.rpc.broadcast("plugin/changed", payload),
     onTrustChanged: (payload) => host.ctx.rpc.broadcast("workspace/trustChanged", payload),
   });
+  managerRef.current = pluginManager;
   await host.ctx.plugin(pluginsRpc, { manager: pluginManager });
   reload = () => pluginManager.sync({ reason: "reloaded" });
   await pluginManager.sync();

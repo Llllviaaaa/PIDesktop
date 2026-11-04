@@ -21,6 +21,7 @@ import {
   type SessionListResult,
   type SessionPromptResult,
   type SessionResult,
+  type SessionSearchResult,
   type SessionSubscribeResult,
 } from "@pid/protocol";
 import { sessionMarkdown, settledSeq, type Session } from "@pid/session";
@@ -147,6 +148,21 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
 
     "session.list": async (): Promise<SessionListResult> => ({ sessions: await ctx.sessions.list() }),
+
+    "session.search": async (p): Promise<SessionSearchResult> => {
+      if (typeof p.query !== "string") {
+        throw new RpcError(ErrorCode.InvalidParams, "query must be a string");
+      }
+      const cwd = typeof p.cwd === "string" && p.cwd.trim() !== "" ? p.cwd.trim() : undefined;
+      const includeArchived = p.includeArchived === true;
+      const limit = optionalSeq(p, "limit");
+      const hits = await ctx.sessions.search(p.query, {
+        ...(cwd === undefined ? {} : { cwd }),
+        ...(includeArchived ? { includeArchived: true } : {}),
+        ...(limit !== undefined && limit > 0 ? { limit } : {}),
+      });
+      return { hits };
+    },
 
     "session.get": async (p): Promise<SessionGetResult> => {
       const target = await session(p);

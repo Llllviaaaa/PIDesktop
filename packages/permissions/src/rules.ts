@@ -318,6 +318,7 @@ export function evaluateToolPermission(options: {
     "web_fetch",
     "fetch",
     "update_plan",
+    "sidebar_open",
     "mcp_list_resources",
     "mcp_read_resource",
     "mcp_subscribe_resource",

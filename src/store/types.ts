@@ -84,6 +84,7 @@ export interface RuntimeSlice {
   setThinkingLevel: (level: string) => Promise<void>;
   setRuntimeAgentMode: (mode: AppSettings["agentMode"]) => Promise<void>;
   setRuntimePermissionMode: (mode: AppSettings["permissionMode"]) => Promise<void>;
+  refreshCommands: (cwd?: string) => Promise<void>;
   refreshGit: () => Promise<void>;
   loadSettings: () => Promise<void>;
   saveSettings: (settings: AppSettings) => Promise<void>;

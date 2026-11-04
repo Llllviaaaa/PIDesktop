@@ -11,6 +11,7 @@ import type { Context, Plugin } from "@deepseek-ai/cordis";
 import { AgentLoop } from "@pid/agent-loop";
 import * as browser from "@pid/browser";
 import * as checkpoints from "@pid/checkpoints";
+import { Commands } from "@pid/commands";
 import * as computer from "@pid/computer";
 import * as hooks from "@pid/hooks";
 import { Credentials, LlmService } from "@pid/llm";
@@ -54,9 +55,10 @@ export function corePlugins(dataDir: string, options: CoreOptions = {}): PluginE
     ...(options.codec === undefined ? [] : [[secretStore, { file: join(dataDir, "secrets.dat"), codec: options.codec }] as PluginEntry]),
     [LlmService],
     [Sessions],
-    [sessionJsonl, { dir: join(dataDir, "sessions") }],
+    [sessionJsonl, { dir: join(dataDir, "sessions"), indexFile: join(dataDir, "index.sqlite") }],
     [Ui],
     [Tools],
+    [Commands],
     [SystemPrompt],
     [toolFs],
     [toolBash],

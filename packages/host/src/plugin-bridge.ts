@@ -18,6 +18,7 @@ import { pathToFileURL } from "node:url";
 import * as cordisNs from "@deepseek-ai/cordis";
 import Schema, * as schemasteryNs from "@deepseek-ai/schemastery";
 import * as agentNs from "@pid/agent";
+import * as commandsNs from "@pid/commands";
 import * as llmNs from "@pid/llm";
 import * as protocolNs from "@pid/protocol";
 import * as sessionNs from "@pid/session";
@@ -59,6 +60,7 @@ export const HOST_SHARED_MODULES: Readonly<Record<string, Record<string, unknown
   "@pid/tools": { ...toolsNs },
   "@pid/session": { ...sessionNs },
   "@pid/agent": { ...agentNs },
+  "@pid/commands": { ...commandsNs },
   "@pid/system-prompt": { ...systemPromptNs },
   "@pid/ui": { ...uiNs },
 };

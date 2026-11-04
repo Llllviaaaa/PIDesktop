@@ -39,10 +39,13 @@ import {
   ArrowUp,
   X,
 } from "lucide-react";
+import type { McpChangedNotification, McpServerStatus } from "@pid/protocol";
 import { agent } from "../lib/agent";
 import { exportDiagnostics, logsDir } from "../lib/diagnostics";
+import { harnessRuntimes } from "../lib/harnessRuntime";
 import { useAppStore } from "../store";
 import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
+import { McpServerInspector } from "./McpServerInspector";
 import { PetAvatar } from "./PetCompanion";
 import { ModelsPage } from "./ModelsPage";
 import { PluginsSettingsPanel } from "./PluginsSettingsPanel";
@@ -943,6 +946,52 @@ function maskMcpCredentials(settings: AppSettings): AppSettings {
 }
 
 function McpPage({ form, update }: { form: AppSettings; update: Update }) {
+  const queryClient = useQueryClient();
+  const [reconnectingId, setReconnectingId] = useState<string | null>(null);
+  const [reconnectNotice, setReconnectNotice] = useState<{ kind: "info" | "error"; text: string } | null>(null);
+  const mcpStatusQuery = useQuery({
+    queryKey: queryKeys.mcpStatus(),
+    queryFn: () => agent.mcpStatus().catch((): McpServerStatus[] => []),
+  });
+
+  useEffect(() => {
+    return harnessRuntimes.onNotification("mcp/changed", (raw) => {
+      const payload = raw as Partial<McpChangedNotification> | undefined;
+      if (Array.isArray(payload?.servers)) {
+        queryClient.setQueryData(queryKeys.mcpStatus(), payload.servers);
+      } else {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.mcpStatus() });
+      }
+      void queryClient.invalidateQueries({ queryKey: ["mcp", "resources"] });
+      void queryClient.invalidateQueries({ queryKey: ["mcp", "prompts"] });
+    });
+  }, [queryClient]);
+
+  const statusById = new Map((mcpStatusQuery.data ?? []).map((entry) => [entry.id, entry]));
+
+  const handleReconnect = async (serverId?: string) => {
+    const key = serverId ?? "__all__";
+    setReconnectingId(key);
+    setReconnectNotice(null);
+    try {
+      const servers = await agent.mcpReconnect(serverId);
+      queryClient.setQueryData(queryKeys.mcpStatus(), servers);
+      void queryClient.invalidateQueries({ queryKey: ["mcp", "resources"] });
+      void queryClient.invalidateQueries({ queryKey: ["mcp", "prompts"] });
+      const connectedCount = servers.filter((entry) => entry.connected).length;
+      setReconnectNotice({
+        kind: "info",
+        text: serverId
+          ? `已重连服务器 ${serverId}`
+          : `已完成重连（已连接 ${connectedCount}/${servers.length} 个已启用服务）`,
+      });
+    } catch (error) {
+      setReconnectNotice({ kind: "error", text: `重连失败：${describeError(error)}` });
+    } finally {
+      setReconnectingId(null);
+    }
+  };
+
   const addServer = (transport: "stdio" | "http") => {
     const id = `server-${Date.now().toString(36)}`;
     update("mcpServers", [...form.mcpServers, {
@@ -966,39 +1015,90 @@ function McpPage({ form, update }: { form: AppSettings; update: Update }) {
   const removeServer = (id: string) => update("mcpServers", form.mcpServers.filter((server) => server.id !== id));
 
   return <>
-    <PageHeading title="MCP 服务器" description="连接本地或远程 Model Context Protocol 服务器，并把它们的真实工具注册给 Agent。" />
+    <PageHeading title="MCP 服务器" description="连接本地或远程 Model Context Protocol 服务器，实时热刷新工具，并在线浏览资源与提示词。" />
     <Card title="MCP 主机">
-      <Row title="启用 MCP" description="新任务会连接已启用的服务器，并动态注册发现到的工具。"><Switch label="启用 MCP" checked={form.mcpEnabled} onChange={(value) => update("mcpEnabled", value)} /></Row>
+      <Row title="启用 MCP" description="自动连接已启用的服务器；收到 tools/list_changed 时无感热刷新工具，无需重启。"><Switch label="启用 MCP" checked={form.mcpEnabled} onChange={(value) => update("mcpEnabled", value)} /></Row>
       <Row title="工具调用前审批" description="每次执行 MCP 工具前显示服务器、工具名和参数。"><Switch label="MCP 工具调用前审批" checked={form.mcpConfirmTools} onChange={(value) => update("mcpConfirmTools", value)} /></Row>
     </Card>
     <div className="mcp-toolbar">
       <button className="primary-button" onClick={() => addServer("stdio")}><Plus size={14} />添加本地服务器</button>
       <button className="secondary-button" onClick={() => addServer("http")}><Plus size={14} />添加 HTTP 服务器</button>
+      {form.mcpServers.length > 0 && (
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={reconnectingId !== null}
+          onClick={() => void handleReconnect()}
+        >
+          <RefreshCw className={reconnectingId === "__all__" ? "spinner-icon" : ""} size={14} />
+          <span>{reconnectingId === "__all__" ? "正在重连…" : "全部重连"}</span>
+        </button>
+      )}
     </div>
-    {form.mcpServers.length === 0 && <div className="settings-empty mcp-empty"><Network size={24} />尚未配置 MCP 服务器。</div>}
-    {form.mcpServers.map((server) => <section className="mcp-server-editor" key={server.id}>
-      <header>
-        <span><Network size={16} /><strong>{server.name || server.id}</strong><small>{server.transport === "stdio" ? "STDIO" : "Streamable HTTP"}</small></span>
-        <div><Switch label={`启用 ${server.name || server.id}`} checked={server.enabled} onChange={(enabled) => changeServer(server.id, { enabled })} /><button className="icon-button danger" title="删除服务器" onClick={() => removeServer(server.id)}><Trash2 size={15} /></button></div>
-      </header>
-      <div className="mcp-server-fields">
-        <Row title="名称"><input value={server.name} onChange={(event) => changeServer(server.id, { name: event.target.value })} placeholder="文件系统" /></Row>
-        <Row title="服务器 ID" description="用于生成 mcp__server__tool 工具名；必须唯一。"><input value={server.id} onChange={(event) => changeServer(server.id, { id: event.target.value.replace(/[^a-zA-Z0-9_-]/g, "-") })} /></Row>
-        <Row title="传输方式"><select value={server.transport} onChange={(event) => changeServer(server.id, { transport: event.target.value as "stdio" | "http" })}><option value="stdio">STDIO（本地进程）</option><option value="http">Streamable HTTP</option></select></Row>
-        {server.transport === "stdio" ? <>
-          <Row title="命令" description="例如 npx、uvx 或服务器可执行文件的绝对路径。"><input value={server.command} onChange={(event) => changeServer(server.id, { command: event.target.value })} placeholder="npx" /></Row>
-          <Row title="参数" description="每行一个参数。"><textarea value={server.args.join("\n")} onChange={(event) => changeServer(server.id, { args: event.target.value.split(/\r?\n/).filter((value) => value.length > 0) })} placeholder={'-y\n@modelcontextprotocol/server-filesystem\nD:\\Projects'} /></Row>
-          <Row title="工作目录" description="留空时使用当前任务工作区。"><input value={server.cwd} onChange={(event) => changeServer(server.id, { cwd: event.target.value })} placeholder="使用任务工作区" /></Row>
-          <Row title="环境变量" description="每行 KEY=value；适合 STDIO 服务器凭据。"><textarea value={recordToLines(server.env)} onChange={(event) => changeServer(server.id, { env: linesToRecord(event.target.value) })} placeholder="TOKEN=…" /></Row>
-          <Row title="继承完整环境" description="默认会过滤父进程中的 API key、令牌、密码和 Cookie。"><Switch label="继承完整父进程环境" checked={server.inheritEnvironment} onChange={(inheritEnvironment) => changeServer(server.id, { inheritEnvironment })} /></Row>
-        </> : <>
-          <Row title="MCP 端点"><input value={server.url} onChange={(event) => changeServer(server.id, { url: event.target.value })} placeholder="https://example.com/mcp" /></Row>
-          <Row title="请求头" description="每行 Header=value；可用于预配置 Bearer 令牌。"><textarea value={recordToLines(server.headers)} onChange={(event) => changeServer(server.id, { headers: linesToRecord(event.target.value) })} placeholder="Authorization=Bearer …" /></Row>
-        </>}
-        <Row title="受信任只读服务器" description="仅在你确认该服务器所有非破坏性工具都只读时启用；只读权限模式据此决定是否允许调用。"><Switch label="将服务器标记为受信任只读" checked={server.trustedReadOnly} onChange={(trustedReadOnly) => changeServer(server.id, { trustedReadOnly })} /></Row>
+    {reconnectNotice && (
+      <div className={`mcp-live-banner ${reconnectNotice.kind === "error" ? "is-error" : ""}`}>
+        {reconnectNotice.kind === "error" ? <CircleAlert size={14} /> : <CheckCircle2 size={14} />}
+        <span>{reconnectNotice.text}</span>
       </div>
-    </section>)}
-    <div className="settings-info"><ShieldAlert size={17} /><span>MCP 服务器拥有其进程或远程账户对应的权限。STDIO 凭据和 HTTP 请求头由当前 Windows 账户加密保存，重新打开设置时只显示掩码；工具注解来自服务器，只有“受信任只读服务器”开关代表你的明确授权。保存后请新建任务，并运行 <code>/mcp-diagnose</code> 查看连接和工具数量。</span></div>
+    )}
+    {form.mcpServers.length === 0 && <div className="settings-empty mcp-empty"><Network size={24} />尚未配置 MCP 服务器。</div>}
+    {form.mcpServers.map((server) => {
+      const liveStatus = statusById.get(server.id);
+      return <section className="mcp-server-editor" key={server.id}>
+        <header>
+          <span>
+            <Network size={16} />
+            <strong>{server.name || server.id}</strong>
+            <small>{server.transport === "stdio" ? "STDIO" : "Streamable HTTP"}</small>
+            {server.enabled && liveStatus && (
+              <em className={`mcp-status-pill ${liveStatus.connected ? "connected" : "disconnected"}`}>
+                {liveStatus.connected ? `已连接 · ${liveStatus.toolCount} 个工具` : "未连接"}
+              </em>
+            )}
+          </span>
+          <div>
+            {server.enabled && liveStatus !== undefined && (
+              <button
+                type="button"
+                className="secondary-button compact"
+                disabled={reconnectingId !== null}
+                onClick={() => void handleReconnect(server.id)}
+                title="重新连接此 MCP 服务器"
+              >
+                <RefreshCw className={reconnectingId === server.id ? "spinner-icon" : ""} size={12} />
+                <span>{reconnectingId === server.id ? "重连中…" : "重连"}</span>
+              </button>
+            )}
+            <Switch label={`启用 ${server.name || server.id}`} checked={server.enabled} onChange={(enabled) => changeServer(server.id, { enabled })} />
+            <button className="icon-button danger" title="删除服务器" onClick={() => removeServer(server.id)}><Trash2 size={15} /></button>
+          </div>
+        </header>
+        {server.enabled && liveStatus?.error && (
+          <div className="mcp-server-error">
+            <CircleAlert size={13} />
+            <span>{liveStatus.error}</span>
+          </div>
+        )}
+        <div className="mcp-server-fields">
+          <Row title="名称"><input value={server.name} onChange={(event) => changeServer(server.id, { name: event.target.value })} placeholder="文件系统" /></Row>
+          <Row title="服务器 ID" description="用于生成 mcp__server__tool 工具名；必须唯一。"><input value={server.id} onChange={(event) => changeServer(server.id, { id: event.target.value.replace(/[^a-zA-Z0-9_-]/g, "-") })} /></Row>
+          <Row title="传输方式"><select value={server.transport} onChange={(event) => changeServer(server.id, { transport: event.target.value as "stdio" | "http" })}><option value="stdio">STDIO（本地进程）</option><option value="http">Streamable HTTP</option></select></Row>
+          {server.transport === "stdio" ? <>
+            <Row title="命令" description="例如 npx、uvx 或服务器可执行文件的绝对路径。"><input value={server.command} onChange={(event) => changeServer(server.id, { command: event.target.value })} placeholder="npx" /></Row>
+            <Row title="参数" description="每行一个参数。"><textarea value={server.args.join("\n")} onChange={(event) => changeServer(server.id, { args: event.target.value.split(/\r?\n/).filter((value) => value.length > 0) })} placeholder={'-y\n@modelcontextprotocol/server-filesystem\nD:\\Projects'} /></Row>
+            <Row title="工作目录" description="留空时使用当前任务工作区。"><input value={server.cwd} onChange={(event) => changeServer(server.id, { cwd: event.target.value })} placeholder="使用任务工作区" /></Row>
+            <Row title="环境变量" description="每行 KEY=value；适合 STDIO 服务器凭据。"><textarea value={recordToLines(server.env)} onChange={(event) => changeServer(server.id, { env: linesToRecord(event.target.value) })} placeholder="TOKEN=…" /></Row>
+            <Row title="继承完整环境" description="默认会过滤父进程中的 API key、令牌、密码和 Cookie。"><Switch label="继承完整父进程环境" checked={server.inheritEnvironment} onChange={(inheritEnvironment) => changeServer(server.id, { inheritEnvironment })} /></Row>
+          </> : <>
+            <Row title="MCP 端点"><input value={server.url} onChange={(event) => changeServer(server.id, { url: event.target.value })} placeholder="https://example.com/mcp" /></Row>
+            <Row title="请求头" description="每行 Header=value；可用于预配置 Bearer 令牌。"><textarea value={recordToLines(server.headers)} onChange={(event) => changeServer(server.id, { headers: linesToRecord(event.target.value) })} placeholder="Authorization=Bearer …" /></Row>
+          </>}
+          <Row title="受信任只读服务器" description="仅在你确认该服务器所有非破坏性工具都只读时启用；只读权限模式据此决定是否允许调用。"><Switch label="将服务器标记为受信任只读" checked={server.trustedReadOnly} onChange={(trustedReadOnly) => changeServer(server.id, { trustedReadOnly })} /></Row>
+        </div>
+        <McpServerInspector serverId={server.id} status={liveStatus} />
+      </section>;
+    })}
+    <div className="settings-info"><ShieldAlert size={17} /><span>MCP 服务器拥有其进程或远程账户对应的权限。STDIO 凭据和 HTTP 请求头由当前 Windows 账户加密保存，重新打开设置时只显示掩码；工具注解来自服务器，只有“受信任只读服务器”开关代表你的明确授权。保存设置后自动生效，也可随时在对话中输入 <code>/mcp-status</code>、<code>/mcp-resources</code> 或 <code>/mcp-prompts</code>。</span></div>
   </>;
 }
 

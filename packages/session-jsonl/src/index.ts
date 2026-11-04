@@ -1,6 +1,8 @@
 /**
  * Session logs as JSONL files (ADR 0004):
- * `<dir>/<YYYY-MM>/<sessionId>.jsonl`, a header line and one event per line.
+ * `<dir>/<YYYY-MM>/<sessionId>.jsonl`, a header line and one event per line,
+ * backed by a derived SQLite + FTS5 index (`index.sqlite`) for fast listing
+ * and full-text conversation search.
  *
  * Appends are synchronous so an event is on disk (in the OS cache) before it
  * is broadcast; `flush` fsyncs, which the loop does once per turn.
@@ -15,9 +17,14 @@ import {
   summarize,
   type SessionEvent,
   type SessionHeader,
+  type SessionSearchHit,
+  type SessionSearchOptions,
   type SessionStorage,
   type SessionSummary,
 } from "@pid/session";
+import { extractSessionSearchBody, SessionSqliteIndex, type IndexedSessionInput } from "./sqlite-index.ts";
+
+export { buildFtsMatchQuery, extractMatchSnippet, extractSessionSearchBody, segmentForFts, SessionSqliteIndex } from "./sqlite-index.ts";
 
 export const name = "pid-session-jsonl";
 export const inject = ["sessions"];
@@ -25,6 +32,8 @@ export const inject = ["sessions"];
 export interface Config {
   /** The sessions directory, e.g. `~/.pid/sessions`. */
   dir: string;
+  /** Optional explicit SQLite index file path, e.g. `~/.pid/index.sqlite`. Defaults to `<dir>/index.sqlite`. */
+  indexFile?: string;
 }
 
 export interface ParsedLog {
@@ -33,6 +42,8 @@ export interface ParsedLog {
   /** Lines that were skipped: unknown types, or a torn last line after a crash. */
   skipped: number;
 }
+
+const LIVE_LOG_CACHE_MAX = 32;
 
 /**
  * Parse a log. Throws when the file is not a session or is a newer major
@@ -74,8 +85,32 @@ function monthOf(iso: string): string {
 export class JsonlStorage implements SessionStorage {
   /** id → file, for sessions created or found in this process. */
   private readonly paths = new Map<string, string>();
+  /** Small bounded LRU of active logs so `append` updates SQLite without re-parsing the file on every event. */
+  private readonly recentLogs = new Map<string, SessionEvent[]>();
+  private readonly index: SessionSqliteIndex;
 
-  constructor(private readonly dir: string, private readonly onSkipped: (file: string, count: number) => void = () => {}) {}
+  constructor(
+    private readonly dir: string,
+    private readonly onSkipped: (file: string, count: number) => void = () => {},
+    indexFile = join(dir, "index.sqlite"),
+  ) {
+    this.index = new SessionSqliteIndex(indexFile);
+  }
+
+  close(): void {
+    this.recentLogs.clear();
+    this.index.close();
+  }
+
+  private rememberRecent(id: string, events: SessionEvent[]): void {
+    this.recentLogs.delete(id);
+    this.recentLogs.set(id, events);
+    while (this.recentLogs.size > LIVE_LOG_CACHE_MAX) {
+      const oldest = this.recentLogs.keys().next().value;
+      if (oldest === undefined) break;
+      this.recentLogs.delete(oldest);
+    }
+  }
 
   private pathFor(header: SessionHeader): string {
     let path = this.paths.get(header.id);
@@ -90,10 +125,36 @@ export class JsonlStorage implements SessionStorage {
     const path = this.pathFor(header);
     mkdirSync(join(this.dir, monthOf(header.createdAt)), { recursive: true });
     writeFileSync(path, [header, ...events].map((line) => `${JSON.stringify(line)}\n`).join(""), { flag: "wx" });
+    const copy = [...events];
+    this.rememberRecent(header.id, copy);
+    this.index.upsertFromDisk({
+      filePath: path,
+      header,
+      summary: summarize(header, copy),
+      body: extractSessionSearchBody(copy),
+    });
   }
 
   append(header: SessionHeader, event: SessionEvent): void {
-    appendFileSync(this.pathFor(header), `${JSON.stringify(event)}\n`);
+    const path = this.pathFor(header);
+    appendFileSync(path, `${JSON.stringify(event)}\n`);
+    let events = this.recentLogs.get(header.id);
+    if (events === undefined) {
+      try {
+        events = parseLog(readFileSync(path, "utf8")).events;
+      } catch {
+        return;
+      }
+    } else {
+      events.push(event);
+    }
+    this.rememberRecent(header.id, events);
+    this.index.upsertFromDisk({
+      filePath: path,
+      header,
+      summary: summarize(header, events),
+      body: extractSessionSearchBody(events),
+    });
   }
 
   async flush(header: SessionHeader): Promise<void> {
@@ -110,21 +171,33 @@ export class JsonlStorage implements SessionStorage {
     if (path === undefined) return undefined;
     const parsed = parseLog(readFileSync(path, "utf8"));
     if (parsed.skipped > 0) this.onSkipped(path, parsed.skipped);
+    this.rememberRecent(id, [...parsed.events]);
     return { header: parsed.header, events: parsed.events };
   }
 
-  async list(): Promise<SessionSummary[]> {
-    const summaries: SessionSummary[] = [];
-    for (const path of this.files()) {
-      try {
-        const { header, events } = parseLog(readFileSync(path, "utf8"));
-        this.paths.set(header.id, path);
-        summaries.push(summarize(header, events));
-      } catch {
-        // Not ours, or from a newer version; listing skips it.
-      }
+  private parseIndexedFile = (path: string): IndexedSessionInput | undefined => {
+    try {
+      const { header, events } = parseLog(readFileSync(path, "utf8"));
+      this.paths.set(header.id, path);
+      return {
+        filePath: path,
+        header,
+        summary: summarize(header, events),
+        body: extractSessionSearchBody(events),
+      };
+    } catch {
+      return undefined;
     }
-    return summaries;
+  };
+
+  async list(): Promise<SessionSummary[]> {
+    const rows = this.index.reconcile(this.files(), this.parseIndexedFile);
+    for (const row of rows) this.paths.set(row.summary.id, row.filePath);
+    return rows.map((row) => row.summary);
+  }
+
+  async search(query: string, options: SessionSearchOptions = {}): Promise<SessionSearchHit[]> {
+    return this.index.search(query, this.files(), this.parseIndexedFile, options);
   }
 
   async delete(id: string): Promise<boolean> {
@@ -132,6 +205,8 @@ export class JsonlStorage implements SessionStorage {
     if (path === undefined) return false;
     rmSync(path, { force: true });
     this.paths.delete(id);
+    this.recentLogs.delete(id);
+    this.index.remove(id);
     return true;
   }
 
@@ -160,6 +235,16 @@ export class JsonlStorage implements SessionStorage {
 
 export function apply(ctx: Context, config: Config): void {
   const logger = ctx.logger("sessions");
-  const storage = new JsonlStorage(config.dir, (file, count) => logger.warn("skipped %d unreadable line(s) in %s", count, file));
-  ctx.effect(() => ctx.sessions.registerStorage(storage), `${name}: storage`);
+  const storage = new JsonlStorage(
+    config.dir,
+    (file, count) => logger.warn("skipped %d unreadable line(s) in %s", count, file),
+    config.indexFile ?? join(config.dir, "index.sqlite"),
+  );
+  ctx.effect(() => {
+    const unregister = ctx.sessions.registerStorage(storage);
+    return () => {
+      unregister();
+      storage.close();
+    };
+  }, `${name}: storage`);
 }

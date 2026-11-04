@@ -17,6 +17,8 @@
 import type {
   CheckpointDiffResult,
   CheckpointListResult,
+  CommandListResult,
+  CommandRunResult,
   ModelListResult,
   PersistedEvent,
   ProviderListResult,
@@ -29,7 +31,7 @@ import type {
   SessionSubscribeResult,
   UiRequestNotification,
 } from "@pid/protocol";
-import type { AttachmentPayload, ExtensionUIRequest, ForkPoint, ModelInfo, SessionStats, UiMessage } from "../types";
+import type { AttachmentPayload, ExtensionUIRequest, ForkPoint, ModelInfo, SessionStats, SlashCommand, UiMessage } from "../types";
 import type { SessionTreeNode } from "./sessionTree";
 import { connectHarness, harnessEndpoint, type HarnessConnection } from "./harnessClient";
 import { HARNESS_THINKING_LEVELS, effortForLevel, forkPointsOf, sessionTreeOf } from "./hostSessions";
@@ -261,6 +263,28 @@ export class HarnessRuntimes {
 
   thinkingLevels(): string[] {
     return HARNESS_THINKING_LEVELS;
+  }
+
+  /** Slash commands registered by the Host, active feature plugins, and workspace skills. */
+  async commands(cwd?: string): Promise<SlashCommand[]> {
+    const { commands } = await this.call<CommandListResult>("command.list", cwd ? { cwd } : {});
+    return commands.map((item): SlashCommand => ({
+      name: item.name,
+      description: item.description,
+      ...(item.argsHint === undefined ? {} : { argsHint: item.argsHint }),
+      source: item.source,
+    }));
+  }
+
+  /** Run a leading `/command` on the Host before deciding whether to call the model. */
+  async runCommand(runtimeId: string, name: string, args: string): Promise<CommandRunResult> {
+    const runtime = this.runtime(runtimeId);
+    return this.call<CommandRunResult>("command.run", {
+      name,
+      args,
+      cwd: runtime.cwd,
+      ...(runtime.sessionId === undefined ? {} : { sessionId: runtime.sessionId }),
+    });
   }
 
   async forkPoints(runtimeId: string): Promise<ForkPoint[]> {
@@ -662,6 +686,15 @@ export function uiRequestEvent(request: UiRequestNotification): ExtensionUIReque
     default:
       return undefined;
   }
+}
+
+/** Parse a leading `/command [args]` line, or null when the input is not a slash command. */
+export function parseLeadingSlashCommand(text: string): { name: string; rawArgs: string } | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/")) return null;
+  const match = /^\/([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?:\s+([\s\S]*))?$/.exec(trimmed);
+  if (match?.[1] === undefined) return null;
+  return { name: match[1], rawArgs: (match[2] ?? "").trim() };
 }
 
 /** The app's one adapter. */

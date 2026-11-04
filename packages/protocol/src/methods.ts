@@ -180,6 +180,22 @@ export interface SessionArchiveParams extends SessionRef {
   archived?: boolean;
 }
 
+export interface SessionSearchParams {
+  query: string;
+  cwd?: string;
+  includeArchived?: boolean;
+  limit?: number;
+}
+
+export interface SessionSearchHit {
+  session: SessionInfo;
+  snippet: string;
+}
+
+export interface SessionSearchResult {
+  hits: SessionSearchHit[];
+}
+
 export interface ModelSetParams extends SessionRef, ModelChoice {}
 
 export interface ModelSetEffortParams extends SessionRef {
@@ -279,6 +295,74 @@ export interface McpServerStatus {
 }
 
 export interface McpStatusResult {
+  servers: McpServerStatus[];
+}
+
+export interface McpReconnectParams {
+  /** Reconnect one configured server by `id`, or all enabled servers when omitted. */
+  serverId?: string;
+}
+
+export interface McpResourcesParams {
+  serverId?: string;
+}
+
+export interface McpResourceInfo {
+  serverId: string;
+  serverName: string;
+  uri: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface McpResourcesResult {
+  resources: McpResourceInfo[];
+}
+
+export interface McpReadResourceParams {
+  serverId: string;
+  uri: string;
+}
+
+export interface McpReadResourceResult {
+  serverId: string;
+  uri: string;
+  text: string;
+}
+
+export interface McpPromptsParams {
+  serverId?: string;
+}
+
+export interface McpPromptInfo {
+  serverId: string;
+  serverName: string;
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: Array<{ name: string; description?: string; required?: boolean }>;
+}
+
+export interface McpPromptsResult {
+  prompts: McpPromptInfo[];
+}
+
+export interface McpGetPromptParams {
+  serverId: string;
+  name: string;
+  arguments?: Record<string, string>;
+}
+
+export interface McpGetPromptResult {
+  serverId: string;
+  name: string;
+  markdown: string;
+}
+
+/** Notification `mcp/changed`. */
+export interface McpChangedNotification {
   servers: McpServerStatus[];
 }
 
@@ -518,4 +602,41 @@ export interface WorkspaceTrustChangedNotification {
   workspace: string;
   trusted: boolean;
   trustedList: WorkspaceTrustEntry[];
+}
+
+// Slash commands (ADR 0002, 0003).
+
+export interface CommandInfo {
+  name: string;
+  description: string;
+  argsHint?: string;
+  source: string;
+}
+
+export interface CommandListParams {
+  cwd?: string;
+}
+
+export interface CommandListResult {
+  commands: CommandInfo[];
+}
+
+export interface CommandRunParams {
+  name: string;
+  args?: string;
+  sessionId?: string;
+  cwd?: string;
+}
+
+export interface CommandRunResult {
+  handled: boolean;
+  output?: string;
+  prompt?: string;
+  clientAction?: "clear" | "compact";
+  isError?: boolean;
+}
+
+/** Notification `command/changed`. */
+export interface CommandChangedNotification {
+  reason: string;
 }

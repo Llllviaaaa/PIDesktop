@@ -6,6 +6,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, parse, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
+import type { CommandDefinition } from "@pid/commands";
 import { SectionOrder, type PromptEnv } from "@pid/system-prompt";
 
 export const name = "pid-prompt-context";
@@ -130,4 +131,22 @@ export function apply(ctx: Context, config: Config): void {
     `- Platform: ${process.platform}`,
     `- Date: ${now().toISOString().slice(0, 10)}`,
   ].join("\n"), { order: SectionOrder.environment }), `${name}: environment`);
+
+  ctx.inject(["commands"], (inner) => {
+    inner.effect(() => inner.commands.registerProvider((cwd) => {
+      const targetCwd = cwd && cwd.trim() !== "" ? cwd : process.cwd();
+      return findSkills(skillDirs(config.dataDir, targetCwd)).map((skill): CommandDefinition => ({
+        name: `skill:${skill.name}`,
+        description: skill.description,
+        argsHint: "[任务说明]",
+        source: "skill",
+        execute(rawArgs) {
+          const suffix = rawArgs.trim() ? `\n\n用户任务：${rawArgs.trim()}` : "";
+          return {
+            prompt: `请先使用 \`read\` 工具阅读技能说明文件 \`${skill.path}\`（技能：${skill.name}），并严格遵循该技能的步骤完成工作。${suffix}`,
+          };
+        },
+      }));
+    }), `${name}: skill commands`);
+  });
 }

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/commands": "*",
     "@pid/system-prompt": "*"
   },
   "devDependencies": {
