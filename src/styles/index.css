@@ -18,6 +18,7 @@
 @import "./skin-composer.css" layer(skin);
 @import "./skin-messages.css" layer(skin);
 @import "./skin-settings.css" layer(skin);
+@import "./plugins.css" layer(skin);
 @import "./skin-panels.css" layer(skin);
 @import "./skin-light.css" layer(skin);
 @import "./skin-workspace.css" layer(skin);

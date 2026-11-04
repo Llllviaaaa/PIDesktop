@@ -10,7 +10,7 @@
  * (module table, connection, the remote session namespace, the composer
  * draft), and then loads the plugin unchanged.
  */
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Fiber } from '@deepseek-ai/cordis'
 import { createElement } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { openPath } from '@tauri-apps/plugin-opener'
@@ -18,6 +18,8 @@ import * as betterSidebar from 'dsh-better-sidebar/client/index.tsx'
 import { setChunkScriptLoaderForTests, type ChunkExports, type ChunkName } from 'dsh-better-sidebar/client/chunk-loader.ts'
 import { SideChatTab } from '../components/SideChatTab'
 import { agent } from '../lib/agent'
+import { pluginClient } from '../lib/pluginClient'
+import { CLIENT_MODULES } from './client-plugins.ts'
 
 /** Each lazy chunk's entry, split out by Vite. */
 const CHUNKS: Record<ChunkName, () => Promise<ChunkExports>> = {
@@ -25,17 +27,6 @@ const CHUNKS: Record<ChunkName, () => Promise<ChunkExports>> = {
   mermaid: () => import('dsh-better-sidebar/client/chunks/mermaid.tsx'),
   locale: () => import('dsh-better-sidebar/client/chunks/locale.tsx'),
   terminal: () => import('dsh-better-sidebar/client/chunks/terminal.tsx'),
-}
-
-/** The client module table chunks resolve their externals through (`ctx.modules`). */
-const MODULES: Record<string, () => Promise<unknown>> = {
-  'react': () => import('react'),
-  'react/jsx-runtime': () => import('react/jsx-runtime'),
-  'react-dom': () => import('react-dom'),
-  'react-dom/client': () => import('react-dom/client'),
-  'cordis': () => import('@deepseek-ai/cordis'),
-  '@deepseek-ai/dsh-client-ui-slots': () => import('@deepseek-ai/dsh-client-ui-slots'),
-  '@deepseek-ai/dsh-client-ui-primitives': () => import('@deepseek-ai/dsh-client-ui-primitives'),
 }
 
 /** Where the Vite dev server's page finds a Harness Host started by hand (scripts/prepare-harness-host.mjs). */
@@ -145,7 +136,7 @@ export function startBetterSidebar(root: Context, remote: object): () => void {
   }
   Object.assign(remote, { session: sessionRemote })
   provide('remote.session', sessionRemote)
-  provide('modules', { import: (specifier: string) => MODULES[specifier]?.() ?? Promise.reject(new Error(`no module ${specifier}`)) })
+  provide('modules', { import: (specifier: string) => CLIENT_MODULES[specifier]?.() ?? Promise.reject(new Error(`no module ${specifier}`)) })
   provide('connection', connection)
   provide('conversation', conversation)
   installChunkLoader()
@@ -154,14 +145,51 @@ export function startBetterSidebar(root: Context, remote: object): () => void {
   disposers.push(() => betterSidebar.setHostSideChat(undefined))
 
   let disposed = false
+  let builtinFiber: Fiber | undefined
+  let sidecarReady = false
+
+  const setBuiltinMounted = (shouldMount: boolean): void => {
+    if (disposed || !sidecarReady) return
+    if (shouldMount && builtinFiber === undefined) {
+      builtinFiber = root.plugin(betterSidebar)
+    } else if (!shouldMount && builtinFiber !== undefined) {
+      const prev = builtinFiber
+      builtinFiber = undefined
+      void prev.dispose()
+    }
+  }
+
+  const syncBuiltinState = async (workspace?: string): Promise<void> => {
+    try {
+      const plugins = await pluginClient.list(workspace)
+      const entry = plugins.find(item => item.id === 'better-sidebar')
+      if (entry !== undefined) {
+        setBuiltinMounted(entry.tier === 'builtin' && entry.status === 'active')
+      }
+    } catch {
+      // Keep default builtin state when Host RPC is not up yet.
+    }
+  }
+
+  disposers.push(pluginClient.onChanged(() => { void syncBuiltinState() }))
+  disposers.push(pluginClient.onTrustChanged(payload => { void syncBuiltinState(payload.workspace) }))
+  disposers.push(() => {
+    if (builtinFiber !== undefined) {
+      const prev = builtinFiber
+      builtinFiber = undefined
+      void prev.dispose()
+    }
+  })
+
   void sidecarBase().then((base) => {
     if (disposed || base === undefined) return
     ;(globalThis as { __DSH_TRANSPORT__?: { streamBaseUrl?: string; httpBaseUrl?: string } }).__DSH_TRANSPORT__ = {
       streamBaseUrl: base,
       httpBaseUrl: base,
     }
-    const fiber = root.plugin(betterSidebar)
-    disposers.push(() => fiber.dispose())
+    sidecarReady = true
+    setBuiltinMounted(true)
+    void syncBuiltinState()
   }).catch((error: unknown) => {
     console.error('[pid-better-sidebar] the sidebar host did not start:', error)
   })

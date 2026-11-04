@@ -18,6 +18,7 @@ import type {
 import { gitClient } from "./gitClient";
 import { harnessProviders } from "./harnessProviders";
 import { harnessRuntimes, type HostStatus } from "./harnessRuntime";
+import { pluginClient } from "./pluginClient";
 import type { TranscriptEvent } from "./transcript";
 import { scheduleClient } from "./scheduleClient";
 import { sessionClient } from "./sessionClient";
@@ -78,6 +79,16 @@ export const agent = {
   saveModelProvider: (provider: ModelProviderInput) => harnessProviders.save(provider),
   deleteModelProvider: (id: string) => harnessProviders.delete(id),
   checkModelProvider: (id: string) => harnessProviders.check(id),
+  listPlugins: pluginClient.list,
+  enablePlugin: pluginClient.enable,
+  disablePlugin: pluginClient.disable,
+  configurePlugin: pluginClient.configure,
+  reloadPlugins: pluginClient.reload,
+  installPlugin: pluginClient.install,
+  updatePlugins: pluginClient.update,
+  removePlugin: pluginClient.remove,
+  listWorkspaceTrust: pluginClient.trustList,
+  setWorkspaceTrust: pluginClient.setTrust,
   readAttachment: (file: string) => invoke<AttachmentPayload>("read_attachment", { file }),
   gitSnapshot: gitClient.snapshot,
   gitRepositoryRoot: gitClient.repositoryRoot,

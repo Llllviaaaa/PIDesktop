@@ -45,6 +45,7 @@ import { useAppStore } from "../store";
 import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
 import { PetAvatar } from "./PetCompanion";
 import { ModelsPage } from "./ModelsPage";
+import { PluginsSettingsPanel } from "./PluginsSettingsPanel";
 import type {
   AppSettings,
   ResourceItem,
@@ -62,6 +63,7 @@ export type SettingsPage =
   | "shortcuts"
   | "archived"
   | "usage"
+  | "plugins"
   | "skills"
   | "mcp"
   | "browser"
@@ -151,6 +153,7 @@ const PAGE_INFO: Record<SettingsPage, { label: string; keywords: string }> = {
   providers: { label: "模型", keywords: "模型 提供商 默认模型 推理 API 密钥 订阅 登录 OAuth ChatGPT Claude Copilot OpenRouter endpoint provider model key login" },
   agent: { label: "工作方式", keywords: "工作模式 权限 审批 沙箱 子 agent 规则 计划 approval sandbox rules plan" },
   personalization: { label: "个性化", keywords: "人格 指令 记忆 提示 personality instructions memory" },
+  plugins: { label: "插件", keywords: "插件 扩展 热更新 热加载 安装 卸载 本地 压缩包 npm git plugin extension hmr reload" },
   skills: { label: "技能", keywords: "技能 skill instructions" },
   mcp: { label: "MCP", keywords: "mcp tools stdio http server 工具 服务器" },
   browser: { label: "浏览器", keywords: "edge chrome chromium 网页 自动化 截图 browser web automation screenshot" },
@@ -181,7 +184,7 @@ const SETTINGS_GROUPS: Array<{
   { id: "appearance", label: "外观与体验", description: "主题配色、桌面伴侣宠物与个人交互偏好。", icon: Palette, pages: ["appearance", "personalization"], layout: "stack" },
   { id: "models", label: "模型与连接", description: "模型提供商、API 密钥与推理等级配置。", icon: ServerCog, pages: ["providers"], layout: "single" },
   { id: "agent", label: "Agent 与安全", description: "默认工作模式、审批机制与执行规则。", icon: Bot, pages: ["agent"], layout: "single" },
-  { id: "capabilities", label: "能力扩展", description: "技能库、MCP 服务器与自动化工具。", icon: Boxes, pages: ["skills", "mcp", "browser", "computer"], layout: "tabs" },
+  { id: "capabilities", label: "能力扩展", description: "动态插件、技能库、MCP 服务器与自动化工具。", icon: Boxes, pages: ["plugins", "skills", "mcp", "browser", "computer"], layout: "tabs" },
   { id: "coding", label: "Git 与工程", description: "代码分支、代码审查、Worktrees 与生命周期 Hooks。", icon: FolderGit2, pages: ["git", "worktrees", "hooks"], layout: "tabs" },
   { id: "archived", label: "已归档", description: "历史会话归档管理与一键恢复。", icon: Archive, pages: ["archived"], layout: "single" },
   { id: "advanced", label: "高级诊断", description: "用量统计分析与 Harness 进程诊断。", icon: SlidersHorizontal, pages: ["usage", "debug"], layout: "stack" },
@@ -413,6 +416,7 @@ export function SettingsModal({
       }} />}
       {page === "usage" && <UsagePage usage={usage} />}
       {page === "providers" && <ModelsPage form={form} update={update} />}
+      {page === "plugins" && <PluginsSettingsPanel cwd={cwd} />}
       {page === "skills" && <SkillsPage resources={resources} loading={loadingData} />}
       {page === "mcp" && <McpPage form={form} update={update} />}
       {page === "browser" && <BrowserPage form={form} update={update} />}
@@ -465,7 +469,7 @@ export function SettingsModal({
           </div>
         </header>
         <div className="settings-page-scroll">
-          <div className={`settings-page ${active === "providers" ? "wide" : ""}`}>
+          <div className={`settings-page ${active === "providers" || active === "plugins" ? "wide" : ""}`}>
             {activeGroup.layout === "single" ? renderPanel(active) : (
               <>
                 <div className="settings-page-heading">

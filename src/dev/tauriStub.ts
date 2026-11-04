@@ -67,7 +67,7 @@ const commands: Record<string, (args: Args) => unknown> = {
   },
   // A save dialog answers with the path the test put on window.__E2E_SAVE_PATH__.
   "plugin:dialog|save": () => (window as unknown as { __E2E_SAVE_PATH__?: string }).__E2E_SAVE_PATH__ ?? null,
-  "plugin:dialog|open": () => null,
+  "plugin:dialog|open": () => (window as unknown as { __E2E_OPEN_PATH__?: string }).__E2E_OPEN_PATH__ ?? null,
   "plugin:opener|open_path": () => null,
   "plugin:opener|open_url": () => null,
 };

@@ -22,6 +22,7 @@ import * as terminalController from '@deepseek-ai/dsh-api-terminal-controller/cl
 import * as sidebarTerminal from '@deepseek-ai/dsh-client-ui-sidebar-terminal/client'
 import * as frame from './Frame.tsx'
 import { startBetterSidebar } from './better-sidebar.ts'
+import { startClientPluginRuntime } from './client-plugins.ts'
 import { setFrameSession } from './Frame.tsx'
 import { LocaleRuntime } from './modules/locale.ts'
 import { HostShortcuts } from './modules/shortcuts.ts'
@@ -55,6 +56,8 @@ export interface DshHost {
   setSessions(rows: readonly HostSessionRow[]): void
   /** The session on screen, or none (new task page). */
   showSession(file: string | undefined): void
+  /** Active workspace directory, used to resolve trusted `.pid/plugins` client bundles. */
+  setWorkspace(cwd: string | undefined): void
   setColorScheme(colorScheme: 'light' | 'dark'): void
   /** A hub page (pull requests, plugins) covers the conversation, or null. */
   setPanel(panelId: string | null): void
@@ -112,6 +115,8 @@ export function bootDshHost(options: DshHostOptions): DshHost {
   })
   const fibers = [slotsFiber, ...PLUGINS.map(plugin => root.plugin(plugin))]
   disposers.push(startBetterSidebar(root, remote))
+  const clientPlugins = startClientPluginRuntime(root)
+  disposers.push(() => clientPlugins.dispose())
 
   const openBottomTerminal = (): void => {
     const service = root.get('betterSidebar') as { openTab(seed: { type: string }): void } | undefined
@@ -135,6 +140,7 @@ export function bootDshHost(options: DshHostOptions): DshHost {
     render: () => root.slots.renderSlot('root', {}),
     setSessions: rows => { sessions.setCatalog(rows) },
     showSession,
+    setWorkspace: workspace => { clientPlugins.setWorkspace(workspace) },
     setColorScheme: scheme => { theme.setColorScheme(scheme) },
     setPanel: panelId => { layout.setPanel(panelId) },
     toggleBottomPanel: () => {

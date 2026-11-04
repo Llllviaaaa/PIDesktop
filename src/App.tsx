@@ -95,6 +95,7 @@ import { preferredEditorFor, rememberProjectEditor, resolveWorkspacePath } from 
 import type { CodeReviewScope } from "./lib/codeReview";
 import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, SessionInfo, TerminalAppInfo, UiMessage, WorkspaceEditorInfo } from "./types";
 import { HostStatusBanner } from "./components/HostStatusBanner";
+import { WorkspaceTrustBanner } from "./components/WorkspaceTrustBanner";
 
 const SettingsModal = lazy(() => import("./components/SettingsModal").then((module) => ({ default: module.SettingsModal })));
 const PullRequestsPage = lazy(() => import("./components/PullRequestsPage").then((module) => ({ default: module.PullRequestsPage })));
@@ -529,6 +530,9 @@ export default function App() {
   useEffect(() => {
     dshHost().showSession(!newTask && sessionFile ? sessionFile : undefined);
   }, [newTask, sessionFile]);
+  useEffect(() => {
+    dshHost().setWorkspace(workspaceCwd || cwd);
+  }, [cwd, workspaceCwd]);
   useEffect(() => {
     dshHost().setPanel(hubView);
   }, [hubView]);
@@ -1822,6 +1826,10 @@ export default function App() {
         <div className="work-body">
         <WorkspaceFileOpenContext.Provider value={openPreviewFile}>
         <main className="main-stage">
+          <WorkspaceTrustBanner
+            workspace={workspaceCwd || cwd}
+            onOpenPluginsSettings={() => openSettingsPage("plugins")}
+          />
           <Suspense fallback={<div className="page-loading">正在加载…</div>}>
           {hubView === "pull-requests" ? (
             <PullRequestsPage
@@ -1969,7 +1977,7 @@ export default function App() {
           onDone={finishCommit}
         />
       )}
-      {settingsOpen && <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}><SettingsModal initialPage={settingsPage} settings={settings} cwd={cwd} appearanceCatalog={appearanceCatalog} onReloadAppearance={reloadAppearanceCatalog} onSave={store.saveSettings} onClose={() => setSettingsOpen(false)} /></Suspense>}
+      {settingsOpen && <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}><SettingsModal initialPage={settingsPage} settings={settings} cwd={workspaceCwd || cwd} appearanceCatalog={appearanceCatalog} onReloadAppearance={reloadAppearanceCatalog} onSave={store.saveSettings} onClose={() => setSettingsOpen(false)} /></Suspense>}
 
       {!isTauri && (settings?.petEnabled || previewPet) && !settingsOpen && (
         <PetCompanion

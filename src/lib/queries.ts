@@ -17,6 +17,8 @@ export const queryKeys = {
   resources: (cwd: string) => ["workspace", cwd, "resources"] as const,
   worktrees: (cwd: string) => ["workspace", cwd, "worktrees"] as const,
   appearance: (cwd: string) => ["workspace", cwd, "appearance"] as const,
+  plugins: (cwd: string) => ["workspace", cwd, "plugins"] as const,
+  workspaceTrust: (cwd: string) => ["workspace", cwd, "trust"] as const,
 
   /** Editors and terminal apps installed on this machine (detected once per launch). */
   workspaceEditors: () => ["desktop", "editors"] as const,

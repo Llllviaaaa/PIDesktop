@@ -11,6 +11,7 @@ import {
   ArchiveRestore,
   Bell,
   BookOpen,
+  Boxes,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -187,6 +188,7 @@ type SidebarGroupMode = "project" | "recent";
 const FOOTER_SETTINGS_PAGES: ReadonlyArray<readonly [SettingsPage, string, LucideIcon]> = [
   ["general", "设置", Settings],
   ["providers", "模型与连接", Cpu],
+  ["plugins", "插件扩展", Boxes],
   ["appearance", "外观", Palette],
   ["shortcuts", "快捷键", Keyboard],
 ];
