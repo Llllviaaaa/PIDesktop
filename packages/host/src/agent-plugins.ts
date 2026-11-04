@@ -50,6 +50,27 @@ const secretStore = {
   },
 };
 
+/** Reloadable lightweight sandbox policy for `bash` (M4.3). */
+const bashSandboxPlugin = {
+  name: "pid-bash-sandbox",
+  inject: ["tools", "sessions"],
+  apply(ctx: Context) {
+    ctx.plugin(toolBash.BashSandbox, { enabled: true });
+    ctx.on("tools/pre-execute", async (call, env) => {
+      if (call.name !== "bash") return undefined;
+      const permissions = ctx.get("permissions");
+      if (permissions !== undefined) {
+        const session = await ctx.sessions.get(env.sessionId);
+        const effective = session === undefined ? permissions.defaultModes().effective : permissions.modes(session).effective;
+        if (effective === "full-access") return undefined;
+      }
+      const command = typeof call.args.command === "string" ? call.args.command : "";
+      const violation = toolBash.inspectSandboxedCommand(command);
+      return violation === undefined ? undefined : { deny: true, reason: violation };
+    });
+  },
+};
+
 export function corePlugins(dataDir: string, options: CoreOptions = {}): PluginEntry[] {
   return [
     [Credentials],
@@ -221,6 +242,15 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
       hasClient: false,
       plugin: hooks,
       config: config.hooks,
+    },
+    {
+      id: "sandbox",
+      name: "Windows 轻量沙箱 (sandbox)",
+      description: "为 bash 工具启用环境变量脱敏、Job Object 进程数限制与高危系统命令拦截",
+      enabled: config.sandbox.enabled,
+      hasHost: true,
+      hasClient: false,
+      plugin: bashSandboxPlugin,
     },
     options.scheduler !== undefined && {
       id: "schedule",

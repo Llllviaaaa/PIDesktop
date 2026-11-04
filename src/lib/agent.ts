@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageSummaryResult } from "@pid/protocol";
+import type {
+  SandboxConfigKind,
+  SandboxGenerateConfigResult,
+  UsageSummaryResult,
+} from "@pid/protocol";
 import type {
   AppSettings,
   AttachmentPayload,
@@ -128,6 +132,11 @@ export const agent = {
   gitLastTurnSnapshot: gitClient.lastTurnSnapshot,
   listPullRequests: (cwd: string) => invoke<PullRequestCollection>("list_pull_requests", { cwd }),
   checkoutPullRequest: (cwd: string, number: number) => invoke<void>("checkout_pull_request", { cwd, number }),
+  generatePullRequestDraft: gitClient.generatePullRequestDraft,
+  createPullRequest: gitClient.createPullRequest,
+  getPullRequestDetail: gitClient.getPullRequestDetail,
+  generateSandboxConfig: (kind: SandboxConfigKind, cwd: string, overwrite = false) =>
+    harnessRuntimes.call<SandboxGenerateConfigResult>("sandbox.generateConfig", { kind, cwd, overwrite }),
   listResources: (cwd: string) => invoke<ResourceItem[]>("list_resources", { cwd }),
   openAppearanceDirectory: (cwd: string, kind: "theme" | "pet", scope: "user" | "project") =>
     invoke<string>("open_appearance_directory", { cwd, kind, scope }),

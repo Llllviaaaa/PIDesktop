@@ -81,7 +81,7 @@ const byteLength = (text: string): number => encoder.encode(text).byteLength
 
 interface PtyListener {
   output(data: string): void
-  exit(): void
+  exit(exitCode: number | null): void
 }
 
 const ptyListeners = new Map<string, PtyListener>()
@@ -90,7 +90,7 @@ let ptyEvents: Promise<void> | undefined
 function listenPty(): Promise<void> {
   ptyEvents ??= Promise.all([
     listen<{ id: string; data: string }>('terminal-output', (event) => { ptyListeners.get(event.payload.id)?.output(event.payload.data) }),
-    listen<{ id: string }>('terminal-exit', (event) => { ptyListeners.get(event.payload.id)?.exit() }),
+    listen<{ id: string; exitCode?: number | null }>('terminal-exit', (event) => { ptyListeners.get(event.payload.id)?.exit(event.payload.exitCode ?? null) }),
   ]).then(() => undefined)
   return ptyEvents
 }
@@ -190,7 +190,7 @@ class PageTerminal {
     const terminal = new PageTerminal(info)
     ptyListeners.set(info.id, {
       output: (data) => { void terminal.output(data) },
-      exit: () => { terminal.processExited() },
+      exit: (exitCode) => { terminal.processExited(exitCode) },
     })
     try {
       await invoke('terminal_create', { id: info.id, cwd: info.cwd, shell: info.shell.path, cols: info.cols, rows: info.rows })
@@ -333,12 +333,12 @@ class PageTerminal {
     })
   }
 
-  /** The shell ended on its own; Tauri reports no exit code. Ordered after the output before it. */
-  private processExited(): void {
+  /** The shell ended on its own; Tauri reports the waited child's exit code. Ordered after the output before it. */
+  private processExited(exitCode: number | null = null): void {
     void this.enqueue(() => {
       this.exited = true
       ptyListeners.delete(this.info.id)
-      this.info = { ...this.info, state: 'exited', exitCode: null }
+      this.info = { ...this.info, state: 'exited', exitCode }
       this.broadcastState()
     })
   }

@@ -46,8 +46,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExtern
 import '@xterm/xterm/css/xterm.css'
 import type { Context } from '../context-types.ts'
 import type { SessionScope } from './api.ts'
+import { appendToDraft } from './conversation-draft.ts'
 import type { SidebarTab } from './state.ts'
-import { t } from './locales.ts'
+import { isZh, t } from './locales.ts'
 import { isDarkScheme, subscribeColorScheme } from './theme.ts'
 import {
   bottomTerminalContentId, nextTerminalMeta, terminalInstanceOf, terminalRunOf, webTerminals,
@@ -91,6 +92,7 @@ export function TerminalBottomView({ ctx, scope, tab, visible }: TerminalBottomP
     useCallback(() => model?.state.getSnapshot(), [model]),
   )
   const scheme = useSyncExternalStore(subscribeColorScheme, isDarkScheme)
+  const emulatorRef = useRef<Terminal | undefined>(undefined)
 
   // The DOM lifetime only — the detach leaves the shell running. The app's
   // own teardown for the process is the descriptor's `onClose`.
@@ -105,6 +107,12 @@ export function TerminalBottomView({ ctx, scope, tab, visible }: TerminalBottomP
     // terminal instead of adopting a binding whose process is gone.
     ctx.get('betterSidebar')?.updateTab(tab.id, { meta: nextTerminalMeta(tab) }, sessionId)
   }, [ctx, tab, sessionId])
+
+  const sendToChat = useCallback(() => {
+    const snippet = extractBottomTerminalSnippet(emulatorRef.current)
+    if (snippet === '') return
+    appendToDraft(ctx, sessionId, snippet)
+  }, [ctx, sessionId])
 
   if (service === undefined) {
     return (
@@ -147,13 +155,32 @@ export function TerminalBottomView({ ctx, scope, tab, visible }: TerminalBottomP
       {(missing || ended) && (
         <div className={css.noticeBlock}>
           <p className={missing ? css.notice : css.status} role={missing ? 'alert' : 'status'}>
-            {missing ? t('terminalGone') : t('exited')}
+            {missing
+              ? t('terminalGone')
+              : state.info?.exitCode != null
+                ? `${t('exited')} (${String(state.info.exitCode)})`
+                : t('exited')}
           </p>
           <button type="button" className={css.action} onClick={newTerminal}>{t('terminalNew')}</button>
         </div>
       )}
       {state.info !== undefined && !missing && (
-        <TerminalScreen model={model} state={state} visible={visible} scheme={scheme} label={t('terminal')} />
+        <>
+          <div className={css.toolbar}>
+            <span className={css.toolbarMeta}>
+              {state.info.title}
+              {state.info.state === 'exited' && (
+                <span className={css.exitBadge} data-failed={state.info.exitCode !== 0 ? 'true' : undefined}>
+                  [{String(state.info.exitCode ?? '—')}]
+                </span>
+              )}
+            </span>
+            <button type="button" className={css.action} onClick={sendToChat}>
+              {isZh() ? '发送到对话' : 'Send to chat'}
+            </button>
+          </div>
+          <TerminalScreen model={model} state={state} visible={visible} scheme={scheme} label={t('terminal')} emulatorRef={emulatorRef} />
+        </>
       )}
       {state.error !== undefined && state.issue === undefined && (
         <p className={css.error} role="alert">{t('terminalError')}: {state.error}</p>
@@ -194,6 +221,7 @@ interface TerminalScreenProps {
   visible: boolean
   scheme: boolean
   label: string
+  emulatorRef: { current: Terminal | undefined }
 }
 
 /**
@@ -201,7 +229,7 @@ interface TerminalScreenProps {
  * the MODEL: a status change re-renders around it, only a new terminal
  * (a "new terminal" mint, or the tab remounting) opens a new emulator.
  */
-function TerminalScreen({ model, state, visible, scheme, label }: TerminalScreenProps): ReactNode {
+function TerminalScreen({ model, state, visible, scheme, label, emulatorRef }: TerminalScreenProps): ReactNode {
   const element = useRef<HTMLDivElement | null>(null)
   const emulator = useRef<Terminal | undefined>(undefined)
   const fit = useRef<FitAddon | undefined>(undefined)
@@ -229,6 +257,7 @@ function TerminalScreen({ model, state, visible, scheme, label }: TerminalScreen
     xterm.open(node)
     xterm.textarea?.setAttribute('aria-label', label)
     emulator.current = xterm
+    emulatorRef.current = xterm
     fit.current = addon
     lastRevision.current = 0
     const input = xterm.onData((data) => { model.write(data) })
@@ -245,9 +274,10 @@ function TerminalScreen({ model, state, visible, scheme, label }: TerminalScreen
       input.dispose()
       xterm.dispose()
       emulator.current = undefined
+      emulatorRef.current = undefined
       fit.current = undefined
     }
-  }, [model, label])
+  }, [model, label, emulatorRef])
 
   // xterm takes concrete colors, so they are read off the screen element the
   // stylesheet paints from tokens (the bridge theme.ts documents). A scheme
@@ -320,4 +350,19 @@ function fitScreen(
   if (cols < 2 || rows < 1) return
   xterm.resize(cols, rows)
   model.resize(cols, rows)
+}
+
+function extractBottomTerminalSnippet(xterm: Terminal | undefined): string {
+  if (xterm === undefined) return ''
+  const selection = xterm.getSelection().trim()
+  if (selection !== '') return `\n\`\`\`text\n${selection}\n\`\`\`\n`
+  const buffer = xterm.buffer.active
+  const lines: string[] = []
+  for (let i = buffer.length - 1; i >= 0 && lines.length < 40; i -= 1) {
+    const line = buffer.getLine(i)?.translateToString(true) ?? ''
+    if (line.trim() === '' && lines.length === 0) continue
+    lines.push(line)
+  }
+  const recent = lines.reverse().join('\n').trim()
+  return recent === '' ? '' : `\n\`\`\`text\n${recent}\n\`\`\`\n`
 }

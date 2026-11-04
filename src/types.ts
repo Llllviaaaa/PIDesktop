@@ -145,6 +145,7 @@ export interface AppSettings {
   /** `system` picks the first detected editor; otherwise a WorkspaceEditorInfo id. */
   defaultFileOpener: string;
   terminalShell: string;
+  terminalShellArgs: string;
   terminalOutput: "summary" | "full";
   notificationsEnabled: boolean;
   notifyOnCompletion: boolean;
@@ -180,6 +181,7 @@ export interface AppSettings {
   browserExecutable: string;
   computerEnabled: boolean;
   computerConfirmActions: boolean;
+  sandboxEnabled: boolean;
   mcpEnabled: boolean;
   mcpConfirmTools: boolean;
   mcpServers: McpServerConfig[];
@@ -421,6 +423,60 @@ export interface PullRequestCollection {
   repository: string;
   remoteUrl: string;
   items: PullRequestInfo[];
+}
+
+export interface PullRequestDraftContext {
+  headBranch: string;
+  baseBranch: string;
+  commitCount: number;
+  prompt: string;
+}
+
+export interface PullRequestDraftResult {
+  title: string;
+  body: string;
+  headBranch: string;
+  baseBranch: string;
+  commitCount: number;
+}
+
+export interface PullRequestCreated {
+  url: string;
+  number?: number | null;
+  headRefName: string;
+  baseRefName: string;
+  isDraft: boolean;
+}
+
+export interface PullRequestComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  kind: string;
+  reviewState?: string | null;
+}
+
+export interface PullRequestCheck {
+  name: string;
+  status: string;
+  conclusion: string;
+  detailsUrl: string;
+}
+
+export interface PullRequestDetail {
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  state: string;
+  isDraft: boolean;
+  baseRefName: string;
+  headRefName: string;
+  author: string;
+  reviewDecision: string;
+  comments: PullRequestComment[];
+  checks: PullRequestCheck[];
 }
 
 export interface WorkspaceDirEntry {

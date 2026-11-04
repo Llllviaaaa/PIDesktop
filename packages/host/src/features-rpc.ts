@@ -4,6 +4,8 @@
  * `checkpoint.restore`, `mcp.status` and `usage.summary`. They live in the
  * host so the plugins stay free of the transport.
  */
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import "@pid/agent";
 import "@pid/mcp";
@@ -24,9 +26,12 @@ import {
   type McpStatusResult,
   type PermissionGetResult,
   type PlanGetResult,
+  type SandboxConfigKind,
+  type SandboxGenerateConfigResult,
   type UsageSummaryResult,
 } from "@pid/protocol";
 import type { Session } from "@pid/session";
+import { generateDevContainerConfig, generateWindowsSandboxConfig } from "@pid/tool-bash";
 import { RpcError } from "./rpc.ts";
 
 export const name = "pid-features-rpc";
@@ -215,6 +220,32 @@ export function apply(ctx: Context): void {
         usage: reasoningTokens > 0 ? { ...total, reasoningTokens } : total,
         ...(totalCostUsd > 0 ? { totalCostUsd } : {}),
       };
+    },
+
+    "sandbox.generateConfig": (params): SandboxGenerateConfigResult => {
+      const p = recordOf(params);
+      const kindRaw = requiredStr(p, "kind");
+      if (kindRaw !== "wsb" && kindRaw !== "devcontainer") {
+        throw new RpcError(ErrorCode.InvalidParams, "kind must be 'wsb' or 'devcontainer'");
+      }
+      const kind: SandboxConfigKind = kindRaw;
+      const cwd = resolve(requiredStr(p, "cwd"));
+      const overwrite = p.overwrite === true;
+      if (kind === "wsb") {
+        const target = join(cwd, ".pid", "sandbox.wsb");
+        const content = generateWindowsSandboxConfig(cwd);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, content, "utf8");
+        return { kind, path: target, content };
+      }
+      const primaryTarget = join(cwd, ".devcontainer", "devcontainer.json");
+      const target = !overwrite && existsSync(primaryTarget)
+        ? join(cwd, ".pid", "devcontainer.generated.json")
+        : primaryTarget;
+      const content = generateDevContainerConfig(cwd);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, content, "utf8");
+      return { kind, path: target, content };
     },
   };
 

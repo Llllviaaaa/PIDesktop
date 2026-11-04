@@ -306,6 +306,9 @@ pub fn run() {
             harness_host::sidebar_host_base,
             list_pull_requests,
             checkout_pull_request,
+            pull_request_draft_prompt,
+            create_pull_request,
+            get_pull_request_detail,
             list_worktrees,
             create_worktree
         ])

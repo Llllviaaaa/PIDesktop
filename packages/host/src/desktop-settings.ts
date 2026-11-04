@@ -123,6 +123,7 @@ export function harnessFromDesktop(message: DesktopMessage): DesktopHarness {
     },
     // The host is the only scheduler since Pi and the desktop's own went (P6c).
     schedule: { enabled: true },
+    sandbox: { enabled: bool(settings.sandboxEnabled, false) },
     prompt: { instructions: personalInstructions(settings) },
   };
   return { config, ...(defaultModel === undefined ? {} : { defaultModel }) };

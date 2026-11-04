@@ -749,3 +749,17 @@ export interface SkillDeleteParams {
   path: string;
   cwd?: string;
 }
+
+export type SandboxConfigKind = "wsb" | "devcontainer";
+
+export interface SandboxGenerateConfigParams {
+  kind: SandboxConfigKind;
+  cwd: string;
+  overwrite?: boolean;
+}
+
+export interface SandboxGenerateConfigResult {
+  kind: SandboxConfigKind;
+  path: string;
+  content: string;
+}

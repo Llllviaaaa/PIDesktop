@@ -98,6 +98,7 @@ export const DEFAULTS: AppSettings = {
   language: "zh-CN",
   defaultFileOpener: "system",
   terminalShell: "PowerShell",
+  terminalShellArgs: "",
   terminalOutput: "summary",
   notificationsEnabled: true,
   notifyOnCompletion: true,
@@ -132,6 +133,7 @@ export const DEFAULTS: AppSettings = {
   browserExecutable: "",
   computerEnabled: true,
   computerConfirmActions: true,
+  sandboxEnabled: false,
   mcpEnabled: true,
   mcpConfirmTools: true,
   mcpServers: [],
@@ -342,7 +344,7 @@ export function SettingsModal({
     <>
       {page === "general" && <GeneralPage form={form} update={update} />}
       {page === "appearance" && <AppearancePage form={form} update={update} catalog={appearanceCatalog} cwd={cwd} onReload={onReloadAppearance} />}
-      {page === "agent" && <AgentPage form={form} update={update} />}
+      {page === "agent" && <AgentPage form={form} update={update} cwd={cwd} />}
       {page === "personalization" && <PersonalizationPage form={form} update={update} cwd={cwd} />}
       {page === "shortcuts" && <ShortcutsPage form={form} update={update} />}
       {page === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
@@ -876,7 +878,25 @@ function UsagePage({ usage }: { usage: UsageSummary | null }) {
   </>;
 }
 
-function AgentPage({ form, update }: { form: AppSettings; update: Update }) {
+function AgentPage({ form, update, cwd }: { form: AppSettings; update: Update; cwd: string }) {
+  const [generatingKind, setGeneratingKind] = useState<"wsb" | "devcontainer" | null>(null);
+  const [generatedConfig, setGeneratedConfig] = useState<{ path: string; content: string } | null>(null);
+  const [sandboxError, setSandboxError] = useState("");
+
+  const handleGenerateSandboxConfig = async (kind: "wsb" | "devcontainer") => {
+    if (!cwd) return;
+    setGeneratingKind(kind);
+    setSandboxError("");
+    try {
+      const result = await agent.generateSandboxConfig(kind, cwd);
+      setGeneratedConfig({ path: result.path, content: result.content });
+    } catch (error) {
+      setSandboxError(describeError(error));
+    } finally {
+      setGeneratingKind(null);
+    }
+  };
+
   return <>
     <PageHeading title="Agent 与安全" description="设置新聊天的工作模式、审批策略和本地 Agent 能力。" />
     <Card title="权限">
@@ -916,6 +936,48 @@ function AgentPage({ form, update }: { form: AppSettings; update: Update }) {
           <span className="tool-rule-actions"><button type="button" className="icon-button" disabled={index === 0} onClick={() => move(-1)} title="上移"><ArrowUp size={13} /></button><button type="button" className="icon-button" disabled={index === form.toolRules.length - 1} onClick={() => move(1)} title="下移"><ArrowDown size={13} /></button><button type="button" className="icon-button danger" onClick={() => update("toolRules", form.toolRules.filter((item) => item.id !== rule.id))} title="删除规则"><Trash2 size={13} /></button></span>
         </div>;
       })}</div>
+    </Card>
+    <Card title="本机轻量沙箱（实验性）">
+      <Row
+        title="启用 Windows 轻量沙箱（实验性）"
+        description="开启后为 bash 工具脱敏密钥与令牌环境变量、把临时目录重定向到工作区 .pid/sandbox-tmp、挂载 Windows Job Object 限制进程树，并在完全访问模式外拦截系统级高危命令。"
+      >
+        <Switch
+          label="启用 Windows 轻量沙箱（实验性）"
+          checked={form.sandboxEnabled}
+          onChange={(value) => update("sandboxEnabled", value)}
+        />
+      </Row>
+      <Row
+        title="生成强隔离环境配置"
+        description={cwd ? `为当前工作区（${cwd}）导出 Windows Sandbox (.wsb) 或 Dev Container 配置文件。` : "先打开一个工作区目录以导出强隔离配置文件。"}
+      >
+        <span className="sandbox-template-actions">
+          <button
+            type="button"
+            className="secondary-button compact"
+            disabled={!cwd || generatingKind !== null}
+            onClick={() => void handleGenerateSandboxConfig("wsb")}
+          >
+            {generatingKind === "wsb" ? "生成中…" : "生成 Windows Sandbox (.wsb)"}
+          </button>
+          <button
+            type="button"
+            className="secondary-button compact"
+            disabled={!cwd || generatingKind !== null}
+            onClick={() => void handleGenerateSandboxConfig("devcontainer")}
+          >
+            {generatingKind === "devcontainer" ? "生成中…" : "生成 Dev Container 配置"}
+          </button>
+        </span>
+      </Row>
+      {sandboxError && <div className="inline-error">{sandboxError}</div>}
+      {generatedConfig && (
+        <div className="sandbox-generated-result" data-testid="sandbox-generated-result">
+          <small>已写入：<code>{generatedConfig.path}</code></small>
+          <pre>{generatedConfig.content}</pre>
+        </div>
+      )}
     </Card>
     <div className="settings-info"><Bot size={17} /><span>模型、计划工具和 Rules 设置应用于新启动的聊天；工作模式与权限可在当前聊天的输入框中即时切换。</span></div>
   </>;
@@ -1180,6 +1242,7 @@ function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }
     </Card>
     <Card title="集成终端">
       <Row title="集成终端 Shell" description="终端面板里新建标签页时默认使用的 Shell；“+”旁的菜单仍可临时选择其他 Shell。"><select value={form.terminalShell} onChange={(event) => update("terminalShell", event.target.value)}>{shells.map((shell) => <option key={shell} value={shell}>{shell}</option>)}</select></Row>
+      <Row title="Shell 启动参数" description="新建集成终端标签页时追加给默认 Shell 的参数（支持引号分组，如 -NoLogo -NoProfile）。"><input aria-label="Shell 启动参数" value={form.terminalShellArgs} onChange={(event) => update("terminalShellArgs", event.target.value)} placeholder="-NoLogo" /></Row>
       <Row title="对话中的命令输出" description="展开命令时显示的输出：摘要最多 80 行，完整显示命令打印的全部内容。"><select value={form.terminalOutput} onChange={(event) => update("terminalOutput", event.target.value as AppSettings["terminalOutput"])}><option value="summary">摘要</option><option value="full">完整输出</option></select></Row>
     </Card>
   </>;
@@ -1200,8 +1263,8 @@ function GitPage({ form, update }: { form: AppSettings; update: Update }) {
     </Card>
     <Card title="生成指令">
       <label className="stacked-setting"><span>提交消息</span><textarea value={form.commitMessageInstructions} onChange={(event) => update("commitMessageInstructions", event.target.value)} placeholder="生成提交消息时额外遵守的要求，例如“用英文写，正文引用工单号”" /></label>
+      <label className="stacked-setting"><span>拉取请求说明</span><textarea aria-label="拉取请求说明" value={form.pullRequestInstructions} onChange={(event) => update("pullRequestInstructions", event.target.value)} placeholder="AI 起草 PR 标题和正文时额外遵守的要求，例如“附带关联 Issue 编号与回滚方案”" /></label>
     </Card>
-    {/* pullRequestInstructions stays in settings.json, but the app creates no pull requests yet, so it has no row. */}
   </>;
 }
 

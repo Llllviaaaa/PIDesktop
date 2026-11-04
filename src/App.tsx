@@ -199,6 +199,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("general");
   const [hubView, setHubView] = useState<HubView | null>(null);
+  const [createPrRequested, setCreatePrRequested] = useState(false);
   const [commitDialog, setCommitDialog] = useState<{ push: boolean } | null>(null);
   const [gitPushing, setGitPushing] = useState(false);
   const [editorChoiceOverride, setEditorChoiceOverride] = useState<{ workspace: string; id: string } | null>(null);
@@ -1800,6 +1801,10 @@ export default function App() {
                       pushing={gitPushing}
                       onCommit={openCommitDialog}
                       onPush={() => void pushCurrentBranch()}
+                      onCreatePr={() => {
+                        setCreatePrRequested(true);
+                        setHubView("pull-requests");
+                      }}
                     />
                   )}
                   {canOpenWorkspace && (
@@ -1837,6 +1842,8 @@ export default function App() {
             <PullRequestsPage
               cwd={draftWorkspace || cwd}
               workspaceOptions={workspaceOptions}
+              initialCreateOpen={createPrRequested}
+              onClearInitialCreate={() => setCreatePrRequested(false)}
               onOpenUrl={(url) => void openUrl(url)}
               onCheckout={async (pullRequest, repositoryRoot) => {
                 try {
@@ -1850,6 +1857,10 @@ export default function App() {
               }}
               onReview={(pullRequest: PullRequestInfo, repositoryRoot) => {
                 setGoalEditPrefill(`审查 GitHub 拉取请求 #${pullRequest.number}：${pullRequest.title}\n${pullRequest.url}\n检查正确性、回归风险、安全问题和缺失测试，并按严重程度给出文件引用。`);
+                navigateTo({ kind: "home", workspace: repositoryRoot });
+              }}
+              onSendToChat={(prompt, repositoryRoot) => {
+                setGoalEditPrefill(prompt);
                 navigateTo({ kind: "home", workspace: repositoryRoot });
               }}
             />

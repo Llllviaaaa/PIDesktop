@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { t } from '../locales.ts'
+import { isZh, t } from '../locales.ts'
 import { diffStats, displayPath, parseUnifiedDiff, unifiedSegments, untrackedFile, type DiffFile, type DiffRow, type FoldSegment } from './rows.ts'
 import { langOfPath } from './highlight.ts'
 import { DiffRows } from './DiffRows.tsx'
@@ -20,12 +20,25 @@ const DOC_PATH = /(^|\/)(?:docs?|documentation)(?:\/|$)|(^|\/)(?:readme|changelo
 const GENERATED_PATH = /(^|\/)(?:dist|build|coverage|generated|vendor|node_modules)(?:\/|$)|(^|\/)(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|composer\.lock|cargo\.lock|poetry\.lock)$/i
 const SOURCE_PATH = /\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts|py|pyw|rb|php|java|kt|kts|scala|go|rs|swift|c|h|cc|cpp|cxx|hpp|hh|hxx|cs|fs|fsx|vb|dart|lua|r|ex|exs|erl|hrl|clj|cljs|cljc|groovy|sh|bash|zsh|fish|ps1|sql|vue|svelte|astro|html|htm|css|scss|sass|less)$/i
 
-/** Source files open by default; tests, docs, generated files and unknown types stay folded. */
+export const OVERSIZED_DIFF_THRESHOLD = 800
+
+function countFileChangedLines(file: DiffFile): number {
+  let count = 0
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind === 'add' || line.kind === 'del') count += 1
+    }
+  }
+  return count
+}
+
+/** Source files open by default; tests, docs, generated files, oversized diffs and unknown types stay folded. */
 function defaultExpandedFiles(files: readonly DiffFile[]): Set<number> {
   const expanded = new Set<number>()
   files.forEach((file, index) => {
     const path = displayPath(file.newPath === '/dev/null' ? file.oldPath : file.newPath)
     if (!file.binary && file.hunks.length > 0
+      && countFileChangedLines(file) < OVERSIZED_DIFF_THRESHOLD
       && !TEST_PATH.test(path) && !DOC_PATH.test(path) && !GENERATED_PATH.test(path)
       && SOURCE_PATH.test(path)) {
       expanded.add(index)
@@ -104,6 +117,9 @@ export function DiffFiles({ diff, untrackedPath, untrackedContent, resolveFold }
     const to = displayPath(file.newPath)
     const expandable = !file.binary && file.hunks.length > 0
     const fileExpanded = expandedFiles.has(fileIndex)
+    const isPureRename = !file.binary && from !== to && file.hunks.length === 0
+    const isOversized = expandable && (stats.added + stats.deleted) >= OVERSIZED_DIFF_THRESHOLD
+    const zhMode = isZh()
     return (
       <div key={`file-${String(fileIndex)}`} className={css.fileBlock}>
         <button
@@ -131,6 +147,39 @@ export function DiffFiles({ diff, untrackedPath, untrackedContent, resolveFold }
             </span>
           )}
         </button>
+        {file.binary && (
+          <div className={css.stateCard} data-testid="diff-state-binary">
+            <span>{zhMode ? '二进制文件已变更，无法直接预览文本差异。' : 'Binary file changed; text diff preview is unavailable.'}</span>
+          </div>
+        )}
+        {isPureRename && (
+          <div className={css.stateCard} data-testid="diff-state-rename">
+            <span>{zhMode ? '文件已重命名，内容无增删改动。' : 'File renamed without content changes.'}</span>
+          </div>
+        )}
+        {isOversized && !fileExpanded && (
+          <div className={css.stateCard} data-testid="diff-state-oversized">
+            <span>
+              {zhMode
+                ? `差异较大（+${String(stats.added)} / −${String(stats.deleted)} 行），已默认折叠以保持流畅。`
+                : `Large diff (+${String(stats.added)} / −${String(stats.deleted)} lines); collapsed by default to keep scrolling smooth.`}
+            </span>
+            <button
+              type="button"
+              className={css.stateAction}
+              data-testid="diff-expand-oversized"
+              onClick={() => {
+                setExpandedFiles(current => {
+                  const next = new Set(current)
+                  next.add(fileIndex)
+                  return next
+                })
+              }}
+            >
+              {zhMode ? '仍要展开差异' : 'Expand full diff'}
+            </button>
+          </div>
+        )}
         {expandable && fileExpanded && (
           <DiffRows segments={segments} lang={langOfPath(to)} resolveFold={resolveFold !== undefined ? (segment) => loadFold(file, segment) : undefined} />
         )}

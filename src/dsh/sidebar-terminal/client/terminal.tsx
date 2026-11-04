@@ -26,6 +26,7 @@ export function TerminalBody({ useTabInfo, useTerminal, useTheme, view, t }: Ter
   const theme = useTheme(value => value)
   const model = view(tab.id)
   const state = useTerminal(tab.id)
+  const emulatorRef = useRef<Terminal | undefined>(undefined)
   useEffect(() => model.mount(), [model])
   if (state === undefined) return null
   const newTerminal = <Button variant="primary" size={state.issue === 'missingTerminal' ? 'md' : 'sm'}
@@ -55,6 +56,17 @@ export function TerminalBody({ useTabInfo, useTerminal, useTheme, view, t }: Ter
   const readOnly = state.phase === 'connected' && state.info?.state === 'running' && !state.writable
   return (
     <section className={css.root} data-sidebar-terminal>
+      {state.info !== undefined && (
+        <div className={css.toolbar}>
+          <span className={css.toolbarMeta}>
+            {state.info.shell?.name || state.info.title}
+            {state.info.state === 'exited' && ` · 退出码 ${String(state.info.exitCode ?? '—')}`}
+          </span>
+          <Button variant="outline" size="sm" onClick={() => { sendTerminalToComposer(emulatorRef.current) }}>
+            发送到对话
+          </Button>
+        </div>
+      )}
       {(status !== undefined || retry || readOnly) && <div className={css.status} role="status">
         {status}
         {readOnly && <>{t('readonly')} <Button variant="outline" size="sm" onClick={() => { model.connect() }}>{t('control')}</Button></>}
@@ -63,19 +75,20 @@ export function TerminalBody({ useTabInfo, useTerminal, useTheme, view, t }: Ter
           : <Button variant="outline" size="sm" onClick={() => { model.connect() }}>{t('reconnect')}</Button>)}
         {ended && newTerminal}
       </div>}
-      {state.info !== undefined && <TerminalScreen state={state} model={model} visible={tab.visible} label={t('title')} theme={theme} />}
+      {state.info !== undefined && <TerminalScreen state={state} model={model} visible={tab.visible} label={t('title')} theme={theme} emulatorRef={emulatorRef} />}
       {error !== undefined && <p className={css.error} role="alert">{t('failed', { message: error })}</p>}
     </section>
   )
 }
 
 /* oxlint-disable typescript/no-non-null-assertion -- React sets the DOM ref, then these effects initialize and use the emulator. */
-function TerminalScreen({ state, model, visible, label, theme }: {
+function TerminalScreen({ state, model, visible, label, theme, emulatorRef }: {
   state: TerminalViewState
   model: TerminalView
   visible: boolean
   label: string
   theme: ThemeSnapshot
+  emulatorRef: { current: Terminal | undefined }
 }): ReactNode {
   const element = useRef<HTMLDivElement>(null)
   const terminal = useRef<Terminal | undefined>(undefined)
@@ -101,6 +114,7 @@ function TerminalScreen({ state, model, visible, label, theme }: {
     const cursor = observeTerminalCursor(xterm, node, () => palette.cursor)
     xterm.textarea?.setAttribute('aria-label', label)
     terminal.current = xterm
+    emulatorRef.current = xterm
     fit.current = addon
     lastRevision.current = 0
     const input = xterm.onData((data) => { model.write(data) })
@@ -117,9 +131,10 @@ function TerminalScreen({ state, model, visible, label, theme }: {
       palette.dispose()
       xterm.dispose()
       terminal.current = undefined
+      emulatorRef.current = undefined
       fit.current = undefined
     }
-  }, [model])
+  }, [model, emulatorRef])
 
   useLayoutEffect(() => {
     const style = getComputedStyle(element.current!)
@@ -181,4 +196,32 @@ function fitScreen(xterm: Terminal, fit: FitAddon, state: TerminalViewState, mod
   if (cols < 2 || rows < 1) return
   xterm.resize(cols, rows)
   model.resize(cols, rows)
+}
+
+function extractTerminalSnippet(xterm: Terminal | undefined): string {
+  if (xterm === undefined) return ''
+  const selection = xterm.getSelection().trim()
+  if (selection !== '') return `\`\`\`text\n${selection}\n\`\`\``
+  const buffer = xterm.buffer.active
+  const lines: string[] = []
+  for (let i = buffer.length - 1; i >= 0 && lines.length < 40; i -= 1) {
+    const line = buffer.getLine(i)?.translateToString(true) ?? ''
+    if (line.trim() === '' && lines.length === 0) continue
+    lines.push(line)
+  }
+  const recent = lines.reverse().join('\n').trim()
+  return recent === '' ? '' : `\`\`\`text\n${recent}\n\`\`\``
+}
+
+function sendTerminalToComposer(xterm: Terminal | undefined): void {
+  const snippet = extractTerminalSnippet(xterm)
+  if (snippet === '') return
+  const textarea = document.querySelector<HTMLTextAreaElement>('#root [data-slot="conversation"] textarea[data-phase]')
+    ?? document.querySelector<HTMLTextAreaElement>('textarea[data-phase]')
+  if (textarea === null) return
+  const next = textarea.value.trim() === '' ? snippet : `${textarea.value}\n\n${snippet}`
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+  setter?.call(textarea, next)
+  textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  textarea.focus()
 }

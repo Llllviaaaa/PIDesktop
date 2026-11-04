@@ -75,6 +75,36 @@
 .statAdd { color: var(--dsw-alias-state-success-primary); }
 .statDel { color: var(--dsw-alias-state-error-primary); }
 
+/* Special file state cards (binary, pure rename, oversized diff guard). */
+.stateCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 10px 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+}
+.stateAction {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.stateAction:hover {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+}
+
 /* Keyboard focus rings match the shared sidebar convention. */
 .row:focus-visible, .foldRow:focus-visible, .file:focus-visible, .expand:focus-visible {
   outline: 2px solid var(--dsw-alias-interactive-bg-hover-accent);

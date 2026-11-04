@@ -4,14 +4,14 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 pub struct TerminalSession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
-    child: Box<dyn Child + Send + Sync>,
+    killer: Box<dyn ChildKiller + Send + Sync>,
 }
 
 pub type TerminalSessions = Mutex<HashMap<String, TerminalSession>>;
@@ -20,7 +20,7 @@ pub type TerminalSessions = Mutex<HashMap<String, TerminalSession>>;
 /// app calls this on shutdown to make sure no shell outlives the window.
 pub fn close_all(sessions: &mut HashMap<String, TerminalSession>) {
     for (_, mut session) in sessions.drain() {
-        let _ = session.child.kill();
+        let _ = session.killer.kill();
     }
 }
 
@@ -35,6 +35,7 @@ struct TerminalOutput {
 #[serde(rename_all = "camelCase")]
 struct TerminalExit {
     id: String,
+    exit_code: Option<i32>,
 }
 
 /// Decodes a byte stream as UTF-8 without splitting a character across reads.
@@ -178,7 +179,41 @@ fn shell_available(kind: ShellKind) -> bool {
     matches!(kind, ShellKind::WindowsPowerShell)
 }
 
-fn shell_command(shell: &str) -> CommandBuilder {
+/// Splits user-configured shell startup arguments while honoring single and double quotes.
+pub(crate) fn split_shell_args(raw: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut chars = raw.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match quote {
+            Some(active) if ch == active => {
+                quote = None;
+            }
+            Some('"') if ch == '\\' && matches!(chars.peek(), Some('"' | '\\')) => {
+                if let Some(escaped) = chars.next() {
+                    current.push(escaped);
+                }
+            }
+            Some(_) => current.push(ch),
+            None if ch == '\'' || ch == '"' => {
+                quote = Some(ch);
+            }
+            None if ch.is_whitespace() => {
+                if !current.is_empty() {
+                    args.push(std::mem::take(&mut current));
+                }
+            }
+            None => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+    args
+}
+
+fn shell_command(shell: &str, custom_args: &str) -> CommandBuilder {
     let mut command = match shell_kind(shell) {
         ShellKind::CommandPrompt => CommandBuilder::new("cmd.exe"),
         ShellKind::PowerShell7 => {
@@ -212,6 +247,9 @@ fn shell_command(shell: &str) -> CommandBuilder {
             }
         }
     };
+    for extra in split_shell_args(custom_args) {
+        command.arg(extra);
+    }
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
     command.env("TERM_PROGRAM", "PIDesktop");
@@ -309,12 +347,18 @@ pub fn terminal_create(
         .map_err(|error| AppError::Io(format!("failed to open terminal: {error}")))?;
 
     allow_ctrl_c_in_children();
-    let mut command = shell_command(&shell);
+    let custom_args = state
+        .settings
+        .lock()
+        .map(|settings| settings.terminal_shell_args.clone())
+        .unwrap_or_default();
+    let mut command = shell_command(&shell, &custom_args);
     command.cwd(&cwd);
-    let child = pair
+    let mut child = pair
         .slave
         .spawn_command(command)
         .map_err(|error| AppError::Process(format!("failed to start terminal shell: {error}")))?;
+    let killer = child.clone_killer();
     drop(pair.slave);
 
     let mut reader = pair
@@ -341,7 +385,7 @@ pub fn terminal_create(
             TerminalSession {
                 master: pair.master,
                 writer,
-                child,
+                killer,
             },
         );
     }
@@ -377,7 +421,8 @@ pub fn terminal_create(
                 },
             );
         }
-        let _ = app.emit("terminal-exit", TerminalExit { id });
+        let exit_code = child.wait().ok().map(|status| status.exit_code() as i32);
+        let _ = app.emit("terminal-exit", TerminalExit { id, exit_code });
     });
 
     Ok(())
@@ -435,14 +480,8 @@ pub fn terminal_close(state: State<'_, crate::AppState>, id: String) -> Result<(
         .lock()
         .map_err(|_| AppError::locked("terminal"))?;
     if let Some(mut session) = sessions.remove(&id) {
-        // A shell that already exited cannot be killed again; that is not a failure.
-        if let Err(error) = session.child.kill() {
-            if session.child.try_wait().ok().flatten().is_none() {
-                return Err(AppError::Process(format!(
-                    "failed to close terminal: {error}"
-                )));
-            }
-        }
+        // A shell that already exited cannot be killed again; ignore termination races.
+        let _ = session.killer.kill();
     }
     Ok(())
 }
@@ -522,5 +561,18 @@ mod tests {
         assert_eq!(shell_kind("Git Bash"), ShellKind::GitBash);
         assert_eq!(shell_kind("WSL"), ShellKind::Wsl);
         assert_eq!(shell_kind(""), ShellKind::WindowsPowerShell);
+    }
+
+    #[test]
+    fn splits_custom_shell_startup_arguments() {
+        assert!(split_shell_args("   ").is_empty());
+        assert_eq!(
+            split_shell_args("-NoProfile -ExecutionPolicy Bypass"),
+            ["-NoProfile", "-ExecutionPolicy", "Bypass"]
+        );
+        assert_eq!(
+            split_shell_args(r#"--rcfile "C:\Program Files\Git\bashrc" -c 'echo hi'"#),
+            ["--rcfile", r"C:\Program Files\Git\bashrc", "-c", "echo hi"]
+        );
     }
 }

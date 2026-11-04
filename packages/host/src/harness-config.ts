@@ -40,6 +40,8 @@ export interface HarnessConfig {
   computer: ComputerConfig & { enabled: boolean };
   browser: BrowserConfig & { enabled: boolean };
   schedule: { enabled: boolean };
+  /** Optional Windows lightweight sandbox for `bash` (Job Object + scrubbed env + command guard). */
+  sandbox: { enabled: boolean };
   /** The user's personality and custom instructions, as one system prompt section. */
   prompt: { instructions: string };
 }
@@ -56,6 +58,7 @@ export function defaultHarnessConfig(): HarnessConfig {
     computer: { enabled: true },
     browser: { enabled: true },
     schedule: { enabled: true },
+    sandbox: { enabled: false },
     prompt: { instructions: "" },
   };
 }
@@ -139,5 +142,7 @@ export function readHarnessConfig(file: string): { config: HarnessConfig; proble
   }
   const schedule = section("schedule");
   if (schedule !== undefined) config.schedule = { enabled: schedule.enabled !== false };
+  const sandbox = section("sandbox");
+  if (sandbox !== undefined) config.sandbox = { enabled: sandbox.enabled === true };
   return { config, problems };
 }

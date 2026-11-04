@@ -14,6 +14,7 @@ import css from './TerminalTitle.module.css'
 export function TerminalTitle({ useTabInfo, useTerminal, view, t }: PropsRuntime<'sidebar.right.pane.tab.title'> & PropsLocale<'sidebarTerminal'> & InjectFace<TerminalInjected>): ReactNode {
   const { tab } = useTabInfo()
   const title = useTerminal(tab.id, state => state?.info?.title ?? state?.title) ?? tab.title
+  const exitBadge = useTerminal(tab.id, state => state?.info?.state === 'exited' ? (state.info.exitCode ?? '—') : undefined)
   const [editing, setEditing] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const label = useRef<HTMLSpanElement>(null)
@@ -55,6 +56,13 @@ export function TerminalTitle({ useTabInfo, useTerminal, view, t }: PropsRuntime
           event.currentTarget.blur()
         } else if (event.key === 'Enter') event.currentTarget.blur()
       }} />
-      : <span ref={label} className={css.title}>{title}</span>}
+      : <>
+        <span ref={label} className={css.title}>{title}</span>
+        {exitBadge !== undefined && (
+          <span className={css.exitBadge} data-failed={exitBadge !== 0 ? 'true' : undefined}>
+            [{String(exitBadge)}]
+          </span>
+        )}
+      </>}
   </>
 }

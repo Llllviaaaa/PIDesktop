@@ -38,5 +38,7 @@ export const queryKeys = {
   modelConfigs: () => ["models", "configs"] as const,
   pullRequests: (requested: string, candidates: readonly string[], touched: boolean) =>
     ["pull-requests", requested, candidates, touched] as const,
+  pullRequestDetail: (repositoryRoot: string, number: number) =>
+    ["pull-requests", "detail", repositoryRoot, number] as const,
   diagram: (kind: string, dark: boolean, source: string) => ["diagram", kind, dark, source] as const,
 };

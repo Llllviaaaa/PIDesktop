@@ -81,6 +81,8 @@ describe("desktop settings", () => {
     expect(config.subagents).toEqual({ enabled: true, concurrency: 4, model: defaultModel, effort: "high" });
     expect(config.browser).toEqual({ enabled: true, headless: false, confirmActions: true, profileDir: join("C:/cfg", "browser-profile") });
     expect(config.computer).toEqual({ enabled: false, confirmActions: true, helper: "C:/app/Pi Desktop.exe" });
+    expect(config.sandbox).toEqual({ enabled: false });
+    expect(harnessFromDesktop({ settings: { sandboxEnabled: true }, configDir: "C:/cfg" }).config.sandbox).toEqual({ enabled: true });
     expect(config.prompt.instructions).toBe("Communication style: be direct, implementation-focused, and concise. Lead with concrete outcomes.\n\nAnswer in Chinese.");
   });
 
