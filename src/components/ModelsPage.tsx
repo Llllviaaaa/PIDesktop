@@ -26,6 +26,7 @@ import {
   buildModelCatalog,
   canDisconnect,
   credentialSourceText,
+  defaultBaseUrlPlaceholder,
   endpointPreview,
   enrichModel,
   formatCost,
@@ -36,6 +37,7 @@ import {
   PROVIDER_APIS,
   providerHue,
   providerMonogram,
+  requiresBaseUrl,
   slugifyProviderId,
   type CapabilitySource,
   type EnrichedModel,
@@ -778,7 +780,7 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
   };
   const save = async () => {
     if (!draft.id.trim() || idError) return setError(idError || "请填写提供商 ID");
-    if (!draft.baseUrl.trim()) return setError("请填写 API 地址");
+    if (requiresBaseUrl(draft.api) && !draft.baseUrl.trim()) return setError("请填写 API 地址");
     if (draft.models.length === 0) return setError("至少选择或添加一个模型");
     setBusy(true);
     setError("");
@@ -836,7 +838,7 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
             </label>
             <label className="wide">
               <span>API 地址</span>
-              <input value={draft.baseUrl} onChange={(event) => patch({ baseUrl: event.target.value })} placeholder="https://api.example.com/v1" spellCheck={false} />
+              <input value={draft.baseUrl} onChange={(event) => patch({ baseUrl: event.target.value })} placeholder={defaultBaseUrlPlaceholder(draft.api)} spellCheck={false} />
               {preview && <em className="models-field-hint">请求会发到 <code>{preview}</code></em>}
             </label>
             <label className="wide models-editor-inline">
@@ -848,7 +850,7 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
           <div className="models-editor-models">
             <div className="models-block-header">
               <h3>模型 <span>已选 {draft.models.length}</span></h3>
-              <button className="secondary-button compact" disabled={discovering || !draft.baseUrl.trim()} onClick={() => void discover()}>
+              <button className="secondary-button compact" disabled={discovering || (requiresBaseUrl(draft.api) && !draft.baseUrl.trim())} onClick={() => void discover()}>
                 {discovering ? <LoaderCircle size={13} className="spinner-icon" /> : <CloudDownload size={13} />}
                 {discovering ? "正在获取" : "从 API 获取"}
               </button>
@@ -896,6 +898,42 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
                         <label><span>显示名称</span><input value={current.name} onChange={(event) => changeModel(model.id, { name: event.target.value })} placeholder={current.id} /></label>
                         <label><span>上下文</span><input type="number" min="1" value={current.contextWindow ?? ""} onChange={(event) => changeModel(model.id, { contextWindow: event.target.value ? Number(event.target.value) : null })} /></label>
                         <label><span>最大输出</span><input type="number" min="1" value={current.maxTokens ?? ""} onChange={(event) => changeModel(model.id, { maxTokens: event.target.value ? Number(event.target.value) : null })} /></label>
+                        <label>
+                          <span>输入单价 ($/M)</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={current.cost?.input ?? ""}
+                            placeholder="内置目录自动估算"
+                            onChange={(event) => {
+                              const raw = event.target.value;
+                              const nextInput = raw === "" ? null : Number(raw);
+                              const nextOutput = current.cost?.output ?? 0;
+                              changeModel(model.id, {
+                                cost: nextInput === null && !current.cost?.output ? null : { ...current.cost, input: nextInput ?? 0, output: nextOutput },
+                              });
+                            }}
+                          />
+                        </label>
+                        <label>
+                          <span>输出单价 ($/M)</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={current.cost?.output ?? ""}
+                            placeholder="内置目录自动估算"
+                            onChange={(event) => {
+                              const raw = event.target.value;
+                              const nextOutput = raw === "" ? null : Number(raw);
+                              const nextInput = current.cost?.input ?? 0;
+                              changeModel(model.id, {
+                                cost: nextOutput === null && !current.cost?.input ? null : { ...current.cost, input: nextInput, output: nextOutput ?? 0 },
+                              });
+                            }}
+                          />
+                        </label>
                         <label className="models-editor-inline"><Toggle checked={current.reasoning} label="推理模型" onChange={(value) => changeModel(model.id, { reasoning: value })} /><span>推理</span></label>
                         <label className="models-editor-inline"><Toggle checked={current.input.includes("image")} label="支持图片" onChange={(value) => changeModel(model.id, { input: value ? ["text", "image"] : ["text"] })} /><span>图片</span></label>
                       </div>

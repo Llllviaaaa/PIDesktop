@@ -9,7 +9,10 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/permissions": "*",
+    "@pid/session": "*",
     "@pid/system-prompt": "*",
-    "@pid/tools": "*"
+    "@pid/tools": "*",
+    "@pid/ui": "*"
   }
 }

@@ -440,11 +440,12 @@ export class HarnessRuntimes {
       tokens: {
         input: usage.inputTokens,
         output: usage.outputTokens,
+        ...(usage.reasoningTokens === undefined ? {} : { reasoning: usage.reasoningTokens }),
         cacheRead: usage.cacheReadTokens,
         cacheWrite: usage.cacheWriteTokens,
         total: usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
       },
-      cost: 0,
+      cost: got.session.estimatedCostUsd ?? 0,
     };
   }
 
@@ -466,6 +467,7 @@ export class HarnessRuntimes {
             ...(model.input === undefined ? {} : { input: model.input }),
             ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
             ...(model.maxOutputTokens === undefined ? {} : { maxTokens: model.maxOutputTokens }),
+            ...(model.cost === undefined ? {} : { cost: { ...model.cost } }),
           }));
         } catch {
           return [];

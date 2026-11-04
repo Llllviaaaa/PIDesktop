@@ -1485,6 +1485,8 @@ export default function App() {
       permissionLabel={permissionLabel}
       agentMode={settings?.agentMode ?? "agent"}
       contextUsage={variant === "follow-up" ? stats?.contextUsage : undefined}
+      sessionCost={variant === "follow-up" ? stats?.cost : undefined}
+      sessionTokens={variant === "follow-up" ? stats?.tokens : undefined}
       transcriptDensity={transcriptDensity}
       onTranscriptDensityChange={variant === "follow-up" ? setTranscriptDensity : undefined}
       onSend={sendFromComposer}

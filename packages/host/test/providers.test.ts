@@ -54,17 +54,19 @@ describe("readProviders", () => {
       providers: [
         { api: "openai-compat", id: "ok", baseUrl: "https://api.example/v1", apiKey: { env: "K" } },
         { api: "openai-compat", id: "no-url" },
-        { api: "gemini", id: "unknown-api" },
+        { api: "vertex", id: "unknown-api" },
         { api: "anthropic", id: "bad key", apiKey: "sk-plain" },
         { api: "anthropic", id: "ok" },
         { api: "anthropic", id: "claude", apiKey: { value: "sk" }, models: [{ id: "m" }] },
+        { api: "gemini", id: "google", apiKey: { env: "GEMINI_API_KEY" } },
+        { api: "openai-responses", id: "openai", apiKey: { env: "OPENAI_API_KEY" }, models: [{ id: "gpt-5", cost: { input: 1.5, output: 12 } }] },
       ],
     }));
     const { entries, problems } = providers.readProviders(path);
-    expect(entries.map((entry) => entry.id)).toEqual(["ok", "claude"]);
+    expect(entries.map((entry) => entry.id)).toEqual(["ok", "claude", "google", "openai"]);
     expect(problems).toEqual([
       "providers[1]: openai-compat needs a baseUrl",
-      "providers[2]: api must be one of openai-compat, anthropic",
+      "providers[2]: api must be one of openai-compat, openai-responses, anthropic, gemini",
       "providers[3]: id must be letters, digits, '.', '_' or '-'",
       "providers[4]: duplicate id",
     ]);

@@ -14,9 +14,12 @@
  */
 import { readFileSync } from "node:fs";
 import type { Context } from "@deepseek-ai/cordis";
-import { LlmError, isSecretRef, type SecretRef } from "@pid/llm";
+import { LlmError, isSecretRef, type ModelInfo, type ModelPricing, type SecretRef } from "@pid/llm";
 import * as anthropic from "@pid/llm-anthropic";
+import * as gemini from "@pid/llm-gemini";
 import * as openaiCompat from "@pid/llm-openai-compat";
+import * as openaiResponses from "@pid/llm-openai-responses";
+import "@pid/pricing";
 import { ErrorCode, type ModelListResult, type ProviderListResult } from "@pid/protocol";
 import { RpcError } from "./rpc.ts";
 
@@ -28,8 +31,8 @@ export interface Config {
   file: string;
 }
 
-const APIS = ["openai-compat", "anthropic"] as const;
-type Api = (typeof APIS)[number];
+export const APIS = ["openai-compat", "openai-responses", "anthropic", "gemini"] as const;
+export type Api = (typeof APIS)[number];
 
 export interface ProviderEntry {
   api: Api;
@@ -39,12 +42,22 @@ export interface ProviderEntry {
   apiKey?: SecretRef;
   headers?: Record<string, string>;
   reasoningEffort?: boolean;
-  models?: openaiCompat.ProviderConfig["models"];
+  models?: ModelInfo[];
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     && Object.values(value).every((item) => typeof item === "string");
+}
+
+function isValidCost(cost: unknown): cost is ModelPricing {
+  if (typeof cost !== "object" || cost === null || Array.isArray(cost)) return false;
+  const record = cost as Record<string, unknown>;
+  const okNum = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+  if (!okNum(record.input) || !okNum(record.output)) return false;
+  if (record.cacheRead !== undefined && !okNum(record.cacheRead)) return false;
+  if (record.cacheWrite !== undefined && !okNum(record.cacheWrite)) return false;
+  return true;
 }
 
 /** Why `value` is not a usable provider entry, or undefined when it is. */
@@ -57,8 +70,13 @@ export function entryProblem(value: unknown): string | undefined {
   if (entry.baseUrl !== undefined && (typeof entry.baseUrl !== "string" || !/^https?:\/\//.test(entry.baseUrl))) return "baseUrl must be an http(s) URL";
   if (entry.apiKey !== undefined && !isSecretRef(entry.apiKey)) return "apiKey must be { env }, { secret } or { value }";
   if (entry.headers !== undefined && !isStringRecord(entry.headers)) return "headers must map names to strings";
-  if (entry.models !== undefined && !(Array.isArray(entry.models) && entry.models.every((model) => typeof (model as { id?: unknown })?.id === "string"))) {
-    return "models must be a list of { id, ... }";
+  if (entry.models !== undefined) {
+    if (!Array.isArray(entry.models) || !entry.models.every((model) => typeof (model as { id?: unknown })?.id === "string")) {
+      return "models must be a list of { id, ... }";
+    }
+    if (!entry.models.every((model) => (model as { cost?: unknown }).cost === undefined || isValidCost((model as { cost?: unknown }).cost))) {
+      return "model.cost must have finite non-negative { input, output }";
+    }
   }
   return undefined;
 }
@@ -115,7 +133,30 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(openaiCompat, {
     providers: byApi("openai-compat").map(({ api: _api, baseUrl, ...rest }) => ({ ...rest, baseUrl: baseUrl ?? "" })),
   });
-  ctx.plugin(anthropic, { providers: byApi("anthropic").map(({ api: _api, reasoningEffort: _effort, ...rest }) => rest) });
+  ctx.plugin(openaiResponses, {
+    providers: byApi("openai-responses").map(({ api: _api, reasoningEffort: _effort, ...rest }) => rest),
+  });
+  ctx.plugin(anthropic, {
+    providers: byApi("anthropic").map(({ api: _api, reasoningEffort: _effort, ...rest }) => rest),
+  });
+  ctx.plugin(gemini, {
+    providers: byApi("gemini").map(({ api: _api, reasoningEffort: _effort, ...rest }) => rest),
+  });
+
+  const customModels = new Map<string, Map<string, ModelPricing>>();
+  for (const entry of entries) {
+    const forProvider = new Map<string, ModelPricing>();
+    for (const model of entry.models ?? []) {
+      if (model.cost !== undefined) forProvider.set(model.id, model.cost);
+    }
+    if (forProvider.size > 0) customModels.set(entry.id, forProvider);
+  }
+  ctx.effect(() => {
+    const pricing = ctx.get("pricing");
+    if (pricing === undefined) return () => {};
+    pricing.setCustomPricing((providerId, modelId) => customModels.get(providerId)?.get(modelId));
+    return () => pricing.setCustomPricing(undefined);
+  }, "providers: custom pricing");
 
   const keys = new Map(entries.map((entry) => [entry.id, entry.apiKey]));
   // The RPC methods start once a gateway is there; a headless run has none.
@@ -131,7 +172,16 @@ export function apply(ctx: Context, config: Config): void {
         throw new RpcError(ErrorCode.InvalidParams, `Unknown provider ${provider}`);
       }
       try {
-        return { models: await ctx.llm.listModels(provider, call.signal) };
+        const rawModels = await ctx.llm.listModels(provider, call.signal);
+        const pricing = ctx.get("pricing");
+        const models = pricing === undefined
+          ? rawModels
+          : rawModels.map((model) => {
+              if (model.cost !== undefined) return model;
+              const resolved = pricing.resolvePricing(provider, model.id);
+              return resolved === undefined ? model : { ...model, cost: resolved };
+            });
+        return { models };
       } catch (error) {
         if (error instanceof LlmError) throw new RpcError(ErrorCode.ProviderError, error.message, error.toInfo());
         throw error;

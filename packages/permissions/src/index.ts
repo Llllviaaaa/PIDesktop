@@ -82,7 +82,7 @@ export class Permissions extends Service {
     ctx.on("tools/pre-execute", async (call, env) => {
       applyDesktopToolDefaults(call.name, call.args);
       const session = await ctx.sessions.get(env.sessionId);
-      const mode = session === undefined ? this.defaults().effective : this.modes(session).effective;
+      const mode = session === undefined ? this.defaultModes().effective : this.modes(session).effective;
       const decision = evaluateToolPermission({ mode, rules: this.rules, workspace: env.cwd, toolName: call.name, input: call.args });
       if (decision.action === "allow") return undefined;
       if (decision.action === "block") return { deny: true, reason: decision.reason };
@@ -93,18 +93,18 @@ export class Permissions extends Service {
 
     ctx.effect(() => ctx.systemPrompt.section("agent-mode", async ({ sessionId }) => {
       const session = await ctx.sessions.get(sessionId);
-      return agentModeSystemInstructions(session === undefined ? this.defaults().agentMode : this.modes(session).agentMode);
+      return agentModeSystemInstructions(session === undefined ? this.defaultModes().agentMode : this.modes(session).agentMode);
     }, { order: SectionOrder.guidelines + 10 }), "permissions: agent-mode section");
   }
 
-  private defaults(): SessionModes {
+  defaultModes(): SessionModes {
     const permission = normalizePermissionMode(this.config.defaultPermission);
     const agentMode = normalizeAgentMode(this.config.defaultAgentMode);
     return { permission, agentMode, effective: permissionForAgentMode(agentMode, permission) };
   }
 
   modes(session: Session): SessionModes {
-    const defaults = this.defaults();
+    const defaults = this.defaultModes();
     const stored = latestCustom<{ permission?: string; agentMode?: string }>(session.events, NAMESPACE);
     const permission = stored?.permission === undefined ? defaults.permission : normalizePermissionMode(stored.permission);
     const agentMode = stored?.agentMode === undefined ? defaults.agentMode : normalizeAgentMode(stored.agentMode);

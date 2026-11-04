@@ -15,6 +15,7 @@ import * as featuresRpc from "../src/features-rpc.ts";
 import { readHarnessConfig } from "../src/harness-config.ts";
 import { createHost, type Host } from "../src/host.ts";
 import * as llmRpc from "../src/llm-rpc.ts";
+import * as memorySkillsRpc from "../src/memory-skills-rpc.ts";
 import { PluginManager } from "../src/plugin-manager.ts";
 import * as pluginsRpc from "../src/plugins-rpc.ts";
 import * as providerAdmin from "../src/provider-admin.ts";
@@ -57,6 +58,7 @@ export async function startE2eHost(options: E2eHostOptions): Promise<E2eHost> {
       ...corePlugins(dataDir),
       [sessionsRpc, { defaultModel }],
       [commandsRpc, { manager: () => managerRef.current }],
+      [memorySkillsRpc, { dataDir }],
       [uiRpc],
       [featuresRpc],
       [diagnostics],

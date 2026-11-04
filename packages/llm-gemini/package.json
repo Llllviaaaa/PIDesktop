@@ -1,0 +1,14 @@
+{
+  "name": "@pid/llm-gemini",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Native LLM adapter for the Google Gemini GenerateContent / StreamGenerateContent API",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/llm": "*"
+  }
+}

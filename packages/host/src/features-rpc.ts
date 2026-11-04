@@ -7,6 +7,7 @@
 import type { Context } from "@deepseek-ai/cordis";
 import "@pid/agent";
 import "@pid/mcp";
+import "@pid/pricing";
 import { checkpointFor, checkpointsOf, diffCheckpoint, restoreCheckpoint } from "@pid/checkpoints";
 import { normalizeAgentMode, normalizePermissionMode, type AgentMode, type PermissionMode } from "@pid/permissions";
 import { planOf } from "@pid/plan";
@@ -197,13 +198,23 @@ export function apply(ctx: Context): void {
 
     "usage.summary": async (): Promise<UsageSummaryResult> => {
       const sessions = await ctx.sessions.list();
+      const pricing = ctx.get("pricing");
       const total = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+      let reasoningTokens = 0;
+      let totalCostUsd = 0;
       let messages = 0;
       for (const session of sessions) {
         messages += session.messageCount;
         for (const key of Object.keys(total) as Array<keyof typeof total>) total[key] += session.usage[key];
+        reasoningTokens += session.usage.reasoningTokens ?? 0;
+        if (pricing !== undefined) totalCostUsd += pricing.estimateSessionCost(session);
       }
-      return { sessions: sessions.length, messages, usage: total };
+      return {
+        sessions: sessions.length,
+        messages,
+        usage: reasoningTokens > 0 ? { ...total, reasoningTokens } : total,
+        ...(totalCostUsd > 0 ? { totalCostUsd } : {}),
+      };
     },
   };
 

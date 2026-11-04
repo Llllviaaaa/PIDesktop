@@ -12,9 +12,11 @@ import { dirname } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { LlmError, type ModelInfo, type SecretRef } from "@pid/llm";
 import { AnthropicAdapter } from "@pid/llm-anthropic";
+import { GeminiAdapter } from "@pid/llm-gemini";
 import { OpenAiCompatAdapter } from "@pid/llm-openai-compat";
+import { OpenAiResponsesAdapter } from "@pid/llm-openai-responses";
 import { ErrorCode } from "@pid/protocol";
-import { entryProblem, type ProviderEntry } from "./providers.ts";
+import { entryProblem, type Api, type ProviderEntry } from "./providers.ts";
 import { RpcError } from "./rpc.ts";
 import { readSecretFile, writeSecretFile, type SecretCodec } from "./secrets.ts";
 
@@ -35,7 +37,7 @@ export interface ProviderDraft {
   id: string;
   name?: string;
   baseUrl?: string;
-  api: "openai-compat" | "anthropic";
+  api: Api;
   apiKey?: string;
   keepExistingApiKey?: boolean;
   headers?: Record<string, string>;
@@ -182,9 +184,19 @@ export function apply(ctx: Context, config: Config): void {
       const apiKey: SecretRef | undefined = secret !== undefined
         ? { value: secret }
         : entry.apiKey !== undefined && "secret" in entry.apiKey && previous?.apiKey !== undefined ? previous.apiKey : entry.apiKey;
+      const common = {
+        id: entry.id,
+        ...(entry.baseUrl === undefined ? {} : { baseUrl: entry.baseUrl }),
+        ...(apiKey === undefined ? {} : { apiKey }),
+        ...(entry.headers === undefined ? {} : { headers: entry.headers }),
+      };
       const adapter = entry.api === "anthropic"
-        ? new AnthropicAdapter(ctx, { id: entry.id, ...(entry.baseUrl === undefined ? {} : { baseUrl: entry.baseUrl }), ...(apiKey === undefined ? {} : { apiKey }), ...(entry.headers === undefined ? {} : { headers: entry.headers }) })
-        : new OpenAiCompatAdapter(ctx, { id: entry.id, baseUrl: entry.baseUrl ?? "", ...(apiKey === undefined ? {} : { apiKey }), ...(entry.headers === undefined ? {} : { headers: entry.headers }) });
+        ? new AnthropicAdapter(ctx, common)
+        : entry.api === "gemini"
+          ? new GeminiAdapter(ctx, common)
+          : entry.api === "openai-responses"
+            ? new OpenAiResponsesAdapter(ctx, common)
+            : new OpenAiCompatAdapter(ctx, { ...common, baseUrl: entry.baseUrl ?? "" });
       try {
         return { models: await adapter.listModels(signal) };
       } catch (error) {

@@ -20,6 +20,7 @@ import Schema, * as schemasteryNs from "@deepseek-ai/schemastery";
 import * as agentNs from "@pid/agent";
 import * as commandsNs from "@pid/commands";
 import * as llmNs from "@pid/llm";
+import * as pricingNs from "@pid/pricing";
 import * as protocolNs from "@pid/protocol";
 import * as sessionNs from "@pid/session";
 import * as systemPromptNs from "@pid/system-prompt";
@@ -57,6 +58,7 @@ export const HOST_SHARED_MODULES: Readonly<Record<string, Record<string, unknown
   schemastery: schemasteryExports,
   "@pid/protocol": { ...protocolNs },
   "@pid/llm": { ...llmNs },
+  "@pid/pricing": { ...pricingNs },
   "@pid/tools": { ...toolsNs },
   "@pid/session": { ...sessionNs },
   "@pid/agent": { ...agentNs },

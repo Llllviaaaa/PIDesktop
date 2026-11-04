@@ -19,24 +19,25 @@ import { gitClient } from "./gitClient";
 import { harnessProviders } from "./harnessProviders";
 import { harnessRuntimes, type HostStatus } from "./harnessRuntime";
 import { mcpClient } from "./mcpClient";
+import { memorySkillsClient } from "./memorySkillsClient";
 import { pluginClient } from "./pluginClient";
 import type { TranscriptEvent } from "./transcript";
 import { scheduleClient } from "./scheduleClient";
 import { sessionClient } from "./sessionClient";
 
-/** Token totals over the Host's sessions, imported Pi tasks included; the Host does not compute costs. */
+/** Token totals and local estimated cost over the Host's sessions. */
 async function usageSummary(): Promise<UsageSummary> {
-  const { sessions, messages, usage } = await harnessRuntimes.call<UsageSummaryResult>("usage.summary");
+  const { sessions, messages, usage, totalCostUsd } = await harnessRuntimes.call<UsageSummaryResult>("usage.summary");
   return {
     sessions,
     messages,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
-    reasoningTokens: 0,
+    reasoningTokens: usage.reasoningTokens ?? 0,
     cacheReadTokens: usage.cacheReadTokens,
     cacheWriteTokens: usage.cacheWriteTokens,
     totalTokens: usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
-    totalCost: 0,
+    totalCost: totalCostUsd ?? 0,
   };
 }
 
@@ -71,10 +72,20 @@ export const agent = {
   deleteSession: sessionClient.delete,
   getSettings: () => invoke<AppSettings>("get_settings"),
   setSettings: (settings: AppSettings) => invoke<void>("set_settings", { settings }),
-  getLocalMemory: () => invoke<string>("get_local_memory"),
-  setLocalMemory: (contents: string) => invoke<void>("set_local_memory", { contents }),
-  exportLocalMemory: (destination: string) => invoke<string>("export_local_memory", { destination }),
-  deleteLocalMemory: () => invoke<void>("delete_local_memory"),
+  getLocalMemory: () => memorySkillsClient.getMemory("user").then((result) => result.content),
+  setLocalMemory: (contents: string) => memorySkillsClient.setMemory(contents, "user").then(() => undefined),
+  exportLocalMemory: (destination: string) => memorySkillsClient.exportMemory(destination, "user"),
+  deleteLocalMemory: () => memorySkillsClient.deleteMemory("user"),
+  getMemory: memorySkillsClient.getMemory,
+  setMemory: memorySkillsClient.setMemory,
+  deleteMemory: memorySkillsClient.deleteMemory,
+  exportMemory: memorySkillsClient.exportMemory,
+  listSkills: memorySkillsClient.listSkills,
+  readSkill: memorySkillsClient.readSkill,
+  createSkill: memorySkillsClient.createSkill,
+  saveSkill: memorySkillsClient.saveSkill,
+  toggleSkill: memorySkillsClient.toggleSkill,
+  deleteSkill: memorySkillsClient.deleteSkill,
   // Providers live in the Host's providers.json (src/lib/harnessProviders.ts).
   listModelProviders: () => harnessProviders.configs(),
   discoverModelProviderModels: (provider: ModelProviderInput) => harnessProviders.discover(provider),

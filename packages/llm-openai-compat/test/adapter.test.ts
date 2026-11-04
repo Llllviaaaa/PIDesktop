@@ -144,4 +144,24 @@ describe("openai-compat adapter", () => {
     server.reply({ status: 404 });
     expect(await ctx.llm.listModels("compat")).toEqual([{ id: "deepseek-chat", contextWindow: 128_000 }, { id: "local-only" }]);
   });
+
+  it("extracts completion_tokens_details.reasoning_tokens when reported", async () => {
+    const { ctx, server } = await setup();
+    server.reply({
+      sse: [
+        'data: {"choices":[{"delta":{"content":"Done."},"finish_reason":"stop"}]}',
+        'data: {"usage":{"prompt_tokens":50,"completion_tokens":30,"completion_tokens_details":{"reasoning_tokens":18}}}',
+        "data: [DONE]",
+        "",
+      ].join("\n\n"),
+    });
+    const result = await assemble(ctx.llm.stream(request));
+    expect(result.usage).toEqual({
+      inputTokens: 50,
+      outputTokens: 30,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 18,
+    });
+  });
 });

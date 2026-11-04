@@ -3,7 +3,7 @@
  * event list, so tests can assert on JSONL fixtures directly.
  */
 import type { AssistantMessage, Effort, Message, ToolResultMessage } from "@pid/llm";
-import type { ModelRef, SessionEvent, SessionHeader, SessionSummary } from "./types.ts";
+import type { ModelRef, SessionEvent, SessionHeader, SessionModelUsage, SessionSummary } from "./types.ts";
 
 /** The note a compaction summary is sent to the model under. */
 export const COMPACTION_PREFIX = "The conversation so far was compacted. Summary of the earlier part:\n\n";
@@ -97,7 +97,9 @@ export function summarize(header: SessionHeader, events: readonly SessionEvent[]
   let archived = false;
   let firstMessage: string | undefined;
   let messageCount = 0;
-  const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const usage: SessionSummary["usage"] = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  let reasoningTokens = 0;
+  const byModel = new Map<string, SessionModelUsage>();
   for (const event of events) {
     if (event.type === "user") {
       messageCount += 1;
@@ -107,9 +109,34 @@ export function summarize(header: SessionHeader, events: readonly SessionEvent[]
       }
     } else if (event.type === "assistant") {
       messageCount += 1;
-      for (const key of Object.keys(usage) as Array<keyof typeof usage>) usage[key] += event.data.usage[key] ?? 0;
+      const evUsage = event.data.usage;
+      usage.inputTokens += evUsage.inputTokens ?? 0;
+      usage.outputTokens += evUsage.outputTokens ?? 0;
+      usage.cacheReadTokens += evUsage.cacheReadTokens ?? 0;
+      usage.cacheWriteTokens += evUsage.cacheWriteTokens ?? 0;
+      if (typeof evUsage.reasoningTokens === "number" && evUsage.reasoningTokens > 0) {
+        reasoningTokens += evUsage.reasoningTokens;
+      }
+      const modelKey = `${event.data.model.provider}/${event.data.model.model}`;
+      let bucket = byModel.get(modelKey);
+      if (bucket === undefined) {
+        bucket = {
+          provider: event.data.model.provider,
+          model: event.data.model.model,
+          usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        };
+        byModel.set(modelKey, bucket);
+      }
+      bucket.usage.inputTokens += evUsage.inputTokens ?? 0;
+      bucket.usage.outputTokens += evUsage.outputTokens ?? 0;
+      bucket.usage.cacheReadTokens += evUsage.cacheReadTokens ?? 0;
+      bucket.usage.cacheWriteTokens += evUsage.cacheWriteTokens ?? 0;
+      if (typeof evUsage.reasoningTokens === "number" && evUsage.reasoningTokens > 0) {
+        bucket.usage.reasoningTokens = (bucket.usage.reasoningTokens ?? 0) + evUsage.reasoningTokens;
+      }
     }
   }
+  if (reasoningTokens > 0) usage.reasoningTokens = reasoningTokens;
   for (const event of currentBranch(events)) {
     if (event.type !== "label") continue;
     if (event.data.title !== undefined) title = event.data.title;
@@ -127,6 +154,7 @@ export function summarize(header: SessionHeader, events: readonly SessionEvent[]
     lastSeq: last?.seq ?? 0,
     messageCount,
     usage,
+    ...(byModel.size > 0 ? { modelUsage: [...byModel.values()] } : {}),
     ...(header.forkedFrom === undefined ? {} : { forkedFrom: header.forkedFrom }),
     ...(header.parent === undefined ? {} : { parent: header.parent }),
     ...(header.side === true ? { side: true as const } : {}),

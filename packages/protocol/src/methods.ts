@@ -13,7 +13,7 @@ export interface HostInfoResult {
 export interface ProviderSummary {
   id: string;
   name: string;
-  /** The adapter's wire protocol: `openai-compat` or `anthropic`. */
+  /** The adapter's wire protocol: `openai-compat`, `openai-responses`, `anthropic`, or `gemini`. */
   api: string;
   baseUrl: string;
   /**
@@ -32,6 +32,13 @@ export interface ModelListParams {
   provider: string;
 }
 
+export interface ModelPricingInfo {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
 export interface ModelSummary {
   id: string;
   name?: string;
@@ -39,6 +46,7 @@ export interface ModelSummary {
   maxOutputTokens?: number;
   reasoning?: boolean;
   input?: Array<"text" | "image">;
+  cost?: ModelPricingInfo;
 }
 
 export interface ModelListResult {
@@ -66,6 +74,8 @@ export interface TokenUsage {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /** Thinking / reasoning tokens (already included in `outputTokens`), when reported. */
+  reasoningTokens?: number;
 }
 
 export interface SessionInfo {
@@ -81,6 +91,8 @@ export interface SessionInfo {
   messageCount: number;
   /** Tokens of every model call in the session, rewound ones included. */
   usage: TokenUsage;
+  /** Estimated USD cost of the session based on local pricing, when non-zero. */
+  estimatedCostUsd?: number;
   forkedFrom?: { sessionId: string; seq: number };
   parent?: { sessionId: string; callId: string };
   /** A side chat of `forkedFrom.sessionId`; session lists leave it out. */
@@ -366,11 +378,12 @@ export interface McpChangedNotification {
   servers: McpServerStatus[];
 }
 
-/** Token totals over every session; costs are not computed yet. */
+/** Token totals and local estimated USD cost over every session. */
 export interface UsageSummaryResult {
   sessions: number;
   messages: number;
   usage: TokenUsage;
+  totalCostUsd?: number;
 }
 
 /** `llm.complete`: one model call without tools or a session. Without `provider` and `model` it uses the default model. */
@@ -639,4 +652,100 @@ export interface CommandRunResult {
 /** Notification `command/changed`. */
 export interface CommandChangedNotification {
   reason: string;
+}
+
+// Memory 2.0 & Skills Lifecycle (M3).
+
+export type MemoryScope = "user" | "project";
+
+export interface MemoryGetParams {
+  scope?: MemoryScope;
+  cwd?: string;
+}
+
+export interface MemoryGetResult {
+  scope: MemoryScope;
+  path: string;
+  content: string;
+  trusted: boolean;
+}
+
+export interface MemorySetParams {
+  scope?: MemoryScope;
+  cwd?: string;
+  content: string;
+}
+
+export interface MemoryDeleteParams {
+  scope?: MemoryScope;
+  cwd?: string;
+}
+
+export interface MemoryExportParams {
+  scope?: MemoryScope;
+  cwd?: string;
+  destination: string;
+}
+
+export interface MemoryExportResult {
+  path: string;
+}
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  path: string;
+  scope: "user" | "project";
+  enabled: boolean;
+  trusted: boolean;
+}
+
+export interface SkillListParams {
+  cwd?: string;
+}
+
+export interface SkillListResult {
+  skills: SkillInfo[];
+}
+
+export interface SkillReadParams {
+  path: string;
+  cwd?: string;
+}
+
+export interface SkillReadResult {
+  path: string;
+  content: string;
+  name: string;
+  description: string;
+}
+
+export interface SkillCreateParams {
+  scope: "user" | "project";
+  cwd?: string;
+  name: string;
+  description: string;
+  body?: string;
+}
+
+export interface SkillCreateResult {
+  skill: SkillInfo;
+  content: string;
+}
+
+export interface SkillSaveParams {
+  path: string;
+  cwd?: string;
+  content: string;
+}
+
+export interface SkillToggleParams {
+  path: string;
+  cwd?: string;
+  enabled: boolean;
+}
+
+export interface SkillDeleteParams {
+  path: string;
+  cwd?: string;
 }

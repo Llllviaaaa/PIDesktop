@@ -1,14 +1,14 @@
 /**
  * The model settings page on the Harness Host (docs/adr/0014): the Host's
  * providers.json in the shapes the page already renders. Pi's API names map
- * onto the Host's two adapters; the Host has no built-in providers or OAuth
- * logins, so every provider is a custom one.
+ * onto the Host's four native adapters (`openai-compat`, `openai-responses`,
+ * `anthropic`, and `gemini`).
  */
 import type { ModelListResult, ModelSummary } from "@pid/protocol";
 import type { ModelProviderCheckResult, ModelProviderConfig, ModelProviderInput, ModelProviderModel } from "../types";
 import { harnessRuntimes } from "./harnessRuntime";
 
-type HostApi = "openai-compat" | "anthropic";
+type HostApi = "openai-compat" | "openai-responses" | "anthropic" | "gemini";
 
 interface HostProviderConfig {
   api: HostApi;
@@ -20,13 +20,20 @@ interface HostProviderConfig {
   keySource: "none" | "stored" | "environment";
 }
 
-const PI_API: Record<HostApi, string> = { "openai-compat": "openai-completions", anthropic: "anthropic-messages" };
+const PI_API: Record<HostApi, string> = {
+  "openai-compat": "openai-completions",
+  "openai-responses": "openai-responses",
+  anthropic: "anthropic-messages",
+  gemini: "google-generative-ai",
+};
 
-/** Pi's API name as the Host's adapter; the others are not supported on the harness yet. */
+/** Pi's API name as the Host's adapter. */
 export function hostApi(api: string): HostApi {
   if (api === "" || api === "openai-completions") return "openai-compat";
+  if (api === "openai-responses") return "openai-responses";
   if (api === "anthropic-messages") return "anthropic";
-  throw new Error(`Harness 引擎暂不支持 ${api} 协议，请改用 OpenAI 兼容或 Anthropic`);
+  if (api === "google-generative-ai") return "gemini";
+  throw new Error(`Harness 引擎暂不支持 ${api} 协议，请改用 OpenAI、Anthropic 或 Gemini`);
 }
 
 function modelFromHost(model: ModelSummary): ModelProviderModel {
@@ -37,10 +44,14 @@ function modelFromHost(model: ModelSummary): ModelProviderModel {
     input: model.input ?? ["text"],
     contextWindow: model.contextWindow ?? null,
     maxTokens: model.maxOutputTokens ?? null,
+    ...(model.cost ? { cost: { ...model.cost } } : {}),
   };
 }
 
 function modelToHost(model: ModelProviderModel): ModelSummary {
+  const hasCost = model.cost !== undefined && model.cost !== null
+    && Number.isFinite(model.cost.input) && Number.isFinite(model.cost.output)
+    && (model.cost.input > 0 || model.cost.output > 0);
   return {
     id: model.id,
     ...(model.name && model.name !== model.id ? { name: model.name } : {}),
@@ -48,6 +59,7 @@ function modelToHost(model: ModelProviderModel): ModelSummary {
     input: model.input.filter((kind): kind is "text" | "image" => kind === "text" || kind === "image"),
     ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
     ...(model.maxTokens ? { maxOutputTokens: model.maxTokens } : {}),
+    ...(hasCost && model.cost ? { cost: { ...model.cost } } : {}),
   };
 }
 
@@ -78,7 +90,13 @@ export function draftToHost(input: ModelProviderInput): Record<string, unknown> 
 }
 
 export function summaryFromHost(provider: HostProviderConfig, models: ModelSummary[]): ProviderSummary {
-  const configured = new Map((provider.models ?? []).map((model) => [model.id, model]));
+  const byDiscovered = new Map(models.map((model) => [model.id, model]));
+  const configured = new Map(
+    (provider.models ?? []).map((model) => {
+      const remote = byDiscovered.get(model.id);
+      return [model.id, model.cost === undefined && remote?.cost !== undefined ? { ...model, cost: remote.cost } : model];
+    }),
+  );
   const all = [...configured.values(), ...models.filter((model) => !configured.has(model.id))];
   return {
     id: provider.id,
@@ -93,7 +111,7 @@ export function summaryFromHost(provider: HostProviderConfig, models: ModelSumma
       input: model.input ?? ["text"],
       contextWindow: model.contextWindow ?? null,
       maxTokens: model.maxOutputTokens ?? null,
-      cost: null,
+      cost: model.cost ? { input: model.cost.input, output: model.cost.output } : null,
     })),
   };
 }

@@ -67,6 +67,12 @@ export function isSessionEventType(type: unknown): type is SessionEventType {
   return SESSION_EVENT_TYPES.includes(type as SessionEventType);
 }
 
+export interface SessionModelUsage {
+  provider: string;
+  model: string;
+  usage: Usage;
+}
+
 /** What a session list shows, kept cheap to compute from a log. */
 export interface SessionSummary {
   id: string;
@@ -82,6 +88,8 @@ export interface SessionSummary {
   messageCount: number;
   /** Tokens of every model call in the log, rewound ones included: they were paid for. */
   usage: Usage;
+  /** Disaggregated token buckets per `provider/model` so `@pid/pricing` can price multi-model sessions accurately. */
+  modelUsage?: SessionModelUsage[];
   forkedFrom?: SessionHeader["forkedFrom"];
   parent?: SessionHeader["parent"];
   side?: true;

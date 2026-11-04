@@ -390,13 +390,9 @@ export function evaluateToolPermission(options: {
     return { action: "allow" };
   }
 
-  if (isMemoryWrite && (mode === "ask" || mode === "workspace-write")) {
-    return {
-      action: "confirm",
-      title: "更新本地记忆？",
-      message: action === "clear" ? "清空 Pi Desktop 的记忆文件" : `用 ${action} 保存一条长期偏好`,
-    };
-  }
+  // Note: `desktop_memory` performs its own unified-diff confirmation via `ctx.ui.confirm`
+  // when effective mode is `ask` or `workspace-write`, while `read-only` and custom
+  // `toolRules` above still govern it here.
 
   if ((mode === "ask" || mode === "workspace-write") && isSubagent && subagentPermission === "workspace-write") {
     return {

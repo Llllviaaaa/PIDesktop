@@ -18,6 +18,30 @@ function initialDialogValue(request: ExtensionUIRequest): string {
   return request.method === "editor" ? request.prefill ?? "" : "";
 }
 
+function parseConfirmDiffMessage(message: string): { before: string; diffLines: string[] | null; after: string } {
+  const lfStart = message.indexOf("```diff\n");
+  const crlfStart = lfStart < 0 ? message.indexOf("```diff\r\n") : -1;
+  const start = lfStart >= 0 ? lfStart : crlfStart;
+  if (start < 0) return { before: message, diffLines: null, after: "" };
+  const bodyStart = start + (lfStart >= 0 ? "```diff\n".length : "```diff\r\n".length);
+  const fenceEnd = message.indexOf("\n```", bodyStart);
+  if (fenceEnd < 0) return { before: message, diffLines: null, after: "" };
+  return {
+    before: message.slice(0, start).trim(),
+    diffLines: message.slice(bodyStart, fenceEnd).replace(/\r\n/g, "\n").split("\n"),
+    after: message.slice(fenceEnd + "\n```".length).trim(),
+  };
+}
+
+function diffLineClass(line: string): string {
+  if (line.startsWith("--- ") || line.startsWith("+++ ") || line.startsWith("@@")) {
+    return "diff-line diff-meta";
+  }
+  if (line.startsWith("+")) return "diff-line diff-add";
+  if (line.startsWith("-")) return "diff-line diff-del";
+  return "diff-line";
+}
+
 export function extensionRequestHeadline(request: ExtensionUIRequest): string {
   return headlineForUiRequest(
     request.method,
@@ -380,7 +404,25 @@ export function ExtensionDialog({
 
       <h2>{request.title}</h2>
 
-      {request.method === "confirm" && <div className="question-message">{request.message}</div>}
+      {request.method === "confirm" && (() => {
+        const parsed = parseConfirmDiffMessage(request.message);
+        if (!parsed.diffLines) {
+          return <div className="question-message">{request.message}</div>;
+        }
+        return (
+          <div className="question-message question-message-diff">
+            {parsed.before && <p className="question-diff-summary">{parsed.before}</p>}
+            <div className="question-diff-preview" role="region" aria-label="变更预览">
+              {parsed.diffLines.map((line, lineIndex) => (
+                <div key={`${lineIndex}-${line.slice(0, 12)}`} className={diffLineClass(line)}>
+                  {line || " "}
+                </div>
+              ))}
+            </div>
+            {parsed.after && <p className="question-diff-summary">{parsed.after}</p>}
+          </div>
+        );
+      })()}
 
       {request.method === "select" && (
         <div className="question-options" role="radiogroup" aria-label={request.title}>

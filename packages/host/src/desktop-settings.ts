@@ -72,6 +72,7 @@ export function harnessFromDesktop(message: DesktopMessage): DesktopHarness {
   const defaultModel = provider !== "" && model !== "" ? { provider, model } : undefined;
   const effort = effortFromThinking(str(settings.thinkingLevel));
   const memoryEnabled = bool(settings.memoryEnabled, true);
+  const projectMemoryEnabled = typeof settings.projectMemoryEnabled === "boolean" ? settings.projectMemoryEnabled : memoryEnabled;
   const executable = message.executable?.trim();
   const browserExecutable = str(settings.browserExecutable).trim();
 
@@ -90,8 +91,12 @@ export function harnessFromDesktop(message: DesktopMessage): DesktopHarness {
       inheritEnvironment: bool(settings.hooksInheritEnvironment, false),
     },
     // Pi's memory switch also turned off context files (--no-context-files).
-    memory: { enabled: memoryEnabled, file: join(message.configDir, "memory.md") },
-    contextFiles: { enabled: memoryEnabled },
+    memory: {
+      enabled: memoryEnabled,
+      ...(typeof settings.projectMemoryEnabled === "boolean" ? { projectEnabled: settings.projectMemoryEnabled } : {}),
+      file: join(message.configDir, "memory.md"),
+    },
+    contextFiles: { enabled: memoryEnabled || projectMemoryEnabled },
     plan: { enabled: bool(settings.planTrackingEnabled, true) },
     mcp: {
       servers: bool(settings.mcpEnabled, true) ? list<McpServerConfig>(settings.mcpServers) : [],

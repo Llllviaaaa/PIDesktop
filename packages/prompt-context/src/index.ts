@@ -3,7 +3,7 @@
  * the project's context files (AGENTS.md, else CLAUDE.md), the available
  * skills (`<dir>/<skill>/SKILL.md`) and the environment.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, parse, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import type { CommandDefinition } from "@pid/commands";
@@ -59,6 +59,65 @@ export interface Skill {
   path: string;
 }
 
+export interface ManagedSkillEntry {
+  name: string;
+  description: string;
+  path: string;
+  scope: "user" | "project";
+  enabled: boolean;
+}
+
+export function normalizeSkillPathKey(filePath: string): string {
+  const abs = resolve(filePath).replace(/\\/g, "/");
+  return process.platform === "win32" ? abs.toLowerCase() : abs;
+}
+
+export function skillsStatePath(dataDir: string): string {
+  return join(dataDir, "skills.json");
+}
+
+export function readDisabledSkillKeys(dataDir: string): Set<string> {
+  const file = skillsStatePath(dataDir);
+  if (!existsSync(file)) return new Set();
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    const disabled = (parsed as { disabled?: unknown } | null)?.disabled;
+    if (!Array.isArray(disabled)) return new Set();
+    return new Set(
+      disabled
+        .filter((item): item is string => typeof item === "string" && item.trim() !== "")
+        .map((item) => normalizeSkillPathKey(item)),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+export function setSkillEnabledState(dataDir: string, skillPath: string, enabled: boolean): void {
+  const file = skillsStatePath(dataDir);
+  let rawDisabled: string[] = [];
+  if (existsSync(file)) {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+      const existing = (parsed as { disabled?: unknown } | null)?.disabled;
+      if (Array.isArray(existing)) {
+        rawDisabled = existing.filter((item): item is string => typeof item === "string" && item.trim() !== "");
+      }
+    } catch {
+      rawDisabled = [];
+    }
+  }
+  const targetKey = normalizeSkillPathKey(skillPath);
+  const filtered = rawDisabled.filter((item) => normalizeSkillPathKey(item) !== targetKey);
+  if (!enabled) {
+    filtered.push(resolve(skillPath));
+  }
+  mkdirSync(dirname(file), { recursive: true });
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(temp, `${JSON.stringify({ version: 1, disabled: filtered }, null, 2)}\n`, "utf8");
+  renameSync(temp, file);
+}
+
 /** The `name` and `description` of a SKILL.md's front matter. */
 export function readFrontMatter(text: string): Record<string, string> {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
@@ -71,7 +130,7 @@ export function readFrontMatter(text: string): Record<string, string> {
 }
 
 /** Skills under each dir; a later dir's skill replaces an earlier one of the same name. */
-export function findSkills(dirs: readonly string[]): Skill[] {
+export function findSkills(dirs: readonly string[], options: { disabled?: ReadonlySet<string> } = {}): Skill[] {
   const skills = new Map<string, Skill>();
   for (const dir of dirs) {
     if (!existsSync(dir)) continue;
@@ -79,6 +138,7 @@ export function findSkills(dirs: readonly string[]): Skill[] {
       if (!entry.isDirectory()) continue;
       const path = join(dir, entry.name, "SKILL.md");
       if (!existsSync(path)) continue;
+      if (options.disabled?.has(normalizeSkillPathKey(path))) continue;
       const fields = readFrontMatter(readFileSync(path, "utf8"));
       const skillName = fields.name || entry.name;
       if (!fields.description) continue;
@@ -86,6 +146,42 @@ export function findSkills(dirs: readonly string[]): Skill[] {
     }
   }
   return [...skills.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Discover all skills (enabled and disabled, user and project) for Settings management. */
+export function discoverSkillEntries(dataDir: string, cwd?: string): ManagedSkillEntry[] {
+  const disabled = readDisabledSkillKeys(dataDir);
+  const roots: Array<{ dir: string; scope: "user" | "project" }> = [
+    { dir: join(dataDir, "skills"), scope: "user" },
+  ];
+  const trimmedCwd = cwd?.trim();
+  if (trimmedCwd) {
+    roots.push({ dir: join(trimmedCwd, ".pid", "skills"), scope: "project" });
+    roots.push({ dir: join(trimmedCwd, ".agents", "skills"), scope: "project" });
+  }
+  const seenPaths = new Set<string>();
+  const list: ManagedSkillEntry[] = [];
+  for (const { dir, scope } of roots) {
+    if (!existsSync(dir)) continue;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const path = resolve(join(dir, entry.name, "SKILL.md"));
+      if (!existsSync(path)) continue;
+      const key = normalizeSkillPathKey(path);
+      if (seenPaths.has(key)) continue;
+      seenPaths.add(key);
+      const fields = readFrontMatter(readFileSync(path, "utf8"));
+      const skillName = fields.name || entry.name;
+      list.push({
+        name: skillName,
+        description: fields.description ?? "",
+        path,
+        scope,
+        enabled: !disabled.has(key),
+      });
+    }
+  }
+  return list.sort((a, b) => (a.scope === b.scope ? a.name.localeCompare(b.name) : a.scope === "user" ? -1 : 1));
 }
 
 export function skillDirs(dataDir: string, cwd: string): string[] {
@@ -115,7 +211,8 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.effect(() => ctx.systemPrompt.section("skills", ({ cwd, tools }: PromptEnv) => {
     if (!tools.some((tool) => tool.name === "read")) return undefined;
-    const skills = findSkills(skillDirs(config.dataDir, cwd));
+    const disabled = readDisabledSkillKeys(config.dataDir);
+    const skills = findSkills(skillDirs(config.dataDir, cwd), { disabled });
     if (skills.length === 0) return undefined;
     return [
       "Skills are instructions for specific tasks. When a task matches a skill's description, read its SKILL.md with the read tool before starting and follow it.",
@@ -135,7 +232,8 @@ export function apply(ctx: Context, config: Config): void {
   ctx.inject(["commands"], (inner) => {
     inner.effect(() => inner.commands.registerProvider((cwd) => {
       const targetCwd = cwd && cwd.trim() !== "" ? cwd : process.cwd();
-      return findSkills(skillDirs(config.dataDir, targetCwd)).map((skill): CommandDefinition => ({
+      const disabled = readDisabledSkillKeys(config.dataDir);
+      return findSkills(skillDirs(config.dataDir, targetCwd), { disabled }).map((skill): CommandDefinition => ({
         name: `skill:${skill.name}`,
         description: skill.description,
         argsHint: "[任务说明]",

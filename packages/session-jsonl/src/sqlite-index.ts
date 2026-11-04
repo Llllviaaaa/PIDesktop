@@ -9,7 +9,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { SessionEvent, SessionHeader, SessionSearchHit, SessionSearchOptions, SessionSummary } from "@pid/session";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const CJK_CHAR_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
 
 /** Insert spaces around CJK characters so SQLite FTS5 `unicode61` indexes every CJK glyph positionally. */

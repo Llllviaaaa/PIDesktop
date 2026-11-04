@@ -29,8 +29,8 @@ import type { Config as SubagentsConfig } from "@pid/subagents";
 export interface HarnessConfig {
   permissions: PermissionsConfig;
   hooks: HooksConfig;
-  /** `file` defaults to `<dataDir>/memory.md`; the desktop points it at its own memory file. */
-  memory: { enabled: boolean; file?: string };
+  /** `file` defaults to `<dataDir>/memory.md`; `projectEnabled` toggles `<cwd>/.pid/memory.md` independently. */
+  memory: { enabled: boolean; projectEnabled?: boolean; file?: string };
   /** AGENTS.md / CLAUDE.md in the system prompt. */
   contextFiles: { enabled: boolean };
   plan: { enabled: boolean };
@@ -95,7 +95,13 @@ export function readHarnessConfig(file: string): { config: HarnessConfig; proble
     config.hooks = { hooks: Array.isArray(hooks.hooks) ? (hooks.hooks as HooksConfig["hooks"]) : [], inheritEnvironment: hooks.inheritEnvironment === true };
   }
   const memory = section("memory");
-  if (memory !== undefined) config.memory = { enabled: memory.enabled !== false, ...(typeof memory.file === "string" ? { file: memory.file } : {}) };
+  if (memory !== undefined) {
+    config.memory = {
+      enabled: memory.enabled !== false,
+      ...(typeof memory.projectEnabled === "boolean" ? { projectEnabled: memory.projectEnabled } : {}),
+      ...(typeof memory.file === "string" ? { file: memory.file } : {}),
+    };
+  }
   const contextFiles = section("contextFiles");
   if (contextFiles !== undefined) config.contextFiles = { enabled: contextFiles.enabled !== false };
   const prompt = section("prompt");

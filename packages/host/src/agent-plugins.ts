@@ -19,6 +19,7 @@ import { Mcp, type McpServerConfig } from "@pid/mcp";
 import * as memory from "@pid/memory";
 import { Permissions, type PermissionMode } from "@pid/permissions";
 import * as plan from "@pid/plan";
+import { Pricing } from "@pid/pricing";
 import * as promptContext from "@pid/prompt-context";
 import { Schedule } from "@pid/schedule";
 import { Sessions } from "@pid/session";
@@ -54,6 +55,7 @@ export function corePlugins(dataDir: string, options: CoreOptions = {}): PluginE
     [Credentials],
     ...(options.codec === undefined ? [] : [[secretStore, { file: join(dataDir, "secrets.dat"), codec: options.codec }] as PluginEntry]),
     [LlmService],
+    [Pricing],
     [Sessions],
     [sessionJsonl, { dir: join(dataDir, "sessions"), indexFile: join(dataDir, "index.sqlite") }],
     [Ui],
@@ -159,12 +161,16 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
     {
       id: "memory",
       name: "本地长期记忆 (memory)",
-      description: "维护并向系统提示词注入持久化的本地记忆文件",
-      enabled: config.memory.enabled,
+      description: "维护并向系统提示词注入持久化的全局与项目记忆文件",
+      enabled: config.memory.enabled || (config.memory.projectEnabled ?? config.memory.enabled),
       hasHost: true,
       hasClient: false,
       plugin: memory,
-      config: { file: config.memory.file ?? join(dataDir, "memory.md") },
+      config: {
+        file: config.memory.file ?? join(dataDir, "memory.md"),
+        userEnabled: config.memory.enabled,
+        projectEnabled: config.memory.projectEnabled ?? config.memory.enabled,
+      },
     },
     {
       id: "subagents",

@@ -8,6 +8,7 @@ import { dirname, isAbsolute } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { AgentBusyError, NoModelError } from "@pid/agent";
 import type { Effort, UserContent } from "@pid/llm";
+import "@pid/pricing";
 import {
   ErrorCode,
   type AgentStatusInfo,
@@ -18,13 +19,14 @@ import {
   type SessionExportResult,
   type SessionEventNotification,
   type SessionGetResult,
+  type SessionInfo,
   type SessionListResult,
   type SessionPromptResult,
   type SessionResult,
   type SessionSearchResult,
   type SessionSubscribeResult,
 } from "@pid/protocol";
-import { sessionMarkdown, settledSeq, type Session } from "@pid/session";
+import { sessionMarkdown, settledSeq, type Session, type SessionSummary } from "@pid/session";
 import { RpcError, type RpcCall } from "./rpc.ts";
 
 export const name = "pid-sessions-rpc";
@@ -133,6 +135,11 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const status = (id: string): AgentStatusInfo => ctx.agents.status(id);
 
+  const toSessionInfo = (summary: SessionSummary): SessionInfo => {
+    const cost = ctx.get("pricing")?.estimateSessionCost(summary) ?? 0;
+    return cost > 0 ? { ...summary, estimatedCostUsd: cost } : summary;
+  };
+
   const methods: Record<string, (p: Params, call: RpcCall) => unknown> = {
     "session.create": (p): SessionResult => {
       const cwd = str(p, "cwd");
@@ -144,10 +151,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       const created = ctx.sessions.create({ cwd });
       if (chosen !== undefined) created.append("model", chosen);
       if (p.effort !== undefined) created.append("effort", { effort: effortOf(p.effort) });
-      return { session: created.summary() };
+      return { session: toSessionInfo(created.summary()) };
     },
 
-    "session.list": async (): Promise<SessionListResult> => ({ sessions: await ctx.sessions.list() }),
+    "session.list": async (): Promise<SessionListResult> => ({
+      sessions: (await ctx.sessions.list()).map(toSessionInfo),
+    }),
 
     "session.search": async (p): Promise<SessionSearchResult> => {
       if (typeof p.query !== "string") {
@@ -161,14 +170,16 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...(includeArchived ? { includeArchived: true } : {}),
         ...(limit !== undefined && limit > 0 ? { limit } : {}),
       });
-      return { hits };
+      return {
+        hits: hits.map((hit) => ({ session: toSessionInfo(hit.session), snippet: hit.snippet })),
+      };
     },
 
     "session.get": async (p): Promise<SessionGetResult> => {
       const target = await session(p);
       const state = target.state();
       return {
-        session: target.summary(),
+        session: toSessionInfo(target.summary()),
         ...(state.model === undefined ? {} : { model: state.model }),
         ...(state.effort === undefined ? {} : { effort: state.effort }),
         status: status(target.id),

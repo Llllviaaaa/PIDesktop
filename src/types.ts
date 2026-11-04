@@ -38,6 +38,12 @@ export interface ModelProviderModel {
   input: string[];
   contextWindow?: number | null;
   maxTokens?: number | null;
+  cost?: {
+    input: number;
+    output: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+  } | null;
 }
 
 export interface ModelProviderConfig {
@@ -79,6 +85,7 @@ export interface SessionStats {
   tokens: {
     input: number;
     output: number;
+    reasoning?: number;
     cacheRead: number;
     cacheWrite: number;
     total: number;
@@ -159,6 +166,7 @@ export interface AppSettings {
   customInstructions: string;
   suggestedPrompts: boolean;
   memoryEnabled: boolean;
+  projectMemoryEnabled: boolean;
   planTrackingEnabled: boolean;
   hooksEnabled: boolean;
   hooksInheritEnvironment: boolean;

@@ -60,6 +60,8 @@ pub(crate) struct AppSettings {
     pub(crate) custom_instructions: String,
     pub(crate) suggested_prompts: bool,
     pub(crate) memory_enabled: bool,
+    #[serde(default = "default_true")]
+    pub(crate) project_memory_enabled: bool,
     pub(crate) plan_tracking_enabled: bool,
     pub(crate) hooks_enabled: bool,
     pub(crate) hooks_inherit_environment: bool,
@@ -190,6 +192,10 @@ pub(crate) fn default_transcript_density() -> String {
     "normal".to_string()
 }
 
+pub(crate) fn default_true() -> bool {
+    true
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -233,6 +239,7 @@ impl Default for AppSettings {
             custom_instructions: String::new(),
             suggested_prompts: true,
             memory_enabled: true,
+            project_memory_enabled: true,
             plan_tracking_enabled: true,
             hooks_enabled: false,
             hooks_inherit_environment: false,

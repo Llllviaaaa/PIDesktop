@@ -116,6 +116,7 @@ interface WireChunk {
     prompt_tokens?: number;
     completion_tokens?: number;
     prompt_tokens_details?: { cached_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
     prompt_cache_hit_tokens?: number;
   } | null;
   error?: { message?: string; code?: unknown };
@@ -166,12 +167,14 @@ export async function* translateStream(events: AsyncIterable<{ data: string }>, 
     }
     if (chunk.usage) {
       const cached = chunk.usage.prompt_tokens_details?.cached_tokens ?? chunk.usage.prompt_cache_hit_tokens ?? 0;
+      const reasoning = chunk.usage.completion_tokens_details?.reasoning_tokens;
       yield {
         type: "usage",
         usage: {
           inputTokens: Math.max(0, (chunk.usage.prompt_tokens ?? 0) - cached),
           outputTokens: chunk.usage.completion_tokens ?? 0,
           cacheReadTokens: cached,
+          ...(typeof reasoning === "number" && reasoning > 0 ? { reasoningTokens: reasoning } : {}),
         },
       };
     }

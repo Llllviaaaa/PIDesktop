@@ -81,6 +81,8 @@ interface ComposerProps {
   permissionLabel?: string;
   agentMode?: AppSettings["agentMode"];
   contextUsage?: SessionStats["contextUsage"];
+  sessionCost?: number;
+  sessionTokens?: SessionStats["tokens"];
   variant?: "task-start" | "follow-up";
   transcriptDensity?: TranscriptDensity;
   onTranscriptDensityChange?: (density: TranscriptDensity) => void;
@@ -133,6 +135,8 @@ export const Composer = memo(function Composer({
   permissionLabel: _permissionLabel = "先询问",
   agentMode = "agent",
   contextUsage,
+  sessionCost,
+  sessionTokens,
   variant = "follow-up",
   transcriptDensity: _transcriptDensity = "normal",
   onTranscriptDensityChange: _onTranscriptDensityChange,
@@ -831,6 +835,16 @@ export const Composer = memo(function Composer({
           </div>
 
           <div className="composer-toolbar-right">
+            {sessionCost !== undefined && sessionCost > 0 && (
+              <span
+                className="composer-session-cost"
+                title={sessionTokens
+                  ? `会话预估成本 · 输入 ${sessionTokens.input.toLocaleString()} / 输出 ${sessionTokens.output.toLocaleString()}${sessionTokens.reasoning ? `（推理 ${sessionTokens.reasoning.toLocaleString()}）` : ""}`
+                  : "会话预估成本"}
+              >
+                {sessionCost < 0.01 ? `$${sessionCost.toFixed(4)}` : `$${sessionCost.toFixed(2)}`}
+              </span>
+            )}
             {normalizedContextPercent !== null && (
               <span className="composer-context-usage">
                 <span

@@ -27,6 +27,7 @@ import * as diagnostics from "./diagnostics.ts";
 import * as featuresRpc from "./features-rpc.ts";
 import { readHarnessConfig } from "./harness-config.ts";
 import * as llmRpc from "./llm-rpc.ts";
+import * as memorySkillsRpc from "./memory-skills-rpc.ts";
 import * as providerAdmin from "./provider-admin.ts";
 import { RpcGateway } from "./rpc.ts";
 import * as scheduleRpc from "./schedule-rpc.ts";
@@ -102,6 +103,7 @@ export async function main(argv: readonly string[]): Promise<void> {
       ...corePlugins(dataDir, codec === undefined ? {} : { codec }),
       [sessionsRpc, { defaultModel }],
       [commandsRpc, { manager: () => managerRef.current }],
+      [memorySkillsRpc, { dataDir }],
       [uiRpc],
       [featuresRpc],
       [diagnostics],
