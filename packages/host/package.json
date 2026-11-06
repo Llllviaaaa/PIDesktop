@@ -41,7 +41,7 @@
     "@pid/tool-fs": "*",
     "@pid/tools": "*",
     "@pid/ui": "*",
-    "ws": "^8.18.3"
+    "ws": "^8.22.1"
   },
   "devDependencies": {
     "@pid/testkit": "*"
