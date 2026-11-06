@@ -64,6 +64,8 @@ function matches(route: WebRoute, pathname: string): boolean {
 }
 
 export class WebServer extends Service {
+  static provide = "webServer";
+
   readonly server: Server;
   private readonly routes = new Set<WebRoute>();
   private readonly upgrades = new Set<WebUpgradeRoute>();

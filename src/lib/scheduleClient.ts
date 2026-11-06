@@ -1,6 +1,6 @@
 import type { ScheduleListResult, ScheduleRunsResult, ScheduledRunInfo, ScheduledTaskInfo } from "@pid/protocol";
 import type { ScheduledRunRecord, ScheduledRunResult, ScheduledTask } from "../types";
-import { HARNESS_SESSION_PREFIX, harnessRuntimes } from "./harnessRuntime";
+import { HARNESS_SESSION_PREFIX, harnessRuntimes, isRpcMethodNotFound } from "./harnessRuntime";
 
 // The Harness Host runs scheduled tasks (docs/adr/0011, 0014).
 type UnlistenFn = () => void;
@@ -63,11 +63,19 @@ export function runFromHost(run: ScheduledRunInfo, task: ScheduledTask | undefin
 }
 
 async function hostList(): Promise<ScheduledTask[]> {
-  const { tasks } = await harnessRuntimes.call<ScheduleListResult>("schedule.list");
-  const mapped = tasks.map(taskFromHost);
-  hostTasks.clear();
-  for (const task of mapped) hostTasks.set(task.id, task);
-  return mapped;
+  try {
+    const { tasks } = await harnessRuntimes.call<ScheduleListResult>("schedule.list");
+    const mapped = tasks.map(taskFromHost);
+    hostTasks.clear();
+    for (const task of mapped) hostTasks.set(task.id, task);
+    return mapped;
+  } catch (error) {
+    if (isRpcMethodNotFound(error)) {
+      hostTasks.clear();
+      return [];
+    }
+    throw error;
+  }
 }
 
 /** Listen to a Host notification. */
@@ -79,8 +87,13 @@ export const scheduleClient = {
   list: () => hostList(),
   listRuns: async (taskId?: string, limit = 80): Promise<ScheduledRunRecord[]> => {
     if (hostTasks.size === 0) await hostList();
-    const { runs } = await harnessRuntimes.call<ScheduleRunsResult>("schedule.runs", { ...(taskId ? { taskId } : {}), limit });
-    return runs.map((run) => runFromHost(run, hostTasks.get(run.taskId)));
+    try {
+      const { runs } = await harnessRuntimes.call<ScheduleRunsResult>("schedule.runs", { ...(taskId ? { taskId } : {}), limit });
+      return runs.map((run) => runFromHost(run, hostTasks.get(run.taskId)));
+    } catch (error) {
+      if (isRpcMethodNotFound(error)) return [];
+      throw error;
+    }
   },
   save: async (task: ScheduledTask): Promise<ScheduledTask> => {
     const saved = taskFromHost((await harnessRuntimes.call<{ task: ScheduledTaskInfo }>("schedule.save", { task: taskToHost(task) })).task);

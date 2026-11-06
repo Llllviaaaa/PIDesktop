@@ -1,10 +1,15 @@
 /** Settings › 调试: the log folder and the diagnostics bundle, from the Host (packages/host/src/diagnostics.ts). */
 import { getVersion } from "@tauri-apps/api/app";
-import { harnessRuntimes } from "./harnessRuntime";
+import { harnessRuntimes, isRpcMethodNotFound } from "./harnessRuntime";
 
 /** `~/.pid/logs`, where the Host and the desktop write their logs. */
 export async function logsDir(): Promise<string> {
-  return (await harnessRuntimes.call<{ dir: string }>("diagnostics.logs")).dir;
+  try {
+    return (await harnessRuntimes.call<{ dir: string }>("diagnostics.logs")).dir;
+  } catch (error) {
+    if (isRpcMethodNotFound(error)) return "";
+    throw error;
+  }
 }
 
 /** Write the diagnostics zip to `path`; resolves to the files it holds. */

@@ -13,29 +13,17 @@
 import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
-import { Logger, type Context, type Exporter } from "@deepseek-ai/cordis";
-import { builtinFeatureDefinitions, corePlugins, type BuiltinPluginDefinition } from "./agent-plugins.ts";
-import * as betterSidebar from "./better-sidebar/index.ts";
+import { Logger, type Exporter } from "@deepseek-ai/cordis";
+import { builtinPluginDefinitions, corePlugins } from "./agent-plugins.ts";
+import { applyDesktopMessage, parseControlLine } from "./control.ts";
+import { readEffectiveHarnessConfig } from "./harness-config.ts";
 import { runHeadless } from "./headless.ts";
 import { createHost } from "./host.ts";
+import { logFileExporter } from "./log-file.ts";
 import { PluginManager } from "./plugin-manager.ts";
 import * as pluginsRpc from "./plugins-rpc.ts";
 import { readDefaultModel } from "./providers.ts";
-import * as commandsRpc from "./commands-rpc.ts";
-import { applyDesktopMessage, parseControlLine } from "./control.ts";
-import * as diagnostics from "./diagnostics.ts";
-import * as featuresRpc from "./features-rpc.ts";
-import { readHarnessConfig } from "./harness-config.ts";
-import * as llmRpc from "./llm-rpc.ts";
-import * as memorySkillsRpc from "./memory-skills-rpc.ts";
-import * as providerAdmin from "./provider-admin.ts";
-import { RpcGateway } from "./rpc.ts";
-import * as scheduleRpc from "./schedule-rpc.ts";
-import * as sessionsRpc from "./sessions-rpc.ts";
 import { dpapiCodec } from "./secrets.ts";
-import * as uiRpc from "./ui-rpc.ts";
-import { WebServer } from "./web-server.ts";
-import { logFileExporter } from "./log-file.ts";
 
 declare const PID_HOST_VERSION: string | undefined;
 
@@ -97,25 +85,7 @@ export async function main(argv: readonly string[]): Promise<void> {
   const host = createHost({
     version: HOST_VERSION,
     dataDir,
-    plugins: [
-      [WebServer, { pageOrigins: options.pageOrigins }],
-      [RpcGateway, { token }],
-      ...corePlugins(dataDir, codec === undefined ? {} : { codec }),
-      [sessionsRpc, { defaultModel }],
-      [commandsRpc, { manager: () => managerRef.current }],
-      [memorySkillsRpc, { dataDir }],
-      [uiRpc],
-      [featuresRpc],
-      [diagnostics],
-      [scheduleRpc],
-      [llmRpc, { defaultModel }],
-      [{
-        name: "pid-config-rpc",
-        inject: ["rpc"],
-        apply: (ctx: Context) => ctx.effect(() => ctx.rpc.method("config.reload", async () => ({ reloaded: await reload() })), "config.reload"),
-      }],
-      [providerAdmin, { file: providersFile, secretsFile: join(dataDir, "secrets.dat"), ...(codec === undefined ? {} : { codec }), reload: () => reload() }],
-    ],
+    plugins: corePlugins(),
   });
   host.ctx.logger.exporter(stderrExporter);
   // ~/.pid/logs: the desktop writes its own log beside this one. Its level follows
@@ -124,35 +94,29 @@ export async function main(argv: readonly string[]): Promise<void> {
   host.ctx.logger.exporter(fileLog);
   await host.start();
 
-  // Built-in feature plugins + dynamic user/workspace plugins (ADR 0013, 0016).
+  // Built-in plugins + dynamic user/workspace plugins managed uniformly by PluginManager.
   const logger = host.ctx.logger("harness");
-  const sidebarBuiltin: BuiltinPluginDefinition = {
-    id: "better-sidebar",
-    name: "工作台侧边栏 (better-sidebar)",
-    description: "提供右侧文件树、编辑器、Diff、文件预览与集成终端宿主服务",
-    enabled: true,
-    hasHost: true,
-    hasClient: true,
-    plugin: betterSidebar,
-    config: { dataDir, defaultModel },
-  };
   const pluginManager = new PluginManager(host.ctx, {
     dataDir,
     version: HOST_VERSION,
-    builtins: () => {
-      const { config, problems } = readHarnessConfig(join(dataDir, "harness.json"));
+    builtins: (trustedWorkspace) => {
+      const { config, problems } = readEffectiveHarnessConfig(dataDir, trustedWorkspace);
       for (const problem of problems) logger.warn("%s", problem);
-      return [
-        ...builtinFeatureDefinitions(dataDir, config, {
-          scheduler: { defaultModel },
-          ...(process.env.PID_COMPUTER_HELPER ? { computerHelper: process.env.PID_COMPUTER_HELPER } : {}),
-          ...(codec === undefined ? {} : { codec }),
-        }),
-        sidebarBuiltin,
-      ];
+      return builtinPluginDefinitions(dataDir, config, {
+        scheduler: { defaultModel },
+        ...(process.env.PID_COMPUTER_HELPER ? { computerHelper: process.env.PID_COMPUTER_HELPER } : {}),
+        ...(codec === undefined ? {} : { codec }),
+        gateway: {
+          pageOrigins: options.pageOrigins,
+          token,
+          defaultModel,
+          manager: () => managerRef.current,
+          reload: () => reload(),
+        },
+      });
     },
-    onChanged: (payload) => host.ctx.rpc.broadcast("plugin/changed", payload),
-    onTrustChanged: (payload) => host.ctx.rpc.broadcast("workspace/trustChanged", payload),
+    onChanged: (payload) => host.ctx.get("rpc")?.broadcast("plugin/changed", payload),
+    onTrustChanged: (payload) => host.ctx.get("rpc")?.broadcast("workspace/trustChanged", payload),
   });
   managerRef.current = pluginManager;
   await host.ctx.plugin(pluginsRpc, { manager: pluginManager });
@@ -165,7 +129,11 @@ export async function main(argv: readonly string[]): Promise<void> {
   const initialChanged = await pluginManager.sync();
   if (initialChanged.length > 0) logger.info("loaded %s", initialChanged.join(", "));
 
-  const port = await host.ctx.webServer.listen(options.port);
+  const webServer = host.ctx.get("webServer");
+  if (webServer === undefined) {
+    throw new Error("web-server plugin must remain enabled when starting the HTTP/RPC host");
+  }
+  const port = await webServer.listen(options.port);
   process.stdout.write(`${JSON.stringify({ port })}\n`);
 
   let stopping = false;

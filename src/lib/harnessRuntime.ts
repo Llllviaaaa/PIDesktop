@@ -33,9 +33,11 @@ import type {
 } from "@pid/protocol";
 import type { AttachmentPayload, ExtensionUIRequest, ForkPoint, ModelInfo, SessionStats, SlashCommand, UiMessage } from "../types";
 import type { SessionTreeNode } from "./sessionTree";
-import { connectHarness, harnessEndpoint, type HarnessConnection } from "./harnessClient";
+import { connectHarness, harnessEndpoint, isRpcMethodNotFound, type HarnessConnection } from "./harnessClient";
 import { HARNESS_THINKING_LEVELS, effortForLevel, forkPointsOf, sessionTreeOf } from "./hostSessions";
 import { TranscriptTranslator, historyToUi, interruptTurn, type TranscriptEvent } from "./transcript";
+
+export { isRpcMethodNotFound };
 
 
 export const HARNESS_RUNTIME_PREFIX = "harness:";
@@ -248,7 +250,11 @@ export class HarnessRuntimes {
   async setPermission(runtimeId: string, change: { permission?: string; agentMode?: string }): Promise<void> {
     const runtime = this.runtime(runtimeId);
     await this.ensureSession(runtime);
-    await (await this.rpc()).call("permission.set", { sessionId: runtime.sessionId, ...change });
+    try {
+      await (await this.rpc()).call("permission.set", { sessionId: runtime.sessionId, ...change });
+    } catch (error) {
+      if (!isRpcMethodNotFound(error)) throw error;
+    }
   }
 
   /** The session's transcript so far. */
@@ -375,7 +381,12 @@ export class HarnessRuntimes {
     const userSeq = Number(entryId);
     const rpc = await this.rpc();
     const sessionId = runtime.sessionId;
-    const { checkpoints } = await rpc.call<CheckpointListResult>("checkpoint.list", { sessionId });
+    let checkpoints: CheckpointListResult["checkpoints"] = [];
+    try {
+      ({ checkpoints } = await rpc.call<CheckpointListResult>("checkpoint.list", { sessionId }));
+    } catch (error) {
+      if (!isRpcMethodNotFound(error)) throw error;
+    }
     if (checkpoints.some((checkpoint) => checkpoint.userSeq === userSeq)) {
       const diff = await rpc.call<CheckpointDiffResult>("checkpoint.diff", { sessionId, userSeq });
       if (diff.changed) {

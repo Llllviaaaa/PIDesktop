@@ -18,7 +18,7 @@
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::sync::Mutex;
@@ -133,26 +133,6 @@ pub(crate) fn harness_data_dir() -> PathBuf {
         .join(".pid")
 }
 
-/// Copy better-sidebar's settings from the app data directory the host used
-/// before it moved to `~/.pid`, once.
-fn migrate_sidebar_settings(app: &AppHandle, data_dir: &Path) {
-    let Ok(previous) = app.path().app_data_dir() else {
-        return;
-    };
-    let from = previous.join("better-sidebar").join("settings.json");
-    let to = data_dir.join("better-sidebar").join("settings.json");
-    if to.exists() || !from.is_file() {
-        return;
-    }
-    let copied = to
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::copy(&from, &to));
-    if let Err(error) = copied {
-        log_line!("failed to move better-sidebar settings: {error}");
-    }
-}
-
 /// The control line that hands the host the desktop's settings, without MCP
 /// secrets (the host reads those from their encrypted file), and where the
 /// desktop's files are.
@@ -220,7 +200,6 @@ fn start(app: &AppHandle) -> Result<Running, AppError> {
         .ok_or_else(|| AppError::NotFound("the Harness Host is not installed".to_string()))?;
     let data_dir = harness_data_dir();
     std::fs::create_dir_all(&data_dir)?;
-    migrate_sidebar_settings(app, &data_dir);
     let token = new_token()?;
 
     let mut command = Command::new(&executable);
@@ -358,17 +337,6 @@ pub(crate) fn restart_harness_host(
         .crashes
         .clear();
     ensure_running(&app, &state).map(|_| ())
-}
-
-/// The host's base URL, for better-sidebar's client half
-/// (src/dsh-host/better-sidebar.ts), which reaches its routes there.
-#[tauri::command(async)]
-pub(crate) fn sidebar_host_base(
-    app: AppHandle,
-    state: State<'_, HarnessHost>,
-) -> Result<String, AppError> {
-    let endpoint = ensure_running(&app, &state)?;
-    Ok(endpoint.base_url)
 }
 
 #[cfg(test)]

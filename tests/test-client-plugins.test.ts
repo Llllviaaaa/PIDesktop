@@ -222,4 +222,84 @@ describe("clientPluginRuntime", () => {
     expect(events.at(-1)).toBe("dispose:dsh-compat");
     expect(targetGlobal.__ModuleLoader__).toBeUndefined();
   });
+
+  it("isolates workspace client plugins sharing the same id across different workspaces", async () => {
+    const root = new Context();
+    const events: string[] = [];
+    const targetGlobal: { __ModuleLoader__?: ModuleLoaderGlobal } = {};
+    const requestedBundles: PluginClientBundleParams[] = [];
+
+    let activeWorkspace = "D:/proj-alpha";
+    const executeScript = async (code: string): Promise<void> => {
+      const fn = new Function("window", "events", code);
+      fn(targetGlobal, events);
+    };
+
+    const runtime = createClientPluginRuntime(root, {
+      targetGlobal,
+      executeScript,
+      modules: {},
+      transport: {
+        list: async (ws): Promise<PluginInfo[]> => {
+          const currentWs = ws ?? activeWorkspace;
+          return [
+            {
+              id: "local-helper",
+              name: "Local Helper",
+              version: "1.0.0",
+              tier: "workspace",
+              workspace: currentWs,
+              enabled: true,
+              status: "active",
+              overridesBuiltin: false,
+              removable: false,
+              watch: false,
+              hasHost: false,
+              hasClient: true,
+              // Even if both workspaces happen to report an identical ETag, sourceKey must keep them distinct!
+              clientEtag: "etag-same",
+              config: {},
+            },
+          ];
+        },
+        clientBundle: async (params): Promise<PluginClientBundleResult> => {
+          requestedBundles.push(params);
+          const tag = params.workspace?.includes("alpha") ? "alpha" : "beta";
+          return {
+            notModified: false,
+            etag: "etag-same",
+            code: `
+              window.__ModuleLoader__.load({
+                id: "local-helper",
+                factory() {
+                  return function applyWs(ctx) {
+                    ctx.effect(() => {
+                      events.push("mount:" + ${JSON.stringify(tag)});
+                      return () => events.push("dispose:" + ${JSON.stringify(tag)});
+                    });
+                  };
+                }
+              });
+            `,
+          };
+        },
+        onChanged: () => () => undefined,
+        onTrustChanged: () => () => undefined,
+      },
+    });
+
+    runtime.setWorkspace("D:/proj-alpha");
+    await runtime.sync();
+    expect(events).toEqual(["mount:alpha"]);
+
+    activeWorkspace = "D:/proj-beta";
+    runtime.setWorkspace("D:/proj-beta");
+    await runtime.sync();
+
+    expect(events).toEqual(["mount:alpha", "dispose:alpha", "mount:beta"]);
+    expect(requestedBundles.map((r) => r.workspace)).toEqual(["D:/proj-alpha", "D:/proj-beta"]);
+
+    await runtime.dispose();
+    expect(events.at(-1)).toBe("dispose:beta");
+  });
 });

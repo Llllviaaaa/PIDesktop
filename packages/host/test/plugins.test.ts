@@ -18,6 +18,9 @@ import { SystemPrompt } from "@pid/system-prompt";
 import { Tools } from "@pid/tools";
 import { Ui } from "@pid/ui";
 import * as plan from "@pid/plan";
+import { builtinPluginDefinitions, corePlugins } from "../src/agent-plugins.ts";
+import { applyDesktopMessage } from "../src/control.ts";
+import { readHarnessConfig } from "../src/harness-config.ts";
 import { createHost, type Host } from "../src/host.ts";
 import { validateArchiveEntries } from "../src/plugin-installer.ts";
 import { PluginManager } from "../src/plugin-manager.ts";
@@ -489,5 +492,316 @@ describe("dynamic plugin kernel (ADR 0016)", () => {
     await env.callRpc("workspace.trust.set", { workspace, trusted: false });
     expect(host?.ctx.tools.schemas().some((s) => s.name === "team_helper_tool")).toBe(false);
     expect(env.trustEvents.at(-1)?.trusted).toBe(false);
+  });
+
+  it("mounts providers before consumers topologically and reports pending status with missingInject until dependencies activate", async () => {
+    const env = await setupPluginHost();
+
+    // Consumer sorts alphabetically ("a-consumer") BEFORE provider ("z-provider") to prove topological sort overrides lexical order.
+    const consumerDir = join(tempRoot, "a-consumer");
+    mkdirSync(consumerDir, { recursive: true });
+    writeFileSync(join(consumerDir, "package.json"), JSON.stringify({
+      name: "a-consumer",
+      version: "0.1.0",
+      pid: { id: "a-consumer", host: "./index.ts" },
+    }));
+    writeFileSync(join(consumerDir, "index.ts"), `
+      import type { Context } from "@deepseek-ai/cordis";
+      import { textOutput } from "@pid/tools";
+      export const name = "a-consumer";
+      export const inject = ["tools", "customAlpha"];
+      export function apply(ctx: Context) {
+        const prefix = (ctx as unknown as { customAlpha: { prefix: string } }).customAlpha.prefix;
+        ctx.effect(() => ctx.tools.register({
+          name: "alpha_consumer_tool",
+          description: "Uses customAlpha",
+          parameters: { type: "object" },
+          execute: () => textOutput(prefix + ":ready"),
+        }), "alpha_consumer_tool");
+      }
+    `);
+
+    const providerDir = join(tempRoot, "z-provider");
+    mkdirSync(providerDir, { recursive: true });
+    writeFileSync(join(providerDir, "package.json"), JSON.stringify({
+      name: "z-provider",
+      version: "0.1.0",
+      pid: { id: "z-provider", host: "./index.ts" },
+    }));
+    writeFileSync(join(providerDir, "index.ts"), `
+      import { Context, Service } from "@deepseek-ai/cordis";
+      class CustomAlpha extends Service {
+        static provide = "customAlpha";
+        readonly prefix = "topo-ok";
+        constructor(ctx: Context) {
+          super(ctx, "customAlpha");
+        }
+      }
+      export default CustomAlpha;
+    `);
+
+    // Install consumer first WITHOUT provider -> must report "pending" (NOT false "active"!).
+    const pendingInstall = await env.callRpc<{ plugin: { id: string; status: string; missingInject?: string[] } }>(
+      "plugin.install",
+      { channel: "local", spec: consumerDir, link: true },
+    );
+    expect(pendingInstall.plugin).toMatchObject({
+      id: "a-consumer",
+      status: "pending",
+      missingInject: ["customAlpha"],
+    });
+    expect(host?.ctx.tools.schemas().some((s) => s.name === "alpha_consumer_tool")).toBe(false);
+
+    // Install provider -> consumer promotes automatically to "active" and registers its tool.
+    await env.callRpc("plugin.install", { channel: "local", spec: providerDir, link: true });
+    await eventually(async () => {
+      const listed = await env.callRpc<{ plugins: Array<{ id: string; status: string }> }>("plugin.list");
+      return listed.plugins.find((p) => p.id === "a-consumer")?.status === "active";
+    });
+    expect(host?.ctx.tools.schemas().some((s) => s.name === "alpha_consumer_tool")).toBe(true);
+
+    // Reload all plugins -> topological sort mounts z-provider before a-consumer cleanly in a single pass.
+    const reloadedAll = await env.callRpc<{ plugins: Array<{ id: string; status: string }> }>("plugin.reload", {});
+    expect(reloadedAll.plugins.find((p) => p.id === "z-provider")?.status).toBe("active");
+    expect(reloadedAll.plugins.find((p) => p.id === "a-consumer")?.status).toBe("active");
+
+    // Disable provider -> consumer drops back to "pending" cleanly without crashing.
+    const afterDisable = await env.callRpc<{ plugins: Array<{ id: string; status: string; missingInject?: string[] }> }>(
+      "plugin.disable",
+      { id: "z-provider" },
+    );
+    await eventually(async () => {
+      const listed = await env.callRpc<{ plugins: Array<{ id: string; status: string; missingInject?: string[] }> }>("plugin.list");
+      const consumer = listed.plugins.find((p) => p.id === "a-consumer");
+      return consumer?.status === "pending" && consumer.missingInject?.includes("customAlpha") === true;
+    });
+    expect(afterDisable.plugins.find((p) => p.id === "z-provider")?.status).toBe("disabled");
+    expect(host?.ctx.tools.schemas().some((s) => s.name === "alpha_consumer_tool")).toBe(false);
+  });
+
+  it("isolates workspace plugins per active workspace so switching projects never leaks tools across workspaces", async () => {
+    const env = await setupPluginHost();
+    const createWsPlugin = (wsName: string, toolName: string) => {
+      const wsDir = join(tempRoot, wsName);
+      const pluginDir = join(wsDir, ".pid", "plugins", `${wsName}-plug`);
+      mkdirSync(pluginDir, { recursive: true });
+      writeFileSync(join(pluginDir, "package.json"), JSON.stringify({
+        name: `${wsName}-plug`,
+        version: "0.1.0",
+        pid: { id: `${wsName}-plug`, host: "./index.ts" },
+      }));
+      writeFileSync(join(pluginDir, "index.ts"), `
+        import type { Context } from "@deepseek-ai/cordis";
+        import { textOutput } from "@pid/tools";
+        export const name = "${wsName}-plug";
+        export const inject = ["tools"];
+        export function apply(ctx: Context) {
+          ctx.effect(() => ctx.tools.register({
+            name: "${toolName}",
+            description: "Scoped workspace tool",
+            parameters: { type: "object" },
+            execute: () => textOutput("${wsName}"),
+          }), "${toolName}");
+        }
+      `);
+      return wsDir;
+    };
+
+    const wsA = createWsPlugin("proj-a", "proj_a_tool");
+    const wsB = createWsPlugin("proj-b", "proj_b_tool");
+
+    // Trust proj-a -> proj_a_tool active.
+    await env.callRpc("workspace.trust.set", { workspace: wsA, trusted: true });
+    expect(host?.ctx.tools.schemas().some((s) => s.name === "proj_a_tool")).toBe(true);
+    expect(host?.ctx.tools.schemas().some((s) => s.name === "proj_b_tool")).toBe(false);
+
+    // Trust proj-b (switches active workspace to proj-b) -> proj_a_tool is torn down, proj_b_tool is active!
+    await env.callRpc("workspace.trust.set", { workspace: wsB, trusted: true });
+    expect(host?.ctx.tools.schemas().some((s) => s.name === "proj_a_tool")).toBe(false);
+    expect(host?.ctx.tools.schemas().some((s) => s.name === "proj_b_tool")).toBe(true);
+
+    // Switch back to proj-a via plugin.list({ workspace: wsA }) -> proj_b_tool unmounts, proj_a_tool mounts!
+    await env.callRpc("plugin.list", { workspace: wsA });
+    expect(host?.ctx.tools.schemas().some((s) => s.name === "proj_a_tool")).toBe(true);
+    expect(host?.ctx.tools.schemas().some((s) => s.name === "proj_b_tool")).toBe(false);
+
+    // Clear active workspace -> neither workspace plugin remains mounted!
+    await env.callRpc("plugin.list", { workspace: "" });
+    expect(host?.ctx.tools.schemas().some((s) => s.name === "proj_a_tool")).toBe(false);
+    expect(host?.ctx.tools.schemas().some((s) => s.name === "proj_b_tool")).toBe(false);
+  });
+
+  it("decouples LLM protocol plugins, self-registered RPC routes, and storage plugins on the minimal core spine", async () => {
+    tempRoot = mkdtempSync(join(tmpdir(), "pid-stage2-test-"));
+    const dataDir = join(tempRoot, "data");
+    const workDir = join(tempRoot, "work");
+    mkdirSync(dataDir, { recursive: true });
+    mkdirSync(workDir, { recursive: true });
+    writeFileSync(join(dataDir, "providers.json"), JSON.stringify({
+      providers: [
+        { api: "openai-compat", id: "my-openai", baseUrl: "http://127.0.0.1:19999/v1", apiKey: { value: "sk-test" } },
+      ],
+    }));
+
+    const token = "b".repeat(32);
+    host = createHost({
+      version: "0.5.0-test",
+      dataDir,
+      plugins: corePlugins(),
+    });
+    await host.start();
+
+    manager = new PluginManager(host.ctx, {
+      dataDir,
+      version: "0.5.0-test",
+      builtins: () => builtinPluginDefinitions(dataDir, readHarnessConfig(join(dataDir, "harness.json")).config, {
+        gateway: {
+          pageOrigins: [pageOrigin],
+          token,
+          manager: () => manager,
+        },
+      }),
+    });
+    await host.ctx.plugin(pluginsRpc, { manager });
+    await manager.sync();
+
+    const handlers = (host.ctx.rpc as unknown as { handlers: Map<string, (params: unknown, call: unknown) => unknown> }).handlers;
+    const callRpc = async <T>(method: string, params: unknown = {}): Promise<T> => {
+      const handler = handlers.get(method);
+      if (handler === undefined) throw new RpcError(ErrorCode.MethodNotFound, `Method not found: ${method}`);
+      return (await handler(params, { signal: new AbortController().signal, notify: () => {} })) as T;
+    };
+
+    // 1. Dynamic protocol plugin binding: disabling llm-openai-compat unregisters my-openai; re-enabling restores it.
+    expect(host.ctx.llm.listProviders().map((p) => p.id)).toEqual(["my-openai"]);
+    await callRpc("plugin.disable", { id: "llm-openai-compat" });
+    expect(host.ctx.llm.listProviders()).toEqual([]);
+    await callRpc("plugin.enable", { id: "llm-openai-compat" });
+    expect(host.ctx.llm.listProviders().map((p) => p.id)).toEqual(["my-openai"]);
+
+    // 2. Independent RPC routes: disabling mcp MUST NOT break plan.get, checkpoint.list, or usage.summary!
+    const created = await callRpc<{ session: { id: string } }>("session.create", { cwd: workDir });
+    const sessionId = created.session.id;
+    await callRpc("plugin.disable", { id: "mcp" });
+    await expect(callRpc("mcp.status")).rejects.toMatchObject({ code: ErrorCode.MethodNotFound });
+    expect(await callRpc<{ plan: { explanation: string; items: unknown[] } }>("plan.get", { sessionId })).toEqual({
+      plan: { explanation: "", items: [] },
+    });
+    expect(await callRpc<{ checkpoints: unknown[] }>("checkpoint.list", { sessionId })).toEqual({ checkpoints: [] });
+    expect(await callRpc<{ sessions: number }>("usage.summary")).toMatchObject({ sessions: 1 });
+
+    // 3. Non-destructive storage plugin toggling: disabling session-jsonl preserves live in-memory sessions.
+    await callRpc("plugin.disable", { id: "session-jsonl" });
+    const afterDisable = await callRpc<{ session: { id: string } }>("session.get", { sessionId });
+    expect(afterDisable.session.id).toBe(sessionId);
+    await callRpc("plugin.enable", { id: "session-jsonl" });
+    const afterEnable = await callRpc<{ session: { id: string } }>("session.get", { sessionId });
+    expect(afterEnable.session.id).toBe(sessionId);
+  });
+
+  it("protects host transport gateways from self-bricking, preserves memory RPCs when memory injection is off, and reconciles desktop settings overrides", async () => {
+    tempRoot = mkdtempSync(join(tmpdir(), "pid-gateway-memory-test-"));
+    const dataDir = join(tempRoot, "data");
+    const workDir = join(tempRoot, "work");
+    mkdirSync(dataDir, { recursive: true });
+    mkdirSync(workDir, { recursive: true });
+
+    // Pre-seed plugins.json with a stale disabled `web-server` AND a disabled `mcp` override BEFORE harness.json exists!
+    writeFileSync(join(dataDir, "plugins.json"), JSON.stringify({
+      version: 1,
+      plugins: {
+        "web-server": { enabled: false },
+        "mcp": { enabled: false },
+      },
+      trustedWorkspaces: [],
+    }));
+
+    const token = "c".repeat(32);
+    host = createHost({
+      version: "0.5.0-test",
+      dataDir,
+      plugins: corePlugins(),
+    });
+    await host.start();
+
+    manager = new PluginManager(host.ctx, {
+      dataDir,
+      version: "0.5.0-test",
+      builtins: () => builtinPluginDefinitions(dataDir, readHarnessConfig(join(dataDir, "harness.json")).config, {
+        gateway: {
+          pageOrigins: [pageOrigin],
+          token,
+          manager: () => manager,
+        },
+      }),
+    });
+    await host.ctx.plugin(pluginsRpc, { manager });
+    await manager.sync();
+
+    const handlers = (host.ctx.rpc as unknown as { handlers: Map<string, (params: unknown, call: unknown) => unknown> }).handlers;
+    const callRpc = async <T>(method: string, params: unknown = {}): Promise<T> => {
+      const handler = handlers.get(method);
+      if (handler === undefined) throw new RpcError(ErrorCode.MethodNotFound, `Method not found: ${method}`);
+      return (await handler(params, { signal: new AbortController().signal, notify: () => {} })) as T;
+    };
+
+    // 1. Stale `web-server: { enabled: false }` in plugins.json MUST NOT brick the host; gateways expose canDisable: false + inject/provides.
+    const listed = await callRpc<{
+      plugins: Array<{
+        id: string;
+        enabled: boolean;
+        status: string;
+        canDisable?: boolean;
+        inject?: string[];
+        provides?: string[];
+      }>;
+    }>("plugin.list");
+    const webPlugin = listed.plugins.find((p) => p.id === "web-server");
+    const rpcPlugin = listed.plugins.find((p) => p.id === "rpc-gateway");
+    expect(webPlugin).toMatchObject({ enabled: true, status: "active", canDisable: false, provides: ["webServer"] });
+    expect(rpcPlugin).toMatchObject({
+      enabled: true,
+      status: "active",
+      canDisable: false,
+      inject: ["webServer", "hostInfo"],
+      provides: ["rpc"],
+    });
+    await expect(callRpc("plugin.disable", { id: "web-server" })).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
+    await expect(callRpc("plugin.disable", { id: "rpc-gateway" })).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
+
+    // 2. Turning off memoryEnabled & projectMemoryEnabled via desktop settings unregisters desktop_memory tool while keeping memory.get/set RPCs alive!
+    expect(host.ctx.tools.schemas().some((s) => s.name === "desktop_memory")).toBe(true);
+    applyDesktopMessage(dataDir, {
+      configDir: dataDir,
+      settings: {
+        memoryEnabled: false,
+        projectMemoryEnabled: false,
+        mcpEnabled: false,
+      },
+    });
+    await manager.sync();
+    expect(host.ctx.tools.schemas().some((s) => s.name === "desktop_memory")).toBe(false);
+    const savedMem = await callRpc<{ content: string; scope: string; trusted: boolean }>("memory.set", {
+      scope: "user",
+      content: "persistent note while injection is off",
+    });
+    expect(savedMem).toMatchObject({ scope: "user", content: "persistent note while injection is off", trusted: true });
+    expect(await callRpc<{ content: string }>("memory.get", { scope: "user" })).toMatchObject({
+      content: "persistent note while injection is off",
+    });
+
+    // 3. Flipping mcpEnabled back to true in desktop settings clears the stale plugins.json override so mcp activates!
+    expect(listed.plugins.find((p) => p.id === "mcp")?.status).toBe("disabled");
+    applyDesktopMessage(dataDir, {
+      configDir: dataDir,
+      settings: {
+        memoryEnabled: false,
+        projectMemoryEnabled: false,
+        mcpEnabled: true,
+      },
+    });
+    await manager.sync();
+    const afterMcpEnable = await callRpc<{ plugins: Array<{ id: string; status: string }> }>("plugin.list");
+    expect(afterMcpEnable.plugins.find((p) => p.id === "mcp")?.status).toBe("active");
   });
 });

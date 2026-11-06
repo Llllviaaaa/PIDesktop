@@ -20,11 +20,9 @@ export const CLIENT_SHARED_EXTERNALS: readonly string[] = [
   "@deepseek-ai/cordis",
   "@deepseek-ai/schemastery",
   "schemastery",
-  "@deepseek-ai/dsh-client-ui-slots",
-  "@deepseek-ai/dsh-client-ui-primitives",
-  "dsh-better-sidebar",
-  "dsh-better-sidebar/client",
+  "@pid/client",
   "@pid/protocol",
+  "lucide-react",
 ];
 
 interface BunBuildOutput {

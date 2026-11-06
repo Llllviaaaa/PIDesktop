@@ -13,6 +13,7 @@ import {
   type Effort,
   type FinishReason,
   type LlmAdapter,
+  type LlmProtocolSpec,
   type LlmRequest,
   type Message,
   type ModelInfo,
@@ -38,7 +39,7 @@ export interface ProviderConfig {
 }
 
 export interface Config {
-  providers: ProviderConfig[];
+  providers?: ProviderConfig[];
 }
 
 type WireMessage = Record<string, unknown>;
@@ -216,8 +217,19 @@ export class OpenAiCompatAdapter implements LlmAdapter {
   }
 }
 
-export function apply(ctx: Context, config: Config): void {
-  for (const provider of config.providers) {
+export const protocolSpec: LlmProtocolSpec = {
+  requiresBaseUrl: true,
+  normalizeBaseUrl: (baseUrl) => baseUrl ?? "",
+  createAdapter: (ctx, provider) =>
+    new OpenAiCompatAdapter(ctx, {
+      ...provider,
+      baseUrl: provider.baseUrl ?? "",
+    }),
+};
+
+export function apply(ctx: Context, config?: Config): void {
+  ctx.effect(() => ctx.llm.registerProtocol("openai-compat", protocolSpec), `${name}: protocol`);
+  for (const provider of config?.providers ?? []) {
     ctx.effect(() => ctx.llm.registerAdapter(
       { id: provider.id, name: provider.name ?? provider.id, api: "openai-compat", baseUrl: provider.baseUrl },
       new OpenAiCompatAdapter(ctx, provider),

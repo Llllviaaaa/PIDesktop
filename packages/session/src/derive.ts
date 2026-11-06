@@ -103,10 +103,6 @@ export function summarize(header: SessionHeader, events: readonly SessionEvent[]
   for (const event of events) {
     if (event.type === "user") {
       messageCount += 1;
-      if (firstMessage === undefined) {
-        const text = event.data.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join(" ").replace(/\s+/g, " ").trim();
-        if (text !== "") firstMessage = text.slice(0, FIRST_MESSAGE_CHARS);
-      }
     } else if (event.type === "assistant") {
       messageCount += 1;
       const evUsage = event.data.usage;
@@ -138,9 +134,13 @@ export function summarize(header: SessionHeader, events: readonly SessionEvent[]
   }
   if (reasoningTokens > 0) usage.reasoningTokens = reasoningTokens;
   for (const event of currentBranch(events)) {
-    if (event.type !== "label") continue;
-    if (event.data.title !== undefined) title = event.data.title;
-    if (event.data.archived !== undefined) archived = event.data.archived;
+    if (event.type === "user" && firstMessage === undefined) {
+      const text = event.data.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join(" ").replace(/\s+/g, " ").trim();
+      if (text !== "") firstMessage = text.slice(0, FIRST_MESSAGE_CHARS);
+    } else if (event.type === "label") {
+      if (event.data.title !== undefined) title = event.data.title;
+      if (event.data.archived !== undefined) archived = event.data.archived;
+    }
   }
   const last = events.at(-1);
   return {

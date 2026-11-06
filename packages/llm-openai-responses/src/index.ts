@@ -13,6 +13,7 @@ import {
   type Effort,
   type FinishReason,
   type LlmAdapter,
+  type LlmProtocolSpec,
   type LlmRequest,
   type Message,
   type ModelInfo,
@@ -36,7 +37,7 @@ export interface ProviderConfig {
 }
 
 export interface Config {
-  providers: ProviderConfig[];
+  providers?: ProviderConfig[];
 }
 
 type ResponsesInputItem = Record<string, unknown>;
@@ -352,8 +353,15 @@ export class OpenAiResponsesAdapter implements LlmAdapter {
   }
 }
 
-export function apply(ctx: Context, config: Config): void {
-  for (const provider of config.providers) {
+export const protocolSpec: LlmProtocolSpec = {
+  defaultBaseUrl: DEFAULT_OPENAI_RESPONSES_BASE_URL,
+  normalizeBaseUrl: normalizeResponsesBaseUrl,
+  createAdapter: (ctx, provider) => new OpenAiResponsesAdapter(ctx, provider),
+};
+
+export function apply(ctx: Context, config?: Config): void {
+  ctx.effect(() => ctx.llm.registerProtocol("openai-responses", protocolSpec), `${name}: protocol`);
+  for (const provider of config?.providers ?? []) {
     ctx.effect(
       () =>
         ctx.llm.registerAdapter(

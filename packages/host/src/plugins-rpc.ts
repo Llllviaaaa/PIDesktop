@@ -76,7 +76,10 @@ export function apply(ctx: Context, config: PluginsRpcConfig): void {
   const methods: Record<string, (params: unknown) => unknown> = {
     "plugin.list": async (params): Promise<PluginListResult> => {
       const p = asObject(params);
-      const workspace = optionalString(p, "workspace");
+      if (p.workspace !== undefined && typeof p.workspace !== "string") {
+        throw new RpcError(ErrorCode.InvalidParams, "workspace must be a string");
+      }
+      const workspace = typeof p.workspace === "string" ? p.workspace.trim() : undefined;
       return { plugins: await manager.list(workspace) };
     },
 

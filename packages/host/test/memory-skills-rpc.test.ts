@@ -3,11 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Commands } from "@pid/commands";
+import * as memory from "@pid/memory";
 import { ErrorCode } from "@pid/protocol";
 import * as promptContext from "@pid/prompt-context";
 import { SystemPrompt } from "@pid/system-prompt";
+import { Tools } from "@pid/tools";
 import { RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
-import * as memorySkillsRpc from "../src/memory-skills-rpc.ts";
 
 let host: Host | undefined;
 let dir = "";
@@ -39,9 +40,10 @@ describe("memory & skills RPC", () => {
         [WebServer, { pageOrigins: [] }],
         [RpcGateway, { token: Buffer.alloc(32, 3).toString("base64url") }],
         [Commands],
+        [Tools],
         [SystemPrompt],
         [promptContext, { dataDir }],
-        [memorySkillsRpc, { dataDir }],
+        [memory, { file: join(dataDir, "memory.md") }],
       ],
     });
     await host.start();

@@ -99,6 +99,7 @@ export function harnessFromDesktop(message: DesktopMessage): DesktopHarness {
     contextFiles: { enabled: memoryEnabled || projectMemoryEnabled },
     plan: { enabled: bool(settings.planTrackingEnabled, true) },
     mcp: {
+      enabled: bool(settings.mcpEnabled, true),
       servers: bool(settings.mcpEnabled, true) ? list<McpServerConfig>(settings.mcpServers) : [],
       confirmTools: bool(settings.mcpConfirmTools, true),
       secretsFile: join(message.configDir, "mcp-secrets.dat"),

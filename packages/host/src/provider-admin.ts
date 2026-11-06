@@ -11,12 +11,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { LlmError, type ModelInfo, type SecretRef } from "@pid/llm";
-import { AnthropicAdapter } from "@pid/llm-anthropic";
-import { GeminiAdapter } from "@pid/llm-gemini";
-import { OpenAiCompatAdapter } from "@pid/llm-openai-compat";
-import { OpenAiResponsesAdapter } from "@pid/llm-openai-responses";
 import { ErrorCode } from "@pid/protocol";
-import { entryProblem, type Api, type ProviderEntry } from "./providers.ts";
+import { entryProblem, resolveActiveProtocolMap, type Api, type ProviderEntry } from "./providers.ts";
 import { RpcError } from "./rpc.ts";
 import { readSecretFile, writeSecretFile, type SecretCodec } from "./secrets.ts";
 
@@ -112,17 +108,20 @@ export function apply(ctx: Context, config: Config): void {
     } else if (draft.keepExistingApiKey && previous?.apiKey !== undefined) {
       entry.apiKey = "secret" in previous.apiKey ? { secret: secretId(entry.id) } : previous.apiKey;
     }
-    const problem = entryProblem(entry);
+    const problem = entryProblem(entry, resolveActiveProtocolMap(ctx, true));
     if (problem !== undefined) invalid(problem);
     return { entry, ...(secret === undefined ? {} : { secret }) };
   };
 
   const methods: Record<string, (params: Record<string, unknown>, signal: AbortSignal) => unknown> = {
-    "provider.configs": (): { providers: ProviderConfigInfo[] } => ({
-      providers: readFile(config.file).providers
-        .filter((value): value is ProviderEntry => entryProblem(value) === undefined)
-        .map(({ apiKey, ...rest }) => ({ ...rest, keySource: keySource(apiKey) })),
-    }),
+    "provider.configs": (): { providers: ProviderConfigInfo[] } => {
+      const specs = resolveActiveProtocolMap(ctx, true);
+      return {
+        providers: readFile(config.file).providers
+          .filter((value): value is ProviderEntry => entryProblem(value, specs) === undefined)
+          .map(({ apiKey, ...rest }) => ({ ...rest, keySource: keySource(apiKey) })),
+      };
+    },
 
     "provider.save": async (params) => {
       const draft = params.provider as ProviderDraft | undefined;
@@ -184,21 +183,16 @@ export function apply(ctx: Context, config: Config): void {
       const apiKey: SecretRef | undefined = secret !== undefined
         ? { value: secret }
         : entry.apiKey !== undefined && "secret" in entry.apiKey && previous?.apiKey !== undefined ? previous.apiKey : entry.apiKey;
-      const common = {
+      const spec = resolveActiveProtocolMap(ctx, true).get(entry.api);
+      if (spec === undefined) invalid(`Unsupported protocol: ${entry.api}`);
+      const adapter = spec.createAdapter(ctx, {
         id: entry.id,
         ...(entry.baseUrl === undefined ? {} : { baseUrl: entry.baseUrl }),
         ...(apiKey === undefined ? {} : { apiKey }),
         ...(entry.headers === undefined ? {} : { headers: entry.headers }),
-      };
-      const adapter = entry.api === "anthropic"
-        ? new AnthropicAdapter(ctx, common)
-        : entry.api === "gemini"
-          ? new GeminiAdapter(ctx, common)
-          : entry.api === "openai-responses"
-            ? new OpenAiResponsesAdapter(ctx, common)
-            : new OpenAiCompatAdapter(ctx, { ...common, baseUrl: entry.baseUrl ?? "" });
+      });
       try {
-        return { models: await adapter.listModels(signal) };
+        return { models: typeof adapter.listModels === "function" ? await adapter.listModels(signal) : [] };
       } catch (error) {
         if (error instanceof LlmError) throw new RpcError(ErrorCode.ProviderError, error.message, error.toInfo());
         throw error;

@@ -4,7 +4,7 @@ import { useAppStore } from "../store";
 import { SideChatPanel } from "./SideChatPanel";
 
 interface SideChatTabProps {
-  /** better-sidebar's session id, which is the desktop's session file. */
+  /** Active session file of the conversation on screen. */
   sessionFile: string;
   tabId: string;
   visible: boolean;

@@ -25,6 +25,7 @@ import {
   type SessionResult,
   type SessionSearchResult,
   type SessionSubscribeResult,
+  type UsageSummaryResult,
 } from "@pid/protocol";
 import { sessionMarkdown, settledSeq, type Session, type SessionSummary } from "@pid/session";
 import { RpcError, type RpcCall } from "./rpc.ts";
@@ -305,6 +306,27 @@ export function apply(ctx: Context, config: Config = {}): void {
     "model.setEffort": async (p): Promise<AppendResult> => {
       const target = await session(p);
       return { seq: target.append("effort", { effort: effortOf(p.effort) }).seq };
+    },
+
+    "usage.summary": async (): Promise<UsageSummaryResult> => {
+      const sessions = await ctx.sessions.list();
+      const pricing = ctx.get("pricing");
+      const total = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+      let reasoningTokens = 0;
+      let totalCostUsd = 0;
+      let messages = 0;
+      for (const item of sessions) {
+        messages += item.messageCount;
+        for (const key of Object.keys(total) as Array<keyof typeof total>) total[key] += item.usage[key];
+        reasoningTokens += item.usage.reasoningTokens ?? 0;
+        if (pricing !== undefined) totalCostUsd += pricing.estimateSessionCost(item);
+      }
+      return {
+        sessions: sessions.length,
+        messages,
+        usage: reasoningTokens > 0 ? { ...total, reasoningTokens } : total,
+        ...(totalCostUsd > 0 ? { totalCostUsd } : {}),
+      };
     },
   };
 

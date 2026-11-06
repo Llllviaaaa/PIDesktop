@@ -1,11 +1,22 @@
 /**
- * Coordinates built-in fallback plugins, user global plugins (`<dataDir>/plugins`),
- * and workspace-trusted project plugins (`<workspace>/.pid/plugins`) with
- * fiber-isolated fault tolerance and file-watch HMR (ADR 0016).
+ * Coordinates built-in plugins, user global plugins (`<dataDir>/plugins`),
+ * and active workspace-trusted project plugins (`<workspace>/.pid/plugins`) with:
+ * - dependency-aware topological mount & reverse-topological teardown (`@pid/kernel`),
+ * - true Cordis `FiberState` readiness reporting (`active` vs `pending` on unmet `inject`),
+ * - isolated child Cordis scopes per active workspace (`WorkspacePluginScope`), and
+ * - fiber-isolated fault tolerance with transactional HMR rollback (ADR 0016).
  */
 import { existsSync, watch as fsWatch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import type { Context, Plugin } from "@deepseek-ai/cordis";
+import {
+  WorkspacePluginScope,
+  extractPluginDependencyMeta,
+  inspectCordisFiber,
+  onCordisFiberStatusChange,
+  reverseTopologicalOrder,
+  topologicalSortPlugins,
+} from "@pid/kernel";
 import type {
   PluginChangedNotification,
   PluginClientBundleResult,
@@ -33,7 +44,6 @@ import {
 import {
   inspectWorkspaceTrust,
   isWorkspaceTrusted,
-  listTrustedWorkspaces,
   readPluginsStore,
   setWorkspaceTrust,
   updatePluginsStore,
@@ -44,18 +54,23 @@ import "./web-server.ts";
 export interface PluginManagerOptions {
   dataDir: string;
   version: string;
-  builtins: () => readonly BuiltinPluginDefinition[];
+  builtins: (activeTrustedWorkspace?: string) => readonly BuiltinPluginDefinition[];
   onChanged?: (notification: PluginChangedNotification) => void;
   onTrustChanged?: (notification: WorkspaceTrustChangedNotification) => void;
 }
 
 interface MountedFiber {
+  id: string;
   tier: PluginTier;
+  workspaceKey?: string;
   sourceKey: string;
   signature: string;
   plugin?: Plugin;
   config: unknown;
   fiber?: { dispose(): unknown };
+  ctx: Context;
+  inject: string[];
+  provides: string[];
 }
 
 interface ResolvedCandidate {
@@ -65,6 +80,7 @@ interface ResolvedCandidate {
   description?: string;
   tier: PluginTier;
   enabled: boolean;
+  canDisable: boolean;
   overridesBuiltin: boolean;
   removable: boolean;
   hasHost: boolean;
@@ -72,6 +88,7 @@ interface ResolvedCandidate {
   watch: boolean;
   dir?: string;
   workspace?: string;
+  workspaceKey?: string;
   hostEntry?: string;
   clientEntry?: string;
   assetsDir?: string;
@@ -81,6 +98,18 @@ interface ResolvedCandidate {
   publicConfig?: Record<string, unknown>;
   configSchema?: Record<string, unknown>;
   manifestError?: string;
+  inject: string[];
+  provides: string[];
+}
+
+interface PreparedCandidate {
+  candidate: ResolvedCandidate;
+  sourceKey: string;
+  signature: string;
+  needsMount: boolean;
+  skippedDueToError: boolean;
+  pluginToMount?: Plugin;
+  clientEtag?: string;
 }
 
 interface WatcherEntry {
@@ -101,6 +130,10 @@ function signatureOf(value: unknown): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function flushImmediate(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 function shouldIgnoreWatchedPath(filename: string | null | undefined): boolean {
@@ -134,10 +167,15 @@ export class PluginManager {
   private readonly errors = new Map<string, string>();
   private readonly clientEtags = new Map<string, string>();
   private readonly watchers = new Map<string, WatcherEntry>();
-  private readonly unregisterHttpRoute?: () => void;
+  private readonly workspaceScope: WorkspacePluginScope;
+  private readonly httpRouteFiber: { dispose(): unknown };
+  private readonly offStatusListener: () => void;
+  private latestCandidates: ResolvedCandidate[] = [];
   private latestSnapshot: PluginInfo[] = [];
   private activeWorkspace?: string;
   private importCounter = 0;
+  private syncing = false;
+  private statusRefreshTimer?: ReturnType<typeof setTimeout>;
   private disposed = false;
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -145,14 +183,60 @@ export class PluginManager {
     private readonly ctx: Context,
     private readonly options: PluginManagerOptions,
   ) {
-    const webServer = ctx.get("webServer");
-    if (webServer !== undefined) {
-      this.unregisterHttpRoute = webServer.register({
-        kind: "prefix",
-        path: "/plugins",
-        handler: createPluginsHttpHandler(this.bundles, (pluginId, workspace) => this.resolveClientTarget(pluginId, workspace)),
-      });
-    }
+    this.workspaceScope = new WorkspacePluginScope(ctx);
+    const httpBridgePlugin = {
+      name: "pid-plugins-http-bridge",
+      inject: ["webServer"],
+      apply: (innerCtx: Context) => {
+        innerCtx.effect(
+          () => innerCtx.webServer.register({
+            kind: "prefix",
+            path: "/plugins",
+            handler: createPluginsHttpHandler(
+              this.bundles,
+              (pluginId, workspace) => this.resolveClientTarget(pluginId, workspace),
+            ),
+          }),
+          "plugins /plugins/* http handler",
+        );
+      },
+    };
+    this.httpRouteFiber = ctx.plugin(httpBridgePlugin);
+    this.offStatusListener = onCordisFiberStatusChange(ctx, () => {
+      if (this.disposed || this.syncing) return;
+      if (this.statusRefreshTimer !== undefined) clearTimeout(this.statusRefreshTimer);
+      this.statusRefreshTimer = setTimeout(() => {
+        this.statusRefreshTimer = undefined;
+        if (this.disposed || this.syncing || this.latestCandidates.length === 0) return;
+        const prevById = new Map(this.latestSnapshot.map((item) => [item.id, `${item.status}:${(item.missingInject ?? []).join(",")}`]));
+        const nextSnapshot = this.buildSnapshot(this.latestCandidates);
+        const changedIds = nextSnapshot
+          .filter((item) => prevById.get(item.id) !== `${item.status}:${(item.missingInject ?? []).join(",")}`)
+          .map((item) => item.id);
+        if (changedIds.length > 0) {
+          this.latestSnapshot = nextSnapshot;
+          const publicPlugins = this.activeWorkspace !== undefined
+            ? this.withUntrustedWorkspaceOverlay(this.latestSnapshot, this.activeWorkspace)
+            : [...this.latestSnapshot];
+          this.options.onChanged?.({
+            reason: "reloaded",
+            changedIds,
+            plugins: publicPlugins,
+          });
+        }
+      }, 0);
+    });
+  }
+
+  /** Return the currently active workspace path (if any). */
+  get currentWorkspace(): string | undefined {
+    return this.activeWorkspace;
+  }
+
+  /** Return the currently active workspace path only when it exists and is trusted. */
+  get currentTrustedWorkspace(): string | undefined {
+    if (this.activeWorkspace === undefined || !existsSync(this.activeWorkspace)) return undefined;
+    return isWorkspaceTrusted(this.options.dataDir, this.activeWorkspace) ? this.activeWorkspace : undefined;
   }
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
@@ -200,18 +284,26 @@ export class PluginManager {
   }
 
   async list(workspace?: string): Promise<PluginInfo[]> {
-    if (workspace !== undefined && workspace.trim() !== "") {
+    if (workspace !== undefined) {
+      if (workspace.trim() === "") {
+        if (this.activeWorkspace !== undefined || (this.latestSnapshot.length === 0 && !this.disposed)) {
+          await this.sync({ workspace: "" });
+        }
+        return [...this.latestSnapshot];
+      }
       const normalized = canonicalPath(workspace);
       if (this.activeWorkspace === undefined || pathComparisonKey(this.activeWorkspace) !== pathComparisonKey(normalized)) {
         await this.sync({ workspace: normalized });
       } else {
         return this.enqueue(async () => this.withUntrustedWorkspaceOverlay(this.latestSnapshot, normalized));
       }
-    } else if (this.latestSnapshot.length === 0 && !this.disposed) {
+      return this.withUntrustedWorkspaceOverlay(this.latestSnapshot, normalized);
+    }
+    if (this.latestSnapshot.length === 0 && !this.disposed) {
       await this.sync();
     }
-    return workspace !== undefined && workspace.trim() !== ""
-      ? this.withUntrustedWorkspaceOverlay(this.latestSnapshot, canonicalPath(workspace))
+    return this.activeWorkspace !== undefined
+      ? this.withUntrustedWorkspaceOverlay(this.latestSnapshot, this.activeWorkspace)
       : [...this.latestSnapshot];
   }
 
@@ -233,6 +325,16 @@ export class PluginManager {
         });
         this.activeWorkspace = ws;
       } else {
+        if (!enabled) {
+          const currentEntry = this.latestCandidates.find((entry) => entry.id === id);
+          const builtinDef = this.options.builtins(this.currentTrustedWorkspace).find((entry) => entry.id === id);
+          const protectedBuiltin = currentEntry !== undefined
+            ? (currentEntry.tier === "builtin" && !currentEntry.canDisable)
+            : (builtinDef?.canDisable === false);
+          if (protectedBuiltin) {
+            throw new Error(`Plugin "${id}" is an essential host transport gateway and cannot be disabled`);
+          }
+        }
         updatePluginsStore(this.options.dataDir, (store) => {
           const prev = store.plugins[id];
           store.plugins[id] = {
@@ -393,18 +495,26 @@ export class PluginManager {
 
   async dispose(): Promise<void> {
     this.disposed = true;
-    this.unregisterHttpRoute?.();
+    this.offStatusListener();
+    if (this.statusRefreshTimer !== undefined) {
+      clearTimeout(this.statusRefreshTimer);
+      this.statusRefreshTimer = undefined;
+    }
     await this.enqueue(async () => {
       for (const watcher of this.watchers.values()) {
         if (watcher.timer !== undefined) clearTimeout(watcher.timer);
         watcher.watcher.close();
       }
       this.watchers.clear();
-      for (const mounted of [...this.mounted.values()].reverse()) {
+      const orderedTeardown = reverseTopologicalOrder([...this.mounted.values()]);
+      for (const mounted of orderedTeardown) {
         await mounted.fiber?.dispose();
       }
       this.mounted.clear();
+      await this.workspaceScope.dispose();
+      await this.httpRouteFiber.dispose();
       this.bundles.clear();
+      this.latestCandidates = [];
       this.latestSnapshot = [];
     });
   }
@@ -416,7 +526,7 @@ export class PluginManager {
     const pluginsDir = join(workspacePath, ".pid", "plugins");
     const scanned = scanPluginsDirectory(pluginsDir, "workspace", workspacePath);
     if (scanned.manifests.length === 0) return [...base];
-    const builtins = new Set(this.options.builtins().map((item) => item.id));
+    const builtins = new Set(this.options.builtins(undefined).map((item) => item.id));
     const extras: PluginInfo[] = scanned.manifests
       .filter((manifest) => !base.some((existing) => existing.id === manifest.id && existing.tier === "workspace"))
       .map((manifest) => ({
@@ -435,368 +545,39 @@ export class PluginManager {
         workspace: workspacePath,
         watch: false,
         ...(manifest.configSchema === undefined ? {} : { configSchema: manifest.configSchema }),
+        ...(manifest.inject !== undefined && manifest.inject.length > 0 ? { inject: [...manifest.inject] } : {}),
+        ...(manifest.provides !== undefined && manifest.provides.length > 0 ? { provides: [...manifest.provides] } : {}),
       }));
     return [...extras, ...base];
   }
 
-  private async syncNow(params: {
-    workspace?: string;
-    reason?: PluginChangedNotification["reason"];
-    forceIds?: ReadonlySet<string>;
-  }): Promise<string[]> {
-    if (this.disposed) return [];
-    if (params.workspace !== undefined && params.workspace.trim() !== "") {
-      this.activeWorkspace = canonicalPath(params.workspace);
-    }
-
-    const builtins = this.options.builtins();
-    const builtinsById = new Map(builtins.map((entry) => [entry.id, entry]));
-    const store = readPluginsStore(this.options.dataDir);
-
-    // 1. Discover user plugins (`<dataDir>/plugins/*` + linked local dirs in `plugins.json`).
-    const userById = new Map<string, DiscoveredPluginManifest>();
-    const manifestErrors = new Map<string, { tier: PluginTier; dir: string; message: string }>();
-
-    const managedScan = scanPluginsDirectory(managedPluginsRoot(this.options.dataDir), "user");
-    for (const manifest of managedScan.manifests) {
-      userById.set(manifest.id, manifest);
-    }
-    for (const scanErr of managedScan.errors) {
-      this.ctx.logger("plugins").warn("skipping invalid plugin dir %s: %s", scanErr.dir, scanErr.error);
-    }
-
-    for (const [id, patch] of Object.entries(store.plugins)) {
-      if (patch.linkedDir === undefined) continue;
-      try {
-        const manifest = readPluginManifest(patch.linkedDir, "user");
-        userById.set(manifest.id, manifest);
-      } catch (error) {
-        manifestErrors.set(id, { tier: "user", dir: patch.linkedDir, message: errorMessage(error) });
-      }
-    }
-
-    // 2. Discover workspace plugins across trusted workspaces (prioritizing `activeWorkspace` last so it wins).
-    const trustedEntries = listTrustedWorkspaces(this.options.dataDir);
-    const orderedWorkspaces = trustedEntries.map((entry) => entry.path).filter((ws) => existsSync(ws));
-    if (this.activeWorkspace !== undefined && isWorkspaceTrusted(this.options.dataDir, this.activeWorkspace)) {
-      const activeKey = pathComparisonKey(this.activeWorkspace);
-      const rest = orderedWorkspaces.filter((ws) => pathComparisonKey(ws) !== activeKey);
-      orderedWorkspaces.splice(0, orderedWorkspaces.length, ...rest, this.activeWorkspace);
-    }
-
-    const workspaceById = new Map<string, DiscoveredPluginManifest>();
-    for (const ws of orderedWorkspaces) {
-      const scanned = scanPluginsDirectory(join(ws, ".pid", "plugins"), "workspace", ws);
-      for (const manifest of scanned.manifests) {
-        workspaceById.set(manifest.id, manifest);
-      }
-      for (const scanErr of scanned.errors) {
-        this.ctx.logger("plugins").warn("skipping invalid workspace plugin %s: %s", scanErr.dir, scanErr.error);
-      }
-    }
-
-    // 3. Merge tiers (`workspace` > `user` > `builtin`).
-    const allIds: string[] = [];
-    const seenIds = new Set<string>();
-    const pushId = (id: string): void => {
-      if (seenIds.has(id)) return;
-      seenIds.add(id);
-      allIds.push(id);
-    };
-    for (const id of [...workspaceById.keys()].sort()) pushId(id);
-    for (const id of [...userById.keys()].sort()) pushId(id);
-    for (const id of [...manifestErrors.keys()].sort()) pushId(id);
-    for (const builtin of builtins) pushId(builtin.id);
-
-    const candidates: ResolvedCandidate[] = [];
-    for (const id of allIds) {
-      const wsManifest = workspaceById.get(id);
-      if (wsManifest !== undefined && wsManifest.workspace !== undefined) {
-        const wsPatch = store.workspacePlugins[workspacePluginKey(wsManifest.workspace, id)];
-        const mergedConfig = { ...(wsManifest.defaultConfig ?? {}), ...(wsPatch?.config ?? {}) };
-        candidates.push({
-          id,
-          name: wsManifest.name,
-          version: wsManifest.version,
-          ...(wsManifest.description === undefined ? {} : { description: wsManifest.description }),
-          tier: "workspace",
-          enabled: wsPatch?.enabled !== false,
-          overridesBuiltin: builtinsById.has(id),
-          removable: false,
-          hasHost: wsManifest.hostEntry !== undefined,
-          hasClient: wsManifest.clientEntry !== undefined,
-          watch: wsPatch?.watch ?? true,
-          dir: wsManifest.dir,
-          workspace: wsManifest.workspace,
-          ...(wsManifest.hostEntry === undefined ? {} : { hostEntry: wsManifest.hostEntry }),
-          ...(wsManifest.clientEntry === undefined ? {} : { clientEntry: wsManifest.clientEntry }),
-          ...(wsManifest.assetsDir === undefined ? {} : { assetsDir: wsManifest.assetsDir }),
-          effectiveConfig: mergedConfig,
-          publicConfig: mergedConfig,
-          ...(wsManifest.configSchema === undefined ? {} : { configSchema: wsManifest.configSchema }),
-        });
-        continue;
-      }
-
-      const userManifest = userById.get(id);
-      if (userManifest !== undefined) {
-        const patch = store.plugins[id];
-        const mergedConfig = { ...(userManifest.defaultConfig ?? {}), ...(patch?.config ?? {}) };
-        candidates.push({
-          id,
-          name: userManifest.name,
-          version: userManifest.version,
-          ...(userManifest.description === undefined ? {} : { description: userManifest.description }),
-          tier: "user",
-          enabled: patch?.enabled !== false,
-          overridesBuiltin: builtinsById.has(id),
-          removable: true,
-          hasHost: userManifest.hostEntry !== undefined,
-          hasClient: userManifest.clientEntry !== undefined,
-          watch: patch?.watch === true,
-          dir: userManifest.dir,
-          ...(userManifest.hostEntry === undefined ? {} : { hostEntry: userManifest.hostEntry }),
-          ...(userManifest.clientEntry === undefined ? {} : { clientEntry: userManifest.clientEntry }),
-          ...(userManifest.assetsDir === undefined ? {} : { assetsDir: userManifest.assetsDir }),
-          ...(patch?.origin === undefined ? {} : { origin: patch.origin }),
-          effectiveConfig: mergedConfig,
-          publicConfig: mergedConfig,
-          ...(userManifest.configSchema === undefined ? {} : { configSchema: userManifest.configSchema }),
-        });
-        continue;
-      }
-
-      const broken = manifestErrors.get(id);
-      if (broken !== undefined) {
-        const patch = store.plugins[id];
-        candidates.push({
-          id,
-          name: id,
-          version: "0.0.0",
-          tier: broken.tier,
-          enabled: patch?.enabled !== false,
-          overridesBuiltin: builtinsById.has(id),
-          removable: true,
-          hasHost: false,
-          hasClient: false,
-          watch: patch?.watch === true,
-          dir: broken.dir,
-          ...(patch?.origin === undefined ? {} : { origin: patch.origin }),
-          manifestError: broken.message,
-        });
-        continue;
-      }
-
-      const builtin = builtinsById.get(id);
-      if (builtin !== undefined) {
-        const patch = store.plugins[id];
-        const enabled = patch?.enabled ?? builtin.enabled;
-        const effectiveConfig = patch?.config !== undefined
-          ? (isRecord(builtin.config) ? { ...builtin.config, ...patch.config } : patch.config)
-          : builtin.config;
-        candidates.push({
-          id: builtin.id,
-          name: builtin.name,
-          version: this.options.version,
-          description: builtin.description,
-          tier: "builtin",
-          enabled,
-          overridesBuiltin: false,
-          removable: patch !== undefined,
-          hasHost: builtin.hasHost,
-          hasClient: builtin.hasClient,
-          watch: false,
-          builtinPlugin: builtin.plugin,
-          effectiveConfig,
-          ...(patch?.config === undefined ? {} : { publicConfig: patch.config }),
-        });
-      }
-    }
-
-    // 4. Unmount fibers that are removed or disabled.
-    const changed: string[] = [];
-    const wantedMountedIds = new Set(candidates.filter((c) => c.enabled && c.manifestError === undefined).map((c) => c.id));
-    for (const [id, mounted] of this.mounted) {
-      if (wantedMountedIds.has(id)) continue;
-      await mounted.fiber?.dispose();
-      this.mounted.delete(id);
-      this.clientEtags.delete(id);
-      changed.push(id);
-    }
-
-    // 5. Mount or hot-swap enabled candidates.
-    const externalNeeded = candidates.some((c) => c.enabled && c.tier !== "builtin" && c.hasHost);
-    if (externalNeeded) {
-      await installHostModuleBridge();
-    }
-
-    for (const candidate of candidates) {
-      if (candidate.manifestError !== undefined) {
-        this.errors.set(candidate.id, candidate.manifestError);
-        continue;
-      }
-      if (!candidate.enabled) {
-        continue;
-      }
-
-      const sourceKey = `${candidate.tier}:${candidate.dir ?? "builtin"}:${candidate.hostEntry ?? ""}:${candidate.clientEntry ?? ""}`;
-      const sig = signatureOf(candidate.effectiveConfig);
-      const force = params.forceIds?.has(candidate.id) === true;
-      const current = this.mounted.get(candidate.id);
-
-      if (current !== undefined && !force && current.sourceKey === sourceKey && current.signature === sig) {
-        continue;
-      }
-
-      if (candidate.tier === "builtin") {
-        if (current !== undefined) {
-          await current.fiber?.dispose();
-          this.mounted.delete(candidate.id);
-        }
-        try {
-          const plugin = candidate.builtinPlugin;
-          const fiber = plugin !== undefined ? this.ctx.plugin(plugin, candidate.effectiveConfig) : undefined;
-          await fiber;
-          this.mounted.set(candidate.id, {
-            tier: "builtin",
-            sourceKey,
-            signature: sig,
-            ...(plugin === undefined ? {} : { plugin }),
-            config: candidate.effectiveConfig,
-            ...(fiber === undefined ? {} : { fiber }),
-          });
-          this.errors.delete(candidate.id);
-          changed.push(candidate.id);
-        } catch (error) {
-          const msg = errorMessage(error);
-          this.errors.set(candidate.id, msg);
-          this.ctx.logger("plugins").error("built-in plugin %s failed: %s", candidate.id, msg);
-        }
-        continue;
-      }
-
-      // External (`user` or `workspace`) plugin.
-      let clientEtag: string | undefined;
-      if (candidate.clientEntry !== undefined && candidate.dir !== undefined) {
-        try {
-          const compiled = await this.bundles.compile(candidate.id, candidate.dir, candidate.clientEntry);
-          clientEtag = compiled.etag;
-        } catch (error) {
-          const msg = errorMessage(error);
-          if (current !== undefined && force) {
-            const rollbackMsg = `Client bundle error (kept previous state): ${msg}`;
-            this.errors.set(candidate.id, rollbackMsg);
-            this.notifyUserWarning(`插件 ${candidate.name} 前端热更新失败：${msg}`);
-            changed.push(candidate.id);
-            continue;
-          }
-          if (current !== undefined) {
-            await current.fiber?.dispose();
-            this.mounted.delete(candidate.id);
-          }
-          this.errors.set(candidate.id, msg);
-          this.notifyUserWarning(`插件 ${candidate.name} 前端编译失败：${msg}`);
-          changed.push(candidate.id);
-          continue;
-        }
-      }
-
-      if (!candidate.hasHost || candidate.hostEntry === undefined) {
-        if (current !== undefined) {
-          await current.fiber?.dispose();
-        }
-        this.mounted.set(candidate.id, {
-          tier: candidate.tier,
-          sourceKey,
-          signature: sig,
-          config: candidate.effectiveConfig,
-        });
-        if (clientEtag !== undefined) this.clientEtags.set(candidate.id, clientEtag);
-        this.errors.delete(candidate.id);
-        changed.push(candidate.id);
-        continue;
-      }
-
-      // Host external entry: import first before touching the running fiber so syntax/import errors roll back cleanly.
-      let nextPlugin: Plugin;
-      try {
-        this.importCounter += 1;
-        const mod = await importExternalModule(candidate.hostEntry, `${Date.now()}-${this.importCounter}`);
-        nextPlugin = resolveCordisPluginExport(mod, candidate.id);
-      } catch (error) {
-        const msg = errorMessage(error);
-        if (current !== undefined && current.plugin !== undefined) {
-          this.errors.set(candidate.id, `HMR reload failed (rolled back): ${msg}`);
-          this.ctx.logger("plugins").warn("plugin %s reload failed, keeping previous fiber: %s", candidate.id, msg);
-          this.notifyUserWarning(`插件 ${candidate.name} 热重载失败（已回滚旧版本）：${msg}`);
-          changed.push(candidate.id);
-          continue;
-        }
-        if (current !== undefined) {
-          await current.fiber?.dispose();
-          this.mounted.delete(candidate.id);
-        }
-        this.errors.set(candidate.id, msg);
-        this.ctx.logger("plugins").error("plugin %s import failed: %s", candidate.id, msg);
-        this.notifyUserWarning(`插件 ${candidate.name} 加载失败：${msg}`);
-        changed.push(candidate.id);
-        continue;
-      }
-
-      const previous = current;
-      if (previous !== undefined) {
-        await previous.fiber?.dispose();
-        this.mounted.delete(candidate.id);
-      }
-
-      let nextFiber: { dispose(): unknown } | undefined;
-      try {
-        nextFiber = this.ctx.plugin(nextPlugin, candidate.effectiveConfig);
-        await nextFiber;
-        this.mounted.set(candidate.id, {
-          tier: candidate.tier,
-          sourceKey,
-          signature: sig,
-          plugin: nextPlugin,
-          config: candidate.effectiveConfig,
-          fiber: nextFiber,
-        });
-        if (clientEtag !== undefined) this.clientEtags.set(candidate.id, clientEtag);
-        this.errors.delete(candidate.id);
-        changed.push(candidate.id);
-      } catch (error) {
-        const msg = errorMessage(error);
-        await nextFiber?.dispose();
-        if (previous?.plugin !== undefined) {
-          try {
-            const restored = this.ctx.plugin(previous.plugin, previous.config);
-            await restored;
-            this.mounted.set(candidate.id, { ...previous, fiber: restored });
-            this.errors.set(candidate.id, `HMR reload failed (rolled back): ${msg}`);
-            this.ctx.logger("plugins").warn("plugin %s apply failed, restored previous fiber: %s", candidate.id, msg);
-            this.notifyUserWarning(`插件 ${candidate.name} 热重载失败（已回滚旧版本）：${msg}`);
-            changed.push(candidate.id);
-            continue;
-          } catch (restoreError) {
-            this.ctx.logger("plugins").error("plugin %s rollback failed: %s", candidate.id, restoreError);
-          }
-        }
-        this.errors.set(candidate.id, msg);
-        this.ctx.logger("plugins").error("plugin %s apply failed: %s", candidate.id, msg);
-        this.notifyUserWarning(`插件 ${candidate.name} 启动失败：${msg}`);
-        changed.push(candidate.id);
-      }
-    }
-
-    // 6. Build public snapshot and reconcile file watchers.
-    this.latestSnapshot = candidates.map((candidate): PluginInfo => {
+  private buildSnapshot(candidates: readonly ResolvedCandidate[]): PluginInfo[] {
+    return candidates.map((candidate): PluginInfo => {
       const err = this.errors.get(candidate.id);
-      const isMounted = this.mounted.has(candidate.id);
-      const status: PluginStatus = !candidate.enabled
-        ? "disabled"
-        : isMounted
-          ? "active"
-          : "errored";
+      const mounted = this.mounted.get(candidate.id);
+      let status: PluginStatus;
+      let missingInject: string[] | undefined;
+
+      if (!candidate.enabled) {
+        status = "disabled";
+      } else if (mounted === undefined) {
+        status = "errored";
+      } else if (!candidate.hasHost || mounted.fiber === undefined) {
+        status = "active";
+      } else {
+        const readiness = inspectCordisFiber(mounted.ctx, mounted.fiber, mounted.inject);
+        if (readiness.status === "active") {
+          status = "active";
+        } else if (readiness.status === "pending") {
+          status = "pending";
+          if (readiness.missingInject.length > 0) {
+            missingInject = readiness.missingInject;
+          }
+        } else {
+          status = "errored";
+        }
+      }
+
       const clientEtag = this.clientEtags.get(candidate.id);
       const clientPath = candidate.hasClient && candidate.tier !== "builtin"
         ? `/plugins/${encodeURIComponent(candidate.id)}/client.js`
@@ -809,6 +590,7 @@ export class PluginManager {
         tier: candidate.tier,
         status,
         enabled: candidate.enabled,
+        ...(candidate.canDisable ? {} : { canDisable: false }),
         overridesBuiltin: candidate.overridesBuiltin,
         removable: candidate.removable,
         hasHost: candidate.hasHost,
@@ -821,24 +603,477 @@ export class PluginManager {
         ...(candidate.origin === undefined ? {} : { origin: candidate.origin }),
         ...(candidate.publicConfig === undefined ? {} : { config: candidate.publicConfig }),
         ...(candidate.configSchema === undefined ? {} : { configSchema: candidate.configSchema }),
+        ...(candidate.inject.length > 0 ? { inject: [...candidate.inject] } : {}),
+        ...(candidate.provides.length > 0 ? { provides: [...candidate.provides] } : {}),
+        ...(missingInject === undefined ? {} : { missingInject }),
         ...(err === undefined ? {} : { error: err }),
       };
     });
+  }
 
-    this.reconcileWatchers(candidates);
+  private async syncNow(params: {
+    workspace?: string;
+    reason?: PluginChangedNotification["reason"];
+    forceIds?: ReadonlySet<string>;
+  }): Promise<string[]> {
+    if (this.disposed) return [];
+    this.syncing = true;
+    try {
+      if (params.workspace !== undefined) {
+        this.activeWorkspace = params.workspace.trim() === "" ? undefined : canonicalPath(params.workspace);
+      }
 
-    if (params.reason !== undefined && (changed.length > 0 || params.reason === "trust" || params.reason === "toggled" || params.reason === "configured")) {
-      const snapshot = this.activeWorkspace !== undefined
-        ? this.withUntrustedWorkspaceOverlay(this.latestSnapshot, this.activeWorkspace)
-        : [...this.latestSnapshot];
-      this.options.onChanged?.({
-        reason: params.reason,
-        changedIds: changed.length > 0 ? changed : [...(params.forceIds ?? [])],
-        plugins: snapshot,
-      });
+      const activeTrustedWs = this.currentTrustedWorkspace;
+      const activeWsKey = activeTrustedWs !== undefined ? pathComparisonKey(activeTrustedWs) : undefined;
+
+      const builtins = this.options.builtins(activeTrustedWs);
+      const builtinsById = new Map(builtins.map((entry) => [entry.id, entry]));
+      const store = readPluginsStore(this.options.dataDir);
+
+      // 1. Discover user plugins (`<dataDir>/plugins/*` + linked local dirs in `plugins.json`).
+      const userById = new Map<string, DiscoveredPluginManifest>();
+      const manifestErrors = new Map<string, { tier: PluginTier; dir: string; message: string }>();
+
+      const managedScan = scanPluginsDirectory(managedPluginsRoot(this.options.dataDir), "user");
+      for (const manifest of managedScan.manifests) {
+        userById.set(manifest.id, manifest);
+      }
+      for (const scanErr of managedScan.errors) {
+        this.ctx.logger("plugins").warn("skipping invalid plugin dir %s: %s", scanErr.dir, scanErr.error);
+      }
+
+      for (const [id, patch] of Object.entries(store.plugins)) {
+        if (patch.linkedDir === undefined) continue;
+        try {
+          const manifest = readPluginManifest(patch.linkedDir, "user");
+          userById.set(manifest.id, manifest);
+        } catch (error) {
+          manifestErrors.set(id, { tier: "user", dir: patch.linkedDir, message: errorMessage(error) });
+        }
+      }
+
+      // 2. Discover workspace plugins strictly from the SINGLE active trusted workspace.
+      const workspaceById = new Map<string, DiscoveredPluginManifest>();
+      if (activeTrustedWs !== undefined) {
+        const scanned = scanPluginsDirectory(join(activeTrustedWs, ".pid", "plugins"), "workspace", activeTrustedWs);
+        for (const manifest of scanned.manifests) {
+          workspaceById.set(manifest.id, manifest);
+        }
+        for (const scanErr of scanned.errors) {
+          this.ctx.logger("plugins").warn("skipping invalid workspace plugin %s: %s", scanErr.dir, scanErr.error);
+        }
+      }
+
+      // 3. Merge tiers (`workspace` > `user` > `builtin`).
+      const allIds: string[] = [];
+      const seenIds = new Set<string>();
+      const pushId = (id: string): void => {
+        if (seenIds.has(id)) return;
+        seenIds.add(id);
+        allIds.push(id);
+      };
+      for (const id of [...workspaceById.keys()].sort()) pushId(id);
+      for (const id of [...userById.keys()].sort()) pushId(id);
+      for (const id of [...manifestErrors.keys()].sort()) pushId(id);
+      for (const builtin of builtins) pushId(builtin.id);
+
+      const candidates: ResolvedCandidate[] = [];
+      for (const id of allIds) {
+        const wsManifest = workspaceById.get(id);
+        if (wsManifest !== undefined && wsManifest.workspace !== undefined) {
+          const wsPatch = store.workspacePlugins[workspacePluginKey(wsManifest.workspace, id)];
+          const mergedConfig = { ...(wsManifest.defaultConfig ?? {}), ...(wsPatch?.config ?? {}) };
+          candidates.push({
+            id,
+            name: wsManifest.name,
+            version: wsManifest.version,
+            ...(wsManifest.description === undefined ? {} : { description: wsManifest.description }),
+            tier: "workspace",
+            enabled: wsPatch?.enabled !== false,
+            canDisable: true,
+            overridesBuiltin: builtinsById.has(id),
+            removable: false,
+            hasHost: wsManifest.hostEntry !== undefined,
+            hasClient: wsManifest.clientEntry !== undefined,
+            watch: wsPatch?.watch ?? true,
+            dir: wsManifest.dir,
+            workspace: wsManifest.workspace,
+            workspaceKey: pathComparisonKey(wsManifest.workspace),
+            ...(wsManifest.hostEntry === undefined ? {} : { hostEntry: wsManifest.hostEntry }),
+            ...(wsManifest.clientEntry === undefined ? {} : { clientEntry: wsManifest.clientEntry }),
+            ...(wsManifest.assetsDir === undefined ? {} : { assetsDir: wsManifest.assetsDir }),
+            effectiveConfig: mergedConfig,
+            publicConfig: mergedConfig,
+            ...(wsManifest.configSchema === undefined ? {} : { configSchema: wsManifest.configSchema }),
+            inject: [...(wsManifest.inject ?? [])],
+            provides: [...(wsManifest.provides ?? [])],
+          });
+          continue;
+        }
+
+        const userManifest = userById.get(id);
+        if (userManifest !== undefined) {
+          const patch = store.plugins[id];
+          const mergedConfig = { ...(userManifest.defaultConfig ?? {}), ...(patch?.config ?? {}) };
+          candidates.push({
+            id,
+            name: userManifest.name,
+            version: userManifest.version,
+            ...(userManifest.description === undefined ? {} : { description: userManifest.description }),
+            tier: "user",
+            enabled: patch?.enabled !== false,
+            canDisable: true,
+            overridesBuiltin: builtinsById.has(id),
+            removable: true,
+            hasHost: userManifest.hostEntry !== undefined,
+            hasClient: userManifest.clientEntry !== undefined,
+            watch: patch?.watch === true,
+            dir: userManifest.dir,
+            ...(userManifest.hostEntry === undefined ? {} : { hostEntry: userManifest.hostEntry }),
+            ...(userManifest.clientEntry === undefined ? {} : { clientEntry: userManifest.clientEntry }),
+            ...(userManifest.assetsDir === undefined ? {} : { assetsDir: userManifest.assetsDir }),
+            ...(patch?.origin === undefined ? {} : { origin: patch.origin }),
+            effectiveConfig: mergedConfig,
+            publicConfig: mergedConfig,
+            ...(userManifest.configSchema === undefined ? {} : { configSchema: userManifest.configSchema }),
+            inject: [...(userManifest.inject ?? [])],
+            provides: [...(userManifest.provides ?? [])],
+          });
+          continue;
+        }
+
+        const broken = manifestErrors.get(id);
+        if (broken !== undefined) {
+          const patch = store.plugins[id];
+          candidates.push({
+            id,
+            name: id,
+            version: "0.0.0",
+            tier: broken.tier,
+            enabled: patch?.enabled !== false,
+            canDisable: true,
+            overridesBuiltin: builtinsById.has(id),
+            removable: true,
+            hasHost: false,
+            hasClient: false,
+            watch: patch?.watch === true,
+            dir: broken.dir,
+            ...(patch?.origin === undefined ? {} : { origin: patch.origin }),
+            manifestError: broken.message,
+            inject: [],
+            provides: [],
+          });
+          continue;
+        }
+
+        const builtin = builtinsById.get(id);
+        if (builtin !== undefined) {
+          const patch = store.plugins[id];
+          const canDisable = builtin.canDisable !== false;
+          const enabled = canDisable ? (patch?.enabled ?? builtin.enabled) : true;
+          const effectiveConfig = patch?.config !== undefined
+            ? (isRecord(builtin.config) ? { ...builtin.config, ...patch.config } : patch.config)
+            : builtin.config;
+          const depMeta = extractPluginDependencyMeta(builtin.plugin, {
+            ...(builtin.inject === undefined ? {} : { inject: builtin.inject }),
+            ...(builtin.provides === undefined ? {} : { provides: builtin.provides }),
+          });
+          candidates.push({
+            id: builtin.id,
+            name: builtin.name,
+            version: this.options.version,
+            description: builtin.description,
+            tier: "builtin",
+            enabled,
+            canDisable,
+            overridesBuiltin: false,
+            removable: patch !== undefined,
+            hasHost: builtin.hasHost,
+            hasClient: builtin.hasClient,
+            watch: false,
+            builtinPlugin: builtin.plugin,
+            effectiveConfig,
+            ...(patch?.config === undefined ? {} : { publicConfig: patch.config }),
+            inject: depMeta.inject,
+            provides: depMeta.provides,
+          });
+        }
+      }
+
+      // 4. Unmount removed, disabled, tier-switched, or inactive-workspace fibers in reverse topological order.
+      const changed: string[] = [];
+      const candidateById = new Map(candidates.map((c) => [c.id, c]));
+      const toUnmount: MountedFiber[] = [];
+      for (const mounted of this.mounted.values()) {
+        const target = candidateById.get(mounted.id);
+        const stillWanted = target !== undefined
+          && target.enabled
+          && target.manifestError === undefined
+          && target.tier === mounted.tier
+          && (mounted.tier !== "workspace" || mounted.workspaceKey === activeWsKey);
+        if (!stillWanted) {
+          toUnmount.push(mounted);
+        }
+      }
+
+      for (const mounted of reverseTopologicalOrder(toUnmount)) {
+        await mounted.fiber?.dispose();
+        this.mounted.delete(mounted.id);
+        this.clientEtags.delete(mounted.id);
+        changed.push(mounted.id);
+      }
+
+      const currentScopeWs = this.workspaceScope.activeWorkspacePath;
+      if (currentScopeWs !== undefined && (activeWsKey === undefined || pathComparisonKey(currentScopeWs) !== activeWsKey)) {
+        await this.workspaceScope.dispose();
+      }
+
+      // 5. Prepare external bundles & imports, extract dependency metadata, and topologically sort before mounting.
+      const externalNeeded = candidates.some((c) => c.enabled && c.tier !== "builtin" && c.hasHost);
+      if (externalNeeded) {
+        await installHostModuleBridge();
+      }
+
+      const preparedList: PreparedCandidate[] = [];
+      for (const candidate of candidates) {
+        if (candidate.manifestError !== undefined) {
+          this.errors.set(candidate.id, candidate.manifestError);
+          continue;
+        }
+        if (!candidate.enabled) {
+          continue;
+        }
+
+        const sourceKey = `${candidate.tier}:${candidate.dir ?? "builtin"}:${candidate.hostEntry ?? ""}:${candidate.clientEntry ?? ""}`;
+        const sig = signatureOf(candidate.effectiveConfig);
+        const force = params.forceIds?.has(candidate.id) === true;
+        const current = this.mounted.get(candidate.id);
+
+        if (current !== undefined && !force && current.sourceKey === sourceKey && current.signature === sig) {
+          candidate.inject = current.inject;
+          candidate.provides = current.provides;
+          preparedList.push({
+            candidate,
+            sourceKey,
+            signature: sig,
+            needsMount: false,
+            skippedDueToError: false,
+          });
+          continue;
+        }
+
+        if (candidate.tier === "builtin") {
+          preparedList.push({
+            candidate,
+            sourceKey,
+            signature: sig,
+            needsMount: true,
+            skippedDueToError: false,
+            ...(candidate.builtinPlugin === undefined ? {} : { pluginToMount: candidate.builtinPlugin }),
+          });
+          continue;
+        }
+
+        let clientEtag: string | undefined;
+        if (candidate.clientEntry !== undefined && candidate.dir !== undefined) {
+          try {
+            const compiled = await this.bundles.compile(candidate.id, candidate.dir, candidate.clientEntry);
+            clientEtag = compiled.etag;
+          } catch (error) {
+            const msg = errorMessage(error);
+            if (current !== undefined && force) {
+              const rollbackMsg = `Client bundle error (kept previous state): ${msg}`;
+              this.errors.set(candidate.id, rollbackMsg);
+              this.notifyUserWarning(`插件 ${candidate.name} 前端热更新失败：${msg}`);
+              changed.push(candidate.id);
+              candidate.inject = current.inject;
+              candidate.provides = current.provides;
+              preparedList.push({ candidate, sourceKey, signature: sig, needsMount: false, skippedDueToError: true });
+              continue;
+            }
+            if (current !== undefined) {
+              await current.fiber?.dispose();
+              this.mounted.delete(candidate.id);
+            }
+            this.errors.set(candidate.id, msg);
+            this.notifyUserWarning(`插件 ${candidate.name} 前端编译失败：${msg}`);
+            changed.push(candidate.id);
+            preparedList.push({ candidate, sourceKey, signature: sig, needsMount: false, skippedDueToError: true });
+            continue;
+          }
+        }
+
+        if (!candidate.hasHost || candidate.hostEntry === undefined) {
+          preparedList.push({
+            candidate,
+            sourceKey,
+            signature: sig,
+            needsMount: true,
+            skippedDueToError: false,
+            ...(clientEtag === undefined ? {} : { clientEtag }),
+          });
+          continue;
+        }
+
+        let nextPlugin: Plugin;
+        try {
+          this.importCounter += 1;
+          const mod = await importExternalModule(candidate.hostEntry, `${Date.now()}-${this.importCounter}`);
+          nextPlugin = resolveCordisPluginExport(mod, candidate.id);
+          const depMeta = extractPluginDependencyMeta(mod, {
+            inject: candidate.inject,
+            provides: candidate.provides,
+          });
+          candidate.inject = depMeta.inject;
+          candidate.provides = depMeta.provides;
+        } catch (error) {
+          const msg = errorMessage(error);
+          if (current !== undefined && current.plugin !== undefined) {
+            this.errors.set(candidate.id, `HMR reload failed (rolled back): ${msg}`);
+            this.ctx.logger("plugins").warn("plugin %s reload failed, keeping previous fiber: %s", candidate.id, msg);
+            this.notifyUserWarning(`插件 ${candidate.name} 热重载失败（已回滚旧版本）：${msg}`);
+            changed.push(candidate.id);
+            candidate.inject = current.inject;
+            candidate.provides = current.provides;
+            preparedList.push({ candidate, sourceKey, signature: sig, needsMount: false, skippedDueToError: true });
+            continue;
+          }
+          if (current !== undefined) {
+            await current.fiber?.dispose();
+            this.mounted.delete(candidate.id);
+          }
+          this.errors.set(candidate.id, msg);
+          this.ctx.logger("plugins").error("plugin %s import failed: %s", candidate.id, msg);
+          this.notifyUserWarning(`插件 ${candidate.name} 加载失败：${msg}`);
+          changed.push(candidate.id);
+          preparedList.push({ candidate, sourceKey, signature: sig, needsMount: false, skippedDueToError: true });
+          continue;
+        }
+
+        preparedList.push({
+          candidate,
+          sourceKey,
+          signature: sig,
+          needsMount: true,
+          skippedDueToError: false,
+          pluginToMount: nextPlugin,
+          ...(clientEtag === undefined ? {} : { clientEtag }),
+        });
+      }
+
+      const preparedById = new Map(preparedList.map((item) => [item.candidate.id, item]));
+      const { ordered, cycles } = topologicalSortPlugins(preparedList.map((item) => item.candidate));
+      for (const cycle of cycles) {
+        this.ctx.logger("plugins").warn("plugin dependency cycle detected: %s", cycle.join(" -> "));
+      }
+
+      for (const orderedCandidate of ordered) {
+        const prepared = preparedById.get(orderedCandidate.id);
+        if (prepared === undefined || !prepared.needsMount || prepared.skippedDueToError) {
+          continue;
+        }
+
+        const { candidate, sourceKey, signature: sig, pluginToMount, clientEtag } = prepared;
+        const previous = this.mounted.get(candidate.id);
+        const targetCtx = candidate.tier === "workspace" && candidate.workspace !== undefined && candidate.workspaceKey !== undefined
+          ? await this.workspaceScope.ensure(candidate.workspaceKey, candidate.workspace)
+          : this.ctx;
+
+        if (!candidate.hasHost || pluginToMount === undefined) {
+          if (previous !== undefined) {
+            await previous.fiber?.dispose();
+          }
+          this.mounted.set(candidate.id, {
+            id: candidate.id,
+            tier: candidate.tier,
+            ...(candidate.workspaceKey === undefined ? {} : { workspaceKey: candidate.workspaceKey }),
+            sourceKey,
+            signature: sig,
+            config: candidate.effectiveConfig,
+            ctx: targetCtx,
+            inject: candidate.inject,
+            provides: candidate.provides,
+          });
+          if (clientEtag !== undefined) this.clientEtags.set(candidate.id, clientEtag);
+          this.errors.delete(candidate.id);
+          if (!changed.includes(candidate.id)) changed.push(candidate.id);
+          continue;
+        }
+
+        if (previous !== undefined) {
+          await previous.fiber?.dispose();
+          this.mounted.delete(candidate.id);
+        }
+
+        let nextFiber: { dispose(): unknown } | undefined;
+        try {
+          nextFiber = targetCtx.plugin(pluginToMount, candidate.effectiveConfig);
+          await nextFiber;
+          this.mounted.set(candidate.id, {
+            id: candidate.id,
+            tier: candidate.tier,
+            ...(candidate.workspaceKey === undefined ? {} : { workspaceKey: candidate.workspaceKey }),
+            sourceKey,
+            signature: sig,
+            plugin: pluginToMount,
+            config: candidate.effectiveConfig,
+            fiber: nextFiber,
+            ctx: targetCtx,
+            inject: candidate.inject,
+            provides: candidate.provides,
+          });
+          if (clientEtag !== undefined) this.clientEtags.set(candidate.id, clientEtag);
+          this.errors.delete(candidate.id);
+          if (!changed.includes(candidate.id)) changed.push(candidate.id);
+        } catch (error) {
+          const msg = errorMessage(error);
+          await nextFiber?.dispose();
+          if (candidate.tier !== "builtin" && previous?.plugin !== undefined) {
+            try {
+              const restored = previous.ctx.plugin(previous.plugin, previous.config);
+              await restored;
+              this.mounted.set(candidate.id, { ...previous, fiber: restored });
+              this.errors.set(candidate.id, `HMR reload failed (rolled back): ${msg}`);
+              this.ctx.logger("plugins").warn("plugin %s apply failed, restored previous fiber: %s", candidate.id, msg);
+              this.notifyUserWarning(`插件 ${candidate.name} 热重载失败（已回滚旧版本）：${msg}`);
+              if (!changed.includes(candidate.id)) changed.push(candidate.id);
+              continue;
+            } catch (restoreError) {
+              this.ctx.logger("plugins").error("plugin %s rollback failed: %s", candidate.id, restoreError);
+            }
+          }
+          this.errors.set(candidate.id, msg);
+          this.ctx.logger("plugins").error("plugin %s apply failed: %s", candidate.id, msg);
+          if (candidate.tier !== "builtin") {
+            this.notifyUserWarning(`插件 ${candidate.name} 启动失败：${msg}`);
+          }
+          if (!changed.includes(candidate.id)) changed.push(candidate.id);
+        }
+      }
+
+      // Let Cordis settle cross-fiber `inject` activations/suspensions before inspecting `FiberState`.
+      await flushImmediate();
+
+      // 6. Build public snapshot and reconcile file watchers.
+      this.latestCandidates = candidates;
+      this.latestSnapshot = this.buildSnapshot(candidates);
+      this.reconcileWatchers(candidates);
+
+      if (params.reason !== undefined && (changed.length > 0 || params.reason === "trust" || params.reason === "toggled" || params.reason === "configured")) {
+        const snapshot = this.activeWorkspace !== undefined
+          ? this.withUntrustedWorkspaceOverlay(this.latestSnapshot, this.activeWorkspace)
+          : [...this.latestSnapshot];
+        this.options.onChanged?.({
+          reason: params.reason,
+          changedIds: changed.length > 0 ? changed : [...(params.forceIds ?? [])],
+          plugins: snapshot,
+        });
+      }
+
+      return changed;
+    } finally {
+      this.syncing = false;
     }
-
-    return changed;
   }
 
   private reconcileWatchers(candidates: readonly ResolvedCandidate[]): void {

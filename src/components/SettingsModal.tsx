@@ -360,7 +360,7 @@ export function SettingsModal({
       }} />}
       {page === "usage" && <UsagePage usage={usage} />}
       {page === "providers" && <ModelsPage form={form} update={update} />}
-      {page === "plugins" && <PluginsSettingsPanel cwd={cwd} />}
+      {page === "plugins" && <PluginsSettingsPanel cwd={cwd} onSyncAppSetting={update} />}
       {page === "skills" && <SkillsSettingsPanel cwd={cwd} />}
       {page === "mcp" && <McpPage form={form} update={update} />}
       {page === "browser" && <BrowserPage form={form} update={update} />}

@@ -19,9 +19,11 @@ import * as cordisNs from "@deepseek-ai/cordis";
 import Schema, * as schemasteryNs from "@deepseek-ai/schemastery";
 import * as agentNs from "@pid/agent";
 import * as commandsNs from "@pid/commands";
+import * as kernelNs from "@pid/kernel";
 import * as llmNs from "@pid/llm";
 import * as pricingNs from "@pid/pricing";
 import * as protocolNs from "@pid/protocol";
+import * as rpcNs from "@pid/rpc";
 import * as sessionNs from "@pid/session";
 import * as systemPromptNs from "@pid/system-prompt";
 import * as toolsNs from "@pid/tools";
@@ -57,6 +59,8 @@ export const HOST_SHARED_MODULES: Readonly<Record<string, Record<string, unknown
   "@deepseek-ai/schemastery": schemasteryExports,
   schemastery: schemasteryExports,
   "@pid/protocol": { ...protocolNs },
+  "@pid/kernel": { ...kernelNs },
+  "@pid/rpc": { ...rpcNs },
   "@pid/llm": { ...llmNs },
   "@pid/pricing": { ...pricingNs },
   "@pid/tools": { ...toolsNs },

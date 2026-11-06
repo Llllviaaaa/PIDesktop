@@ -259,6 +259,7 @@
 }
 
 .plugin-badge.status-untrusted,
+.plugin-badge.status-pending,
 .plugin-badge.tier-override {
   border-color: color-mix(in srgb, var(--yellow, #eab308) 45%, var(--border));
   background: color-mix(in srgb, var(--yellow, #eab308) 12%, transparent);
@@ -291,6 +292,19 @@
   font-family: var(--code-font);
   font-size: 11px;
   word-break: break-all;
+}
+
+.plugin-pending-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--yellow, #eab308) 40%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--yellow, #eab308) 8%, var(--app));
+  color: color-mix(in srgb, var(--yellow, #ca8a04) 88%, var(--text));
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .plugin-error-box {

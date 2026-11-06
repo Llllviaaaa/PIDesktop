@@ -8,14 +8,22 @@ import type {
   SkillListResult,
   SkillReadResult,
 } from "@pid/protocol";
-import { harnessRuntimes } from "./harnessRuntime";
+import { harnessRuntimes, isRpcMethodNotFound } from "./harnessRuntime";
 
 export const memorySkillsClient = {
-  getMemory: (scope: MemoryScope = "user", cwd?: string): Promise<MemoryGetResult> =>
-    harnessRuntimes.call<MemoryGetResult>("memory.get", {
-      scope,
-      ...(cwd ? { cwd } : {}),
-    }),
+  getMemory: async (scope: MemoryScope = "user", cwd?: string): Promise<MemoryGetResult> => {
+    try {
+      return await harnessRuntimes.call<MemoryGetResult>("memory.get", {
+        scope,
+        ...(cwd ? { cwd } : {}),
+      });
+    } catch (error) {
+      if (isRpcMethodNotFound(error)) {
+        return { scope, path: "", content: "", trusted: scope === "user" };
+      }
+      throw error;
+    }
+  },
 
   setMemory: (content: string, scope: MemoryScope = "user", cwd?: string): Promise<MemoryGetResult> =>
     harnessRuntimes.call<MemoryGetResult>("memory.set", {
@@ -41,8 +49,13 @@ export const memorySkillsClient = {
   },
 
   listSkills: async (cwd?: string): Promise<SkillInfo[]> => {
-    const result = await harnessRuntimes.call<SkillListResult>("skill.list", cwd ? { cwd } : {});
-    return result.skills;
+    try {
+      const result = await harnessRuntimes.call<SkillListResult>("skill.list", cwd ? { cwd } : {});
+      return result.skills;
+    } catch (error) {
+      if (isRpcMethodNotFound(error)) return [];
+      throw error;
+    }
   },
 
   readSkill: (path: string, cwd?: string): Promise<SkillReadResult> =>

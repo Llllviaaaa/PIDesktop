@@ -4,11 +4,18 @@
  * choice. Output is stdout and stderr interleaved, keeping the tail.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve as resolvePath } from "node:path";
 import { Service, type Context } from "@deepseek-ai/cordis";
+import { ErrorCode, type SandboxConfigKind, type SandboxGenerateConfigResult } from "@pid/protocol";
+import { RpcError } from "@pid/rpc";
 import { textOutput, type ToolDefinition } from "@pid/tools";
-import { attachWindowsJobObject, buildSandboxedEnv } from "./sandbox.ts";
+import {
+  attachWindowsJobObject,
+  buildSandboxedEnv,
+  generateDevContainerConfig,
+  generateWindowsSandboxConfig,
+} from "./sandbox.ts";
 
 export * from "./sandbox.ts";
 
@@ -211,4 +218,46 @@ export function apply(ctx: Context, config: Config = {}): void {
     () => ctx.tools.register(bashTool(config, () => ctx.get("bashSandbox")?.enabled === true)),
     `${name}: bash`,
   );
+
+  ctx.inject(["rpc"], (rpcCtx) => {
+    rpcCtx.effect(
+      () =>
+        rpcCtx.rpc.method("sandbox.generateConfig", (params): SandboxGenerateConfigResult => {
+          if (params !== undefined && params !== null && (typeof params !== "object" || Array.isArray(params))) {
+            throw new RpcError(ErrorCode.InvalidParams, "params must be an object");
+          }
+          const p = (params ?? {}) as Record<string, unknown>;
+          const requiredStr = (key: string): string => {
+            const raw = p[key];
+            if (typeof raw !== "string" || raw.trim() === "") {
+              throw new RpcError(ErrorCode.InvalidParams, `${key} must be a non-empty string`);
+            }
+            return raw.trim();
+          };
+          const kindRaw = requiredStr("kind");
+          if (kindRaw !== "wsb" && kindRaw !== "devcontainer") {
+            throw new RpcError(ErrorCode.InvalidParams, "kind must be 'wsb' or 'devcontainer'");
+          }
+          const kind: SandboxConfigKind = kindRaw;
+          const cwd = resolvePath(requiredStr("cwd"));
+          const overwrite = p.overwrite === true;
+          if (kind === "wsb") {
+            const target = join(cwd, ".pid", "sandbox.wsb");
+            const content = generateWindowsSandboxConfig(cwd);
+            mkdirSync(dirname(target), { recursive: true });
+            writeFileSync(target, content, "utf8");
+            return { kind, path: target, content };
+          }
+          const primaryTarget = join(cwd, ".devcontainer", "devcontainer.json");
+          const target = !overwrite && existsSync(primaryTarget)
+            ? join(cwd, ".pid", "devcontainer.generated.json")
+            : primaryTarget;
+          const content = generateDevContainerConfig(cwd);
+          mkdirSync(dirname(target), { recursive: true });
+          writeFileSync(target, content, "utf8");
+          return { kind, path: target, content };
+        }),
+      `${name}: sandbox.generateConfig`,
+    );
+  });
 }

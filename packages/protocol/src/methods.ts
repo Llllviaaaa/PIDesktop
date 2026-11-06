@@ -460,8 +460,8 @@ export interface SessionExportResult {
 /** Which tier a plugin comes from. `workspace` overrides `user`, which overrides `builtin`. */
 export type PluginTier = "builtin" | "user" | "workspace";
 
-/** Runtime lifecycle state of a plugin. */
-export type PluginStatus = "active" | "disabled" | "errored" | "untrusted";
+/** Runtime lifecycle state of a plugin. `pending` means enabled, waiting on required `inject` services. */
+export type PluginStatus = "active" | "pending" | "disabled" | "errored" | "untrusted";
 
 /** How an external plugin was installed. */
 export type PluginInstallChannel = "local" | "archive" | "git" | "npm";
@@ -484,6 +484,8 @@ export interface PluginInfo {
   tier: PluginTier;
   status: PluginStatus;
   enabled: boolean;
+  /** False when a built-in host transport gateway plugin cannot be disabled while the RPC host is running. */
+  canDisable?: boolean;
   /** True when a user or workspace plugin replaces a built-in plugin with the same `id`. */
   overridesBuiltin: boolean;
   /** True when this plugin entry can be removed (for example an external plugin or user override). */
@@ -508,6 +510,12 @@ export interface PluginInfo {
   config?: Record<string, unknown>;
   /** Optional JSON Schema describing `config` for settings UI rendering. */
   configSchema?: Record<string, unknown>;
+  /** Declared Cordis service dependencies (`inject`). */
+  inject?: string[];
+  /** Declared Cordis service capabilities provided (`provides`). */
+  provides?: string[];
+  /** Required service names still missing when `status === "pending"`. */
+  missingInject?: string[];
   /** Last load or HMR error message when `status === "errored"` or a reload rolled back. */
   error?: string;
 }
@@ -763,3 +771,27 @@ export interface SandboxGenerateConfigResult {
   path: string;
   content: string;
 }
+
+// Unified native workbench (Stage 3).
+
+export type WorkbenchOpenTarget =
+  | "files"
+  | "editor"
+  | "review"
+  | "preview"
+  | "summary"
+  | "side-chat"
+  | "terminal";
+
+export interface WorkbenchOpenParams {
+  sessionId?: string;
+  cwd?: string;
+  target: WorkbenchOpenTarget;
+  path?: string;
+  line?: number;
+  endLine?: number;
+  url?: string;
+}
+
+/** Notification `workbench/open`. */
+export type WorkbenchOpenNotification = WorkbenchOpenParams;

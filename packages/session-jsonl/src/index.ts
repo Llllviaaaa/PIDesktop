@@ -1,13 +1,26 @@
 /**
- * Session logs as JSONL files (ADR 0004):
- * `<dir>/<YYYY-MM>/<sessionId>.jsonl`, a header line and one event per line,
- * backed by a derived SQLite + FTS5 index (`index.sqlite`) for fast listing
- * and full-text conversation search.
+ * Session logs as append-only JSONL files (ADR 0004):
+ * `<dir>/<YYYY-MM>/<sessionId>.jsonl`, a header line and one event per line.
  *
- * Appends are synchronous so an event is on disk (in the OS cache) before it
- * is broadcast; `flush` fsyncs, which the loop does once per turn.
+ * By default (`indexFile` omitted), `JsonlStorage` performs pure append-only
+ * JSONL I/O with an in-memory mtime/size summary cache — zero SQLite or FTS
+ * tokenization overhead on the synchronous `append()` hot path. Full-text
+ * indexing is handled asynchronously by `@pid/session-search-fts` (or opt-in
+ * via explicit `config.indexFile` for standalone callers).
  */
-import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import {
@@ -24,7 +37,14 @@ import {
 } from "@pid/session";
 import { extractSessionSearchBody, SessionSqliteIndex, type IndexedSessionInput } from "./sqlite-index.ts";
 
-export { buildFtsMatchQuery, extractMatchSnippet, extractSessionSearchBody, segmentForFts, SessionSqliteIndex } from "./sqlite-index.ts";
+export {
+  buildFtsMatchQuery,
+  extractMatchSnippet,
+  extractSessionSearchBody,
+  segmentForFts,
+  SessionSqliteIndex,
+  type IndexedSessionInput,
+} from "./sqlite-index.ts";
 
 export const name = "pid-session-jsonl";
 export const inject = ["sessions"];
@@ -32,7 +52,11 @@ export const inject = ["sessions"];
 export interface Config {
   /** The sessions directory, e.g. `~/.pid/sessions`. */
   dir: string;
-  /** Optional explicit SQLite index file path, e.g. `~/.pid/index.sqlite`. Defaults to `<dir>/index.sqlite`. */
+  /**
+   * Optional explicit SQLite index file path for legacy combined storage+FTS mode.
+   * When omitted, `JsonlStorage` runs pure fast JSONL-only persistence so
+   * `@pid/session-search-fts` can index asynchronously off the hot path.
+   */
   indexFile?: string;
 }
 
@@ -44,6 +68,18 @@ export interface ParsedLog {
 }
 
 const LIVE_LOG_CACHE_MAX = 32;
+
+/** Enumerate all `<dir>/<YYYY-MM>/*.jsonl` files on disk. */
+export function walkJsonlFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^\d{4}-\d{2}$/.test(entry.name))
+    .flatMap((month) =>
+      readdirSync(join(dir, month.name))
+        .filter((file) => file.endsWith(".jsonl"))
+        .map((file) => join(dir, month.name, file)),
+    );
+}
 
 /**
  * Parse a log. Throws when the file is not a session or is a newer major
@@ -82,24 +118,39 @@ function monthOf(iso: string): string {
   return iso.slice(0, 7);
 }
 
+interface CachedFileSummary {
+  mtimeMs: number;
+  size: number;
+  summary: SessionSummary;
+}
+
 export class JsonlStorage implements SessionStorage {
   /** id → file, for sessions created or found in this process. */
   private readonly paths = new Map<string, string>();
-  /** Small bounded LRU of active logs so `append` updates SQLite without re-parsing the file on every event. */
+  /** Small bounded LRU of active logs for optional inline index mode. */
   private readonly recentLogs = new Map<string, SessionEvent[]>();
-  private readonly index: SessionSqliteIndex;
+  /** Lightweight metadata cache keyed by filePath so `list()` avoids re-parsing unchanged `.jsonl` files. */
+  private readonly summaryCache = new Map<string, CachedFileSummary>();
+  private readonly index: SessionSqliteIndex | undefined;
+  readonly search?: (query: string, options?: SessionSearchOptions) => Promise<SessionSearchHit[]>;
 
   constructor(
     private readonly dir: string,
     private readonly onSkipped: (file: string, count: number) => void = () => {},
-    indexFile = join(dir, "index.sqlite"),
+    indexFile?: string,
   ) {
-    this.index = new SessionSqliteIndex(indexFile);
+    if (indexFile !== undefined && indexFile.trim() !== "") {
+      const sqliteIndex = new SessionSqliteIndex(indexFile);
+      this.index = sqliteIndex;
+      this.search = async (query: string, options: SessionSearchOptions = {}): Promise<SessionSearchHit[]> =>
+        sqliteIndex.search(query, this.files(), this.parseIndexedFile, options);
+    }
   }
 
   close(): void {
     this.recentLogs.clear();
-    this.index.close();
+    this.summaryCache.clear();
+    this.index?.close();
   }
 
   private rememberRecent(id: string, events: SessionEvent[]): void {
@@ -125,40 +176,83 @@ export class JsonlStorage implements SessionStorage {
     const path = this.pathFor(header);
     mkdirSync(join(this.dir, monthOf(header.createdAt)), { recursive: true });
     writeFileSync(path, [header, ...events].map((line) => `${JSON.stringify(line)}\n`).join(""), { flag: "wx" });
-    const copy = [...events];
-    this.rememberRecent(header.id, copy);
-    this.index.upsertFromDisk({
-      filePath: path,
-      header,
-      summary: summarize(header, copy),
-      body: extractSessionSearchBody(copy),
-    });
+    if (this.index !== undefined) {
+      const copy = [...events];
+      this.rememberRecent(header.id, copy);
+      this.index.upsertFromDisk({
+        filePath: path,
+        header,
+        summary: summarize(header, copy),
+        body: extractSessionSearchBody(copy),
+      });
+    }
+  }
+
+  adopt(header: SessionHeader, events: readonly SessionEvent[]): void {
+    const path = this.pathFor(header);
+    mkdirSync(join(this.dir, monthOf(header.createdAt)), { recursive: true });
+    if (!existsSync(path)) {
+      writeFileSync(path, [header, ...events].map((line) => `${JSON.stringify(line)}\n`).join(""));
+    } else {
+      try {
+        const existing = parseLog(readFileSync(path, "utf8"));
+        const diskSeq = existing.events.at(-1)?.seq ?? 0;
+        const missing = events.filter((event) => event.seq > diskSeq);
+        if (missing.length > 0) {
+          appendFileSync(path, missing.map((line) => `${JSON.stringify(line)}\n`).join(""));
+        }
+      } catch {
+        // Leave unreadable file untouched rather than clobbering user data.
+      }
+    }
+    this.summaryCache.delete(path);
+    if (this.index !== undefined) {
+      const copy = [...events];
+      this.rememberRecent(header.id, copy);
+      this.index.upsertFromDisk({
+        filePath: path,
+        header,
+        summary: summarize(header, copy),
+        body: extractSessionSearchBody(copy),
+      });
+    }
   }
 
   append(header: SessionHeader, event: SessionEvent): void {
     const path = this.pathFor(header);
-    appendFileSync(path, `${JSON.stringify(event)}\n`);
-    let events = this.recentLogs.get(header.id);
-    if (events === undefined) {
-      try {
-        events = parseLog(readFileSync(path, "utf8")).events;
-      } catch {
-        return;
-      }
+    if (!existsSync(path)) {
+      mkdirSync(join(this.dir, monthOf(header.createdAt)), { recursive: true });
+      writeFileSync(path, `${JSON.stringify(header)}\n${JSON.stringify(event)}\n`);
     } else {
-      events.push(event);
+      appendFileSync(path, `${JSON.stringify(event)}\n`);
     }
-    this.rememberRecent(header.id, events);
-    this.index.upsertFromDisk({
-      filePath: path,
-      header,
-      summary: summarize(header, events),
-      body: extractSessionSearchBody(events),
-    });
+    this.summaryCache.delete(path);
+
+    if (this.index !== undefined) {
+      let events = this.recentLogs.get(header.id);
+      if (events === undefined) {
+        try {
+          events = parseLog(readFileSync(path, "utf8")).events;
+        } catch {
+          return;
+        }
+      } else {
+        events.push(event);
+      }
+      this.rememberRecent(header.id, events);
+      this.index.upsertFromDisk({
+        filePath: path,
+        header,
+        summary: summarize(header, events),
+        body: extractSessionSearchBody(events),
+      });
+    }
   }
 
   async flush(header: SessionHeader): Promise<void> {
-    const fd = openSync(this.pathFor(header), "r+");
+    const path = this.pathFor(header);
+    if (!existsSync(path)) return;
+    const fd = openSync(path, "r+");
     try {
       fsyncSync(fd);
     } finally {
@@ -171,7 +265,9 @@ export class JsonlStorage implements SessionStorage {
     if (path === undefined) return undefined;
     const parsed = parseLog(readFileSync(path, "utf8"));
     if (parsed.skipped > 0) this.onSkipped(path, parsed.skipped);
-    this.rememberRecent(id, [...parsed.events]);
+    if (this.index !== undefined) {
+      this.rememberRecent(id, [...parsed.events]);
+    }
     return { header: parsed.header, events: parsed.events };
   }
 
@@ -191,13 +287,41 @@ export class JsonlStorage implements SessionStorage {
   };
 
   async list(): Promise<SessionSummary[]> {
-    const rows = this.index.reconcile(this.files(), this.parseIndexedFile);
-    for (const row of rows) this.paths.set(row.summary.id, row.filePath);
-    return rows.map((row) => row.summary);
-  }
+    const diskFiles = this.files();
+    if (this.index !== undefined) {
+      const rows = this.index.reconcile(diskFiles, this.parseIndexedFile);
+      for (const row of rows) this.paths.set(row.summary.id, row.filePath);
+      return rows.map((row) => row.summary);
+    }
 
-  async search(query: string, options: SessionSearchOptions = {}): Promise<SessionSearchHit[]> {
-    return this.index.search(query, this.files(), this.parseIndexedFile, options);
+    const activePaths = new Set(diskFiles);
+    for (const cachedPath of this.summaryCache.keys()) {
+      if (!activePaths.has(cachedPath)) {
+        this.summaryCache.delete(cachedPath);
+      }
+    }
+
+    const summaries: SessionSummary[] = [];
+    for (const path of diskFiles) {
+      try {
+        const st = statSync(path);
+        const cached = this.summaryCache.get(path);
+        if (cached !== undefined && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+          this.paths.set(cached.summary.id, path);
+          summaries.push(cached.summary);
+          continue;
+        }
+        const { header, events, skipped } = parseLog(readFileSync(path, "utf8"));
+        if (skipped > 0) this.onSkipped(path, skipped);
+        const summary = summarize(header, events);
+        this.paths.set(header.id, path);
+        this.summaryCache.set(path, { mtimeMs: st.mtimeMs, size: st.size, summary });
+        summaries.push(summary);
+      } catch {
+        // Ignore non-session or unreadable files during directory listing.
+      }
+    }
+    return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   async delete(id: string): Promise<boolean> {
@@ -206,7 +330,8 @@ export class JsonlStorage implements SessionStorage {
     rmSync(path, { force: true });
     this.paths.delete(id);
     this.recentLogs.delete(id);
-    this.index.remove(id);
+    this.summaryCache.delete(path);
+    this.index?.remove(id);
     return true;
   }
 
@@ -224,12 +349,7 @@ export class JsonlStorage implements SessionStorage {
   }
 
   private files(): string[] {
-    if (!existsSync(this.dir)) return [];
-    return readdirSync(this.dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && /^\d{4}-\d{2}$/.test(entry.name))
-      .flatMap((month) => readdirSync(join(this.dir, month.name))
-        .filter((file) => file.endsWith(".jsonl"))
-        .map((file) => join(this.dir, month.name, file)));
+    return walkJsonlFiles(this.dir);
   }
 }
 
@@ -238,7 +358,7 @@ export function apply(ctx: Context, config: Config): void {
   const storage = new JsonlStorage(
     config.dir,
     (file, count) => logger.warn("skipped %d unreadable line(s) in %s", count, file),
-    config.indexFile ?? join(config.dir, "index.sqlite"),
+    config.indexFile,
   );
   ctx.effect(() => {
     const unregister = ctx.sessions.registerStorage(storage);

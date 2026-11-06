@@ -50,9 +50,10 @@ const calls: Array<{ command: string; args: Args }> = [];
 const callbacks = new Map<number, (payload: unknown) => void>();
 let nextCallback = 0;
 
+const stubFiles = new Map<string, string>([["notes.txt", "hello from the workspace\n"]]);
+
 const commands: Record<string, (args: Args) => unknown> = {
   harness_endpoint: () => ({ baseUrl, token }),
-  sidebar_host_base: () => baseUrl,
   restart_harness_host: () => null,
   get_settings: () => settings,
   set_settings: (args) => {
@@ -94,9 +95,59 @@ const commands: Record<string, (args: Args) => unknown> = {
     },
   checkout_pull_request: () => null,
   list_worktrees: () => [],
+  list_workspace_dir: (args) => {
+    const prefix = typeof args?.path === "string" ? args.path.replace(/^\/+|\/+$/g, "") : "";
+    const seenDirs = new Set<string>();
+    const entries: Array<{ name: string; path: string; isDir: boolean }> = [];
+    for (const filePath of stubFiles.keys()) {
+      if (prefix !== "" && !filePath.startsWith(`${prefix}/`)) continue;
+      const rest = prefix === "" ? filePath : filePath.slice(prefix.length + 1);
+      const slash = rest.indexOf("/");
+      if (slash < 0) {
+        entries.push({ name: rest, path: filePath, isDir: false });
+      } else {
+        const dirName = rest.slice(0, slash);
+        const dirPath = prefix === "" ? dirName : `${prefix}/${dirName}`;
+        if (!seenDirs.has(dirPath)) {
+          seenDirs.add(dirPath);
+          entries.push({ name: dirName, path: dirPath, isDir: true });
+        }
+      }
+    }
+    return entries;
+  },
+  search_workspace_files: (args) => {
+    const q = (typeof args?.query === "string" ? args.query : "").toLowerCase();
+    return [...stubFiles.keys()]
+      .filter((p) => p.toLowerCase().includes(q))
+      .map((p) => ({ name: p.split("/").pop() ?? p, path: p, isDir: false }));
+  },
+  cancel_workspace_search: () => null,
+  read_workspace_file: (args) => {
+    const path = (typeof args?.path === "string" ? args.path : "").replaceAll("\\", "/");
+    const text = stubFiles.get(path) ?? "";
+    return {
+      path,
+      fileName: path.split("/").pop() ?? path,
+      text,
+      truncated: false,
+      isBinary: false,
+      size: text.length,
+    };
+  },
+  write_workspace_file: (args) => {
+    const path = (typeof args?.path === "string" ? args.path : "").replaceAll("\\", "/");
+    const content = typeof args?.content === "string" ? args.content : "";
+    if (path !== "") stubFiles.set(path, content);
+    return null;
+  },
   list_workspace_editors: () => [],
   list_terminal_apps: () => [],
   terminal_shells: () => [],
+  terminal_create: () => null,
+  terminal_write: () => null,
+  terminal_resize: () => null,
+  terminal_close: () => null,
   list_resources: () => [],
   get_local_memory: () => "",
   quick_chat_dir: () => workspace,

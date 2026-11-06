@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMPACTION_PREFIX,
   INTERRUPTED_TOOL_RESULT,
+  MemoryStorage,
   Sessions,
   compactionPoint,
   currentBranch,
@@ -147,6 +148,25 @@ describe("summaries", () => {
     expect(summary.messageCount).toBe(3);
     expect(summary.usage).toEqual({ inputTokens: 11, outputTokens: 6, cacheReadTokens: 2, cacheWriteTokens: 3 });
   });
+
+  it("updates firstMessage when the initial user message is rewound to seq 0", () => {
+    const header = { format: "pid.session" as const, version: 1, id: "s", createdAt: "c", cwd: "/w" };
+    const rewoundEmpty = log(() => [
+      ev("user", { content: text("discarded first prompt") }),
+      ev("rewind", { toSeq: 0 }),
+    ]);
+    expect(summarize(header, rewoundEmpty)).toMatchObject({ messageCount: 1 });
+    expect(summarize(header, rewoundEmpty).firstMessage).toBeUndefined();
+
+    const rewoundReplaced = [
+      ...rewoundEmpty,
+      { seq: 3, ts: "t", type: "user" as const, data: { content: text("replacement first prompt") } },
+    ];
+    expect(summarize(header, rewoundReplaced)).toMatchObject({
+      firstMessage: "replacement first prompt",
+      messageCount: 2,
+    });
+  });
 });
 
 describe("sessions service", () => {
@@ -218,5 +238,52 @@ describe("sessions service", () => {
     const b = uuidv7(2_000);
     expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(a < b).toBe(true);
+  });
+
+  it("preserves open sessions and adopts events seamlessly across storage plugin hot-swaps", async () => {
+    const ctx = new Context();
+    await ctx.plugin(Sessions);
+    const session = ctx.sessions.create({ cwd: "/live" });
+    session.append("user", { content: text("before-storage") });
+
+    const externalStore = new MemoryStorage();
+    const unregister = ctx.sessions.registerStorage(externalStore);
+
+    // Active session instance stays identical (not cleared!) and was adopted into externalStore.
+    expect(await ctx.sessions.get(session.id)).toBe(session);
+    expect((await externalStore.load(session.id))?.events.map((e) => e.seq)).toEqual([1]);
+
+    session.append("user", { content: text("during-storage") });
+    expect((await externalStore.load(session.id))?.events.map((e) => e.seq)).toEqual([1, 2]);
+
+    // Unregistering externalStore keeps the active session intact in fallback MemoryStorage.
+    unregister();
+    expect(await ctx.sessions.get(session.id)).toBe(session);
+    expect(session.events.map((e) => e.seq)).toEqual([1, 2]);
+    await ctx.fiber.dispose();
+  });
+
+  it("fallback search scans active branch messages and compactions without matching rewound branches or COMPACTION_PREFIX", async () => {
+    const ctx = new Context();
+    await ctx.plugin(Sessions);
+    const session = ctx.sessions.create({ cwd: "/search" });
+    session.append("user", { content: text("RootPrompt1") });
+    const keptReply = session.append("assistant", {
+      content: text("PreCompactionReplyToken2"),
+      model: { provider: "p", model: "m" },
+      stop: "stop",
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    });
+    session.append("user", { content: text("RewoundDeadEnd3") });
+    session.append("rewind", { toSeq: keptReply.seq });
+    session.append("compaction", { throughSeq: keptReply.seq, summary: "CompactedSummaryToken4" });
+    session.append("user", { content: text("PostCompactionPrompt5") });
+
+    expect(await ctx.sessions.search("RewoundDeadEnd3")).toEqual([]);
+    expect(await ctx.sessions.search("conversation so far was compacted")).toEqual([]);
+    expect((await ctx.sessions.search("PreCompactionReplyToken2")).map((h) => h.session.id)).toEqual([session.id]);
+    expect((await ctx.sessions.search("CompactedSummaryToken4")).map((h) => h.session.id)).toEqual([session.id]);
+    expect((await ctx.sessions.search("PostCompactionPrompt5")).map((h) => h.session.id)).toEqual([session.id]);
+    await ctx.fiber.dispose();
   });
 });

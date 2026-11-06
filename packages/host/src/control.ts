@@ -13,6 +13,8 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { harnessFromDesktop, type DesktopMessage } from "./desktop-settings.ts";
+import { HARNESS_TOGGLED_PLUGIN_IDS, pluginEnabledInHarness, readHarnessConfig } from "./harness-config.ts";
+import { pluginsStorePath, updatePluginsStore } from "./plugin-store.ts";
 
 /** The fields a desktop scheduled task shares with the host's (`@pid/schedule`). */
 const TASK_FIELDS = ["id", "name", "prompt", "cwd", "frequency", "hour", "minute", "weekday", "permissionMode", "enabled", "lastRunAt", "lastStatus", "lastMessage"] as const;
@@ -68,8 +70,33 @@ function readJson(file: string): Record<string, unknown> | undefined {
 /** Write what a desktop message says into `dataDir`; returns notes for the log. */
 export function applyDesktopMessage(dataDir: string, message: DesktopMessage): string[] {
   const notes: string[] = [];
+  const harnessFile = join(dataDir, "harness.json");
+  const prevHarness = readHarnessConfig(harnessFile).config;
   const { config, defaultModel } = harnessFromDesktop(message);
-  writeJson(join(dataDir, "harness.json"), config);
+  writeJson(harnessFile, config);
+
+  if (existsSync(pluginsStorePath(dataDir))) {
+    const flippedSet = new Set<string>(
+      HARNESS_TOGGLED_PLUGIN_IDS.filter(
+        (id) => pluginEnabledInHarness(prevHarness, id) !== pluginEnabledInHarness(config, id),
+      ),
+    );
+    updatePluginsStore(dataDir, (store) => {
+      for (const id of HARNESS_TOGGLED_PLUGIN_IDS) {
+        const patch = store.plugins[id];
+        if (patch === undefined || patch.enabled === undefined) continue;
+        const nextEnabled = pluginEnabledInHarness(config, id);
+        if (nextEnabled === undefined) continue;
+        if (!flippedSet.has(id) && patch.enabled !== nextEnabled) continue;
+        const restKeys = Object.keys(patch).filter((key) => key !== "enabled");
+        if (restKeys.length === 0) {
+          delete store.plugins[id];
+        } else {
+          delete patch.enabled;
+        }
+      }
+    });
+  }
 
   const providersFile = join(dataDir, "providers.json");
   const providers = readJson(providersFile) ?? { providers: [] };

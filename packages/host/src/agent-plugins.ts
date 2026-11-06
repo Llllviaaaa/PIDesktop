@@ -1,9 +1,12 @@
 /**
- * The plugins that make up the agent. The core (models, sessions on disk,
- * tools, the system prompt, the loop) is loaded once; the feature plugins
- * configured by `<dataDir>/harness.json` and providers.json are keyed
- * entries the RPC host keeps in line with those files (`ReloadablePlugins`,
- * ADR 0013). Headless runs load both once (`agentPlugins`).
+ * Minimal pure-spine Core + isomorphic pluggable plugin catalog.
+ *
+ * `corePlugins()` contains ONLY the pure in-memory agent spine (credentials slot,
+ * LLM slot, in-memory sessions, UI bus, tool bus, slash command bus, system
+ * prompt builder, and the single agent loop). Every concrete model protocol,
+ * pricing catalog, storage backend, full-text search index, filesystem/shell
+ * tool, Git checkpointing, security policy, and HTTP/WebSocket RPC gateway is a
+ * first-class `PluginManager`-managed plugin (`builtinPluginDefinitions`).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,6 +18,10 @@ import { Commands } from "@pid/commands";
 import * as computer from "@pid/computer";
 import * as hooks from "@pid/hooks";
 import { Credentials, LlmService } from "@pid/llm";
+import * as llmAnthropic from "@pid/llm-anthropic";
+import * as llmGemini from "@pid/llm-gemini";
+import * as llmOpenaiCompat from "@pid/llm-openai-compat";
+import * as llmOpenaiResponses from "@pid/llm-openai-responses";
 import { Mcp, type McpServerConfig } from "@pid/mcp";
 import * as memory from "@pid/memory";
 import { Permissions, type PermissionMode } from "@pid/permissions";
@@ -24,17 +31,28 @@ import * as promptContext from "@pid/prompt-context";
 import { Schedule } from "@pid/schedule";
 import { Sessions } from "@pid/session";
 import * as sessionJsonl from "@pid/session-jsonl";
+import * as sessionSearchFts from "@pid/session-search-fts";
 import * as subagents from "@pid/subagents";
 import { SystemPrompt } from "@pid/system-prompt";
 import * as toolBash from "@pid/tool-bash";
 import * as toolFs from "@pid/tool-fs";
 import { Tools } from "@pid/tools";
 import { Ui } from "@pid/ui";
+import * as commandsRpc from "./commands-rpc.ts";
+import * as diagnostics from "./diagnostics.ts";
 import type { HarnessConfig } from "./harness-config.ts";
 import type { PluginEntry } from "./host.ts";
+import * as llmRpc from "./llm-rpc.ts";
+import type { PluginManager } from "./plugin-manager.ts";
+import * as providerAdmin from "./provider-admin.ts";
 import * as providers from "./providers.ts";
 import type { ReloadableEntry } from "./reloadable.ts";
+import { RpcGateway } from "./rpc.ts";
 import { fileSecretResolver, readSecretFile, type McpServerSecrets, type SecretCodec } from "./secrets.ts";
+import * as sessionsRpc from "./sessions-rpc.ts";
+import * as uiRpc from "./ui-rpc.ts";
+import { WebServer } from "./web-server.ts";
+import * as workbenchRpc from "./workbench-rpc.ts";
 
 export interface CoreOptions {
   /** DPAPI, when the host runs in Bun on Windows; `{ secret }` refs then resolve against secrets.dat. */
@@ -47,6 +65,18 @@ const secretStore = {
   inject: ["credentials"],
   apply(ctx: Context, config: { file: string; codec: SecretCodec }) {
     ctx.effect(() => ctx.credentials.registerStore(fileSecretResolver(config.file, config.codec)), "secret store: secrets.dat");
+  },
+};
+
+/** Exposes `config.reload` when an RPC gateway is attached. */
+const configRpcPlugin = {
+  name: "pid-config-rpc",
+  inject: ["rpc"],
+  apply(ctx: Context, config: { reload: () => Promise<string[]> }) {
+    ctx.effect(
+      () => ctx.rpc.method("config.reload", async () => ({ reloaded: await config.reload() })),
+      "config.reload",
+    );
   },
 };
 
@@ -71,23 +101,29 @@ const bashSandboxPlugin = {
   },
 };
 
-export function corePlugins(dataDir: string, options: CoreOptions = {}): PluginEntry[] {
+/**
+ * Minimal pure in-memory Core spine. Contains zero business/vendor logic,
+ * zero disk formats, zero pricing tables, zero concrete tools, and zero network gateways.
+ */
+export function corePlugins(_dataDir?: string, _options?: CoreOptions): PluginEntry[] {
   return [
     [Credentials],
-    ...(options.codec === undefined ? [] : [[secretStore, { file: join(dataDir, "secrets.dat"), codec: options.codec }] as PluginEntry]),
     [LlmService],
-    [Pricing],
     [Sessions],
-    [sessionJsonl, { dir: join(dataDir, "sessions"), indexFile: join(dataDir, "index.sqlite") }],
     [Ui],
     [Tools],
     [Commands],
     [SystemPrompt],
-    [toolFs],
-    [toolBash],
     [AgentLoop],
-    [checkpoints],
   ];
+}
+
+export interface GatewayOptions {
+  pageOrigins: readonly string[];
+  token: string;
+  defaultModel?: () => { provider: string; model: string } | undefined;
+  manager?: () => PluginManager | undefined;
+  reload?: () => Promise<string[]>;
 }
 
 export interface FeatureOptions {
@@ -99,6 +135,10 @@ export interface FeatureOptions {
   computerHelper?: string;
   /** Decrypts the desktop's MCP secrets file, when one is configured. */
   codec?: SecretCodec;
+  /** Optional workspace trust checker for project-scoped memory. */
+  isWorkspaceTrusted?: (cwd: string) => boolean;
+  /** When false, `providers` relies strictly on mounted `llm-*` protocol plugins. */
+  autoRegisterBuiltinProtocols?: boolean;
 }
 
 /** MCP servers with their env and headers from the desktop's encrypted secrets, in memory only. */
@@ -123,13 +163,17 @@ export interface BuiltinPluginDefinition {
   name: string;
   description: string;
   enabled: boolean;
+  /** False when disabling this built-in would sever the active HTTP/RPC control plane. */
+  canDisable?: boolean;
   hasHost: boolean;
   hasClient: boolean;
   plugin: Plugin;
   config?: unknown;
+  inject?: readonly string[];
+  provides?: readonly string[];
 }
 
-/** Full catalog of built-in reloadable feature plugins, enabled and disabled alike (ADR 0016). */
+/** Built-in capability & policy plugins configured via `harness.json` and `providers.json`. */
 export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig, options: FeatureOptions = {}): BuiltinPluginDefinition[] {
   const providersFile = join(dataDir, "providers.json");
   const permissions = options.permission === undefined ? config.permissions : { ...config.permissions, defaultPermission: options.permission };
@@ -142,13 +186,20 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
     {
       id: "providers",
       name: "模型服务商路由 (providers)",
-      description: "加载 providers.json 并管理模型适配器与密钥解析",
+      description: "加载 providers.json 并按已启用协议插件动态实例化模型适配器与密钥解析",
       // The file's text is part of the config so an edited providers.json reloads the adapters.
       enabled: true,
       hasHost: true,
       hasClient: false,
       plugin: providers,
-      config: { file: providersFile, revision: fileRevision(providersFile) },
+      inject: ["llm", "credentials"],
+      config: {
+        file: providersFile,
+        revision: fileRevision(providersFile),
+        ...(options.autoRegisterBuiltinProtocols === undefined
+          ? {}
+          : { autoRegisterBuiltinProtocols: options.autoRegisterBuiltinProtocols }),
+      },
     },
     {
       id: "permissions",
@@ -158,16 +209,19 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
       hasHost: true,
       hasClient: false,
       plugin: Permissions,
+      inject: ["sessions", "tools", "ui", "systemPrompt"],
+      provides: ["permissions"],
       config: permissions,
     },
     {
       id: "prompt-context",
-      name: "上下文与提示词组装 (prompt-context)",
+      name: "上下文与技能管理 (prompt-context)",
       description: "注入工作区上下文文件（AGENTS.md / CLAUDE.md）、技能目录与自定义指令",
       enabled: true,
       hasHost: true,
       hasClient: false,
       plugin: promptContext,
+      inject: ["systemPrompt"],
       config: { dataDir, contextFiles: config.contextFiles.enabled, instructions: config.prompt.instructions },
     },
     {
@@ -178,19 +232,22 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
       hasHost: true,
       hasClient: false,
       plugin: plan,
+      inject: ["sessions", "tools"],
     },
     {
       id: "memory",
       name: "本地长期记忆 (memory)",
       description: "维护并向系统提示词注入持久化的全局与项目记忆文件",
-      enabled: config.memory.enabled || (config.memory.projectEnabled ?? config.memory.enabled),
+      enabled: true,
       hasHost: true,
       hasClient: false,
       plugin: memory,
+      inject: ["tools", "systemPrompt"],
       config: {
         file: config.memory.file ?? join(dataDir, "memory.md"),
         userEnabled: config.memory.enabled,
         projectEnabled: config.memory.projectEnabled ?? config.memory.enabled,
+        ...(options.isWorkspaceTrusted === undefined ? {} : { isTrusted: options.isWorkspaceTrusted }),
       },
     },
     {
@@ -201,16 +258,19 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
       hasHost: true,
       hasClient: false,
       plugin: subagents,
+      inject: ["sessions", "agents", "tools"],
       config: config.subagents,
     },
     {
       id: "mcp",
       name: "MCP 服务器桥接 (mcp)",
       description: "连接 STDIO 与 HTTP MCP 服务器并将其工具暴露给模型",
-      enabled: true,
+      enabled: config.mcp.enabled !== false,
       hasHost: true,
       hasClient: false,
       plugin: Mcp,
+      inject: ["sessions", "tools", "ui"],
+      provides: ["mcp"],
       config: { ...mcpConfig, servers: withMcpSecrets(mcpConfig.servers ?? [], mcpSecrets) },
     },
     {
@@ -221,6 +281,7 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
       hasHost: true,
       hasClient: false,
       plugin: computer,
+      inject: ["tools", "ui", "sessions"],
       config: { ...config.computer, helper: config.computer.helper ?? options.computerHelper },
     },
     {
@@ -231,6 +292,7 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
       hasHost: true,
       hasClient: false,
       plugin: browser,
+      inject: ["tools", "ui", "sessions"],
       config: config.browser,
     },
     {
@@ -251,6 +313,7 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
       hasHost: true,
       hasClient: false,
       plugin: bashSandboxPlugin,
+      inject: ["tools", "sessions"],
     },
     options.scheduler !== undefined && {
       id: "schedule",
@@ -260,6 +323,8 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
       hasHost: true,
       hasClient: false,
       plugin: Schedule,
+      inject: ["sessions", "agents", "ui"],
+      provides: ["schedule"],
       config: {
         tasksFile: join(dataDir, "schedules.json"),
         runsFile: join(dataDir, "schedule-runs.jsonl"),
@@ -270,6 +335,256 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
   return definitions.filter((entry): entry is BuiltinPluginDefinition => entry !== false);
 }
 
+/**
+ * Complete isomorphic catalog of ALL built-in plugins managed by `PluginManager`
+ * (resource protocols, pricing, storage, async FTS search, tools, checkpoints,
+ * capability/security features, and optional HTTP/WebSocket RPC gateway).
+ */
+export function builtinPluginDefinitions(
+  dataDir: string,
+  config: HarnessConfig,
+  options: CoreOptions & FeatureOptions & { gateway?: GatewayOptions } = {},
+): BuiltinPluginDefinition[] {
+  const providersFile = join(dataDir, "providers.json");
+  const gateway = options.gateway;
+  const baseDefinitions: Array<BuiltinPluginDefinition | false> = [
+    gateway !== undefined && {
+      id: "web-server",
+      name: "本地 HTTP 静态与升级网关 (web-server)",
+      description: "提供受来源门禁保护的本地回环 HTTP 路由与 WebSocket 升级入口",
+      enabled: true,
+      canDisable: false,
+      hasHost: true,
+      hasClient: false,
+      plugin: WebServer,
+      provides: ["webServer"],
+      config: { pageOrigins: gateway.pageOrigins },
+    },
+    gateway !== undefined && {
+      id: "rpc-gateway",
+      name: "JSON-RPC 通信网关 (rpc-gateway)",
+      description: "通过令牌鉴权 WebSocket 向客户端与外部工具暴露标准 JSON-RPC 总线",
+      enabled: true,
+      canDisable: false,
+      hasHost: true,
+      hasClient: false,
+      plugin: RpcGateway,
+      inject: ["webServer", "hostInfo"],
+      provides: ["rpc"],
+      config: { token: gateway.token },
+    },
+    options.codec !== undefined && {
+      id: "secret-store",
+      name: "系统加密凭据库 (secret-store)",
+      description: "解析 secrets.dat 中受系统 DPAPI 加密保护的模型与服务密钥引用",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: secretStore,
+      inject: ["credentials"],
+      config: { file: join(dataDir, "secrets.dat"), codec: options.codec },
+    },
+    {
+      id: "llm-openai-compat",
+      name: "OpenAI Chat Completions 协议 (llm-openai-compat)",
+      description: "为 OpenAI 兼容接口（DeepSeek / Qwen / Ollama / vLLM 等）提供流式适配器",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: llmOpenaiCompat,
+      inject: ["llm", "credentials"],
+    },
+    {
+      id: "llm-openai-responses",
+      name: "OpenAI Responses 协议 (llm-openai-responses)",
+      description: "为 OpenAI Responses API（GPT-5 / o-series 等）提供流式推理适配器",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: llmOpenaiResponses,
+      inject: ["llm", "credentials"],
+    },
+    {
+      id: "llm-anthropic",
+      name: "Anthropic Messages 协议 (llm-anthropic)",
+      description: "为 Claude 系列模型提供原生 Messages 流式与缓存适配器",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: llmAnthropic,
+      inject: ["llm", "credentials"],
+    },
+    {
+      id: "llm-gemini",
+      name: "Google Gemini 协议 (llm-gemini)",
+      description: "为 Gemini 系列模型提供原生 GenerateContent 流式适配器",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: llmGemini,
+      inject: ["llm", "credentials"],
+    },
+    {
+      id: "pricing",
+      name: "离线模型计费估算 (pricing)",
+      description: "监听模型调用用量并结合内置或自定义费率表估算会话成本",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: Pricing,
+      provides: ["pricing"],
+    },
+    {
+      id: "session-jsonl",
+      name: "JSONL 会话持久化 (session-jsonl)",
+      description: "将会话事件以纯顺序追加 JSONL 方式写入本地磁盘，零主线程阻塞",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: sessionJsonl,
+      inject: ["sessions"],
+      config: { dir: join(dataDir, "sessions") },
+    },
+    {
+      id: "session-search-fts",
+      name: "异步全文检索索引 (session-search-fts)",
+      description: "在后台防抖增量构建 SQLite FTS5 中英双语全文检索索引，随时可独立停用",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: sessionSearchFts,
+      inject: ["sessions"],
+      provides: ["sessionSearch"],
+      config: { sessionsDir: join(dataDir, "sessions"), indexFile: join(dataDir, "index.sqlite") },
+    },
+    {
+      id: "tool-fs",
+      name: "本地文件读写工具集 (tool-fs)",
+      description: "提供 read、write、edit、ls、find 与 grep 本地工作区文件工具",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: toolFs,
+      inject: ["tools"],
+    },
+    {
+      id: "tool-bash",
+      name: "本地命令执行工具 (tool-bash)",
+      description: "提供 bash 命令行执行工具与沙箱配置文件生成接口",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: toolBash,
+      inject: ["tools"],
+    },
+    {
+      id: "checkpoints",
+      name: "Git 代码快照回退 (checkpoints)",
+      description: "在每轮可写任务前自动创建无侵入 Git 快照，支持按消息一键查看差异与回滚",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: checkpoints,
+      inject: ["sessions", "agents"],
+    },
+    ...builtinFeatureDefinitions(dataDir, config, {
+      ...options,
+      autoRegisterBuiltinProtocols: false,
+    }),
+    gateway !== undefined && {
+      id: "sessions-rpc",
+      name: "会话与用量 RPC 服务 (sessions-rpc)",
+      description: "暴露 session.*、model.* 与 usage.summary 会话控制接口",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: sessionsRpc,
+      inject: ["rpc", "sessions", "agents", "llm"],
+      config: gateway.defaultModel === undefined ? {} : { defaultModel: gateway.defaultModel },
+    },
+    gateway !== undefined && {
+      id: "commands-rpc",
+      name: "斜杠命令 RPC 服务 (commands-rpc)",
+      description: "暴露 command.list 与 command.execute 斜杠命令接口",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: commandsRpc,
+      inject: ["rpc", "commands"],
+      config: gateway.manager === undefined ? {} : { manager: gateway.manager },
+    },
+    gateway !== undefined && {
+      id: "ui-rpc",
+      name: "交互审批 RPC 服务 (ui-rpc)",
+      description: "暴露 ui.pending 与 ui.respond 工具审批及询问回传接口",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: uiRpc,
+      inject: ["rpc", "ui"],
+    },
+    gateway !== undefined && {
+      id: "diagnostics",
+      name: "宿主诊断与日志服务 (diagnostics)",
+      description: "暴露 diagnostics.logs 与 diagnostics.export 宿主运行诊断接口",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: diagnostics,
+      inject: ["rpc", "hostInfo"],
+    },
+    gateway !== undefined && {
+      id: "llm-rpc",
+      name: "直连模型补全 RPC 服务 (llm-rpc)",
+      description: "暴露 llm.complete 轻量单轮补全接口（如会话自动命名与提交摘要）",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: llmRpc,
+      inject: ["rpc", "llm"],
+      config: gateway.defaultModel === undefined ? {} : { defaultModel: gateway.defaultModel },
+    },
+    gateway !== undefined && {
+      id: "provider-admin",
+      name: "模型服务商管理接口 (provider-admin)",
+      description: "暴露 provider.save、provider.delete 与在线连接测试管理接口",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: providerAdmin,
+      inject: ["rpc", "credentials"],
+      config: {
+        file: providersFile,
+        secretsFile: join(dataDir, "secrets.dat"),
+        ...(options.codec === undefined ? {} : { codec: options.codec }),
+        reload: gateway.reload ?? (async () => []),
+      },
+    },
+    gateway?.reload !== undefined && {
+      id: "config-rpc",
+      name: "配置热重载接口 (config-rpc)",
+      description: "暴露 config.reload 触发插件与配置同步",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: configRpcPlugin,
+      inject: ["rpc"],
+      config: { reload: gateway.reload },
+    },
+    gateway !== undefined && {
+      id: "workbench",
+      name: "原生工作台联动 (workbench)",
+      description: "提供 sidebar_open 工具与 workbench/open 工作台面板联动通知",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: workbenchRpc,
+      inject: ["rpc", "tools", "sessions"],
+    },
+  ];
+  return baseDefinitions.filter((entry): entry is BuiltinPluginDefinition => entry !== false);
+}
+
 /** The configured feature plugins, keyed so a reload only touches what changed. */
 export function featureEntries(dataDir: string, config: HarnessConfig, options: FeatureOptions = {}): ReloadableEntry[] {
   return builtinFeatureDefinitions(dataDir, config, options)
@@ -277,10 +592,12 @@ export function featureEntries(dataDir: string, config: HarnessConfig, options: 
     .map((entry) => ({ key: entry.id, plugin: entry.plugin, ...(entry.config === undefined ? {} : { config: entry.config }) }));
 }
 
-/** Core and features at once, for a run that never reloads (headless, tests). */
+/** Core spine and full built-in plugin set at once, for direct programmatic hosts/tests. */
 export function agentPlugins(dataDir: string, options: CoreOptions & FeatureOptions & { config: HarnessConfig }): PluginEntry[] {
   return [
-    ...corePlugins(dataDir, options),
-    ...featureEntries(dataDir, options.config, options).map((entry): PluginEntry => [entry.plugin, entry.config]),
+    ...corePlugins(),
+    ...builtinPluginDefinitions(dataDir, options.config, options)
+      .filter((entry) => entry.enabled)
+      .map((entry): PluginEntry => [entry.plugin, entry.config]),
   ];
 }

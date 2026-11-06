@@ -21,7 +21,7 @@ import type {
 } from "../types";
 import { gitClient } from "./gitClient";
 import { harnessProviders } from "./harnessProviders";
-import { harnessRuntimes, type HostStatus } from "./harnessRuntime";
+import { harnessRuntimes, isRpcMethodNotFound, type HostStatus } from "./harnessRuntime";
 import { mcpClient } from "./mcpClient";
 import { memorySkillsClient } from "./memorySkillsClient";
 import { pluginClient } from "./pluginClient";
@@ -31,18 +31,35 @@ import { sessionClient } from "./sessionClient";
 
 /** Token totals and local estimated cost over the Host's sessions. */
 async function usageSummary(): Promise<UsageSummary> {
-  const { sessions, messages, usage, totalCostUsd } = await harnessRuntimes.call<UsageSummaryResult>("usage.summary");
-  return {
-    sessions,
-    messages,
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    reasoningTokens: usage.reasoningTokens ?? 0,
-    cacheReadTokens: usage.cacheReadTokens,
-    cacheWriteTokens: usage.cacheWriteTokens,
-    totalTokens: usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
-    totalCost: totalCostUsd ?? 0,
-  };
+  try {
+    const { sessions, messages, usage, totalCostUsd } = await harnessRuntimes.call<UsageSummaryResult>("usage.summary");
+    return {
+      sessions,
+      messages,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      reasoningTokens: usage.reasoningTokens ?? 0,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+      totalTokens: usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+      totalCost: totalCostUsd ?? 0,
+    };
+  } catch (error) {
+    if (isRpcMethodNotFound(error)) {
+      return {
+        sessions: 0,
+        messages: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 0,
+        totalCost: 0,
+      };
+    }
+    throw error;
+  }
 }
 
 // Task runtimes are the Harness Host's sessions behind `harnessRuntimes`
@@ -150,6 +167,8 @@ export const agent = {
     invoke<void>("cancel_workspace_search", { requestId }),
   readWorkspaceFile: (cwd: string, path: string) =>
     invoke<WorkspaceFileContent>("read_workspace_file", { cwd, path }),
+  writeWorkspaceFile: (cwd: string, path: string, content: string) =>
+    invoke<void>("write_workspace_file", { cwd, path, content }),
   openWorkspaceInFileManager: (path: string) => invoke<void>("open_workspace_in_file_manager", { path }),
   listWorkspaceEditors: () => invoke<WorkspaceEditorInfo[]>("list_workspace_editors"),
   openWorkspaceInEditor: (path: string, editorId: WorkspaceEditorInfo["id"]) =>
@@ -161,6 +180,11 @@ export const agent = {
   openWorkspaceInTerminalApp: (path: string, appId: string) =>
     invoke<void>("open_workspace_in_terminal_app", { path, appId }),
   terminalShells: () => invoke<string[]>("terminal_shells"),
+  terminalCreate: (params: { id: string; cwd: string; shell: string; cols: number; rows: number }) =>
+    invoke<void>("terminal_create", params),
+  terminalWrite: (id: string, data: string) => invoke<void>("terminal_write", { id, data }),
+  terminalResize: (id: string, cols: number, rows: number) => invoke<void>("terminal_resize", { id, cols, rows }),
+  terminalClose: (id: string) => invoke<void>("terminal_close", { id }),
   listWorktrees: (cwd: string) => invoke<WorktreeInfo[]>("list_worktrees", { cwd }),
   createWorktree: (cwd: string, base?: string) => invoke<WorktreeInfo>("create_worktree", { cwd, base }),
   usageSummary,

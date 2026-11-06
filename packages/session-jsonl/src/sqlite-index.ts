@@ -7,9 +7,16 @@
 import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
-import type { SessionEvent, SessionHeader, SessionSearchHit, SessionSearchOptions, SessionSummary } from "@pid/session";
+import {
+  currentBranch,
+  type SessionEvent,
+  type SessionHeader,
+  type SessionSearchHit,
+  type SessionSearchOptions,
+  type SessionSummary,
+} from "@pid/session";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const CJK_CHAR_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
 
 /** Insert spaces around CJK characters so SQLite FTS5 `unicode61` indexes every CJK glyph positionally. */
@@ -34,10 +41,21 @@ export function buildFtsMatchQuery(rawQuery: string): string | undefined {
   return clauses.length > 0 ? clauses.join(" AND ") : undefined;
 }
 
+const MAX_SEARCH_BODY_CHARS = 262_144;
+
+function sliceSafeUtf16(text: string, maxChars: number): string {
+  if (maxChars <= 0) return "";
+  if (text.length <= maxChars) return text;
+  const lastCode = text.charCodeAt(maxChars - 1);
+  const end = lastCode >= 0xd800 && lastCode <= 0xdbff ? maxChars - 1 : maxChars;
+  return text.slice(0, end);
+}
+
 /** Extract searchable plain text from a session's active branch messages and compactions. */
 export function extractSessionSearchBody(events: readonly SessionEvent[]): string {
   const parts: string[] = [];
-  for (const event of events) {
+  let activeTitle: string | undefined;
+  for (const event of currentBranch(events)) {
     if (event.type === "user") {
       for (const block of event.data.content) {
         if (block.type === "text" && block.text.trim() !== "") parts.push(block.text);
@@ -49,14 +67,23 @@ export function extractSessionSearchBody(events: readonly SessionEvent[]): strin
     } else if (event.type === "compaction") {
       if (event.data.summary.trim() !== "") parts.push(event.data.summary);
     } else if (event.type === "label") {
-      if (typeof event.data.title === "string" && event.data.title.trim() !== "") {
-        parts.push(event.data.title);
+      if (event.data.title !== undefined) {
+        activeTitle = event.data.title;
       }
     }
   }
-  // Cap per-session indexed text at 256 KB so pathological tool dumps never bloat index.sqlite.
-  const joined = parts.join("\n");
-  return joined.length > 262_144 ? joined.slice(0, 262_144) : joined;
+  // Cap per-session indexed text at 256 KB so pathological tool dumps never bloat index.sqlite,
+  // while reserving space at the tail so activeTitle is never truncated on >256 KB transcripts.
+  if (activeTitle === undefined || activeTitle.trim() === "") {
+    return sliceSafeUtf16(parts.join("\n"), MAX_SEARCH_BODY_CHARS);
+  }
+  const safeTitle = sliceSafeUtf16(activeTitle, MAX_SEARCH_BODY_CHARS);
+  if (parts.length === 0 || safeTitle.length >= MAX_SEARCH_BODY_CHARS - 1) {
+    return safeTitle;
+  }
+  const bodyBudget = MAX_SEARCH_BODY_CHARS - safeTitle.length - 1;
+  const truncatedBody = sliceSafeUtf16(parts.join("\n"), bodyBudget);
+  return truncatedBody === "" ? safeTitle : `${truncatedBody}\n${safeTitle}`;
 }
 
 export function extractMatchSnippet(query: string, summary: SessionSummary, rawBody: string): string {
@@ -111,6 +138,12 @@ export class SessionSqliteIndex {
   private stmtListAll: StatementSync | undefined;
 
   constructor(private readonly dbPath: string) {}
+
+  static open(dbPath: string): SessionSqliteIndex {
+    const instance = new SessionSqliteIndex(dbPath);
+    instance.ensureOpen();
+    return instance;
+  }
 
   private ensureOpen(): DatabaseSync {
     if (this.db !== undefined) return this.db;
@@ -385,13 +418,18 @@ export class SessionSqliteIndex {
         "WHERE is_subagent = 0 AND is_side = 0",
         ...(includeArchived ? [] : ["AND archived = 0"]),
         ...(cwdFilter ? ["AND lower(cwd) = lower(?)"] : []),
-        "AND (summary_json LIKE ? ESCAPE '\\' OR raw_text LIKE ? ESCAPE '\\')",
+        "AND (",
+        "  COALESCE(json_extract(summary_json, '$.title'), '') LIKE ? ESCAPE '\\'",
+        "  OR COALESCE(json_extract(summary_json, '$.firstMessage'), '') LIKE ? ESCAPE '\\'",
+        "  OR cwd LIKE ? ESCAPE '\\'",
+        "  OR raw_text LIKE ? ESCAPE '\\'",
+        ")",
         "ORDER BY updated_at DESC",
         "LIMIT ?",
       ].join(" ");
       const params: Array<string | number> = [];
       if (cwdFilter) params.push(cwdFilter);
-      params.push(likePattern, likePattern, limit);
+      params.push(likePattern, likePattern, likePattern, likePattern, limit);
       rows = db.prepare(sql).all(...params) as unknown as SearchRow[];
     }
 

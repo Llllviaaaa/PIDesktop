@@ -1,5 +1,4 @@
 import { defineConfig } from "vitest/config";
-import { DSH_ALIASES } from "./dsh-aliases";
 
 /**
  * The assertion suites under tests/ (once under scripts/) used to be 46 standalone tsx processes
@@ -12,7 +11,6 @@ import { DSH_ALIASES } from "./dsh-aliases";
  * bundled runtime rather than this codebase's units.
  */
 export default defineConfig({
-  resolve: { alias: DSH_ALIASES },
   test: {
     // packages/ holds the Harness packages of the V2 refactor (docs/adr/0005).
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "packages/*/test/**/*.test.ts"],

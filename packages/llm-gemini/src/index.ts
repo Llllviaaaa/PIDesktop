@@ -11,6 +11,7 @@ import {
   type Effort,
   type FinishReason,
   type LlmAdapter,
+  type LlmProtocolSpec,
   type LlmRequest,
   type Message,
   type ModelInfo,
@@ -39,7 +40,7 @@ export interface ProviderConfig {
 }
 
 export interface Config {
-  providers: ProviderConfig[];
+  providers?: ProviderConfig[];
 }
 
 type GeminiPart = Record<string, unknown>;
@@ -408,8 +409,15 @@ export class GeminiAdapter implements LlmAdapter {
   }
 }
 
-export function apply(ctx: Context, config: Config): void {
-  for (const provider of config.providers) {
+export const protocolSpec: LlmProtocolSpec = {
+  defaultBaseUrl: DEFAULT_GEMINI_BASE_URL,
+  normalizeBaseUrl: normalizeGeminiBaseUrl,
+  createAdapter: (ctx, provider) => new GeminiAdapter(ctx, provider),
+};
+
+export function apply(ctx: Context, config?: Config): void {
+  ctx.effect(() => ctx.llm.registerProtocol("gemini", protocolSpec), `${name}: protocol`);
+  for (const provider of config?.providers ?? []) {
     ctx.effect(
       () =>
         ctx.llm.registerAdapter(

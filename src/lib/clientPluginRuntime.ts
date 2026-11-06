@@ -1,7 +1,7 @@
 /**
  * Pure dynamic client-side plugin loader, module normalizer, and zero-reload
- * Fiber HMR reconciler (ADR 0016). Bound to PIDesktop's DSH host in
- * `src/dsh-host/client-plugins.ts`.
+ * Fiber HMR reconciler (ADR 0016). Bound to PI-Desktop's unified frontend in
+ * `src/lib/clientPluginBootstrap.ts`.
  */
 import type { PluginClientBundleParams, PluginClientBundleResult, PluginInfo } from "@pid/protocol";
 
@@ -165,6 +165,7 @@ export interface ClientPluginRuntimeOptions {
 
 interface MountedClientPlugin<P> {
   id: string;
+  sourceKey: string;
   etag: string;
   configKey: string;
   config: Record<string, unknown>;
@@ -176,6 +177,12 @@ interface CachedBundle {
   etag: string;
   code: string;
   factory: ModuleFactory;
+}
+
+function pluginSourceKey(plugin: Pick<PluginInfo, "id" | "tier" | "workspace">, fallbackWorkspace?: string): string {
+  return plugin.tier === "workspace"
+    ? `workspace:${plugin.workspace ?? fallbackWorkspace ?? ""}:${plugin.id}`
+    : `${plugin.tier}:${plugin.id}`;
 }
 
 export interface ClientPluginRuntimeHandle {
@@ -239,14 +246,15 @@ export function createClientPluginRuntime<P = unknown>(
   let disposed = false;
   let syncChain: Promise<void> = Promise.resolve();
 
-  const loadFactory = async (plugin: PluginInfo): Promise<{ etag: string; code: string; factory: ModuleFactory }> => {
-    const cached = bundleCache.get(plugin.id);
+  const loadFactory = async (plugin: PluginInfo, sourceKey: string): Promise<{ etag: string; code: string; factory: ModuleFactory }> => {
+    const cached = bundleCache.get(sourceKey);
     if (cached !== undefined && plugin.clientEtag !== undefined && cached.etag === plugin.clientEtag) {
       return cached;
     }
+    const effectiveWorkspace = plugin.tier === "workspace" ? (plugin.workspace ?? workspace) : workspace;
     const response = await transport.clientBundle({
       id: plugin.id,
-      ...(workspace === undefined || workspace === "" ? {} : { workspace }),
+      ...(effectiveWorkspace === undefined || effectiveWorkspace === "" ? {} : { workspace: effectiveWorkspace }),
       ...(cached === undefined ? {} : { ifNoneMatch: cached.etag }),
     });
     if (response.notModified === true && cached !== undefined) {
@@ -265,7 +273,7 @@ export function createClientPluginRuntime<P = unknown>(
     }
     factories.set(plugin.id, factory);
     const entry: CachedBundle = { etag: response.etag, code, factory };
-    bundleCache.set(plugin.id, entry);
+    bundleCache.set(sourceKey, entry);
     return entry;
   };
 
@@ -280,22 +288,26 @@ export function createClientPluginRuntime<P = unknown>(
     if (disposed) return;
 
     const validIds = new Set(plugins.map((item) => item.id));
+    const validKeys = new Set(plugins.map((item) => pluginSourceKey(item, workspace)));
     clearMissingClientPluginErrors(validIds);
 
     const desired = plugins.filter(
       (item) => item.hasClient && item.status === "active" && item.tier !== "builtin",
     );
+    const desiredKeys = new Set(desired.map((item) => pluginSourceKey(item, workspace)));
     const desiredIds = new Set(desired.map((item) => item.id));
 
-    for (const [id, active] of [...mounted.entries()]) {
-      if (!desiredIds.has(id)) {
-        mounted.delete(id);
-        setClientPluginError(id, undefined);
+    for (const [key, active] of [...mounted.entries()]) {
+      if (!desiredKeys.has(key)) {
+        mounted.delete(key);
+        if (!desiredIds.has(active.id)) {
+          setClientPluginError(active.id, undefined);
+        }
         await active.fiber.dispose().catch(() => undefined);
       }
     }
-    for (const id of [...bundleCache.keys()]) {
-      if (!validIds.has(id)) bundleCache.delete(id);
+    for (const key of [...bundleCache.keys()]) {
+      if (!validKeys.has(key)) bundleCache.delete(key);
     }
 
     if (desired.length === 0) return;
@@ -303,9 +315,10 @@ export function createClientPluginRuntime<P = unknown>(
     if (disposed) return;
 
     for (const item of desired) {
+      const sourceKey = pluginSourceKey(item, workspace);
       const config = item.config ?? {};
       const configKey = JSON.stringify(config);
-      const current = mounted.get(item.id);
+      const current = mounted.get(sourceKey);
       if (
         current !== undefined &&
         item.clientEtag !== undefined &&
@@ -317,7 +330,7 @@ export function createClientPluginRuntime<P = unknown>(
       }
 
       try {
-        const loaded = await loadFactory(item);
+        const loaded = await loadFactory(item, sourceKey);
         if (disposed) return;
         const exported = loaded.factory(requireShared);
         const nextPlugin = resolveCordisPlugin<P>(item.id, exported);
@@ -338,8 +351,9 @@ export function createClientPluginRuntime<P = unknown>(
               await (nextFiber as PromiseLike<unknown>);
             }
           }
-          mounted.set(item.id, {
+          mounted.set(sourceKey, {
             id: item.id,
+            sourceKey,
             etag: loaded.etag,
             configKey,
             config,
@@ -355,9 +369,9 @@ export function createClientPluginRuntime<P = unknown>(
               if (typeof restoredFiber.then === "function" && restoredFiber.state !== 0) {
                 await (restoredFiber as PromiseLike<unknown>);
               }
-              mounted.set(item.id, { ...current, fiber: restoredFiber });
+              mounted.set(sourceKey, { ...current, fiber: restoredFiber });
             } catch {
-              mounted.delete(item.id);
+              mounted.delete(sourceKey);
             }
           }
           throw mountError;

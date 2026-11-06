@@ -134,6 +134,8 @@ export function estimateUsageCost(usage: Usage, pricing: ModelPricing | undefine
 }
 
 export class Pricing extends Service {
+  static provide = "pricing";
+
   private customLookup: ((provider: string, model: string) => ModelPricing | undefined) | undefined;
   private liveTotalUsd = 0;
 

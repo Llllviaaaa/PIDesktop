@@ -12,6 +12,16 @@
  */
 import { Context, Service } from "@deepseek-ai/cordis";
 import "@pid/commands";
+import {
+  ErrorCode,
+  type McpGetPromptResult,
+  type McpPromptsResult,
+  type McpReadResourceResult,
+  type McpResourcesResult,
+  type McpServerStatus,
+  type McpStatusResult,
+} from "@pid/protocol";
+import { RpcError } from "@pid/rpc";
 import type { Session } from "@pid/session";
 import { textOutput, type ToolDefinition, type ToolEnv, type ToolOutput } from "@pid/tools";
 import "@pid/ui";
@@ -70,6 +80,7 @@ const CHANGE_NOTICES: Record<string, string> = {
 
 export class Mcp extends Service {
   static inject = ["sessions", "tools", "ui"];
+  static provide = "mcp";
 
   /** Settles once every configured server has connected or failed. */
   readonly ready: Promise<void>;
@@ -95,6 +106,7 @@ export class Mcp extends Service {
     }, "mcp: servers");
     this.registerSlashCommands(ctx);
     this.ready = this.connectAll(this.enabledConfigs);
+    this.registerRpcMethods(ctx);
   }
 
   statuses(): ServerStatus[] {
@@ -615,6 +627,134 @@ export class Mcp extends Service {
       inner.effect(() => () => {
         for (const dispose of disposers) dispose();
       }, "mcp: slash commands");
+    });
+  }
+
+  private registerRpcMethods(ctx: Context): void {
+    ctx.inject(["rpc"], (rpcCtx) => {
+      let rpcActive = true;
+      rpcCtx.effect(() => () => {
+        rpcActive = false;
+      }, "mcp: rpc scope");
+
+      const recordOf = (params: unknown): Record<string, unknown> => {
+        if (params === undefined || params === null) return {};
+        if (typeof params !== "object" || Array.isArray(params)) {
+          throw new RpcError(ErrorCode.InvalidParams, "params must be an object");
+        }
+        return params as Record<string, unknown>;
+      };
+      const optionalStr = (p: Record<string, unknown>, key: string): string | undefined => {
+        const raw = p[key];
+        if (raw === undefined) return undefined;
+        if (typeof raw !== "string") throw new RpcError(ErrorCode.InvalidParams, `${key} must be a string`);
+        const trimmed = raw.trim();
+        return trimmed === "" ? undefined : trimmed;
+      };
+      const requiredStr = (p: Record<string, unknown>, key: string): string => {
+        const value = optionalStr(p, key);
+        if (value === undefined) throw new RpcError(ErrorCode.InvalidParams, `${key} must be a non-empty string`);
+        return value;
+      };
+      const formatMcpStatuses = (): McpServerStatus[] =>
+        this.statuses().map(({ config, connected, toolCount, protocolVersion, hasResources, hasPrompts, error }) => ({
+          id: config.id,
+          name: config.name || config.id,
+          transport: config.transport,
+          connected,
+          toolCount,
+          ...(protocolVersion === undefined ? {} : { protocolVersion }),
+          resources: hasResources === true,
+          prompts: hasPrompts === true,
+          ...(error === undefined ? {} : { error }),
+        }));
+
+      rpcCtx.on("mcp/changed", () => {
+        if (rpcActive && !this.closed) {
+          rpcCtx.rpc.broadcast("mcp/changed", { servers: formatMcpStatuses() });
+        }
+      });
+      void this.ready.then(() => {
+        if (rpcActive && !this.closed) {
+          rpcCtx.rpc.broadcast("mcp/changed", { servers: formatMcpStatuses() });
+        }
+      });
+
+      const methods: Record<string, (params: unknown) => unknown> = {
+        "mcp.status": async (): Promise<McpStatusResult> => {
+          await this.ready;
+          return { servers: formatMcpStatuses() };
+        },
+
+        "mcp.reconnect": async (params): Promise<McpStatusResult> => {
+          const p = recordOf(params);
+          const serverId = optionalStr(p, "serverId");
+          try {
+            await this.reconnect(serverId);
+          } catch (error) {
+            throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+          }
+          return { servers: formatMcpStatuses() };
+        },
+
+        "mcp.resources": async (params): Promise<McpResourcesResult> => {
+          const p = recordOf(params);
+          const serverId = optionalStr(p, "serverId");
+          try {
+            const resources = await this.listAllResources(serverId);
+            return { resources };
+          } catch (error) {
+            throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+          }
+        },
+
+        "mcp.readResource": async (params): Promise<McpReadResourceResult> => {
+          const p = recordOf(params);
+          const serverId = optionalStr(p, "serverId");
+          const uri = requiredStr(p, "uri");
+          try {
+            return await this.readServerResource(serverId, uri);
+          } catch (error) {
+            throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+          }
+        },
+
+        "mcp.prompts": async (params): Promise<McpPromptsResult> => {
+          const p = recordOf(params);
+          const serverId = optionalStr(p, "serverId");
+          try {
+            const prompts = await this.listAllPrompts(serverId);
+            return { prompts };
+          } catch (error) {
+            throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+          }
+        },
+
+        "mcp.getPrompt": async (params): Promise<McpGetPromptResult> => {
+          const p = recordOf(params);
+          const serverId = optionalStr(p, "serverId");
+          const name = requiredStr(p, "name");
+          const rawArgs = p.arguments;
+          const args: Record<string, string> = {};
+          if (rawArgs !== undefined) {
+            if (typeof rawArgs !== "object" || rawArgs === null || Array.isArray(rawArgs)) {
+              throw new RpcError(ErrorCode.InvalidParams, "arguments must be a string map");
+            }
+            for (const [key, value] of Object.entries(rawArgs as Record<string, unknown>)) {
+              if (typeof value === "string") args[key] = value;
+            }
+          }
+          try {
+            return await this.getServerPrompt(serverId, name, args);
+          } catch (error) {
+            throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+          }
+        },
+      };
+
+      for (const [method, handler] of Object.entries(methods)) {
+        rpcCtx.effect(() => rpcCtx.rpc.method(method, handler), `mcp: ${method}`);
+      }
     });
   }
 }

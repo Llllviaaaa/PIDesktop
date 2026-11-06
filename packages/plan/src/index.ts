@@ -6,6 +6,8 @@
  */
 import type { Context } from "@deepseek-ai/cordis";
 import "@pid/commands";
+import { ErrorCode, type PlanGetResult } from "@pid/protocol";
+import { RpcError } from "@pid/rpc";
 import { latestCustom, type Session } from "@pid/session";
 import { textOutput, type ToolDefinition } from "@pid/tools";
 import { validatePlanState, type PlanItemStatus, type PlanState } from "./core.ts";
@@ -109,5 +111,17 @@ export function apply(ctx: Context): void {
         return { output: formatPlanMarkdown(planOf(session)) };
       },
     }), `${name}: /plan`);
+  });
+  ctx.inject(["rpc"], (rpcCtx) => {
+    rpcCtx.effect(
+      () => rpcCtx.rpc.method("plan.get", async (params): Promise<PlanGetResult> => {
+        const p = (typeof params === "object" && params !== null ? params : {}) as Record<string, unknown>;
+        if (typeof p.sessionId !== "string") throw new RpcError(ErrorCode.InvalidParams, "sessionId must be a string");
+        const target = await rpcCtx.sessions.get(p.sessionId);
+        if (target === undefined) throw new RpcError(ErrorCode.SessionNotFound, `No session ${p.sessionId}`);
+        return { plan: planOf(target) };
+      }),
+      `${name}: plan.get`,
+    );
   });
 }

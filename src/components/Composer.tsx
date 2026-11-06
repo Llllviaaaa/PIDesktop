@@ -648,7 +648,7 @@ export const Composer = memo(function Composer({
             rows={1}
             disabled={disabled}
             className="composer-input"
-            // DSH's composer marker: better-sidebar inserts file references at this textarea's caret.
+            // Workbench file tree actions insert file references at this textarea's caret.
             data-phase={isStreaming ? "streaming" : "idle"}
             placeholder={placeholder}
             role="combobox"

@@ -12,6 +12,7 @@ import {
   type FinishReason,
   type LlmAdapter,
   type LlmErrorKind,
+  type LlmProtocolSpec,
   type LlmRequest,
   type Message,
   type ModelInfo,
@@ -39,7 +40,7 @@ export interface ProviderConfig {
 }
 
 export interface Config {
-  providers: ProviderConfig[];
+  providers?: ProviderConfig[];
 }
 
 type WireBlock = Record<string, unknown>;
@@ -239,8 +240,15 @@ export class AnthropicAdapter implements LlmAdapter {
   }
 }
 
-export function apply(ctx: Context, config: Config): void {
-  for (const provider of config.providers) {
+export const protocolSpec: LlmProtocolSpec = {
+  defaultBaseUrl: DEFAULT_BASE_URL,
+  normalizeBaseUrl: (baseUrl) => baseUrl ?? DEFAULT_BASE_URL,
+  createAdapter: (ctx, provider) => new AnthropicAdapter(ctx, provider),
+};
+
+export function apply(ctx: Context, config?: Config): void {
+  ctx.effect(() => ctx.llm.registerProtocol("anthropic", protocolSpec), `${name}: protocol`);
+  for (const provider of config?.providers ?? []) {
     ctx.effect(() => ctx.llm.registerAdapter(
       { id: provider.id, name: provider.name ?? provider.id, api: "anthropic", baseUrl: provider.baseUrl ?? DEFAULT_BASE_URL },
       new AnthropicAdapter(ctx, provider),

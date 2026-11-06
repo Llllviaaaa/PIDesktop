@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { parsePullRequestDraft } from "../src/lib/gitClient";
-import { OVERSIZED_DIFF_THRESHOLD } from "../src/better-sidebar/client/diff/DiffFiles";
-import { diffStats, displayPath, parseUnifiedDiff, unifiedSegments } from "../src/better-sidebar/client/diff/rows";
+import {
+  OVERSIZED_DIFF_THRESHOLD,
+  diffStats,
+  displayPath,
+  parseUnifiedDiff,
+  unifiedSegments,
+} from "../src/lib/diffView";
 
 describe("M4 PR draft parser and review special file detection", () => {
   it("parses raw JSON, fenced JSON, and Markdown fallbacks for PR drafts", () => {

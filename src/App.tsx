@@ -28,8 +28,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { scheduleClient } from "./lib/scheduleClient";
 import { getAllWindows, getCurrentWindow } from "@tauri-apps/api/window";
-import { openPath, openUrl } from "@tauri-apps/plugin-opener";
-import type { ISidebarRight } from "@deepseek-ai/dsh-client-ui-sidebar-right/client";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowLeft,
   ArrowRight,
@@ -51,6 +50,8 @@ import {
   resolveAppearanceTheme,
   type PetAnimationState,
 } from "./lib/appearanceCatalog";
+import { useClientContributions } from "./lib/clientContributions";
+import { ensureClientPluginRuntime } from "./lib/clientPluginBootstrap";
 import { aggregateDiffStats, perFileDiffStats } from "./lib/gitDiffStats";
 import { changesEditedBy, sessionEditedPaths } from "./lib/sessionEdits";
 import {
@@ -67,6 +68,7 @@ import { buildPetActivities, petStatusToAnimation, type PetActivityItem, type Pe
 import { ACTIVE_RUNTIME_KEY, LAST_TASK_KEY, readPersistedTask, useRuntimeBootstrap } from "./hooks/useRuntimeBootstrap";
 import { useAppStore } from "./store";
 import { useSlices } from "./store/selectors";
+import { bindWorkbenchNotifications, useWorkbenchStore } from "./stores/workbenchStore";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import type { SettingsPage } from "./components/SettingsModal";
@@ -89,9 +91,10 @@ import { LivePlanBar } from "./components/LivePlanBar";
 import { WorkspaceFileOpenContext } from "./components/Markdown";
 import { FileActionsProvider, OpenInMenu } from "./components/WorkspaceOpeners";
 import { GitActionButton } from "./components/GitActionButton";
-import { dshHost, DshCorner, DshRightbarColumn, DshRoot, setDshHostCallbacks } from "./dsh-host/Seats";
+import { BottomWorkbench } from "./components/workbench/BottomWorkbench";
+import { RightWorkbench, WorkbenchTopbarControls } from "./components/workbench/RightWorkbench";
 import { CommitDialog, type CommitOutcome } from "./components/CommitDialog";
-import { preferredEditorFor, rememberProjectEditor, resolveWorkspacePath } from "./lib/workspaceEditors";
+import { preferredEditorFor, rememberProjectEditor } from "./lib/workspaceEditors";
 import type { CodeReviewScope } from "./lib/codeReview";
 import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, SessionInfo, TerminalAppInfo, UiMessage, WorkspaceEditorInfo } from "./types";
 import { HostStatusBanner } from "./components/HostStatusBanner";
@@ -101,7 +104,7 @@ const SettingsModal = lazy(() => import("./components/SettingsModal").then((modu
 const PullRequestsPage = lazy(() => import("./components/PullRequestsPage").then((module) => ({ default: module.PullRequestsPage })));
 const ScheduledTasksPage = lazy(() => import("./components/ScheduledTasksPage").then((module) => ({ default: module.ScheduledTasksPage })));
 
-type HubView = "pull-requests" | "sites" | "scheduled";
+type HubView = "pull-requests" | "sites" | "scheduled" | `plugin:${string}`;
 type AppMenu = "file" | "edit" | "view" | "help";
 type NavigationTarget = BaseNavigationTarget<HubView>;
 
@@ -272,13 +275,24 @@ export default function App() {
 
   const petFixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("pet") : null;
   const petActivityFixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("pet-activity") : null;
+  const contributions = useClientContributions();
   const appearanceQuery = useQuery({
     queryKey: queryKeys.appearance(cwd),
     queryFn: () => loadAppearanceCatalog(cwd),
     enabled: isTauri,
   });
-  // A catalog that fails to load falls back to the built-in themes and pets.
-  const appearanceCatalog = (!appearanceQuery.isError && appearanceQuery.data) || BUILTIN_APPEARANCE_CATALOG;
+  // A catalog that fails to load falls back to the built-in themes and pets, merged with dynamic client plugin contributions.
+  const baseAppearanceCatalog = (!appearanceQuery.isError && appearanceQuery.data) || BUILTIN_APPEARANCE_CATALOG;
+  const appearanceCatalog = useMemo(() => {
+    if (contributions.themes.length === 0 && contributions.pets.length === 0) return baseAppearanceCatalog;
+    const extraThemes = contributions.themes.filter((theme) => !baseAppearanceCatalog.themes.some((item) => item.id === theme.id));
+    const extraPets = contributions.pets.filter((pet) => !baseAppearanceCatalog.pets.some((item) => item.id === pet.id));
+    return {
+      ...baseAppearanceCatalog,
+      themes: [...baseAppearanceCatalog.themes, ...extraThemes],
+      pets: [...baseAppearanceCatalog.pets, ...extraPets],
+    };
+  }, [baseAppearanceCatalog, contributions.pets, contributions.themes]);
   const previewPet = petFixture && appearanceCatalog.pets.some((pet) => pet.id === petFixture) ? petFixture : null;
   const activePet = useMemo(
     () => resolveAppearancePet(appearanceCatalog, previewPet ?? settings?.petCharacter ?? "cat"),
@@ -338,55 +352,11 @@ export default function App() {
   });
   const appWindow = isTauri ? getCurrentWindow() : null;
   const sidebarRendered = sidebarVisible || sidebarHoverPreview;
-  // DSH's frame asks whether a panel can sit beside the conversation. That
-  // question is about the whole row: measuring the conversation column instead
-  // shrinks the reading once the panel opens, the fit test fails, and the
-  // panel closes again.
-  const [workSurfaceWidth, setWorkSurfaceWidth] = useState(0);
-  const workSurfaceObserver = useRef<ResizeObserver | null>(null);
-  const workSurfaceRef = useCallback((node: HTMLDivElement | null) => {
-    workSurfaceObserver.current?.disconnect();
-    workSurfaceObserver.current = null;
-    if (!node) return;
-    const observer = new ResizeObserver(([entry]) => {
-      setWorkSurfaceWidth(Math.round(entry.contentRect.width));
-      // DSH's Windows frame publishes the caption height and the left sidebar's width, so a
-      // fullscreen right Sidebar and floating panes stay clear of them; PIDesktop's are where
-      // the work surface starts.
-      const rect = node.getBoundingClientRect();
-      const root = document.documentElement;
-      root.setAttribute("data-windows-titlebar", "");
-      root.style.setProperty("--dsh-windows-titlebar-height", `${Math.round(rect.top)}px`);
-      root.style.setProperty("--dsh-windows-sidebar-width", `${Math.round(rect.left)}px`);
-      root.style.setProperty("--dsh-windows-content-radius", "0px");
-    });
-    observer.observe(node);
-    workSurfaceObserver.current = observer;
-  }, []);
 
   useEffect(() => {
     if (isTauri) return;
     void useAppStore.getState().loadSettings();
   }, [isTauri]);
-
-  /**
-   * Acts on DSH's right Sidebar for the session on screen. It exists once its
-   * plugin is up, and refuses (throws) while no session is on screen.
-   */
-  const withRightSidebar = useCallback((action: (sidebar: ISidebarRight) => void) => {
-    const sidebar = dshHost().ctx.get("sidebarRight");
-    if (!sidebar) return;
-    try {
-      action(sidebar);
-    } catch {
-      useAppStore.getState().showToast("先打开一个任务，再使用侧边栏", "info");
-    }
-  }, []);
-
-  /** Pages of the old sidebar that the new one does not carry yet. */
-  const pageMoving = useCallback((label: string) => {
-    useAppStore.getState().showToast(`${label}正在迁移到新的侧边栏，暂时不可用`, "info");
-  }, []);
 
   const reloadAppearanceCatalog = useCallback(async () => {
     if (!isTauri) return;
@@ -435,23 +405,36 @@ export default function App() {
 
   const toggleWorkspaceSidebar = useCallback(() => {
     setHubView(null);
-    withRightSidebar((sidebar) => sidebar.toggleExpanded());
-  }, [withRightSidebar]);
+    useWorkbenchStore.getState().toggleRight();
+  }, []);
 
+  const toggleBottomPanel = useCallback(() => {
+    useWorkbenchStore.getState().toggleBottom();
+  }, []);
 
-  // The bottom workbench is better-sidebar's (src/better-sidebar); these reach it through the DSH host.
-  const toggleBottomPanel = useCallback(() => { dshHost().toggleBottomPanel(); }, []);
-  const openBottomTerminal = useCallback(() => { dshHost().openBottomTerminal(); }, []);
+  const openBottomTerminal = useCallback(() => {
+    useWorkbenchStore.getState().openBottomTerminal();
+  }, []);
 
-  const openSummary = useCallback(() => { pageMoving("任务摘要"); }, [pageMoving]);
+  const openSummary = useCallback(() => {
+    setHubView(null);
+    useWorkbenchStore.getState().openSummary("overview");
+  }, []);
 
-  const openReview = useCallback(() => { pageMoving("审查"); }, [pageMoving]);
+  const openDiagnostics = useCallback(() => {
+    setHubView(null);
+    useWorkbenchStore.getState().openSummary("diagnostics");
+  }, []);
 
-  /** Opens DSH's Browser page in the right Sidebar, at `url` when given. */
+  const openReview = useCallback(() => {
+    setHubView(null);
+    useWorkbenchStore.getState().openReview();
+  }, []);
+
   const openBrowserAt = useCallback((url?: string) => {
     setHubView(null);
-    withRightSidebar((sidebar) => sidebar.openTab("browser", url ? { params: { url } } : {}));
-  }, [withRightSidebar]);
+    useWorkbenchStore.getState().openPreview(url);
+  }, []);
 
   const workspaceEditorsQuery = useQuery({
     queryKey: queryKeys.workspaceEditors(),
@@ -518,31 +501,18 @@ export default function App() {
 
   useEffect(() => () => cancelSidebarHoverClose(), [cancelSidebarHoverClose]);
 
-  // DSH's UI follows PIDesktop: which sessions exist, which one is on screen, whether a hub page covers it.
+  // Boot the unified client plugin runtime and bind Host `workbench/open` notifications.
+  const activeWorkspaceRef = useRef(workspaceCwd || cwd);
   useEffect(() => {
-    dshHost().setSessions(sessions.map((session) => ({
-      file: session.file,
-      cwd: session.cwd,
-      title: session.name || session.firstMessage,
-      updatedAt: session.updatedAt,
-      running: isStreaming && sameLocalPath(session.file, sessionFile),
-    })));
-  }, [isStreaming, sessionFile, sessions]);
-  useEffect(() => {
-    dshHost().showSession(!newTask && sessionFile ? sessionFile : undefined);
-  }, [newTask, sessionFile]);
-  useEffect(() => {
-    dshHost().setWorkspace(workspaceCwd || cwd);
+    const nextWorkspace = workspaceCwd || cwd;
+    activeWorkspaceRef.current = nextWorkspace;
+    ensureClientPluginRuntime().setWorkspace(nextWorkspace || undefined);
   }, [cwd, workspaceCwd]);
+
   useEffect(() => {
-    dshHost().setPanel(hubView);
-  }, [hubView]);
-  useEffect(() => {
-    setDshHostCallbacks({
-      toggleSidebar: togglePrimarySidebar,
-      closeWindow: async () => { await appWindow?.close(); },
-    });
-  }, [appWindow, togglePrimarySidebar]);
+    ensureClientPluginRuntime();
+    return bindWorkbenchNotifications(() => ({ cwd: activeWorkspaceRef.current }));
+  }, []);
 
   useEffect(() => {
     if (!moreOpen && !appMenu) return;
@@ -655,7 +625,6 @@ export default function App() {
       const palette = theme.palette;
       if (!palette) return;
       root.dataset.theme = theme.mode;
-      dshHost().setColorScheme(theme.mode === "dark" ? "dark" : "light");
       const variables: Record<string, string> = {
         "--app": palette.app,
         "--panel": palette.panel,
@@ -758,7 +727,16 @@ export default function App() {
         toggleBottomPanel();
         return;
       }
-      // Ctrl+Alt+B (right sidebar) and Ctrl+T (browser) are DSH's own commands now (src/dsh-host/modules/shortcuts.ts).
+      if (ctrl && event.altKey && !event.shiftKey && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        toggleWorkspaceSidebar();
+        return;
+      }
+      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "t" && !inTerminal) {
+        event.preventDefault();
+        openBrowserAt();
+        return;
+      }
       if (shortcut === normalize(shortcuts.newChat) && connection === "running") {
         event.preventDefault();
         prepareNewTask();
@@ -768,6 +746,9 @@ export default function App() {
       } else if (shortcut === normalize(shortcuts.terminal) || shortcut === "ctrl+j") {
         event.preventDefault();
         toggleBottomPanel();
+      } else if (shortcut === normalize(shortcuts.changes) && !inTerminal) {
+        event.preventDefault();
+        openReview();
       } else if (shortcut === normalize(shortcuts.toggleSidebar) && !inTerminal) {
         event.preventDefault();
         togglePrimarySidebar();
@@ -775,7 +756,19 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [connection, cycleTranscriptDensity, settings, settingsOpen, prepareNewTask, pinPrimarySidebar, togglePrimarySidebar, toggleBottomPanel]);
+  }, [
+    connection,
+    cycleTranscriptDensity,
+    openBrowserAt,
+    openReview,
+    pinPrimarySidebar,
+    prepareNewTask,
+    settings,
+    settingsOpen,
+    toggleBottomPanel,
+    togglePrimarySidebar,
+    toggleWorkspaceSidebar,
+  ]);
 
   useSyncOnChange([editingTitle, resolvedThreadTitle], () => {
     if (!editingTitle) setTitleDraft(resolvedThreadTitle);
@@ -873,16 +866,12 @@ export default function App() {
     await attachFiles(typeof selected === "string" ? [selected] : selected ?? []);
   }, [attachFiles]);
 
-  /**
-   * Opens a file a link points at. The new sidebar's file viewer is not wired
-   * yet, so the file opens in its default app meanwhile.
-   */
-  const openPreviewFile = useCallback((path: string) => {
+  /** Opens a file link inside the native right workbench editor. */
+  const openPreviewFile = useCallback((path: string, line?: number) => {
     if (!workspaceCwd) return;
-    void openPath(resolveWorkspacePath(workspaceCwd, path)).catch((error) => {
-      showErrorToast(`无法打开文件：${describeError(error)}`);
-    });
-  }, [showErrorToast, workspaceCwd]);
+    setHubView(null);
+    void useWorkbenchStore.getState().openFile(workspaceCwd, path, line ? { line } : undefined);
+  }, [workspaceCwd]);
 
   const newWorktreeChat = useCallback(async () => {
     if (!cwd) return;
@@ -1461,55 +1450,66 @@ export default function App() {
   }, []);
 
   const renderComposer = (variant: "task-start" | "follow-up") => (
-    <Composer
-      variant={variant}
-      isStreaming={isStreaming}
-      isSwitchingModel={isSwitchingModel}
-      disabled={false}
-      attachments={attachments}
-      commands={commands}
-      models={pickerModels}
-      model={model}
-      thinkingLevel={thinkingLevel}
-      thinkingLevels={availableThinkingLevels}
-      prefill={goalEditPrefill ?? composerPrefill}
-      pendingCount={store.steeringQueue.length + store.followUpQueue.length + store.managedFollowUpQueue.length}
-      queuedMessages={store.managedFollowUpQueue}
-      requireCtrlEnter={settings?.requireCtrlEnter}
-      defaultFollowUpBehavior={settings?.followUpBehavior}
-      workspace={quickChat ? "" : draftWorkspace}
-      workspaceOptions={workspaceOptions}
-      environment={taskEnvironment}
-      branchLabel={!quickChat ? (variant === "task-start" ? draftBranch : (git?.isRepository ? (git.branch || "") : "")) : ""}
-      quickChat={quickChat}
-      permissionMode={settings?.permissionMode ?? "ask"}
-      permissionLabel={permissionLabel}
-      agentMode={settings?.agentMode ?? "agent"}
-      contextUsage={variant === "follow-up" ? stats?.contextUsage : undefined}
-      sessionCost={variant === "follow-up" ? stats?.cost : undefined}
-      sessionTokens={variant === "follow-up" ? stats?.tokens : undefined}
-      transcriptDensity={transcriptDensity}
-      onTranscriptDensityChange={variant === "follow-up" ? setTranscriptDensity : undefined}
-      onSend={sendFromComposer}
-      onStop={stopFromComposer}
-      onPickAttachments={pickAttachments}
-      onAttachFiles={(files) => void attachFiles(files)}
-      onAttachPayloads={attachPayloads}
-      onSearchFiles={workspaceCwd && !quickChat ? (query, signal) => findMentionCandidates(workspaceCwd, query, signal) : undefined}
-      onRemoveAttachment={removeComposerAttachment}
-      onModelChange={changeComposerModel}
-      onThinkingChange={changeComposerThinking}
-      onWorkspaceSelect={selectWorkspace}
-      onPickWorkspace={pickFolder}
-      onQuickChat={startQuickChatFromComposer}
-      onEnvironmentChange={setTaskEnvironment}
-      onPermissionChange={changeComposerPermission}
-      onAgentModeChange={changeComposerAgentMode}
-      onPrefillConsumed={consumeComposerPrefill}
-      onRemoveQueuedMessage={store.removeManagedFollowUp}
-      onMoveQueuedMessage={store.moveManagedFollowUp}
-      onSteerQueuedMessage={store.steerManagedFollowUp}
-    />
+    <>
+      {contributions.composerToolbar.length > 0 && (
+        <div className="pid-composer-plugin-toolbar">
+          {contributions.composerToolbar.map((action) => (
+            <span key={action.id} className="pid-wb-plugin-action">
+              {action.render({ cwd: workspaceCwd || cwd, sessionFile })}
+            </span>
+          ))}
+        </div>
+      )}
+      <Composer
+        variant={variant}
+        isStreaming={isStreaming}
+        isSwitchingModel={isSwitchingModel}
+        disabled={false}
+        attachments={attachments}
+        commands={commands}
+        models={pickerModels}
+        model={model}
+        thinkingLevel={thinkingLevel}
+        thinkingLevels={availableThinkingLevels}
+        prefill={goalEditPrefill ?? composerPrefill}
+        pendingCount={store.steeringQueue.length + store.followUpQueue.length + store.managedFollowUpQueue.length}
+        queuedMessages={store.managedFollowUpQueue}
+        requireCtrlEnter={settings?.requireCtrlEnter}
+        defaultFollowUpBehavior={settings?.followUpBehavior}
+        workspace={quickChat ? "" : draftWorkspace}
+        workspaceOptions={workspaceOptions}
+        environment={taskEnvironment}
+        branchLabel={!quickChat ? (variant === "task-start" ? draftBranch : (git?.isRepository ? (git.branch || "") : "")) : ""}
+        quickChat={quickChat}
+        permissionMode={settings?.permissionMode ?? "ask"}
+        permissionLabel={permissionLabel}
+        agentMode={settings?.agentMode ?? "agent"}
+        contextUsage={variant === "follow-up" ? stats?.contextUsage : undefined}
+        sessionCost={variant === "follow-up" ? stats?.cost : undefined}
+        sessionTokens={variant === "follow-up" ? stats?.tokens : undefined}
+        transcriptDensity={transcriptDensity}
+        onTranscriptDensityChange={variant === "follow-up" ? setTranscriptDensity : undefined}
+        onSend={sendFromComposer}
+        onStop={stopFromComposer}
+        onPickAttachments={pickAttachments}
+        onAttachFiles={(files) => void attachFiles(files)}
+        onAttachPayloads={attachPayloads}
+        onSearchFiles={workspaceCwd && !quickChat ? (query, signal) => findMentionCandidates(workspaceCwd, query, signal) : undefined}
+        onRemoveAttachment={removeComposerAttachment}
+        onModelChange={changeComposerModel}
+        onThinkingChange={changeComposerThinking}
+        onWorkspaceSelect={selectWorkspace}
+        onPickWorkspace={pickFolder}
+        onQuickChat={startQuickChatFromComposer}
+        onEnvironmentChange={setTaskEnvironment}
+        onPermissionChange={changeComposerPermission}
+        onAgentModeChange={changeComposerAgentMode}
+        onPrefillConsumed={consumeComposerPrefill}
+        onRemoveQueuedMessage={store.removeManagedFollowUp}
+        onMoveQueuedMessage={store.moveManagedFollowUp}
+        onSteerQueuedMessage={store.steerManagedFollowUp}
+      />
+    </>
   );
 
 
@@ -1579,7 +1579,7 @@ export default function App() {
               </>}
               {appMenu === "help" && <>
                 <button onClick={() => { setAppMenu(null); void openUrl("https://pi.dev"); }}>Pi 文档</button>
-                <button onClick={() => { setAppMenu(null); openSummary(); }}>诊断日志</button>
+                <button onClick={() => { setAppMenu(null); openDiagnostics(); }}>诊断日志</button>
               </>}
             </div>
           )}
@@ -1614,66 +1614,91 @@ export default function App() {
           data-sidebar-panel-state={sidebarVisible ? "pinned" : sidebarHoverPreview ? "preview" : "closed"}
         >
           {sidebarRendered && (
-            <Sidebar
-            sessions={sessions}
-            currentSessionFile={sessionFile}
-            runningSessionFiles={runningSessionFiles}
-            approvalSessionFiles={approvalSessionFiles}
-            notifications={notifications}
-            cwd={newTask ? draftWorkspace : cwd}
-            newTaskActive={newTask && hubView === null}
-            activeHub={hubView === "pull-requests" || hubView === "scheduled" ? hubView : null}
-            onNewSession={() => navigateTo({ kind: "home", workspace: draftWorkspace || cwd })}
-            onOpenPullRequests={() => navigateTo({ kind: "hub", view: "pull-requests" })}
-            onOpenScheduled={() => navigateTo({ kind: "hub", view: "scheduled" })}
-            onOpenSession={(session) => navigateTo({ kind: "session", cwd: session.cwd, file: session.file })}
-            onOpenNotification={(notification) => {
-              store.markNotificationRead(notification.id);
-              const targetSession = notification.sessionFile
-                ? sessions.find((session) => sameLocalPath(session.file, notification.sessionFile as string))
-                : null;
-              if (targetSession) {
-                navigateTo({ kind: "session", cwd: targetSession.cwd, file: targetSession.file });
-              } else if (notification.cwd) {
-                navigateTo({ kind: "home", workspace: notification.cwd });
-                if (notification.sessionFile) store.showToast("原任务记录已不可用，已打开对应项目", "warning");
-              }
-            }}
-            onMarkAllNotificationsRead={store.markAllNotificationsRead}
-            onDismissNotification={store.dismissNotification}
-            onOpenProject={(workspace) => navigateTo({ kind: "home", workspace })}
-            onNewProjectSession={(workspace) => navigateTo({ kind: "home", workspace })}
-            onArchiveSession={(session) => archiveConversations([session], session.cwd, "已归档对话")}
-            onSessionRestored={() => void store.refreshSessions()}
-            onOpenProjectFolder={(workspace) => {
-              revealWorkspaceInExplorer(workspace);
-            }}
-            onCreateWorktree={async (workspace) => {
-              try {
-                const snapshot = await agent.gitSnapshot(workspace);
-                const worktree = await agent.createWorktree(workspace, snapshot.branch);
-                navigateTo({ kind: "home", workspace: worktree.path });
-                store.showToast(`已创建工作树：${worktree.branch || worktree.path}`, "info");
-              } catch (error) {
-                store.showToast(`创建工作树失败：${describeError(error)}`, "error");
-              }
-            }}
-            onArchiveProject={(workspace, projectSessions) => archiveConversations(
-              projectSessions,
-              workspace,
-              `已归档 ${projectSessions.length} 个对话`,
-            )}
-            onOpenSettings={openSettingsPage}
-            onOpenDocs={() => void openUrl("https://pi.dev")}
-            settingsShortcut={settings?.shortcutSettings ?? "Ctrl+,"}
-            onPickFolder={() => void pickFolder()}
-            newChatShortcut={settings?.shortcutNewChat ?? "Ctrl+Shift+N"}
-            searchRequested={sidebarSearchRequested}
-            onSearchRequestHandled={() => setSidebarSearchRequested(false)}
-            hoverPreview={!sidebarVisible}
-            onHoverEnter={cancelSidebarHoverClose}
-            onHoverLeave={scheduleSidebarHoverClose}
-            />
+            <>
+              <Sidebar
+                sessions={sessions}
+                currentSessionFile={sessionFile}
+                runningSessionFiles={runningSessionFiles}
+                approvalSessionFiles={approvalSessionFiles}
+                notifications={notifications}
+                cwd={newTask ? draftWorkspace : cwd}
+                newTaskActive={newTask && hubView === null}
+                activeHub={hubView === "pull-requests" || hubView === "scheduled" ? hubView : null}
+                onNewSession={() => navigateTo({ kind: "home", workspace: draftWorkspace || cwd })}
+                onOpenPullRequests={() => navigateTo({ kind: "hub", view: "pull-requests" })}
+                onOpenScheduled={() => navigateTo({ kind: "hub", view: "scheduled" })}
+                onOpenSession={(session) => navigateTo({ kind: "session", cwd: session.cwd, file: session.file })}
+                onOpenNotification={(notification) => {
+                  store.markNotificationRead(notification.id);
+                  const targetSession = notification.sessionFile
+                    ? sessions.find((session) => sameLocalPath(session.file, notification.sessionFile as string))
+                    : null;
+                  if (targetSession) {
+                    navigateTo({ kind: "session", cwd: targetSession.cwd, file: targetSession.file });
+                  } else if (notification.cwd) {
+                    navigateTo({ kind: "home", workspace: notification.cwd });
+                    if (notification.sessionFile) store.showToast("原任务记录已不可用，已打开对应项目", "warning");
+                  }
+                }}
+                onMarkAllNotificationsRead={store.markAllNotificationsRead}
+                onDismissNotification={store.dismissNotification}
+                onOpenProject={(workspace) => navigateTo({ kind: "home", workspace })}
+                onNewProjectSession={(workspace) => navigateTo({ kind: "home", workspace })}
+                onArchiveSession={(session) => archiveConversations([session], session.cwd, "已归档对话")}
+                onSessionRestored={() => void store.refreshSessions()}
+                onOpenProjectFolder={(workspace) => {
+                  revealWorkspaceInExplorer(workspace);
+                }}
+                onCreateWorktree={async (workspace) => {
+                  try {
+                    const snapshot = await agent.gitSnapshot(workspace);
+                    const worktree = await agent.createWorktree(workspace, snapshot.branch);
+                    navigateTo({ kind: "home", workspace: worktree.path });
+                    store.showToast(`已创建工作树：${worktree.branch || worktree.path}`, "info");
+                  } catch (error) {
+                    store.showToast(`创建工作树失败：${describeError(error)}`, "error");
+                  }
+                }}
+                onArchiveProject={(workspace, projectSessions) => archiveConversations(
+                  projectSessions,
+                  workspace,
+                  `已归档 ${projectSessions.length} 个对话`,
+                )}
+                onOpenSettings={openSettingsPage}
+                onOpenDocs={() => void openUrl("https://pi.dev")}
+                settingsShortcut={settings?.shortcutSettings ?? "Ctrl+,"}
+                onPickFolder={() => void pickFolder()}
+                newChatShortcut={settings?.shortcutNewChat ?? "Ctrl+Shift+N"}
+                searchRequested={sidebarSearchRequested}
+                onSearchRequestHandled={() => setSidebarSearchRequested(false)}
+                hoverPreview={!sidebarVisible}
+                onHoverEnter={cancelSidebarHoverClose}
+                onHoverLeave={scheduleSidebarHoverClose}
+              />
+              {(contributions.pages.length > 0 || contributions.leftSidebar.length > 0) && (
+                <div className="pid-sidebar-plugin-slot">
+                  {contributions.pages.map((page) => {
+                    const targetView: HubView = `plugin:${page.id}`;
+                    return (
+                      <button
+                        key={page.id}
+                        type="button"
+                        className={`pid-sidebar-plugin-page-btn${hubView === targetView ? " active" : ""}`}
+                        onClick={() => navigateTo({ kind: "hub", view: targetView })}
+                      >
+                        {page.icon}
+                        <span>{page.label}</span>
+                      </button>
+                    );
+                  })}
+                  {contributions.leftSidebar.map((section) => (
+                    <div key={section.id} className="pid-sidebar-plugin-section">
+                      {section.render({ cwd: workspaceCwd || cwd, sessionFile })}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
         {sidebarVisible && (
@@ -1699,10 +1724,8 @@ export default function App() {
           onAddToChat={(path) => void addWorkspaceFileToChat(path)}
           onNotify={notify}
         >
-        <div className="work-surface" ref={workSurfaceRef}>
+        <div className="work-surface">
         <div className="stage-canvas">
-        {/* DSH's conversation slot host: better-sidebar finds the center column and the composer through it. */}
-        <div className="dsh-slot-host" data-slot="conversation">
         <header className="topbar" data-tauri-drag-region>
           <div className="topbar-left" data-tauri-drag-region>
             {!sidebarVisible && (
@@ -1822,8 +1845,10 @@ export default function App() {
                   )}
                 </div>
                 <div className="workspace-pane-controls">
-                  {/* DSH's session header seats: better-sidebar's bottom toggle, then the right Sidebar's expand button. */}
-                  <DshCorner />
+                  <WorkbenchTopbarControls
+                    cwd={workspaceCwd || cwd}
+                    sessionFile={sessionFile}
+                  />
                 </div>
               </div>
             )}
@@ -1875,6 +1900,13 @@ export default function App() {
             <div className="feature-hub">
               <div className="feature-hub-heading"><span className="feature-hub-icon"><Globe2 size={22} /></span><div><h1>站点快捷方式</h1><p>识别当前项目中的 Web 应用并在本地启动检查。</p></div></div>
               <div className="feature-hub-card"><div className="feature-hub-stat"><strong>{draftWorkspace.split(/[\\/]/).filter(Boolean).pop() || "选择一个项目"}</strong><span>本地 Web 工作区</span></div><div className="feature-hub-actions"><button className="primary-button" onClick={() => { setHubView(null); void sendFromComposer("识别这个项目中的 Web 应用，启动本地开发服务器，检查首页是否可用，并把预览地址告诉我。若启动失败，请直接修复。", undefined); }}>启动并检查</button></div></div>
+            </div>
+          ) : hubView?.startsWith("plugin:") ? (
+            <div className="pid-plugin-page-stage">
+              {contributions.pages.find((page) => `plugin:${page.id}` === hubView)?.render({
+                cwd: workspaceCwd || cwd,
+                sessionFile,
+              }) ?? null}
             </div>
           ) : <>
           <div
@@ -1960,12 +1992,21 @@ export default function App() {
         </main>
         </WorkspaceFileOpenContext.Provider>
         </div>
+        <BottomWorkbench
+          cwd={workspaceCwd || cwd}
+          sessionFile={sessionFile}
+          layoutScale={layoutScale}
+        />
         </div>
-        </div>
-        {/* DSH's right Sidebar: the column is PIDesktop's, the panel inside it DSH's. */}
-        <DshRightbarColumn
+        <RightWorkbench
+          cwd={workspaceCwd || cwd}
+          sessionFile={sessionFile}
           width={workspacePanelWidth}
-          viewportWidth={workSurfaceWidth}
+          git={reviewGit}
+          onRefreshGit={refreshReviewGit}
+          onRestoreFiles={restoreGitFiles}
+          onRequestReview={() => void requestReview({ mode: "uncommitted" })}
+          onAddToChat={(path) => void addWorkspaceFileToChat(path)}
           resize={{
             onPointerDown: workspaceResize.beginResize,
             onKeyDown: workspaceResize.resizeWithKeyboard,
@@ -1973,8 +2014,6 @@ export default function App() {
             max: workspacePanelMaxWidth(),
           }}
         />
-        {/* DSH's React tree; its seats render into the column above and the topbar corner through portals. */}
-        <DshRoot />
         </div>
         </FileActionsProvider>
       </div>

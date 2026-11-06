@@ -19,12 +19,10 @@ import * as toolFs from "@pid/tool-fs";
 import { Tools } from "@pid/tools";
 import { Ui } from "@pid/ui";
 import { RpcGateway, WebServer, createHost, type Host } from "../packages/host/src/index";
-import * as featuresRpc from "../packages/host/src/features-rpc";
 import * as sessionsRpc from "../packages/host/src/sessions-rpc";
 import * as uiRpc from "../packages/host/src/ui-rpc";
 import { Mcp } from "@pid/mcp";
 import { Schedule } from "@pid/schedule";
-import * as scheduleRpc from "../packages/host/src/schedule-rpc";
 import { runFromHost, taskFromHost, taskToHost } from "../src/lib/scheduleClient";
 import type { ScheduledRunInfo } from "@pid/protocol";
 import { connectHarness, type HarnessConnection } from "../src/lib/harnessClient";
@@ -129,10 +127,8 @@ function createTestHost(provider: ScriptedProvider): Host {
       [checkpoints],
       [Mcp, {}],
       [Schedule, { tasksFile: join(dir, "schedules.json"), runsFile: join(dir, "schedule-runs.jsonl"), defaultModel: { provider: "scripted", model: "m" }, tickMs: 60_000 }],
-      [scheduleRpc],
       [sessionsRpc, { defaultModel: { provider: "scripted", model: "m" } }],
       [uiRpc],
-      [featuresRpc],
       [{ name: "scripted", inject: ["llm"], apply: (ctx: never) => useScriptedProvider(ctx, provider) }],
     ],
   });

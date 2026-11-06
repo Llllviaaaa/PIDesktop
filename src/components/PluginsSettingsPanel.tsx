@@ -32,6 +32,7 @@ import { describeError } from "../lib/errors";
 import { sameLocalPath } from "../lib/pathIdentity";
 import { pluginClient } from "../lib/pluginClient";
 import { queryKeys } from "../lib/queries";
+import type { AppSettings } from "../types";
 
 type PluginFilter = "all" | "user" | "workspace" | "builtin";
 type Notice = { kind: "success" | "error"; text: string } | null;
@@ -73,13 +74,30 @@ function statusBadge(plugin: PluginInfo, clientError: string | undefined): { lab
   if (plugin.status === "untrusted") {
     return { label: "待工作区信任", className: "plugin-badge status-untrusted" };
   }
+  if (plugin.status === "pending") {
+    return { label: "待就绪", className: "plugin-badge status-pending" };
+  }
   if (plugin.status === "active") {
     return { label: "运行中", className: "plugin-badge status-active" };
   }
   return { label: "已停用", className: "plugin-badge" };
 }
 
-export function PluginsSettingsPanel({ cwd }: { cwd: string }) {
+const PLUGIN_TO_APP_SETTING: Partial<Record<string, keyof AppSettings>> = {
+  plan: "planTrackingEnabled",
+  mcp: "mcpEnabled",
+  subagents: "subagentsEnabled",
+  browser: "browserEnabled",
+  computer: "computerEnabled",
+  sandbox: "sandboxEnabled",
+};
+
+export interface PluginsSettingsPanelProps {
+  cwd: string;
+  onSyncAppSetting?: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+}
+
+export function PluginsSettingsPanel({ cwd, onSyncAppSetting }: PluginsSettingsPanelProps) {
   const isTauri = "__TAURI_INTERNALS__" in window;
   const queryClient = useQueryClient();
   const clientErrors = useSyncExternalStore(subscribeClientPluginErrors, getClientPluginErrors);
@@ -95,17 +113,15 @@ export function PluginsSettingsPanel({ cwd }: { cwd: string }) {
   const pluginsQuery = useQuery({
     queryKey: queryKeys.plugins(cwd),
     queryFn: () => pluginClient.list(cwd),
-    enabled: isTauri,
   });
 
   const trustQuery = useQuery({
     queryKey: queryKeys.workspaceTrust(cwd),
     queryFn: () => pluginClient.trustList(cwd),
-    enabled: isTauri && cwd.trim() !== "",
+    enabled: cwd.trim() !== "",
   });
 
   useEffect(() => {
-    if (!isTauri) return undefined;
     const stopChanged = pluginClient.onChanged(() => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.plugins(cwd) });
     });
@@ -117,7 +133,7 @@ export function PluginsSettingsPanel({ cwd }: { cwd: string }) {
       stopChanged();
       stopTrust();
     };
-  }, [cwd, isTauri, queryClient]);
+  }, [cwd, queryClient]);
 
   const applyMutationResult = (result: PluginMutationResult, successText: string) => {
     if (cwd.trim() === "") {
@@ -366,7 +382,8 @@ export function PluginsSettingsPanel({ cwd }: { cwd: string }) {
             const badge = statusBadge(plugin, clientError);
             const channel = originLabel(plugin);
             const combinedError = plugin.error ?? clientError;
-            const switchDisabled = busy || plugin.status === "untrusted";
+            const cannotDisable = plugin.canDisable === false;
+            const switchDisabled = busy || plugin.status === "untrusted" || cannotDisable;
 
             return (
               <article
@@ -387,6 +404,9 @@ export function PluginsSettingsPanel({ cwd }: { cwd: string }) {
                         {tierLabel(plugin)}
                       </span>
                       <span className={badge.className}>{badge.label}</span>
+                      {cannotDisable && (
+                        <span className="plugin-badge">宿主必需</span>
+                      )}
                       {plugin.overridesBuiltin && (
                         <span className="plugin-badge tier-override">已覆盖内置默认</span>
                       )}
@@ -401,14 +421,26 @@ export function PluginsSettingsPanel({ cwd }: { cwd: string }) {
                     role="switch"
                     aria-checked={plugin.enabled}
                     aria-label={`${plugin.enabled ? "停用" : "启用"} ${plugin.name}`}
+                    title={cannotDisable ? "宿主通信网关插件需保持启用" : undefined}
                     disabled={switchDisabled}
                     className={`settings-switch ${plugin.enabled ? "on" : ""}`}
                     onClick={() => {
+                      if (cannotDisable) return;
+                      const nextEnabled = !plugin.enabled;
                       const ws = scopeWorkspace(plugin);
                       const params = { id: plugin.id, ...(ws === undefined ? {} : { workspace: ws }) };
                       actionMutation.mutate({
-                        run: () => (plugin.enabled ? pluginClient.disable(params) : pluginClient.enable(params)),
-                        label: `${plugin.enabled ? "已停用" : "已启用"}插件 "${plugin.name}"。`,
+                        run: async () => {
+                          const result = nextEnabled
+                            ? await pluginClient.enable(params)
+                            : await pluginClient.disable(params);
+                          const syncedKey = PLUGIN_TO_APP_SETTING[plugin.id];
+                          if (syncedKey !== undefined && plugin.tier !== "workspace") {
+                            onSyncAppSetting?.(syncedKey, nextEnabled as AppSettings[typeof syncedKey]);
+                          }
+                          return result;
+                        },
+                        label: `${nextEnabled ? "已启用" : "已停用"}插件 "${plugin.name}"。`,
                       });
                     }}
                   >
@@ -428,6 +460,17 @@ export function PluginsSettingsPanel({ cwd }: { cwd: string }) {
                     {plugin.dir !== undefined && plugin.origin?.spec !== plugin.dir && (
                       <span>目录：<code>{plugin.dir}</code></span>
                     )}
+                  </div>
+                )}
+
+                {plugin.status === "pending" && (
+                  <div className="plugin-pending-box" role="status">
+                    <span>
+                      等待前置依赖服务就绪
+                      {plugin.missingInject !== undefined && plugin.missingInject.length > 0
+                        ? `：${plugin.missingInject.join("、")}`
+                        : "…"}
+                    </span>
                   </div>
                 )}
 
@@ -624,6 +667,7 @@ export function PluginsSettingsPanel({ cwd }: { cwd: string }) {
 
       {installOpen && (
         <InstallPluginDialog
+          isTauri={isTauri}
           onClose={() => setInstallOpen(false)}
           onInstalled={(result, label) => {
             setInstallOpen(false);
@@ -636,9 +680,11 @@ export function PluginsSettingsPanel({ cwd }: { cwd: string }) {
 }
 
 function InstallPluginDialog({
+  isTauri,
   onClose,
   onInstalled,
 }: {
+  isTauri: boolean;
   onClose: () => void;
   onInstalled: (result: PluginMutationResult, label: string) => void;
 }) {
@@ -671,6 +717,7 @@ function InstallPluginDialog({
   });
 
   const browseSource = async () => {
+    if (!isTauri) return;
     setError("");
     if (channel === "local") {
       const picked = await openDialog({
@@ -779,9 +826,11 @@ function InstallPluginDialog({
                   value={source}
                   onChange={(event) => setSource(event.target.value)}
                 />
-                <button type="button" className="secondary-button" onClick={() => void browseSource()}>
-                  浏览目录…
-                </button>
+                {isTauri && (
+                  <button type="button" className="secondary-button" onClick={() => void browseSource()}>
+                    浏览目录…
+                  </button>
+                )}
               </div>
               <small>目录下需包含 <code>package.json</code>，支持直接加载 TypeScript / TSX 源码，无需预构建。</small>
             </div>
@@ -806,9 +855,11 @@ function InstallPluginDialog({
                 value={source}
                 onChange={(event) => setSource(event.target.value)}
               />
-              <button type="button" className="secondary-button" onClick={() => void browseSource()}>
-                选择文件…
-              </button>
+              {isTauri && (
+                <button type="button" className="secondary-button" onClick={() => void browseSource()}>
+                  选择文件…
+                </button>
+              )}
             </div>
             <small>自动校验压缩包内路径安全并解压至用户插件目录 <code>~/.pid/plugins/</code>。</small>
           </div>
@@ -843,7 +894,7 @@ function InstallPluginDialog({
             <label htmlFor="plugin-install-source">npm 包名与版本</label>
             <input
               id="plugin-install-source"
-              placeholder="例如 dsh-better-sidebar-csv 或 @scope/pid-plugin@^1.0.0"
+              placeholder="例如 pid-plugin-csv 或 @scope/pid-plugin@^1.0.0"
               value={source}
               onChange={(event) => setSource(event.target.value)}
             />

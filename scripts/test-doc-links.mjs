@@ -9,7 +9,7 @@ const markdownFiles = execFileSync(
   { encoding: "utf8" },
 )
   .split(/\r?\n/)
-  .filter(Boolean);
+  .filter((file) => Boolean(file) && existsSync(file));
 
 const missing = [];
 const linkPattern = /!?\[[^\]]*\]\(([^)]+)\)/g;

@@ -3,10 +3,13 @@
  * for global user preferences + `<cwd>/.pid/memory.md` for project conventions),
  * independent injection switches, and unified-diff confirmation before Agent writes.
  */
+import { existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import "@pid/permissions";
+import { ErrorCode, type MemoryExportResult, type MemoryGetResult } from "@pid/protocol";
+import { RpcError } from "@pid/rpc";
 import "@pid/session";
 import { SectionOrder } from "@pid/system-prompt";
 import { textOutput, type ToolDefinition, type ToolEnv } from "@pid/tools";
@@ -155,18 +158,60 @@ export function memoryTool(
   };
 }
 
+type RpcParams = Record<string, unknown>;
+
+function recordOf(raw: unknown): RpcParams {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new RpcError(ErrorCode.InvalidParams, "params must be an object");
+  }
+  return raw as RpcParams;
+}
+
+function optionalCwd(p: RpcParams): string | undefined {
+  if (p.cwd === undefined || p.cwd === "") return undefined;
+  if (typeof p.cwd !== "string") throw new RpcError(ErrorCode.InvalidParams, "cwd must be a string");
+  const trimmed = p.cwd.trim();
+  if (trimmed === "") return undefined;
+  if (!isAbsolute(trimmed)) throw new RpcError(ErrorCode.InvalidParams, "cwd must be an absolute path");
+  return resolve(trimmed);
+}
+
+function requiredExistingCwd(p: RpcParams): string {
+  const cwd = optionalCwd(p);
+  if (cwd === undefined || !existsSync(cwd) || !statSync(cwd).isDirectory()) {
+    throw new RpcError(ErrorCode.InvalidParams, "需要打开有效的工作区目录才能操作当前项目配置");
+  }
+  return cwd;
+}
+
+function scopeOf(p: RpcParams): MemoryScope {
+  if (p.scope === undefined || p.scope === "user") return "user";
+  if (p.scope === "project") return "project";
+  throw new RpcError(ErrorCode.InvalidParams, "scope must be 'user' or 'project'");
+}
+
+function writeFileAtomically(file: string, content: string): void {
+  mkdirSync(dirname(file), { recursive: true });
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(temp, content, "utf8");
+  renameSync(temp, file);
+}
+
 export function apply(ctx: Context, config: Config): void {
-  ctx.effect(
-    () =>
-      ctx.tools.register(
-        memoryTool({
-          file: config.file,
-          ctx,
-          ...(config.isTrusted === undefined ? {} : { isTrusted: config.isTrusted }),
-        }),
-      ),
-    `${name}: desktop_memory`,
-  );
+  if (config.userEnabled !== false || config.projectEnabled !== false) {
+    ctx.effect(
+      () =>
+        ctx.tools.register(
+          memoryTool({
+            file: config.file,
+            ctx,
+            ...(config.isTrusted === undefined ? {} : { isTrusted: config.isTrusted }),
+          }),
+        ),
+      `${name}: desktop_memory`,
+    );
+  }
 
   if (config.userEnabled !== false) {
     ctx.effect(
@@ -200,4 +245,72 @@ export function apply(ctx: Context, config: Config): void {
       `${name}: project-section`,
     );
   }
+
+  ctx.inject(["rpc"], (rpcCtx) => {
+    const globalMemoryPath = () => resolve(config.file);
+    const methods: Record<string, (raw: unknown) => unknown> = {
+      "memory.get": async (raw): Promise<MemoryGetResult> => {
+        const p = recordOf(raw);
+        const scope = scopeOf(p);
+        if (scope === "project") {
+          const cwd = optionalCwd(p);
+          if (cwd === undefined) {
+            return { scope: "project", path: "", content: "", trusted: false };
+          }
+          const path = resolve(projectMemoryPath(cwd));
+          const trusted = config.isTrusted ? config.isTrusted(cwd) : true;
+          return { scope: "project", path, content: await readMemory(path), trusted };
+        }
+        const path = globalMemoryPath();
+        return { scope: "user", path, content: await readMemory(path), trusted: true };
+      },
+
+      "memory.set": async (raw): Promise<MemoryGetResult> => {
+        const p = recordOf(raw);
+        const scope = scopeOf(p);
+        if (typeof p.content !== "string") {
+          throw new RpcError(ErrorCode.InvalidParams, "content must be a string");
+        }
+        if (Buffer.byteLength(p.content, "utf8") > MAX_MEMORY_BYTES) {
+          throw new RpcError(ErrorCode.InvalidParams, "记忆内容不能超过 256 KB");
+        }
+        const projectCwd = scope === "project" ? requiredExistingCwd(p) : undefined;
+        const path = projectCwd !== undefined
+          ? resolve(projectMemoryPath(projectCwd))
+          : globalMemoryPath();
+        await saveMemory(path, p.content);
+        const trusted = projectCwd !== undefined && config.isTrusted ? config.isTrusted(projectCwd) : true;
+        return { scope, path, content: p.content, trusted };
+      },
+
+      "memory.delete": async (raw): Promise<{ ok: true }> => {
+        const p = recordOf(raw);
+        const scope = scopeOf(p);
+        const path = scope === "project"
+          ? resolve(projectMemoryPath(requiredExistingCwd(p)))
+          : globalMemoryPath();
+        rmSync(path, { force: true });
+        return { ok: true };
+      },
+
+      "memory.export": async (raw): Promise<MemoryExportResult> => {
+        const p = recordOf(raw);
+        const scope = scopeOf(p);
+        if (typeof p.destination !== "string" || p.destination.trim() === "" || !isAbsolute(p.destination.trim())) {
+          throw new RpcError(ErrorCode.InvalidParams, "destination must be an absolute path");
+        }
+        const destination = resolve(p.destination.trim());
+        const sourcePath = scope === "project"
+          ? resolve(projectMemoryPath(requiredExistingCwd(p)))
+          : globalMemoryPath();
+        const content = await readMemory(sourcePath);
+        writeFileAtomically(destination, content);
+        return { path: destination };
+      },
+    };
+
+    for (const [method, handler] of Object.entries(methods)) {
+      rpcCtx.effect(() => rpcCtx.rpc.method(method, handler), `${name}: ${method}`);
+    }
+  });
 }

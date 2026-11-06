@@ -164,6 +164,36 @@ pub(crate) fn read_workspace_file(
     })
 }
 
+#[tauri::command(async)]
+pub(crate) fn write_workspace_file(
+    cwd: String,
+    path: String,
+    content: String,
+) -> Result<(), AppError> {
+    if path.trim().is_empty() {
+        return Err(AppError::InvalidInput("file path is required".to_string()));
+    }
+    let (root, file) = confined_workspace_path(&cwd, &path)?;
+    if file == root || file.is_dir() {
+        return Err(AppError::InvalidInput("not a file".to_string()));
+    }
+    if let Some(parent) = file.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| AppError::Io(format!("failed to create directory: {err}")))?;
+        let canon_parent = strip_windows_prefix(
+            fs::canonicalize(parent)
+                .map_err(|err| AppError::NotFound(format!("parent directory not found: {err}")))?,
+        );
+        if !canon_parent.starts_with(&root) {
+            return Err(AppError::InvalidInput(
+                "path is outside the workspace".to_string(),
+            ));
+        }
+    }
+    fs::write(&file, content.as_bytes())
+        .map_err(|err| AppError::Io(format!("failed to write file: {err}")))
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceFileContent {
@@ -278,6 +308,24 @@ mod tests {
         assert_eq!(content.text.as_deref(), Some("<h1>inside</h1>"));
         assert!(confined_workspace_path(&cwd, &outside.to_string_lossy()).is_err());
         assert!(confined_workspace_path(&cwd, "../outside.html").is_err());
+
+        write_workspace_file(
+            cwd.to_string(),
+            "nested/saved.txt".to_string(),
+            "hello workbench".to_string(),
+        )
+        .expect("writing inside workspace should succeed");
+        assert_eq!(
+            fs::read_to_string(workspace.join("nested").join("saved.txt"))
+                .expect("saved file should exist"),
+            "hello workbench"
+        );
+        assert!(write_workspace_file(
+            cwd.to_string(),
+            "../outside.html".to_string(),
+            "escaped".to_string()
+        )
+        .is_err());
 
         fs::remove_dir_all(directory).expect("temporary path fixture should be removed");
     }

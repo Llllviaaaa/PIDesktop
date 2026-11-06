@@ -21,6 +21,8 @@ export interface DiscoveredPluginManifest {
   dshClientCompat: boolean;
   configSchema?: Record<string, unknown>;
   defaultConfig?: Record<string, unknown>;
+  inject?: string[];
+  provides?: string[];
 }
 
 const HOST_CANDIDATES = [
@@ -247,6 +249,12 @@ export function readPluginManifest(dir: string, tier: PluginTier, workspace?: st
 
   const configSchema = isRecord(pidField?.configSchema) ? pidField.configSchema : undefined;
   const defaultConfig = isRecord(pidField?.defaultConfig) ? pidField.defaultConfig : undefined;
+  const inject = Array.isArray(pidField?.inject)
+    ? pidField.inject.filter((item): item is string => typeof item === "string" && item.trim() !== "")
+    : undefined;
+  const provides = Array.isArray(pidField?.provides)
+    ? pidField.provides.filter((item): item is string => typeof item === "string" && item.trim() !== "")
+    : undefined;
 
   return {
     id: rawId,
@@ -262,6 +270,8 @@ export function readPluginManifest(dir: string, tier: PluginTier, workspace?: st
     dshClientCompat: dshCompat,
     ...(configSchema === undefined ? {} : { configSchema }),
     ...(defaultConfig === undefined ? {} : { defaultConfig }),
+    ...(inject === undefined || inject.length === 0 ? {} : { inject }),
+    ...(provides === undefined || provides.length === 0 ? {} : { provides }),
   };
 }
 

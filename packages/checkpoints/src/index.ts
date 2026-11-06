@@ -10,6 +10,8 @@
  */
 import type { Context } from "@deepseek-ai/cordis";
 import "@pid/agent";
+import { ErrorCode, type CheckpointDiffResult, type CheckpointListResult } from "@pid/protocol";
+import { RpcError } from "@pid/rpc";
 import { customEvents, type Session } from "@pid/session";
 import {
   createWorkspaceCheckpoint,
@@ -72,5 +74,55 @@ export function apply(ctx: Context): void {
     } catch (error) {
       ctx.logger("checkpoints").warn("checkpoint of %s failed: %s", session.id, error);
     }
+  });
+
+  ctx.inject(["rpc"], (rpcCtx) => {
+    const resolveSession = async (params: unknown): Promise<{ target: Session; p: Record<string, unknown> }> => {
+      const p = (typeof params === "object" && params !== null ? params : {}) as Record<string, unknown>;
+      if (typeof p.sessionId !== "string") throw new RpcError(ErrorCode.InvalidParams, "sessionId must be a string");
+      const target = await rpcCtx.sessions.get(p.sessionId);
+      if (target === undefined) throw new RpcError(ErrorCode.SessionNotFound, `No session ${p.sessionId}`);
+      return { target, p };
+    };
+    const parseUserSeq = (p: Record<string, unknown>): number => {
+      if (!Number.isInteger(p.userSeq)) {
+        throw new RpcError(ErrorCode.InvalidParams, "userSeq must be the seq of a user message");
+      }
+      return p.userSeq as number;
+    };
+
+    rpcCtx.effect(
+      () => rpcCtx.rpc.method("checkpoint.list", async (params): Promise<CheckpointListResult> => ({
+        checkpoints: checkpointsOf((await resolveSession(params)).target).map(({ userSeq, checkpoint }) => ({
+          userSeq,
+          root: checkpoint.root,
+          createdAt: checkpoint.createdAt,
+        })),
+      })),
+      `${name}: checkpoint.list`,
+    );
+
+    rpcCtx.effect(
+      () => rpcCtx.rpc.method("checkpoint.diff", async (params): Promise<CheckpointDiffResult> => {
+        const { target, p } = await resolveSession(params);
+        const record = checkpointFor(target, parseUserSeq(p));
+        if (record === undefined) throw new RpcError(ErrorCode.InvalidParams, "No checkpoint for that message");
+        return diffCheckpoint(record);
+      }),
+      `${name}: checkpoint.diff`,
+    );
+
+    rpcCtx.effect(
+      () => rpcCtx.rpc.method("checkpoint.restore", async (params): Promise<CheckpointDiffResult> => {
+        const { target, p } = await resolveSession(params);
+        if (rpcCtx.agents.status(target.id).running) {
+          throw new RpcError(ErrorCode.SessionBusy, `Session ${target.id} is running`);
+        }
+        const record = checkpointFor(target, parseUserSeq(p));
+        if (record === undefined) throw new RpcError(ErrorCode.InvalidParams, "No checkpoint for that message");
+        return restoreCheckpoint(record);
+      }),
+      `${name}: checkpoint.restore`,
+    );
   });
 }

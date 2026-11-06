@@ -1,7 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { DSH_ALIASES } from "./dsh-aliases";
 import type { Plugin } from "vite";
 
 // @ts-expect-error process is a nodejs global
@@ -26,7 +25,6 @@ const e2eTauriStub: Plugin = {
 // https://vite.dev/config/
 export default defineConfig(async ({ mode }) => ({
   plugins: [react(), tailwindcss(), ...(mode === "e2e" ? [e2eTauriStub] : [])],
-  resolve: { alias: DSH_ALIASES },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
