@@ -7,29 +7,26 @@
 | 能力域 | 当前状态 | 产品要求 |
 | --- | --- | --- |
 | 多任务 Agent | 已完成 | 一个 Harness Host 同时承载所有任务的会话；后台继续流式执行；切换任务不丢状态 |
-| 会话与上下文 | 已完成 | 本地历史、搜索、重命名、归档、恢复、删除、clone、fork、tree、compact、export |
-| 模型与提供商 | 已完成 | 本地配置 provider/model；会话内切换模型与思考等级并真正下发到 runtime |
-| 工作区与 Worktree | 已完成 | 本地或 worktree 新任务、创建/打开 worktree、工作区信任、资源管理器打开 |
-| 权限与审批 | 已完成（非沙箱） | read-only/ask/workspace-write/full-access；规则持久化；写越界和危险操作审批 |
-| Git Review | 已完成 | index/worktree 状态、diff、file stage/unstage/revert、行评回灌当前会话 |
-| 本地终端 | 已完成 | 真实 PTY、多 tab、流式输出、进程状态、关闭、新建、可不进入模型上下文 |
+| 动态插件系统 | 已完成 | `~/.pid/plugins` 与 `plugins.json` 独立于安装包持久化；支持本地目录/归档/Git/npm 安装更新、文件监听热重载（HMR）、前端动态 UI 加载与工作区插件信任门禁 |
+| 会话与上下文 | 已完成 | 本地历史、`~/.pid/index.sqlite` FTS5 全文搜索、`/` 快捷斜杠指令菜单、重命名、归档、恢复、删除、clone、fork、tree、compact、export |
+| 模型与提供商 | 已完成 | 原生支持 Anthropic、OpenAI Chat、OpenAI Responses（`/v1/responses`）与 Google Gemini（`streamGenerateContent`）；会话内切换模型与思考等级并下发到 runtime |
+| 成本与可观测性 | 已完成 | 采集 `reasoningTokens`，基于 `@pid/pricing` 本地单价表估算会话与累计成本（支持自定义覆盖），日志与错误可见 |
+| 工作区与 Worktree | 已完成 | 本地或 worktree 新任务、创建/打开 worktree、工作区信任门禁、资源管理器与外部编辑器打开 |
+| 权限与轻量沙箱 | 已完成 | `read-only`/`ask`/`workspace-write`/`full-access` 审批策略；实验性 Windows 轻量沙箱（环境变量脱敏、`.pid/sandbox-tmp` 重定向、Windows Job Object 进程数限制与高危系统命令拦截）及 `.wsb` / Dev Container 外部强隔离配置导出 |
+| 本地长期记忆与技能 | 已完成 | 双层 Memory 2.0（`~/.pid/memory.md` 全局 + `<repo>/.pid/memory.md` 项目独立开关、双标签编辑、Agent 写入统一 Diff 审批）；应用内技能中心（新建/编辑/启停/删除并实时同步 `/skill:<name>`） |
+| Git Review 与 PR 闭环 | 已完成 | index/worktree 状态、hunk 级 stage/revert、二进制/纯重命名/超大 diff 专门状态卡片；基于本机 `gh` 的桌面端 PR 创建（AI 生成标题与正文，遵守 `pullRequestInstructions`）及 PR 审查评论/CI 失败一键回灌对话修复 |
+| 本地终端 | 已完成 | 真实 PTY、多 tab、自定义 Shell 启动参数（`terminalShellArgs`）、退出码徽章、选区或最近输出一键发送到对话，默认不自动污染模型上下文 |
 | 本地定时任务 | 已完成 | 创建、暂停、立即运行、安全权限快照、运行记录、结果会话；仅 App 与电脑运行时触发 |
-| 技能与外观 | 已完成 | 用户和项目的技能（`~/.pid/skills`、`.pid/skills`）、主题与宠物的安装和打开；Pi 的同类资源一次性复制过来。Pi 包管理随 Pi 在 P6c 移除 |
-| Browser / Computer | 已完成 | Grok 风格 `browser_*` / `computer_*` 本机扩展；页面/桌面截图与状态进 Inspector；控制会话与交互动作受审批控制 |
-| MCP | 本地核心已完成 | STDIO/HTTP、动态工具、资源 list/read、提示词 list/get、状态诊断、凭据保护与审批 |
-| 设置与可观测性 | 已完成 | 本地设置、通知、wake lock、token/cost、工具状态、日志与错误可见 |
+| Browser / Computer | 已完成 | `browser_*` / `computer_*` 本机扩展；页面/桌面截图与状态可见；控制会话与交互动作受审批控制 |
+| MCP | 已完成 | STDIO/HTTP、动态工具与 `list_changed` 热刷新、指数退避与手动一键重连、Resources/Prompts 浏览面板、DPAPI 凭据保护与审批 |
 
-## 下一批仍要做的本地增强
+## 持续演进方向
 
-按价值与依赖排序：
+按真实工程需求按需迭代：
 
-1. **插件与资源管理**：Harness 插件和技能的启停、过滤与项目覆盖状态，做成桌面控制（取代原来的 Pi 包页面）。
-2. **本地 Memory 2.0**：用户与项目 Markdown 编辑、选择性注入、导出和删除；继续使用 AGENTS.md 等上下文文件，不创建云画像。
-3. **MCP 动态刷新**：处理 tools/resources/prompts 的 list-changed 通知、资源订阅与重连；OAuth 平台不是主线。
-4. **终端增强**：搜索、复制全部、清屏、shell profile、尺寸/退出码细节；保持终端输出默认不自动塞入模型。
-5. **Review 精细化**：hunk 级 stage/revert、批量行评草稿、二进制/重命名 diff 的专门状态。
-6. **本机隔离启动向导**：可选容器或 Windows Sandbox 启动说明/向导；不得把审批门宣传成 OS 沙箱。
-7. **按需工作台**：有真实需求后再做本地 artifacts 预览、读取 `PLAN.md`/`TODO.md` 的计划面板、基于本机 `gh` 的 PR 评论闭环。
+1. **插件生态模板与脚手架**：沉淀更多全栈插件示例（自定义侧栏面板 + Host 工具 + 斜杠命令）。
+2. **终端进阶交互**：按需评估终端内搜索高亮与多分屏布局，继续保持终端输出不自动塞入模型上下文。
+3. **跨平台强隔离向导**：在现有 Windows Sandbox（`.wsb`）与 Dev Container 模板基础上，按需补充容器自动检测与一键拉起体验。
 
 ## 明确不做
 
@@ -37,12 +34,12 @@
 - OpenAI/ChatGPT 账号、套餐、计费、组织 RBAC 和企业策略
 - 跨设备云同步与 handoff
 - 自建插件审核/托管平台；只管理本机的插件、技能和外观资源
-- 在没有隔离后端时宣称“已提供 OS 沙箱”
-- 只有外观、没有真实本机能力的 Codex 页面空壳
+- 把纯权限审批或进程级轻量沙箱夸大宣称为内核级/Hyper-V 级完整 OS 虚拟化沙箱（强隔离请使用导出的 `.wsb` 或 Dev Container）
+- 只有外观、没有真实本机能力的页面空壳
 
 ## 验收原则
 
 - 数据与运行记录可指出明确本机路径。
 - 断网时已有会话、Git、终端和本地 provider 仍可工作或给出诚实错误。
-- Browser、Computer、MCP 等插件关闭后，核心对话仍可用。
+- Browser、Computer、MCP、轻量沙箱等能力关闭后，核心对话仍可用。
 - 新功能必须有真实后端、失败状态和最小针对性测试，才能标记已完成。

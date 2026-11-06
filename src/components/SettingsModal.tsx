@@ -39,15 +39,19 @@ import {
   ArrowUp,
   X,
 } from "lucide-react";
+import type { McpChangedNotification, McpServerStatus } from "@pid/protocol";
 import { agent } from "../lib/agent";
 import { exportDiagnostics, logsDir } from "../lib/diagnostics";
+import { harnessRuntimes } from "../lib/harnessRuntime";
 import { useAppStore } from "../store";
 import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
+import { McpServerInspector } from "./McpServerInspector";
 import { PetAvatar } from "./PetCompanion";
 import { ModelsPage } from "./ModelsPage";
+import { PluginsSettingsPanel } from "./PluginsSettingsPanel";
+import { SkillsSettingsPanel } from "./SkillsSettingsPanel";
 import type {
   AppSettings,
-  ResourceItem,
   SessionInfo,
   UsageSummary,
   WorktreeInfo,
@@ -62,6 +66,7 @@ export type SettingsPage =
   | "shortcuts"
   | "archived"
   | "usage"
+  | "plugins"
   | "skills"
   | "mcp"
   | "browser"
@@ -93,6 +98,7 @@ export const DEFAULTS: AppSettings = {
   language: "zh-CN",
   defaultFileOpener: "system",
   terminalShell: "PowerShell",
+  terminalShellArgs: "",
   terminalOutput: "summary",
   notificationsEnabled: true,
   notifyOnCompletion: true,
@@ -113,6 +119,7 @@ export const DEFAULTS: AppSettings = {
   customInstructions: "",
   suggestedPrompts: true,
   memoryEnabled: true,
+  projectMemoryEnabled: true,
   planTrackingEnabled: true,
   hooksEnabled: false,
   hooksInheritEnvironment: false,
@@ -126,6 +133,7 @@ export const DEFAULTS: AppSettings = {
   browserExecutable: "",
   computerEnabled: true,
   computerConfirmActions: true,
+  sandboxEnabled: false,
   mcpEnabled: true,
   mcpConfirmTools: true,
   mcpServers: [],
@@ -151,7 +159,8 @@ const PAGE_INFO: Record<SettingsPage, { label: string; keywords: string }> = {
   providers: { label: "模型", keywords: "模型 提供商 默认模型 推理 API 密钥 订阅 登录 OAuth ChatGPT Claude Copilot OpenRouter endpoint provider model key login" },
   agent: { label: "工作方式", keywords: "工作模式 权限 审批 沙箱 子 agent 规则 计划 approval sandbox rules plan" },
   personalization: { label: "个性化", keywords: "人格 指令 记忆 提示 personality instructions memory" },
-  skills: { label: "技能", keywords: "技能 skill instructions" },
+  plugins: { label: "插件", keywords: "插件 扩展 热更新 热加载 安装 卸载 本地 压缩包 npm git plugin extension hmr reload" },
+  skills: { label: "技能", keywords: "技能 模板 创建 编辑 斜杠 命令 skill instructions template create edit slash" },
   mcp: { label: "MCP", keywords: "mcp tools stdio http server 工具 服务器" },
   browser: { label: "浏览器", keywords: "edge chrome chromium 网页 自动化 截图 browser web automation screenshot" },
   computer: { label: "电脑操控", keywords: "windows 鼠标 键盘 窗口 截图 computer use mouse keyboard" },
@@ -181,7 +190,7 @@ const SETTINGS_GROUPS: Array<{
   { id: "appearance", label: "外观与体验", description: "主题配色、桌面伴侣宠物与个人交互偏好。", icon: Palette, pages: ["appearance", "personalization"], layout: "stack" },
   { id: "models", label: "模型与连接", description: "模型提供商、API 密钥与推理等级配置。", icon: ServerCog, pages: ["providers"], layout: "single" },
   { id: "agent", label: "Agent 与安全", description: "默认工作模式、审批机制与执行规则。", icon: Bot, pages: ["agent"], layout: "single" },
-  { id: "capabilities", label: "能力扩展", description: "技能库、MCP 服务器与自动化工具。", icon: Boxes, pages: ["skills", "mcp", "browser", "computer"], layout: "tabs" },
+  { id: "capabilities", label: "能力扩展", description: "动态插件、技能库、MCP 服务器与自动化工具。", icon: Boxes, pages: ["plugins", "skills", "mcp", "browser", "computer"], layout: "tabs" },
   { id: "coding", label: "Git 与工程", description: "代码分支、代码审查、Worktrees 与生命周期 Hooks。", icon: FolderGit2, pages: ["git", "worktrees", "hooks"], layout: "tabs" },
   { id: "archived", label: "已归档", description: "历史会话归档管理与一键恢复。", icon: Archive, pages: ["archived"], layout: "single" },
   { id: "advanced", label: "高级诊断", description: "用量统计分析与 Harness 进程诊断。", icon: SlidersHorizontal, pages: ["usage", "debug"], layout: "stack" },
@@ -195,7 +204,6 @@ function groupForPage(page: SettingsPage) {
 const PanelHeadingMode = createContext<"page" | "section" | "description">("page");
 
 const NO_SESSIONS: SessionInfo[] = [];
-const NO_RESOURCES: ResourceItem[] = [];
 const NO_WORKTREES: WorktreeInfo[] = [];
 
 export function SettingsModal({
@@ -219,8 +227,6 @@ export function SettingsModal({
   const [active, setActive] = useState<SettingsPage>(initialPage);
   const [query, setQuery] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
-  const [memoryText, setMemoryText] = useState("");
-  const [memoryState, setMemoryState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const editedRef = useRef(false);
   const pendingSaveRef = useRef<AppSettings | null>(null);
   const saveTimerRef = useRef<number | null>(null);
@@ -246,19 +252,9 @@ export function SettingsModal({
     queryFn: () => agent.listArchivedSessions(),
     enabled: isTauri,
   });
-  const resourcesQuery = useQuery({
-    queryKey: queryKeys.resources(cwd),
-    queryFn: () => agent.listResources(cwd),
-    enabled: isTauri,
-  });
   const worktreesQuery = useQuery({
     queryKey: queryKeys.worktrees(cwd),
     queryFn: () => (cwd ? agent.listWorktrees(cwd).catch((): WorktreeInfo[] => []) : Promise.resolve([])),
-    enabled: isTauri,
-  });
-  const memoryQuery = useQuery({
-    queryKey: queryKeys.localMemory(),
-    queryFn: () => agent.getLocalMemory().catch(() => ""),
     enabled: isTauri,
   });
   const usageQuery = useQuery({
@@ -267,21 +263,15 @@ export function SettingsModal({
     enabled: isTauri,
   });
   const archived = archivedQuery.data ?? NO_SESSIONS;
-  const resources = resourcesQuery.data ?? NO_RESOURCES;
   const worktrees = worktreesQuery.data ?? NO_WORKTREES;
   const usage = usageQuery.data ?? null;
   // A failed load used to leave this spinning forever; now it ends and shows what loaded.
-  const loadingData = isTauri && (archivedQuery.isPending || resourcesQuery.isPending
-    || worktreesQuery.isPending || memoryQuery.isPending);
+  const loadingData = isTauri && (archivedQuery.isPending || worktreesQuery.isPending);
 
-  // The form carries the archive list, and the memory editor starts from the saved text.
+  // The form carries the archive list.
   const archivedData = archivedQuery.data;
   useSyncOnChange([archivedData], () => {
     if (archivedData) setForm((current) => ({ ...current, archivedSessions: archivedData.map((session) => session.file) }));
-  });
-  const savedMemory = memoryQuery.data;
-  useSyncOnChange([savedMemory], () => {
-    if (savedMemory !== undefined) setMemoryText(savedMemory);
   });
   const dropArchived = (file: string) => queryClient.setQueryData<SessionInfo[]>(
     queryKeys.archivedSessions(),
@@ -354,51 +344,8 @@ export function SettingsModal({
     <>
       {page === "general" && <GeneralPage form={form} update={update} />}
       {page === "appearance" && <AppearancePage form={form} update={update} catalog={appearanceCatalog} cwd={cwd} onReload={onReloadAppearance} />}
-      {page === "agent" && <AgentPage form={form} update={update} />}
-      {page === "personalization" && <PersonalizationPage
-        form={form}
-        update={update}
-        memoryText={memoryText}
-        memoryState={memoryState}
-        onMemoryChange={(value) => { setMemoryText(value); setMemoryState("idle"); }}
-        onMemorySave={async () => {
-          setMemoryState("saving");
-          try {
-            await agent.setLocalMemory(memoryText);
-            queryClient.setQueryData(queryKeys.localMemory(), memoryText);
-            setMemoryState("saved");
-          } catch {
-            setMemoryState("error");
-          }
-        }}
-        onMemoryExport={async () => {
-          const destination = await saveDialog({
-            title: "导出本地记忆",
-            defaultPath: "pidesktop-memory.md",
-            filters: [{ name: "Markdown", extensions: ["md"] }],
-          });
-          if (typeof destination !== "string") return;
-          setMemoryState("saving");
-          try {
-            await agent.setLocalMemory(memoryText);
-            await agent.exportLocalMemory(destination);
-            setMemoryState("saved");
-          } catch {
-            setMemoryState("error");
-          }
-        }}
-        onMemoryDelete={async () => {
-          if (!window.confirm("删除 PIDesktop 本地记忆文件吗？此操作不能撤销。")) return;
-          try {
-            await agent.deleteLocalMemory();
-            queryClient.setQueryData(queryKeys.localMemory(), "");
-            setMemoryText("");
-            setMemoryState("idle");
-          } catch {
-            setMemoryState("error");
-          }
-        }}
-      />}
+      {page === "agent" && <AgentPage form={form} update={update} cwd={cwd} />}
+      {page === "personalization" && <PersonalizationPage form={form} update={update} cwd={cwd} />}
       {page === "shortcuts" && <ShortcutsPage form={form} update={update} />}
       {page === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
         await agent.restoreSession(session.file);
@@ -413,7 +360,8 @@ export function SettingsModal({
       }} />}
       {page === "usage" && <UsagePage usage={usage} />}
       {page === "providers" && <ModelsPage form={form} update={update} />}
-      {page === "skills" && <SkillsPage resources={resources} loading={loadingData} />}
+      {page === "plugins" && <PluginsSettingsPanel cwd={cwd} onSyncAppSetting={update} />}
+      {page === "skills" && <SkillsSettingsPanel cwd={cwd} />}
       {page === "mcp" && <McpPage form={form} update={update} />}
       {page === "browser" && <BrowserPage form={form} update={update} />}
       {page === "computer" && <ComputerPage form={form} update={update} />}
@@ -465,7 +413,7 @@ export function SettingsModal({
           </div>
         </header>
         <div className="settings-page-scroll">
-          <div className={`settings-page ${active === "providers" ? "wide" : ""}`}>
+          <div className={`settings-page ${active === "providers" || active === "plugins" || active === "skills" ? "wide" : ""}`}>
             {activeGroup.layout === "single" ? renderPanel(active) : (
               <>
                 <div className="settings-page-heading">
@@ -739,45 +687,140 @@ function AppearancePage({
 function PersonalizationPage({
   form,
   update,
-  memoryText,
-  memoryState,
-  onMemoryChange,
-  onMemorySave,
-  onMemoryExport,
-  onMemoryDelete,
+  cwd,
 }: {
   form: AppSettings;
   update: Update;
-  memoryText: string;
-  memoryState: "idle" | "saving" | "saved" | "error";
-  onMemoryChange: (value: string) => void;
-  onMemorySave: () => Promise<void>;
-  onMemoryExport: () => Promise<void>;
-  onMemoryDelete: () => Promise<void>;
+  cwd: string;
 }) {
+  const isTauri = "__TAURI_INTERNALS__" in window;
+  const queryClient = useQueryClient();
+  const hasWorkspace = cwd.trim() !== "";
+  const [selectedScope, setSelectedScope] = useState<"user" | "project">("user");
+  const activeScope: "user" | "project" = selectedScope === "project" && hasWorkspace ? "project" : "user";
+  const [memoryText, setMemoryText] = useState("");
+  const [memoryState, setMemoryState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  const memoryQuery = useQuery({
+    queryKey: queryKeys.memory(activeScope, cwd),
+    queryFn: () => agent.getMemory(activeScope, activeScope === "project" ? cwd : undefined),
+    enabled: isTauri && (activeScope === "user" || hasWorkspace),
+  });
+
+  const savedContent = memoryQuery.data?.content;
+  useSyncOnChange([activeScope, cwd, savedContent], () => {
+    setMemoryText(savedContent ?? "");
+    setMemoryState("idle");
+    setConfirmClear(false);
+  });
+
+  const saveMemory = async () => {
+    setMemoryState("saving");
+    try {
+      const saved = await agent.setMemory(memoryText, activeScope, activeScope === "project" ? cwd : undefined);
+      queryClient.setQueryData(queryKeys.memory(activeScope, cwd), saved);
+      setMemoryState("saved");
+    } catch {
+      setMemoryState("error");
+    }
+  };
+
+  const exportMemory = async () => {
+    const destination = await saveDialog({
+      title: activeScope === "project" ? "导出项目记忆" : "导出全局记忆",
+      defaultPath: activeScope === "project" ? "project-memory.md" : "pidesktop-memory.md",
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (typeof destination !== "string") return;
+    setMemoryState("saving");
+    try {
+      const saved = await agent.setMemory(memoryText, activeScope, activeScope === "project" ? cwd : undefined);
+      queryClient.setQueryData(queryKeys.memory(activeScope, cwd), saved);
+      await agent.exportMemory(destination, activeScope, activeScope === "project" ? cwd : undefined);
+      setMemoryState("saved");
+    } catch {
+      setMemoryState("error");
+    }
+  };
+
+  const clearMemory = async () => {
+    setMemoryState("saving");
+    try {
+      await agent.deleteMemory(activeScope, activeScope === "project" ? cwd : undefined);
+      queryClient.setQueryData(queryKeys.memory(activeScope, cwd), (prev) => prev
+        ? { ...prev, content: "" }
+        : { scope: activeScope, path: "", content: "", trusted: true });
+      setMemoryText("");
+      setConfirmClear(false);
+      setMemoryState("idle");
+    } catch {
+      setMemoryState("error");
+    }
+  };
+
   return <>
-    <PageHeading title="个性化" description="为每个本地会话设置 Agent 的工作风格和长期指令。" />
+    <PageHeading title="个性化" description="为每个本地会话设置 Agent 的工作风格、全局与项目双层长期记忆。" />
     <Card title="交流风格">
       <div className="personality-grid">{(["friendly", "pragmatic", "none"] as const).map((personality) => <button key={personality} className={form.personality === personality ? "active" : ""} onClick={() => update("personality", personality)}><Sparkles size={17} /><strong>{personality === "friendly" ? "友好" : personality === "pragmatic" ? "务实" : "无额外风格"}</strong><small>{personality === "friendly" ? "温和、清晰、协作" : personality === "pragmatic" ? "直接、简洁、注重实现" : "不添加额外表达风格"}</small></button>)}</div>
     </Card>
-    <Card title="个人指令">
+    <Card title="个人指令与记忆注入">
       <p className="card-description">重新连接后，这些指令会追加到 Agent 的系统提示词。项目中的 AGENTS.md 和 CLAUDE.md 仍按各自作用域加载。</p>
       <textarea className="large-settings-textarea" value={form.customInstructions} onChange={(event) => update("customInstructions", event.target.value)} placeholder="例如：优先使用 PowerShell，保留已有用户改动，并先运行针对性测试。" />
-      <Row title="加载记忆" description="把本地记忆和 Agent 发现的 AGENTS.md、CLAUDE.md 一起加入新任务上下文。"><Switch label="加载记忆" checked={form.memoryEnabled} onChange={(value) => update("memoryEnabled", value)} /></Row>
+      <Row title="加载全局记忆" description="把用户级记忆（~/.pid/memory.md）和 Agent 发现的 AGENTS.md、CLAUDE.md 一起加入新任务上下文。"><Switch label="加载全局记忆" checked={form.memoryEnabled} onChange={(value) => update("memoryEnabled", value)} /></Row>
+      <Row title="加载项目记忆" description="允许读取当前工作区中的 .pid/memory.md 作为仓库专属上下文注入。"><Switch label="加载项目记忆" checked={form.projectMemoryEnabled} onChange={(value) => update("projectMemoryEnabled", value)} /></Row>
     </Card>
-    <Card title="本地记忆">
-      <p className="card-description">只保存在当前 Windows 账户的 PIDesktop 配置目录中；保存后从新任务开始注入。</p>
+    <Card title="双层长期记忆">
+      <div className="memory-scope-tabs" role="tablist" aria-label="记忆层级">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeScope === "user"}
+          className={activeScope === "user" ? "active" : ""}
+          onClick={() => setSelectedScope("user")}
+        >
+          全局记忆 (~/.pid/memory.md)
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeScope === "project"}
+          className={activeScope === "project" ? "active" : ""}
+          disabled={!hasWorkspace}
+          title={hasWorkspace ? "编辑当前工作区的 .pid/memory.md" : "请先打开一个项目工作区"}
+          onClick={() => setSelectedScope("project")}
+        >
+          当前项目记忆 (.pid/memory.md)
+        </button>
+      </div>
+      <p className="card-description">
+        {activeScope === "project"
+          ? "保存在当前仓库的 .pid/memory.md 中，适合记录本项目的架构规范、测试命令与踩坑经验；Agent 写入时会展示 Diff 供你确认。"
+          : "保存在当前 Windows 账户的 PIDesktop 配置目录中，对所有项目生效；Agent 写入时会展示 Diff 供你确认。"}
+      </p>
+      {memoryQuery.data?.path && <small className="memory-path-hint">{memoryQuery.data.path}</small>}
       <textarea
         className="large-settings-textarea memory-textarea"
+        aria-label={activeScope === "project" ? "当前项目记忆内容" : "全局记忆内容"}
         value={memoryText}
-        onChange={(event) => onMemoryChange(event.target.value)}
-        placeholder="记录长期有效的项目偏好、工作习惯和约定。"
+        onChange={(event) => {
+          setMemoryText(event.target.value);
+          setMemoryState("idle");
+        }}
+        placeholder={activeScope === "project" ? "记录当前仓库的构建方式、模块边界与团队约定。" : "记录长期有效的个人偏好、工作习惯和通用约定。"}
       />
       <div className="memory-actions">
         <span className={`memory-state ${memoryState}`}>{memoryState === "saving" ? "正在保存…" : memoryState === "saved" ? "已保存" : memoryState === "error" ? "操作失败" : ""}</span>
-        <button className="secondary-button" disabled={memoryState === "saving"} onClick={() => void onMemoryExport()}><FileDown size={14} />导出</button>
-        <button className="icon-button danger" disabled={!memoryText || memoryState === "saving"} title="删除本地记忆" onClick={() => void onMemoryDelete()}><Trash2 size={14} /></button>
-        <button className="primary-button" disabled={memoryState === "saving"} onClick={() => void onMemorySave()}><Save size={14} />保存记忆</button>
+        <button type="button" className="secondary-button" disabled={memoryState === "saving"} onClick={() => void exportMemory()}><FileDown size={14} />导出</button>
+        {confirmClear ? (
+          <>
+            <button type="button" className="secondary-button compact" onClick={() => setConfirmClear(false)}>取消</button>
+            <button type="button" className="danger-button compact" disabled={memoryState === "saving"} onClick={() => void clearMemory()}><Trash2 size={13} />确认清空</button>
+          </>
+        ) : (
+          <button type="button" className="icon-button danger" disabled={!memoryText || memoryState === "saving"} title="清空当前记忆文件" onClick={() => setConfirmClear(true)}><Trash2 size={14} /></button>
+        )}
+        <button type="button" className="primary-button" disabled={memoryState === "saving"} onClick={() => void saveMemory()}><Save size={14} />保存记忆</button>
       </div>
     </Card>
   </>;
@@ -807,18 +850,53 @@ function ArchivedPage({ archived, loading, onRestore, onDelete }: { archived: Se
 
 function UsagePage({ usage }: { usage: UsageSummary | null }) {
   const number = (value?: number) => (value ?? 0).toLocaleString();
+  const formatUsd = (cost: number) => {
+    if (cost <= 0) return "$0.00";
+    if (cost < 0.01) return `$${cost.toFixed(4)}`;
+    return `$${cost.toFixed(2)}`;
+  };
   return <>
-    <PageHeading title="使用情况" description="查看由本机会话记录汇总的活动数据。" />
+    <PageHeading title="使用情况" description="查看由本机会话记录汇总的活动数据与本地预估成本。" />
     {!usage ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在计算使用情况…</div> : <>
-      {/* The Host records no costs and no reasoning tokens (agent.usageSummary fills both with 0), so neither is shown. */}
-      <div className="usage-hero"><span><small>累计 token</small><strong>{number(usage.totalTokens)}</strong></span><span><small>任务</small><strong>{number(usage.sessions)}</strong></span><span><small>消息</small><strong>{number(usage.messages)}</strong></span></div>
-      <Card title="Token 活动"><div className="usage-breakdown"><span><i style={{ width: `${Math.max(5, usage.inputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输入</strong><em>{number(usage.inputTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.outputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输出</strong><em>{number(usage.outputTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.cacheReadTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>缓存读取</strong><em>{number(usage.cacheReadTokens)}</em></span><span><i style={{ width: `${Math.max(5, usage.cacheWriteTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>缓存写入</strong><em>{number(usage.cacheWriteTokens)}</em></span></div></Card>
+      <div className="usage-hero">
+        <span><small>累计 token</small><strong>{number(usage.totalTokens)}</strong></span>
+        <span><small>预计费用</small><strong>{formatUsd(usage.totalCost)}</strong></span>
+        <span><small>任务</small><strong>{number(usage.sessions)}</strong></span>
+        <span><small>消息</small><strong>{number(usage.messages)}</strong></span>
+      </div>
+      <Card title="Token 活动">
+        <div className="usage-breakdown">
+          <span><i style={{ width: `${Math.max(5, usage.inputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输入</strong><em>{number(usage.inputTokens)}</em></span>
+          <span><i style={{ width: `${Math.max(5, usage.outputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输出</strong><em>{number(usage.outputTokens)}</em></span>
+          <span><i style={{ width: `${Math.max(5, usage.reasoningTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>推理（含于输出）</strong><em>{number(usage.reasoningTokens)}</em></span>
+          <span><i style={{ width: `${Math.max(5, usage.cacheReadTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>缓存读取</strong><em>{number(usage.cacheReadTokens)}</em></span>
+          <span><i style={{ width: `${Math.max(5, usage.cacheWriteTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>缓存写入</strong><em>{number(usage.cacheWriteTokens)}</em></span>
+        </div>
+      </Card>
     </>}
-    <div className="settings-info"><BarChart3 size={17} /><span>这些数据由本机的会话记录计算；实际账单和订阅额度以模型提供商为准。</span></div>
+    <div className="settings-info"><BarChart3 size={17} /><span>这些数据由本机的会话记录与本地单价表（可在模型配置中自定义）估算；实际账单和订阅额度以模型提供商为准。</span></div>
   </>;
 }
 
-function AgentPage({ form, update }: { form: AppSettings; update: Update }) {
+function AgentPage({ form, update, cwd }: { form: AppSettings; update: Update; cwd: string }) {
+  const [generatingKind, setGeneratingKind] = useState<"wsb" | "devcontainer" | null>(null);
+  const [generatedConfig, setGeneratedConfig] = useState<{ path: string; content: string } | null>(null);
+  const [sandboxError, setSandboxError] = useState("");
+
+  const handleGenerateSandboxConfig = async (kind: "wsb" | "devcontainer") => {
+    if (!cwd) return;
+    setGeneratingKind(kind);
+    setSandboxError("");
+    try {
+      const result = await agent.generateSandboxConfig(kind, cwd);
+      setGeneratedConfig({ path: result.path, content: result.content });
+    } catch (error) {
+      setSandboxError(describeError(error));
+    } finally {
+      setGeneratingKind(null);
+    }
+  };
+
   return <>
     <PageHeading title="Agent 与安全" description="设置新聊天的工作模式、审批策略和本地 Agent 能力。" />
     <Card title="权限">
@@ -858,6 +936,48 @@ function AgentPage({ form, update }: { form: AppSettings; update: Update }) {
           <span className="tool-rule-actions"><button type="button" className="icon-button" disabled={index === 0} onClick={() => move(-1)} title="上移"><ArrowUp size={13} /></button><button type="button" className="icon-button" disabled={index === form.toolRules.length - 1} onClick={() => move(1)} title="下移"><ArrowDown size={13} /></button><button type="button" className="icon-button danger" onClick={() => update("toolRules", form.toolRules.filter((item) => item.id !== rule.id))} title="删除规则"><Trash2 size={13} /></button></span>
         </div>;
       })}</div>
+    </Card>
+    <Card title="本机轻量沙箱（实验性）">
+      <Row
+        title="启用 Windows 轻量沙箱（实验性）"
+        description="开启后为 bash 工具脱敏密钥与令牌环境变量、把临时目录重定向到工作区 .pid/sandbox-tmp、挂载 Windows Job Object 限制进程树，并在完全访问模式外拦截系统级高危命令。"
+      >
+        <Switch
+          label="启用 Windows 轻量沙箱（实验性）"
+          checked={form.sandboxEnabled}
+          onChange={(value) => update("sandboxEnabled", value)}
+        />
+      </Row>
+      <Row
+        title="生成强隔离环境配置"
+        description={cwd ? `为当前工作区（${cwd}）导出 Windows Sandbox (.wsb) 或 Dev Container 配置文件。` : "先打开一个工作区目录以导出强隔离配置文件。"}
+      >
+        <span className="sandbox-template-actions">
+          <button
+            type="button"
+            className="secondary-button compact"
+            disabled={!cwd || generatingKind !== null}
+            onClick={() => void handleGenerateSandboxConfig("wsb")}
+          >
+            {generatingKind === "wsb" ? "生成中…" : "生成 Windows Sandbox (.wsb)"}
+          </button>
+          <button
+            type="button"
+            className="secondary-button compact"
+            disabled={!cwd || generatingKind !== null}
+            onClick={() => void handleGenerateSandboxConfig("devcontainer")}
+          >
+            {generatingKind === "devcontainer" ? "生成中…" : "生成 Dev Container 配置"}
+          </button>
+        </span>
+      </Row>
+      {sandboxError && <div className="inline-error">{sandboxError}</div>}
+      {generatedConfig && (
+        <div className="sandbox-generated-result" data-testid="sandbox-generated-result">
+          <small>已写入：<code>{generatedConfig.path}</code></small>
+          <pre>{generatedConfig.content}</pre>
+        </div>
+      )}
     </Card>
     <div className="settings-info"><Bot size={17} /><span>模型、计划工具和 Rules 设置应用于新启动的聊天；工作模式与权限可在当前聊天的输入框中即时切换。</span></div>
   </>;
@@ -907,15 +1027,6 @@ function HooksPage({ form, update }: { form: AppSettings; update: Update }) {
   </>;
 }
 
-function SkillsPage({ resources, loading }: { resources: ResourceItem[]; loading: boolean }) {
-  const skills = resources.filter((item) => item.kind === "skill");
-  return <>
-    <PageHeading title="技能" description="查看用户（~/.pid/skills）和当前项目（.pid/skills、.agents/skills）中可供 Agent 调用的技能。" />
-    <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} />正在发现技能…</div> : skills.length === 0 ? <div className="settings-empty"><Sparkles size={22} />未发现技能</div> : <div className="resource-list">{skills.map((item) => <button key={`${item.scope}-${item.path}`} onClick={() => void openPath(item.path).catch(() => undefined)}><span className="resource-kind skill">技能</span><span><strong>{item.name}</strong><small>{item.path}</small></span><em>{item.scope === "project" ? "项目" : "用户"}</em><ChevronRight size={14} /></button>)}</div>}</Card>
-    <div className="settings-info"><Sparkles size={17} /><span>技能由 <code>SKILL.md</code> 定义。项目技能只在当前工作区受信任后加载。</span></div>
-  </>;
-}
-
 function linesToRecord(value: string): Record<string, string> {
   return Object.fromEntries(value.split(/\r?\n/).map((line) => {
     const separator = line.indexOf("=");
@@ -939,6 +1050,52 @@ function maskMcpCredentials(settings: AppSettings): AppSettings {
 }
 
 function McpPage({ form, update }: { form: AppSettings; update: Update }) {
+  const queryClient = useQueryClient();
+  const [reconnectingId, setReconnectingId] = useState<string | null>(null);
+  const [reconnectNotice, setReconnectNotice] = useState<{ kind: "info" | "error"; text: string } | null>(null);
+  const mcpStatusQuery = useQuery({
+    queryKey: queryKeys.mcpStatus(),
+    queryFn: () => agent.mcpStatus().catch((): McpServerStatus[] => []),
+  });
+
+  useEffect(() => {
+    return harnessRuntimes.onNotification("mcp/changed", (raw) => {
+      const payload = raw as Partial<McpChangedNotification> | undefined;
+      if (Array.isArray(payload?.servers)) {
+        queryClient.setQueryData(queryKeys.mcpStatus(), payload.servers);
+      } else {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.mcpStatus() });
+      }
+      void queryClient.invalidateQueries({ queryKey: ["mcp", "resources"] });
+      void queryClient.invalidateQueries({ queryKey: ["mcp", "prompts"] });
+    });
+  }, [queryClient]);
+
+  const statusById = new Map((mcpStatusQuery.data ?? []).map((entry) => [entry.id, entry]));
+
+  const handleReconnect = async (serverId?: string) => {
+    const key = serverId ?? "__all__";
+    setReconnectingId(key);
+    setReconnectNotice(null);
+    try {
+      const servers = await agent.mcpReconnect(serverId);
+      queryClient.setQueryData(queryKeys.mcpStatus(), servers);
+      void queryClient.invalidateQueries({ queryKey: ["mcp", "resources"] });
+      void queryClient.invalidateQueries({ queryKey: ["mcp", "prompts"] });
+      const connectedCount = servers.filter((entry) => entry.connected).length;
+      setReconnectNotice({
+        kind: "info",
+        text: serverId
+          ? `已重连服务器 ${serverId}`
+          : `已完成重连（已连接 ${connectedCount}/${servers.length} 个已启用服务）`,
+      });
+    } catch (error) {
+      setReconnectNotice({ kind: "error", text: `重连失败：${describeError(error)}` });
+    } finally {
+      setReconnectingId(null);
+    }
+  };
+
   const addServer = (transport: "stdio" | "http") => {
     const id = `server-${Date.now().toString(36)}`;
     update("mcpServers", [...form.mcpServers, {
@@ -962,39 +1119,90 @@ function McpPage({ form, update }: { form: AppSettings; update: Update }) {
   const removeServer = (id: string) => update("mcpServers", form.mcpServers.filter((server) => server.id !== id));
 
   return <>
-    <PageHeading title="MCP 服务器" description="连接本地或远程 Model Context Protocol 服务器，并把它们的真实工具注册给 Agent。" />
+    <PageHeading title="MCP 服务器" description="连接本地或远程 Model Context Protocol 服务器，实时热刷新工具，并在线浏览资源与提示词。" />
     <Card title="MCP 主机">
-      <Row title="启用 MCP" description="新任务会连接已启用的服务器，并动态注册发现到的工具。"><Switch label="启用 MCP" checked={form.mcpEnabled} onChange={(value) => update("mcpEnabled", value)} /></Row>
+      <Row title="启用 MCP" description="自动连接已启用的服务器；收到 tools/list_changed 时无感热刷新工具，无需重启。"><Switch label="启用 MCP" checked={form.mcpEnabled} onChange={(value) => update("mcpEnabled", value)} /></Row>
       <Row title="工具调用前审批" description="每次执行 MCP 工具前显示服务器、工具名和参数。"><Switch label="MCP 工具调用前审批" checked={form.mcpConfirmTools} onChange={(value) => update("mcpConfirmTools", value)} /></Row>
     </Card>
     <div className="mcp-toolbar">
       <button className="primary-button" onClick={() => addServer("stdio")}><Plus size={14} />添加本地服务器</button>
       <button className="secondary-button" onClick={() => addServer("http")}><Plus size={14} />添加 HTTP 服务器</button>
+      {form.mcpServers.length > 0 && (
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={reconnectingId !== null}
+          onClick={() => void handleReconnect()}
+        >
+          <RefreshCw className={reconnectingId === "__all__" ? "spinner-icon" : ""} size={14} />
+          <span>{reconnectingId === "__all__" ? "正在重连…" : "全部重连"}</span>
+        </button>
+      )}
     </div>
-    {form.mcpServers.length === 0 && <div className="settings-empty mcp-empty"><Network size={24} />尚未配置 MCP 服务器。</div>}
-    {form.mcpServers.map((server) => <section className="mcp-server-editor" key={server.id}>
-      <header>
-        <span><Network size={16} /><strong>{server.name || server.id}</strong><small>{server.transport === "stdio" ? "STDIO" : "Streamable HTTP"}</small></span>
-        <div><Switch label={`启用 ${server.name || server.id}`} checked={server.enabled} onChange={(enabled) => changeServer(server.id, { enabled })} /><button className="icon-button danger" title="删除服务器" onClick={() => removeServer(server.id)}><Trash2 size={15} /></button></div>
-      </header>
-      <div className="mcp-server-fields">
-        <Row title="名称"><input value={server.name} onChange={(event) => changeServer(server.id, { name: event.target.value })} placeholder="文件系统" /></Row>
-        <Row title="服务器 ID" description="用于生成 mcp__server__tool 工具名；必须唯一。"><input value={server.id} onChange={(event) => changeServer(server.id, { id: event.target.value.replace(/[^a-zA-Z0-9_-]/g, "-") })} /></Row>
-        <Row title="传输方式"><select value={server.transport} onChange={(event) => changeServer(server.id, { transport: event.target.value as "stdio" | "http" })}><option value="stdio">STDIO（本地进程）</option><option value="http">Streamable HTTP</option></select></Row>
-        {server.transport === "stdio" ? <>
-          <Row title="命令" description="例如 npx、uvx 或服务器可执行文件的绝对路径。"><input value={server.command} onChange={(event) => changeServer(server.id, { command: event.target.value })} placeholder="npx" /></Row>
-          <Row title="参数" description="每行一个参数。"><textarea value={server.args.join("\n")} onChange={(event) => changeServer(server.id, { args: event.target.value.split(/\r?\n/).filter((value) => value.length > 0) })} placeholder={'-y\n@modelcontextprotocol/server-filesystem\nD:\\Projects'} /></Row>
-          <Row title="工作目录" description="留空时使用当前任务工作区。"><input value={server.cwd} onChange={(event) => changeServer(server.id, { cwd: event.target.value })} placeholder="使用任务工作区" /></Row>
-          <Row title="环境变量" description="每行 KEY=value；适合 STDIO 服务器凭据。"><textarea value={recordToLines(server.env)} onChange={(event) => changeServer(server.id, { env: linesToRecord(event.target.value) })} placeholder="TOKEN=…" /></Row>
-          <Row title="继承完整环境" description="默认会过滤父进程中的 API key、令牌、密码和 Cookie。"><Switch label="继承完整父进程环境" checked={server.inheritEnvironment} onChange={(inheritEnvironment) => changeServer(server.id, { inheritEnvironment })} /></Row>
-        </> : <>
-          <Row title="MCP 端点"><input value={server.url} onChange={(event) => changeServer(server.id, { url: event.target.value })} placeholder="https://example.com/mcp" /></Row>
-          <Row title="请求头" description="每行 Header=value；可用于预配置 Bearer 令牌。"><textarea value={recordToLines(server.headers)} onChange={(event) => changeServer(server.id, { headers: linesToRecord(event.target.value) })} placeholder="Authorization=Bearer …" /></Row>
-        </>}
-        <Row title="受信任只读服务器" description="仅在你确认该服务器所有非破坏性工具都只读时启用；只读权限模式据此决定是否允许调用。"><Switch label="将服务器标记为受信任只读" checked={server.trustedReadOnly} onChange={(trustedReadOnly) => changeServer(server.id, { trustedReadOnly })} /></Row>
+    {reconnectNotice && (
+      <div className={`mcp-live-banner ${reconnectNotice.kind === "error" ? "is-error" : ""}`}>
+        {reconnectNotice.kind === "error" ? <CircleAlert size={14} /> : <CheckCircle2 size={14} />}
+        <span>{reconnectNotice.text}</span>
       </div>
-    </section>)}
-    <div className="settings-info"><ShieldAlert size={17} /><span>MCP 服务器拥有其进程或远程账户对应的权限。STDIO 凭据和 HTTP 请求头由当前 Windows 账户加密保存，重新打开设置时只显示掩码；工具注解来自服务器，只有“受信任只读服务器”开关代表你的明确授权。保存后请新建任务，并运行 <code>/mcp-diagnose</code> 查看连接和工具数量。</span></div>
+    )}
+    {form.mcpServers.length === 0 && <div className="settings-empty mcp-empty"><Network size={24} />尚未配置 MCP 服务器。</div>}
+    {form.mcpServers.map((server) => {
+      const liveStatus = statusById.get(server.id);
+      return <section className="mcp-server-editor" key={server.id}>
+        <header>
+          <span>
+            <Network size={16} />
+            <strong>{server.name || server.id}</strong>
+            <small>{server.transport === "stdio" ? "STDIO" : "Streamable HTTP"}</small>
+            {server.enabled && liveStatus && (
+              <em className={`mcp-status-pill ${liveStatus.connected ? "connected" : "disconnected"}`}>
+                {liveStatus.connected ? `已连接 · ${liveStatus.toolCount} 个工具` : "未连接"}
+              </em>
+            )}
+          </span>
+          <div>
+            {server.enabled && liveStatus !== undefined && (
+              <button
+                type="button"
+                className="secondary-button compact"
+                disabled={reconnectingId !== null}
+                onClick={() => void handleReconnect(server.id)}
+                title="重新连接此 MCP 服务器"
+              >
+                <RefreshCw className={reconnectingId === server.id ? "spinner-icon" : ""} size={12} />
+                <span>{reconnectingId === server.id ? "重连中…" : "重连"}</span>
+              </button>
+            )}
+            <Switch label={`启用 ${server.name || server.id}`} checked={server.enabled} onChange={(enabled) => changeServer(server.id, { enabled })} />
+            <button className="icon-button danger" title="删除服务器" onClick={() => removeServer(server.id)}><Trash2 size={15} /></button>
+          </div>
+        </header>
+        {server.enabled && liveStatus?.error && (
+          <div className="mcp-server-error">
+            <CircleAlert size={13} />
+            <span>{liveStatus.error}</span>
+          </div>
+        )}
+        <div className="mcp-server-fields">
+          <Row title="名称"><input value={server.name} onChange={(event) => changeServer(server.id, { name: event.target.value })} placeholder="文件系统" /></Row>
+          <Row title="服务器 ID" description="用于生成 mcp__server__tool 工具名；必须唯一。"><input value={server.id} onChange={(event) => changeServer(server.id, { id: event.target.value.replace(/[^a-zA-Z0-9_-]/g, "-") })} /></Row>
+          <Row title="传输方式"><select value={server.transport} onChange={(event) => changeServer(server.id, { transport: event.target.value as "stdio" | "http" })}><option value="stdio">STDIO（本地进程）</option><option value="http">Streamable HTTP</option></select></Row>
+          {server.transport === "stdio" ? <>
+            <Row title="命令" description="例如 npx、uvx 或服务器可执行文件的绝对路径。"><input value={server.command} onChange={(event) => changeServer(server.id, { command: event.target.value })} placeholder="npx" /></Row>
+            <Row title="参数" description="每行一个参数。"><textarea value={server.args.join("\n")} onChange={(event) => changeServer(server.id, { args: event.target.value.split(/\r?\n/).filter((value) => value.length > 0) })} placeholder={'-y\n@modelcontextprotocol/server-filesystem\nD:\\Projects'} /></Row>
+            <Row title="工作目录" description="留空时使用当前任务工作区。"><input value={server.cwd} onChange={(event) => changeServer(server.id, { cwd: event.target.value })} placeholder="使用任务工作区" /></Row>
+            <Row title="环境变量" description="每行 KEY=value；适合 STDIO 服务器凭据。"><textarea value={recordToLines(server.env)} onChange={(event) => changeServer(server.id, { env: linesToRecord(event.target.value) })} placeholder="TOKEN=…" /></Row>
+            <Row title="继承完整环境" description="默认会过滤父进程中的 API key、令牌、密码和 Cookie。"><Switch label="继承完整父进程环境" checked={server.inheritEnvironment} onChange={(inheritEnvironment) => changeServer(server.id, { inheritEnvironment })} /></Row>
+          </> : <>
+            <Row title="MCP 端点"><input value={server.url} onChange={(event) => changeServer(server.id, { url: event.target.value })} placeholder="https://example.com/mcp" /></Row>
+            <Row title="请求头" description="每行 Header=value；可用于预配置 Bearer 令牌。"><textarea value={recordToLines(server.headers)} onChange={(event) => changeServer(server.id, { headers: linesToRecord(event.target.value) })} placeholder="Authorization=Bearer …" /></Row>
+          </>}
+          <Row title="受信任只读服务器" description="仅在你确认该服务器所有非破坏性工具都只读时启用；只读权限模式据此决定是否允许调用。"><Switch label="将服务器标记为受信任只读" checked={server.trustedReadOnly} onChange={(trustedReadOnly) => changeServer(server.id, { trustedReadOnly })} /></Row>
+        </div>
+        <McpServerInspector serverId={server.id} status={liveStatus} />
+      </section>;
+    })}
+    <div className="settings-info"><ShieldAlert size={17} /><span>MCP 服务器拥有其进程或远程账户对应的权限。STDIO 凭据和 HTTP 请求头由当前 Windows 账户加密保存，重新打开设置时只显示掩码；工具注解来自服务器，只有“受信任只读服务器”开关代表你的明确授权。保存设置后自动生效，也可随时在对话中输入 <code>/mcp-status</code>、<code>/mcp-resources</code> 或 <code>/mcp-prompts</code>。</span></div>
   </>;
 }
 
@@ -1034,6 +1242,7 @@ function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }
     </Card>
     <Card title="集成终端">
       <Row title="集成终端 Shell" description="终端面板里新建标签页时默认使用的 Shell；“+”旁的菜单仍可临时选择其他 Shell。"><select value={form.terminalShell} onChange={(event) => update("terminalShell", event.target.value)}>{shells.map((shell) => <option key={shell} value={shell}>{shell}</option>)}</select></Row>
+      <Row title="Shell 启动参数" description="新建集成终端标签页时追加给默认 Shell 的参数（支持引号分组，如 -NoLogo -NoProfile）。"><input aria-label="Shell 启动参数" value={form.terminalShellArgs} onChange={(event) => update("terminalShellArgs", event.target.value)} placeholder="-NoLogo" /></Row>
       <Row title="对话中的命令输出" description="展开命令时显示的输出：摘要最多 80 行，完整显示命令打印的全部内容。"><select value={form.terminalOutput} onChange={(event) => update("terminalOutput", event.target.value as AppSettings["terminalOutput"])}><option value="summary">摘要</option><option value="full">完整输出</option></select></Row>
     </Card>
   </>;
@@ -1054,8 +1263,8 @@ function GitPage({ form, update }: { form: AppSettings; update: Update }) {
     </Card>
     <Card title="生成指令">
       <label className="stacked-setting"><span>提交消息</span><textarea value={form.commitMessageInstructions} onChange={(event) => update("commitMessageInstructions", event.target.value)} placeholder="生成提交消息时额外遵守的要求，例如“用英文写，正文引用工单号”" /></label>
+      <label className="stacked-setting"><span>拉取请求说明</span><textarea aria-label="拉取请求说明" value={form.pullRequestInstructions} onChange={(event) => update("pullRequestInstructions", event.target.value)} placeholder="AI 起草 PR 标题和正文时额外遵守的要求，例如“附带关联 Issue 编号与回滚方案”" /></label>
     </Card>
-    {/* pullRequestInstructions stays in settings.json, but the app creates no pull requests yet, so it has no row. */}
   </>;
 }
 

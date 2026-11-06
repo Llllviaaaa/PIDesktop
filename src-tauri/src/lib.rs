@@ -288,6 +288,7 @@ pub fn run() {
             search_workspace_files,
             cancel_workspace_search,
             read_workspace_file,
+            write_workspace_file,
             open_workspace_in_file_manager,
             list_workspace_editors,
             open_workspace_in_editor,
@@ -303,9 +304,11 @@ pub fn run() {
             terminal::terminal_close,
             harness_host::harness_endpoint,
             harness_host::restart_harness_host,
-            harness_host::sidebar_host_base,
             list_pull_requests,
             checkout_pull_request,
+            pull_request_draft_prompt,
+            create_pull_request,
+            get_pull_request_detail,
             list_worktrees,
             create_worktree
         ])

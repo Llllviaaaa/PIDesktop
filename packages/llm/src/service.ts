@@ -1,4 +1,5 @@
 import { Context, Service } from "@deepseek-ai/cordis";
+import type { SecretRef } from "./credentials.ts";
 import { toLlmError, type LlmError } from "./errors.ts";
 import type { FinishReason, LlmErrorInfo, LlmRequest, ModelInfo, ProviderInfo, StreamChunk, Usage } from "./types.ts";
 
@@ -15,6 +16,8 @@ declare module "@deepseek-ai/cordis" {
     "llm/request"(request: LlmRequest, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>;
     /** One call finished (after any retries), with what it cost. */
     "llm/response"(response: LlmResponseInfo): void;
+    /** Fired whenever an LLM wire-protocol plugin registers or unregisters on `ctx.llm`. */
+    "llm/protocols-changed"(): void;
   }
 }
 
@@ -26,6 +29,23 @@ export interface LlmAdapter {
   stream(request: LlmRequest, signal: AbortSignal): AsyncIterable<StreamChunk>;
   /** The models the provider advertises, merged with any configured ones. */
   listModels?(signal?: AbortSignal): Promise<ModelInfo[]>;
+}
+
+export interface LlmProtocolProviderInput {
+  id: string;
+  name?: string;
+  baseUrl?: string;
+  apiKey?: SecretRef;
+  headers?: Record<string, string>;
+  reasoningEffort?: boolean;
+  models?: ModelInfo[];
+}
+
+export interface LlmProtocolSpec {
+  requiresBaseUrl?: boolean;
+  defaultBaseUrl?: string;
+  normalizeBaseUrl?: (baseUrl?: string) => string;
+  createAdapter(ctx: Context, provider: LlmProtocolProviderInput): LlmAdapter;
 }
 
 export interface LlmResponseInfo {
@@ -62,9 +82,10 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-/** Adapter registry plus the single streaming call surface (ADR 0007). */
+/** Adapter and wire-protocol registry plus the single streaming call surface (ADR 0007). */
 export class LlmService extends Service {
   private readonly adapters = new Map<string, { info: ProviderInfo; adapter: LlmAdapter }>();
+  private readonly protocols = new Map<string, LlmProtocolSpec>();
   private readonly maxAttempts: number;
   private readonly baseDelayMs: number;
 
@@ -72,6 +93,49 @@ export class LlmService extends Service {
     super(ctx, "llm");
     this.maxAttempts = Math.max(1, config.maxAttempts ?? 3);
     this.baseDelayMs = Math.max(0, config.baseDelayMs ?? 1_000);
+  }
+
+  /** Register a wire-protocol factory (e.g. `"openai-compat"`, `"anthropic"`, or a custom protocol plugin). */
+  registerProtocol(api: string, spec: LlmProtocolSpec): () => void {
+    const normalized = api.trim();
+    if (normalized === "") throw new Error("LLM protocol id must be non-empty");
+    this.protocols.set(normalized, spec);
+    this.ctx.emit("llm/protocols-changed");
+    return () => {
+      if (this.protocols.get(normalized) === spec) {
+        this.protocols.delete(normalized);
+        this.ctx.emit("llm/protocols-changed");
+      }
+    };
+  }
+
+  getProtocol(api: string): LlmProtocolSpec | undefined {
+    return this.protocols.get(api);
+  }
+
+  listProtocols(): string[] {
+    return [...this.protocols.keys()];
+  }
+
+  instantiateProtocolAdapter(
+    api: string,
+    provider: LlmProtocolProviderInput,
+    callerCtx?: Context,
+  ): { info: ProviderInfo; adapter: LlmAdapter } | undefined {
+    const spec = this.protocols.get(api);
+    if (spec === undefined) return undefined;
+    const baseUrl = spec.normalizeBaseUrl !== undefined
+      ? spec.normalizeBaseUrl(provider.baseUrl)
+      : (provider.baseUrl ?? spec.defaultBaseUrl ?? "");
+    return {
+      info: {
+        id: provider.id,
+        name: provider.name ?? provider.id,
+        api,
+        baseUrl,
+      },
+      adapter: spec.createAdapter(callerCtx ?? this.ctx, provider),
+    };
   }
 
   /** Serve `info.id` with `adapter`. Returns the disposer; register it with the plugin's effects. */

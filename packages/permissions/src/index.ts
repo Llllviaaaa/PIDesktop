@@ -9,6 +9,8 @@
  * they follow the branch and survive restarts.
  */
 import { Context, Service } from "@deepseek-ai/cordis";
+import { ErrorCode, type AppendResult, type PermissionGetResult } from "@pid/protocol";
+import { RpcError } from "@pid/rpc";
 import { latestCustom, type Session } from "@pid/session";
 import { SectionOrder } from "@pid/system-prompt";
 import "@pid/tools";
@@ -36,6 +38,9 @@ declare module "@deepseek-ai/cordis" {
 }
 
 export const NAMESPACE = "pid-permissions";
+
+const PERMISSION_MODES: readonly PermissionMode[] = ["read-only", "ask", "workspace-write", "full-access"];
+const AGENT_MODES: readonly AgentMode[] = ["agent", "plan", "ask"];
 
 export interface SessionModes {
   permission: PermissionMode;
@@ -70,6 +75,7 @@ export function rulesFromConfig(config: Config): PermissionRules {
 
 export class Permissions extends Service {
   static inject = ["sessions", "tools", "ui", "systemPrompt"];
+  static provide = "permissions";
 
   readonly rules: PermissionRules;
 
@@ -82,7 +88,7 @@ export class Permissions extends Service {
     ctx.on("tools/pre-execute", async (call, env) => {
       applyDesktopToolDefaults(call.name, call.args);
       const session = await ctx.sessions.get(env.sessionId);
-      const mode = session === undefined ? this.defaults().effective : this.modes(session).effective;
+      const mode = session === undefined ? this.defaultModes().effective : this.modes(session).effective;
       const decision = evaluateToolPermission({ mode, rules: this.rules, workspace: env.cwd, toolName: call.name, input: call.args });
       if (decision.action === "allow") return undefined;
       if (decision.action === "block") return { deny: true, reason: decision.reason };
@@ -93,18 +99,54 @@ export class Permissions extends Service {
 
     ctx.effect(() => ctx.systemPrompt.section("agent-mode", async ({ sessionId }) => {
       const session = await ctx.sessions.get(sessionId);
-      return agentModeSystemInstructions(session === undefined ? this.defaults().agentMode : this.modes(session).agentMode);
+      return agentModeSystemInstructions(session === undefined ? this.defaultModes().agentMode : this.modes(session).agentMode);
     }, { order: SectionOrder.guidelines + 10 }), "permissions: agent-mode section");
+
+    ctx.inject(["rpc"], (rpcCtx) => {
+      const resolveSession = async (params: unknown): Promise<{ target: Session; p: Record<string, unknown> }> => {
+        const p = (typeof params === "object" && params !== null ? params : {}) as Record<string, unknown>;
+        if (typeof p.sessionId !== "string") throw new RpcError(ErrorCode.InvalidParams, "sessionId must be a string");
+        const target = await rpcCtx.sessions.get(p.sessionId);
+        if (target === undefined) throw new RpcError(ErrorCode.SessionNotFound, `No session ${p.sessionId}`);
+        return { target, p };
+      };
+
+      rpcCtx.effect(
+        () => rpcCtx.rpc.method("permission.get", async (params): Promise<PermissionGetResult> =>
+          this.modes((await resolveSession(params)).target),
+        ),
+        "permissions: permission.get",
+      );
+
+      rpcCtx.effect(
+        () => rpcCtx.rpc.method("permission.set", async (params): Promise<AppendResult> => {
+          const { target, p } = await resolveSession(params);
+          if (p.permission !== undefined && !PERMISSION_MODES.includes(p.permission as PermissionMode)) {
+            throw new RpcError(ErrorCode.InvalidParams, `permission must be one of ${PERMISSION_MODES.join(", ")}`);
+          }
+          if (p.agentMode !== undefined && !AGENT_MODES.includes(p.agentMode as AgentMode)) {
+            throw new RpcError(ErrorCode.InvalidParams, `agentMode must be one of ${AGENT_MODES.join(", ")}`);
+          }
+          return {
+            seq: this.set(target, {
+              ...(p.permission === undefined ? {} : { permission: normalizePermissionMode(p.permission as string) }),
+              ...(p.agentMode === undefined ? {} : { agentMode: normalizeAgentMode(p.agentMode as string) }),
+            }),
+          };
+        }),
+        "permissions: permission.set",
+      );
+    });
   }
 
-  private defaults(): SessionModes {
+  defaultModes(): SessionModes {
     const permission = normalizePermissionMode(this.config.defaultPermission);
     const agentMode = normalizeAgentMode(this.config.defaultAgentMode);
     return { permission, agentMode, effective: permissionForAgentMode(agentMode, permission) };
   }
 
   modes(session: Session): SessionModes {
-    const defaults = this.defaults();
+    const defaults = this.defaultModes();
     const stored = latestCustom<{ permission?: string; agentMode?: string }>(session.events, NAMESPACE);
     const permission = stored?.permission === undefined ? defaults.permission : normalizePermissionMode(stored.permission);
     const agentMode = stored?.agentMode === undefined ? defaults.agentMode : normalizeAgentMode(stored.agentMode);

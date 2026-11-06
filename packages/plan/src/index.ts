@@ -5,6 +5,9 @@
  * `{ type: "plan", plan }` delta for the UI.
  */
 import type { Context } from "@deepseek-ai/cordis";
+import "@pid/commands";
+import { ErrorCode, type PlanGetResult } from "@pid/protocol";
+import { RpcError } from "@pid/rpc";
 import { latestCustom, type Session } from "@pid/session";
 import { textOutput, type ToolDefinition } from "@pid/tools";
 import { validatePlanState, type PlanItemStatus, type PlanState } from "./core.ts";
@@ -76,6 +79,49 @@ export function planTool(ctx: Context): ToolDefinition<{ explanation?: string; i
   };
 }
 
+export function formatPlanMarkdown(plan: PlanState): string {
+  if (plan.items.length === 0) return "当前会话暂无执行计划。";
+  const marker = (status: PlanItemStatus) => (status === "completed" ? "[x]" : status === "in_progress" ? "[>]" : "[ ]");
+  const lines = ["### 当前任务计划", ""];
+  if (plan.explanation.trim()) {
+    lines.push(plan.explanation.trim(), "");
+  }
+  for (const item of plan.items) {
+    lines.push(`- \`${marker(item.status)}\` ${item.text}`);
+  }
+  return lines.join("\n");
+}
+
 export function apply(ctx: Context): void {
   ctx.effect(() => ctx.tools.register(planTool(ctx)), `${name}: update_plan`);
+  ctx.inject(["commands"], (inner) => {
+    inner.effect(() => inner.commands.register({
+      name: "plan",
+      description: "查看当前会话的任务计划（传入 clear 清空计划）",
+      argsHint: "[clear]",
+      source: "plan",
+      async execute(rawArgs, env) {
+        if (!env.sessionId) return { output: "当前会话尚未开始，暂无任务计划。" };
+        const session = await inner.sessions.get(env.sessionId);
+        if (session === undefined) return { output: "找不到当前会话。", isError: true };
+        if (rawArgs.trim().toLowerCase() === "clear") {
+          setPlan(session, { explanation: "", items: [] });
+          return { output: "已清空当前会话的任务计划。" };
+        }
+        return { output: formatPlanMarkdown(planOf(session)) };
+      },
+    }), `${name}: /plan`);
+  });
+  ctx.inject(["rpc"], (rpcCtx) => {
+    rpcCtx.effect(
+      () => rpcCtx.rpc.method("plan.get", async (params): Promise<PlanGetResult> => {
+        const p = (typeof params === "object" && params !== null ? params : {}) as Record<string, unknown>;
+        if (typeof p.sessionId !== "string") throw new RpcError(ErrorCode.InvalidParams, "sessionId must be a string");
+        const target = await rpcCtx.sessions.get(p.sessionId);
+        if (target === undefined) throw new RpcError(ErrorCode.SessionNotFound, `No session ${p.sessionId}`);
+        return { plan: planOf(target) };
+      }),
+      `${name}: plan.get`,
+    );
+  });
 }

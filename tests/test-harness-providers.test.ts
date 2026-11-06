@@ -50,6 +50,8 @@ describe("model providers on the harness engine", () => {
       models: [{ id: "m", reasoning: false, input: ["text"], maxOutputTokens: 4096 }],
     });
     expect(hostApi("anthropic-messages")).toBe("anthropic");
-    expect(() => hostApi("google-generative-ai")).toThrow(/暂不支持/);
+    expect(hostApi("google-generative-ai")).toBe("gemini");
+    expect(hostApi("openai-responses")).toBe("openai-responses");
+    expect(() => hostApi("bedrock-converse-stream")).toThrow(/暂不支持/);
   });
 });

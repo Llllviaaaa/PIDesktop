@@ -33,6 +33,14 @@ export class HarnessRpcError extends Error {
   }
 }
 
+export function isRpcMethodNotFound(error: unknown): boolean {
+  return (
+    typeof error === "object"
+    && error !== null
+    && (error as { code?: unknown }).code === ErrorCode.MethodNotFound
+  );
+}
+
 export interface HarnessConnection {
   readonly host: InitializeResult;
   call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;

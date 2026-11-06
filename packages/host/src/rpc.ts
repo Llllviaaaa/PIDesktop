@@ -24,34 +24,14 @@ import {
   type InitializeResult,
   type JsonRpcMessage,
 } from "@pid/protocol";
+import { RpcError, type RpcCall, type RpcHandler, type RpcService } from "@pid/rpc";
 import { WebSocket, WebSocketServer } from "ws";
 import "./web-server.ts";
 import "./host-info.ts";
 
-declare module "@deepseek-ai/cordis" {
-  interface Context {
-    rpc: RpcGateway;
-  }
-}
+export { RpcError, type RpcCall, type RpcHandler, type RpcService };
 
 export const RPC_PATH = "/rpc";
-
-/** An error a method handler throws to answer with a specific code. */
-export class RpcError extends Error {
-  constructor(readonly code: number, message: string, readonly data?: unknown) {
-    super(message);
-    this.name = "RpcError";
-  }
-}
-
-export interface RpcCall {
-  /** Aborted when the connection that sent the request closes. */
-  signal: AbortSignal;
-  /** Send a notification to the connection that sent the request, while it is open. */
-  notify(method: string, params?: unknown): void;
-}
-
-export type RpcHandler = (params: unknown, call: RpcCall) => unknown;
 
 export interface RpcGatewayConfig {
   token: string;
@@ -82,8 +62,9 @@ function isInitializeParams(value: unknown): value is InitializeParams {
     && typeof client.name === "string" && typeof client.version === "string";
 }
 
-export class RpcGateway extends Service {
+export class RpcGateway extends Service implements RpcService {
   static inject = ["webServer", "hostInfo"];
+  static provide = "rpc";
 
   private readonly handlers = new Map<string, RpcHandler>();
   private readonly connections = new Set<Connection>();

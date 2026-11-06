@@ -463,6 +463,8 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
       await harnessRuntimes.setPermission(runtimeId, { permission: mode });
     },
 
+    refreshCommands: (cwd) => ctx.refreshCommands(cwd),
+
     refreshGit: async () => {
       const cwd = get().cwd;
       if (!cwd) return;

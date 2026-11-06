@@ -214,13 +214,14 @@ export class StoreContext {
     if (!runtimeId) return;
     const stateRequest = harnessRuntimes.state(runtimeId);
     const historyRequest = harnessRuntimes.messages(runtimeId);
-    const modelCatalogRequest = harnessRuntimes.models().then((models) => {
+    const activeCwd = get().cwd;
+    const commandsRequest = harnessRuntimes.commands(activeCwd || undefined).catch(() => []);
+    const modelCatalogRequest = Promise.all([harnessRuntimes.models(), commandsRequest]).then(([models, commands]) => {
       if (get().runtimeId !== runtimeId || expectedVersion !== this.connectionVersion) return;
       set({
         availableModels: models,
         availableThinkingLevels: harnessRuntimes.thinkingLevels(),
-        // The Host has no slash commands of its own.
-        commands: [],
+        commands,
       });
       this.persistCurrentModelCatalog();
     }).catch((error) => {
@@ -264,6 +265,16 @@ export class StoreContext {
 
     await modelCatalogRequest;
     await this.refreshStats(expectedVersion);
+  };
+
+  refreshCommands = async (cwd?: string) => {
+    const resolvedCwd = cwd ?? this.get().cwd;
+    try {
+      const commands = await harnessRuntimes.commands(resolvedCwd || undefined);
+      this.set({ commands });
+    } catch {
+      // Ignore transient command-list errors while the Host is starting or reconnecting.
+    }
   };
 
   refreshStats = async (expectedVersion = this.connectionVersion) => {

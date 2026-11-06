@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { describeError } from "../lib/errors";
 import { subscribeToRuntimes } from "../lib/agent";
+import { harnessRuntimes } from "../lib/harnessRuntime";
 import { sameLocalPath } from "../lib/pathIdentity";
 import { useAppStore } from "../store";
 import type { ConnectionState, SessionInfo } from "../types";
@@ -64,6 +65,12 @@ export function useRuntimeBootstrap({
     if (!isTauri) return;
     let disposed = false;
     let cleanup: (() => void) | undefined;
+    const stopCommandEvents = harnessRuntimes.onNotification("command/changed", () => {
+      void useAppStore.getState().refreshCommands();
+    });
+    const stopPluginEvents = harnessRuntimes.onNotification("plugin/changed", () => {
+      void useAppStore.getState().refreshCommands();
+    });
     void (async () => {
       const store = useAppStore.getState();
       cleanup = await subscribeToRuntimes({
@@ -77,7 +84,7 @@ export function useRuntimeBootstrap({
         cleanup();
         return;
       }
-      await Promise.all([store.loadSettings(), store.refreshSessions()]);
+      await Promise.all([store.loadSettings(), store.refreshSessions(), store.refreshCommands()]);
       const preferredRuntimeId = window.localStorage.getItem(ACTIVE_RUNTIME_KEY);
       const restored = await store.restoreRuntimes(preferredRuntimeId);
       if (restored && !disposed) {
@@ -110,6 +117,8 @@ export function useRuntimeBootstrap({
     });
     return () => {
       disposed = true;
+      stopCommandEvents();
+      stopPluginEvents();
       cleanup?.();
     };
   }, [isTauri, onDraftModeChange, onDraftWorkspaceChange]);

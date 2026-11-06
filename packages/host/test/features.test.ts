@@ -18,13 +18,12 @@ import { PROTOCOL_VERSION, clientSubprotocols, ErrorCode } from "@pid/protocol";
 import { Sessions } from "@pid/session";
 import { SystemPrompt } from "@pid/system-prompt";
 import { ScriptedProvider, textReply, toolReply, useScriptedProvider } from "@pid/testkit";
+import * as toolBash from "@pid/tool-bash";
 import * as toolFs from "@pid/tool-fs";
 import { Tools } from "@pid/tools";
 import { Ui } from "@pid/ui";
-import * as featuresRpc from "../src/features-rpc.ts";
 import { defaultHarnessConfig, readHarnessConfig } from "../src/harness-config.ts";
 import { RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
-import * as scheduleRpc from "../src/schedule-rpc.ts";
 import * as sessionsRpc from "../src/sessions-rpc.ts";
 import * as uiRpc from "../src/ui-rpc.ts";
 
@@ -41,7 +40,7 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function start(provider: ScriptedProvider) {
+async function start(provider: ScriptedProvider, options: { includeMcp?: boolean } = {}) {
   dir = mkdtempSync(join(tmpdir(), "pid-host-features-"));
   host = createHost({
     version: "0",
@@ -56,15 +55,14 @@ async function start(provider: ScriptedProvider) {
       [SystemPrompt],
       [Permissions, {}],
       [toolFs],
+      [toolBash],
       [plan],
       [AgentLoop],
       [checkpoints],
-      [Mcp, {}],
+      ...(options.includeMcp === false ? [] : [[Mcp, {}] as const]),
       [Schedule, { tasksFile: join(dir, "schedules.json"), runsFile: join(dir, "schedule-runs.jsonl"), defaultModel: { provider: "scripted", model: "m" }, tickMs: 60_000 }],
       [sessionsRpc, { defaultModel: { provider: "scripted", model: "m" } }],
       [uiRpc],
-      [featuresRpc],
-      [scheduleRpc],
       [{ name: "scripted", inject: ["llm"], apply: (ctx: never) => useScriptedProvider(ctx, provider) }],
     ],
   });
@@ -150,6 +148,20 @@ describe("feature plugins in the host", () => {
       usage: { inputTokens: 20, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 },
     });
     expect((await call("session.list")).result.sessions[0]).toMatchObject({ firstMessage: "plan it", messageCount: 3 });
+  });
+
+  it("keeps permission, plan, checkpoint, usage, and sandbox RPCs active when MCP is disabled", async () => {
+    const { call } = await start(new ScriptedProvider([]), { includeMcp: false });
+    const sessionId = (await call("session.create", { cwd: dir })).result.session.id;
+    expect((await call("mcp.status")).error?.code).toBe(ErrorCode.MethodNotFound);
+    expect((await call("permission.get", { sessionId })).result).toEqual({ permission: "ask", agentMode: "agent", effective: "ask" });
+    expect((await call("plan.get", { sessionId })).result).toEqual({ plan: { explanation: "", items: [] } });
+    expect((await call("checkpoint.list", { sessionId })).result).toEqual({ checkpoints: [] });
+    expect((await call("usage.summary")).result).toMatchObject({ sessions: 1, messages: 0 });
+    expect((await call("sandbox.generateConfig", { kind: "wsb", cwd: dir })).result).toMatchObject({
+      kind: "wsb",
+      path: join(dir, ".pid", "sandbox.wsb"),
+    });
   });
 });
 

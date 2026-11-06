@@ -4,7 +4,7 @@
  * branch and where it stands against its remote.
  */
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, CloudUpload, GitBranch, GitCommitHorizontal, LoaderCircle } from "lucide-react";
+import { ArrowUp, ChevronDown, CloudUpload, GitBranch, GitCommitHorizontal, GitPullRequest, LoaderCircle } from "lucide-react";
 import { gitActionsFor, type GitPrimaryAction } from "../lib/gitActions";
 import type { GitSnapshot } from "../types";
 
@@ -14,6 +14,7 @@ interface GitActionButtonProps {
   /** Opens the commit dialog; `push` pushes right after the commit. */
   onCommit: (push: boolean) => void;
   onPush: () => void;
+  onCreatePr?: () => void;
 }
 
 function actionLabel(action: GitPrimaryAction): string {
@@ -22,7 +23,7 @@ function actionLabel(action: GitPrimaryAction): string {
   return "推送";
 }
 
-export function GitActionButton({ git, pushing, onCommit, onPush }: GitActionButtonProps) {
+export function GitActionButton({ git, pushing, onCommit, onPush, onCreatePr }: GitActionButtonProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const state = gitActionsFor(git);
@@ -116,6 +117,18 @@ export function GitActionButton({ git, pushing, onCommit, onPush }: GitActionBut
             <button role="menuitem" disabled={pushing} onClick={() => run(push)}>
               {push.kind === "publish" ? <CloudUpload size={15} /> : <ArrowUp size={15} />}
               <span>{push.kind === "publish" ? "发布分支" : `推送 ${push.ahead} 个提交`}</span>
+            </button>
+          )}
+          {onCreatePr && (
+            <button
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onCreatePr();
+              }}
+            >
+              <GitPullRequest size={15} />
+              <span>创建拉取请求…</span>
             </button>
           )}
         </div>

@@ -13,6 +13,7 @@ import {
   type Effort,
   type FinishReason,
   type LlmAdapter,
+  type LlmProtocolSpec,
   type LlmRequest,
   type Message,
   type ModelInfo,
@@ -38,7 +39,7 @@ export interface ProviderConfig {
 }
 
 export interface Config {
-  providers: ProviderConfig[];
+  providers?: ProviderConfig[];
 }
 
 type WireMessage = Record<string, unknown>;
@@ -116,6 +117,7 @@ interface WireChunk {
     prompt_tokens?: number;
     completion_tokens?: number;
     prompt_tokens_details?: { cached_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
     prompt_cache_hit_tokens?: number;
   } | null;
   error?: { message?: string; code?: unknown };
@@ -166,12 +168,14 @@ export async function* translateStream(events: AsyncIterable<{ data: string }>, 
     }
     if (chunk.usage) {
       const cached = chunk.usage.prompt_tokens_details?.cached_tokens ?? chunk.usage.prompt_cache_hit_tokens ?? 0;
+      const reasoning = chunk.usage.completion_tokens_details?.reasoning_tokens;
       yield {
         type: "usage",
         usage: {
           inputTokens: Math.max(0, (chunk.usage.prompt_tokens ?? 0) - cached),
           outputTokens: chunk.usage.completion_tokens ?? 0,
           cacheReadTokens: cached,
+          ...(typeof reasoning === "number" && reasoning > 0 ? { reasoningTokens: reasoning } : {}),
         },
       };
     }
@@ -213,8 +217,19 @@ export class OpenAiCompatAdapter implements LlmAdapter {
   }
 }
 
-export function apply(ctx: Context, config: Config): void {
-  for (const provider of config.providers) {
+export const protocolSpec: LlmProtocolSpec = {
+  requiresBaseUrl: true,
+  normalizeBaseUrl: (baseUrl) => baseUrl ?? "",
+  createAdapter: (ctx, provider) =>
+    new OpenAiCompatAdapter(ctx, {
+      ...provider,
+      baseUrl: provider.baseUrl ?? "",
+    }),
+};
+
+export function apply(ctx: Context, config?: Config): void {
+  ctx.effect(() => ctx.llm.registerProtocol("openai-compat", protocolSpec), `${name}: protocol`);
+  for (const provider of config?.providers ?? []) {
     ctx.effect(() => ctx.llm.registerAdapter(
       { id: provider.id, name: provider.name ?? provider.id, api: "openai-compat", baseUrl: provider.baseUrl },
       new OpenAiCompatAdapter(ctx, provider),

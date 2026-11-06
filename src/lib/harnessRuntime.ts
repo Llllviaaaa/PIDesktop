@@ -17,6 +17,8 @@
 import type {
   CheckpointDiffResult,
   CheckpointListResult,
+  CommandListResult,
+  CommandRunResult,
   ModelListResult,
   PersistedEvent,
   ProviderListResult,
@@ -29,11 +31,13 @@ import type {
   SessionSubscribeResult,
   UiRequestNotification,
 } from "@pid/protocol";
-import type { AttachmentPayload, ExtensionUIRequest, ForkPoint, ModelInfo, SessionStats, UiMessage } from "../types";
+import type { AttachmentPayload, ExtensionUIRequest, ForkPoint, ModelInfo, SessionStats, SlashCommand, UiMessage } from "../types";
 import type { SessionTreeNode } from "./sessionTree";
-import { connectHarness, harnessEndpoint, type HarnessConnection } from "./harnessClient";
+import { connectHarness, harnessEndpoint, isRpcMethodNotFound, type HarnessConnection } from "./harnessClient";
 import { HARNESS_THINKING_LEVELS, effortForLevel, forkPointsOf, sessionTreeOf } from "./hostSessions";
 import { TranscriptTranslator, historyToUi, interruptTurn, type TranscriptEvent } from "./transcript";
+
+export { isRpcMethodNotFound };
 
 
 export const HARNESS_RUNTIME_PREFIX = "harness:";
@@ -246,7 +250,11 @@ export class HarnessRuntimes {
   async setPermission(runtimeId: string, change: { permission?: string; agentMode?: string }): Promise<void> {
     const runtime = this.runtime(runtimeId);
     await this.ensureSession(runtime);
-    await (await this.rpc()).call("permission.set", { sessionId: runtime.sessionId, ...change });
+    try {
+      await (await this.rpc()).call("permission.set", { sessionId: runtime.sessionId, ...change });
+    } catch (error) {
+      if (!isRpcMethodNotFound(error)) throw error;
+    }
   }
 
   /** The session's transcript so far. */
@@ -261,6 +269,28 @@ export class HarnessRuntimes {
 
   thinkingLevels(): string[] {
     return HARNESS_THINKING_LEVELS;
+  }
+
+  /** Slash commands registered by the Host, active feature plugins, and workspace skills. */
+  async commands(cwd?: string): Promise<SlashCommand[]> {
+    const { commands } = await this.call<CommandListResult>("command.list", cwd ? { cwd } : {});
+    return commands.map((item): SlashCommand => ({
+      name: item.name,
+      description: item.description,
+      ...(item.argsHint === undefined ? {} : { argsHint: item.argsHint }),
+      source: item.source,
+    }));
+  }
+
+  /** Run a leading `/command` on the Host before deciding whether to call the model. */
+  async runCommand(runtimeId: string, name: string, args: string): Promise<CommandRunResult> {
+    const runtime = this.runtime(runtimeId);
+    return this.call<CommandRunResult>("command.run", {
+      name,
+      args,
+      cwd: runtime.cwd,
+      ...(runtime.sessionId === undefined ? {} : { sessionId: runtime.sessionId }),
+    });
   }
 
   async forkPoints(runtimeId: string): Promise<ForkPoint[]> {
@@ -351,7 +381,12 @@ export class HarnessRuntimes {
     const userSeq = Number(entryId);
     const rpc = await this.rpc();
     const sessionId = runtime.sessionId;
-    const { checkpoints } = await rpc.call<CheckpointListResult>("checkpoint.list", { sessionId });
+    let checkpoints: CheckpointListResult["checkpoints"] = [];
+    try {
+      ({ checkpoints } = await rpc.call<CheckpointListResult>("checkpoint.list", { sessionId }));
+    } catch (error) {
+      if (!isRpcMethodNotFound(error)) throw error;
+    }
     if (checkpoints.some((checkpoint) => checkpoint.userSeq === userSeq)) {
       const diff = await rpc.call<CheckpointDiffResult>("checkpoint.diff", { sessionId, userSeq });
       if (diff.changed) {
@@ -416,11 +451,12 @@ export class HarnessRuntimes {
       tokens: {
         input: usage.inputTokens,
         output: usage.outputTokens,
+        ...(usage.reasoningTokens === undefined ? {} : { reasoning: usage.reasoningTokens }),
         cacheRead: usage.cacheReadTokens,
         cacheWrite: usage.cacheWriteTokens,
         total: usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
       },
-      cost: 0,
+      cost: got.session.estimatedCostUsd ?? 0,
     };
   }
 
@@ -442,6 +478,7 @@ export class HarnessRuntimes {
             ...(model.input === undefined ? {} : { input: model.input }),
             ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
             ...(model.maxOutputTokens === undefined ? {} : { maxTokens: model.maxOutputTokens }),
+            ...(model.cost === undefined ? {} : { cost: { ...model.cost } }),
           }));
         } catch {
           return [];
@@ -662,6 +699,15 @@ export function uiRequestEvent(request: UiRequestNotification): ExtensionUIReque
     default:
       return undefined;
   }
+}
+
+/** Parse a leading `/command [args]` line, or null when the input is not a slash command. */
+export function parseLeadingSlashCommand(text: string): { name: string; rawArgs: string } | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/")) return null;
+  const match = /^\/([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?:\s+([\s\S]*))?$/.exec(trimmed);
+  if (match?.[1] === undefined) return null;
+  return { name: match[1], rawArgs: (match[2] ?? "").trim() };
 }
 
 /** The app's one adapter. */

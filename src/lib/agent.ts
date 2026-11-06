@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { UsageSummaryResult } from "@pid/protocol";
+import type {
+  SandboxConfigKind,
+  SandboxGenerateConfigResult,
+  UsageSummaryResult,
+} from "@pid/protocol";
 import type {
   AppSettings,
   AttachmentPayload,
@@ -17,25 +21,45 @@ import type {
 } from "../types";
 import { gitClient } from "./gitClient";
 import { harnessProviders } from "./harnessProviders";
-import { harnessRuntimes, type HostStatus } from "./harnessRuntime";
+import { harnessRuntimes, isRpcMethodNotFound, type HostStatus } from "./harnessRuntime";
+import { mcpClient } from "./mcpClient";
+import { memorySkillsClient } from "./memorySkillsClient";
+import { pluginClient } from "./pluginClient";
 import type { TranscriptEvent } from "./transcript";
 import { scheduleClient } from "./scheduleClient";
 import { sessionClient } from "./sessionClient";
 
-/** Token totals over the Host's sessions, imported Pi tasks included; the Host does not compute costs. */
+/** Token totals and local estimated cost over the Host's sessions. */
 async function usageSummary(): Promise<UsageSummary> {
-  const { sessions, messages, usage } = await harnessRuntimes.call<UsageSummaryResult>("usage.summary");
-  return {
-    sessions,
-    messages,
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    reasoningTokens: 0,
-    cacheReadTokens: usage.cacheReadTokens,
-    cacheWriteTokens: usage.cacheWriteTokens,
-    totalTokens: usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
-    totalCost: 0,
-  };
+  try {
+    const { sessions, messages, usage, totalCostUsd } = await harnessRuntimes.call<UsageSummaryResult>("usage.summary");
+    return {
+      sessions,
+      messages,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      reasoningTokens: usage.reasoningTokens ?? 0,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+      totalTokens: usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens,
+      totalCost: totalCostUsd ?? 0,
+    };
+  } catch (error) {
+    if (isRpcMethodNotFound(error)) {
+      return {
+        sessions: 0,
+        messages: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 0,
+        totalCost: 0,
+      };
+    }
+    throw error;
+  }
 }
 
 // Task runtimes are the Harness Host's sessions behind `harnessRuntimes`
@@ -60,6 +84,7 @@ export const agent = {
   runScheduledTask: scheduleClient.run,
   cancelScheduledTask: scheduleClient.cancel,
   listSessions: sessionClient.list,
+  searchSessions: sessionClient.search,
   sessionHistory: sessionClient.history,
   exportSessionMarkdown: sessionClient.exportMarkdown,
   listArchivedSessions: sessionClient.listArchived,
@@ -68,16 +93,42 @@ export const agent = {
   deleteSession: sessionClient.delete,
   getSettings: () => invoke<AppSettings>("get_settings"),
   setSettings: (settings: AppSettings) => invoke<void>("set_settings", { settings }),
-  getLocalMemory: () => invoke<string>("get_local_memory"),
-  setLocalMemory: (contents: string) => invoke<void>("set_local_memory", { contents }),
-  exportLocalMemory: (destination: string) => invoke<string>("export_local_memory", { destination }),
-  deleteLocalMemory: () => invoke<void>("delete_local_memory"),
+  getLocalMemory: () => memorySkillsClient.getMemory("user").then((result) => result.content),
+  setLocalMemory: (contents: string) => memorySkillsClient.setMemory(contents, "user").then(() => undefined),
+  exportLocalMemory: (destination: string) => memorySkillsClient.exportMemory(destination, "user"),
+  deleteLocalMemory: () => memorySkillsClient.deleteMemory("user"),
+  getMemory: memorySkillsClient.getMemory,
+  setMemory: memorySkillsClient.setMemory,
+  deleteMemory: memorySkillsClient.deleteMemory,
+  exportMemory: memorySkillsClient.exportMemory,
+  listSkills: memorySkillsClient.listSkills,
+  readSkill: memorySkillsClient.readSkill,
+  createSkill: memorySkillsClient.createSkill,
+  saveSkill: memorySkillsClient.saveSkill,
+  toggleSkill: memorySkillsClient.toggleSkill,
+  deleteSkill: memorySkillsClient.deleteSkill,
   // Providers live in the Host's providers.json (src/lib/harnessProviders.ts).
   listModelProviders: () => harnessProviders.configs(),
   discoverModelProviderModels: (provider: ModelProviderInput) => harnessProviders.discover(provider),
   saveModelProvider: (provider: ModelProviderInput) => harnessProviders.save(provider),
   deleteModelProvider: (id: string) => harnessProviders.delete(id),
   checkModelProvider: (id: string) => harnessProviders.check(id),
+  listPlugins: pluginClient.list,
+  enablePlugin: pluginClient.enable,
+  disablePlugin: pluginClient.disable,
+  configurePlugin: pluginClient.configure,
+  reloadPlugins: pluginClient.reload,
+  installPlugin: pluginClient.install,
+  updatePlugins: pluginClient.update,
+  removePlugin: pluginClient.remove,
+  listWorkspaceTrust: pluginClient.trustList,
+  setWorkspaceTrust: pluginClient.setTrust,
+  mcpStatus: mcpClient.status,
+  mcpReconnect: mcpClient.reconnect,
+  mcpResources: mcpClient.resources,
+  mcpReadResource: mcpClient.readResource,
+  mcpPrompts: mcpClient.prompts,
+  mcpGetPrompt: mcpClient.getPrompt,
   readAttachment: (file: string) => invoke<AttachmentPayload>("read_attachment", { file }),
   gitSnapshot: gitClient.snapshot,
   gitRepositoryRoot: gitClient.repositoryRoot,
@@ -98,6 +149,11 @@ export const agent = {
   gitLastTurnSnapshot: gitClient.lastTurnSnapshot,
   listPullRequests: (cwd: string) => invoke<PullRequestCollection>("list_pull_requests", { cwd }),
   checkoutPullRequest: (cwd: string, number: number) => invoke<void>("checkout_pull_request", { cwd, number }),
+  generatePullRequestDraft: gitClient.generatePullRequestDraft,
+  createPullRequest: gitClient.createPullRequest,
+  getPullRequestDetail: gitClient.getPullRequestDetail,
+  generateSandboxConfig: (kind: SandboxConfigKind, cwd: string, overwrite = false) =>
+    harnessRuntimes.call<SandboxGenerateConfigResult>("sandbox.generateConfig", { kind, cwd, overwrite }),
   listResources: (cwd: string) => invoke<ResourceItem[]>("list_resources", { cwd }),
   openAppearanceDirectory: (cwd: string, kind: "theme" | "pet", scope: "user" | "project") =>
     invoke<string>("open_appearance_directory", { cwd, kind, scope }),
@@ -111,6 +167,8 @@ export const agent = {
     invoke<void>("cancel_workspace_search", { requestId }),
   readWorkspaceFile: (cwd: string, path: string) =>
     invoke<WorkspaceFileContent>("read_workspace_file", { cwd, path }),
+  writeWorkspaceFile: (cwd: string, path: string, content: string) =>
+    invoke<void>("write_workspace_file", { cwd, path, content }),
   openWorkspaceInFileManager: (path: string) => invoke<void>("open_workspace_in_file_manager", { path }),
   listWorkspaceEditors: () => invoke<WorkspaceEditorInfo[]>("list_workspace_editors"),
   openWorkspaceInEditor: (path: string, editorId: WorkspaceEditorInfo["id"]) =>
@@ -122,6 +180,11 @@ export const agent = {
   openWorkspaceInTerminalApp: (path: string, appId: string) =>
     invoke<void>("open_workspace_in_terminal_app", { path, appId }),
   terminalShells: () => invoke<string[]>("terminal_shells"),
+  terminalCreate: (params: { id: string; cwd: string; shell: string; cols: number; rows: number }) =>
+    invoke<void>("terminal_create", params),
+  terminalWrite: (id: string, data: string) => invoke<void>("terminal_write", { id, data }),
+  terminalResize: (id: string, cols: number, rows: number) => invoke<void>("terminal_resize", { id, cols, rows }),
+  terminalClose: (id: string) => invoke<void>("terminal_close", { id }),
   listWorktrees: (cwd: string) => invoke<WorktreeInfo[]>("list_worktrees", { cwd }),
   createWorktree: (cwd: string, base?: string) => invoke<WorktreeInfo>("create_worktree", { cwd, base }),
   usageSummary,

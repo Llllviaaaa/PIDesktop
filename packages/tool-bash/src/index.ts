@@ -4,10 +4,35 @@
  * choice. Output is stdout and stderr interleaved, keeping the tail.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import type { Context } from "@deepseek-ai/cordis";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve as resolvePath } from "node:path";
+import { Service, type Context } from "@deepseek-ai/cordis";
+import { ErrorCode, type SandboxConfigKind, type SandboxGenerateConfigResult } from "@pid/protocol";
+import { RpcError } from "@pid/rpc";
 import { textOutput, type ToolDefinition } from "@pid/tools";
+import {
+  attachWindowsJobObject,
+  buildSandboxedEnv,
+  generateDevContainerConfig,
+  generateWindowsSandboxConfig,
+} from "./sandbox.ts";
+
+export * from "./sandbox.ts";
+
+declare module "@deepseek-ai/cordis" {
+  interface Context {
+    bashSandbox?: BashSandbox;
+  }
+}
+
+export class BashSandbox extends Service {
+  readonly enabled: boolean;
+
+  constructor(ctx: Context, config: { enabled?: boolean } = {}) {
+    super(ctx, "bashSandbox");
+    this.enabled = config.enabled !== false;
+  }
+}
 
 export const name = "pid-tool-bash";
 export const inject = ["tools"];
@@ -17,6 +42,8 @@ export interface Config {
   shell?: string;
   /** Upper bound for the `timeout` argument, in seconds. */
   maxTimeoutSeconds?: number;
+  /** Force lightweight sandbox containment on every bash invocation. */
+  sandbox?: boolean;
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 120;
@@ -63,15 +90,35 @@ export interface RunResult {
   aborted: boolean;
 }
 
-export function runCommand(shell: string, command: string, cwd: string, timeoutMs: number, signal: AbortSignal): Promise<RunResult> {
+export interface RunCommandOptions {
+  sandbox?: boolean;
+  env?: NodeJS.ProcessEnv;
+}
+
+export function runCommand(
+  shell: string,
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+  signal: AbortSignal,
+  options: RunCommandOptions = {},
+): Promise<RunResult> {
   return new Promise((resolve, reject) => {
+    const baseEnv = options.env ?? process.env;
+    const childEnv = options.sandbox === true ? buildSandboxedEnv(baseEnv, cwd) : baseEnv;
     const child = spawn(shell, ["-c", command], {
       cwd,
-      env: process.env,
+      env: childEnv,
       windowsHide: true,
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });
+    let closeJob: (() => void) | undefined;
+    if (options.sandbox === true && child.pid !== undefined) {
+      void attachWindowsJobObject(child.pid).then((disposer) => {
+        closeJob = disposer;
+      });
+    }
     const chunks: Buffer[] = [];
     let buffered = 0;
     const collect = (chunk: Buffer) => {
@@ -85,6 +132,7 @@ export function runCommand(shell: string, command: string, cwd: string, timeoutM
     let timedOut = false;
     let aborted = false;
     const stop = () => {
+      closeJob?.();
       if (child.pid !== undefined) killTree(child.pid);
     };
     const timer = setTimeout(() => {
@@ -100,11 +148,13 @@ export function runCommand(shell: string, command: string, cwd: string, timeoutM
     child.once("error", (error) => {
       clearTimeout(timer);
       signal.removeEventListener("abort", onAbort);
+      closeJob?.();
       reject(error);
     });
     child.once("close", (exitCode) => {
       clearTimeout(timer);
       signal.removeEventListener("abort", onAbort);
+      closeJob?.();
       resolve({ output: Buffer.concat(chunks).toString("utf8"), exitCode, timedOut, aborted });
     });
   });
@@ -124,7 +174,10 @@ function tail(text: string): { text: string; truncated: boolean } {
   return { text: kept.reverse().join("\n"), truncated: false };
 }
 
-export function bashTool(config: Config = {}): ToolDefinition<{ command: string; timeout?: number }> {
+export function bashTool(
+  config: Config = {},
+  isSandboxed?: () => boolean,
+): ToolDefinition<{ command: string; timeout?: number }> {
   const maxTimeout = config.maxTimeoutSeconds ?? 600;
   let shell = config.shell;
   return {
@@ -142,7 +195,8 @@ export function bashTool(config: Config = {}): ToolDefinition<{ command: string;
       shell ??= findShell();
       if (shell === undefined) return textOutput("No bash found. Install Git for Windows or set the bash tool's shell.", true);
       const seconds = Math.min(Math.max(1, timeout ?? DEFAULT_TIMEOUT_SECONDS), maxTimeout);
-      const result = await runCommand(shell, command, env.cwd, seconds * 1000, env.signal);
+      const sandbox = config.sandbox === true || isSandboxed?.() === true;
+      const result = await runCommand(shell, command, env.cwd, seconds * 1000, env.signal, { sandbox });
       const { text, truncated } = tail(result.output);
       const notes: string[] = [];
       if (truncated) notes.push("[Output truncated; showing the end.]");
@@ -160,5 +214,50 @@ export function bashTool(config: Config = {}): ToolDefinition<{ command: string;
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
-  ctx.effect(() => ctx.tools.register(bashTool(config)), `${name}: bash`);
+  ctx.effect(
+    () => ctx.tools.register(bashTool(config, () => ctx.get("bashSandbox")?.enabled === true)),
+    `${name}: bash`,
+  );
+
+  ctx.inject(["rpc"], (rpcCtx) => {
+    rpcCtx.effect(
+      () =>
+        rpcCtx.rpc.method("sandbox.generateConfig", (params): SandboxGenerateConfigResult => {
+          if (params !== undefined && params !== null && (typeof params !== "object" || Array.isArray(params))) {
+            throw new RpcError(ErrorCode.InvalidParams, "params must be an object");
+          }
+          const p = (params ?? {}) as Record<string, unknown>;
+          const requiredStr = (key: string): string => {
+            const raw = p[key];
+            if (typeof raw !== "string" || raw.trim() === "") {
+              throw new RpcError(ErrorCode.InvalidParams, `${key} must be a non-empty string`);
+            }
+            return raw.trim();
+          };
+          const kindRaw = requiredStr("kind");
+          if (kindRaw !== "wsb" && kindRaw !== "devcontainer") {
+            throw new RpcError(ErrorCode.InvalidParams, "kind must be 'wsb' or 'devcontainer'");
+          }
+          const kind: SandboxConfigKind = kindRaw;
+          const cwd = resolvePath(requiredStr("cwd"));
+          const overwrite = p.overwrite === true;
+          if (kind === "wsb") {
+            const target = join(cwd, ".pid", "sandbox.wsb");
+            const content = generateWindowsSandboxConfig(cwd);
+            mkdirSync(dirname(target), { recursive: true });
+            writeFileSync(target, content, "utf8");
+            return { kind, path: target, content };
+          }
+          const primaryTarget = join(cwd, ".devcontainer", "devcontainer.json");
+          const target = !overwrite && existsSync(primaryTarget)
+            ? join(cwd, ".pid", "devcontainer.generated.json")
+            : primaryTarget;
+          const content = generateDevContainerConfig(cwd);
+          mkdirSync(dirname(target), { recursive: true });
+          writeFileSync(target, content, "utf8");
+          return { kind, path: target, content };
+        }),
+      `${name}: sandbox.generateConfig`,
+    );
+  });
 }

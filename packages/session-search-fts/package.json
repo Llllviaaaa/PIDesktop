@@ -1,0 +1,15 @@
+{
+  "name": "@pid/session-search-fts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Asynchronous SQLite FTS5 full-text session search plugin, decoupled from JSONL event writes",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/session": "*",
+    "@pid/session-jsonl": "*"
+  }
+}

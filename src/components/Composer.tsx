@@ -81,6 +81,8 @@ interface ComposerProps {
   permissionLabel?: string;
   agentMode?: AppSettings["agentMode"];
   contextUsage?: SessionStats["contextUsage"];
+  sessionCost?: number;
+  sessionTokens?: SessionStats["tokens"];
   variant?: "task-start" | "follow-up";
   transcriptDensity?: TranscriptDensity;
   onTranscriptDensityChange?: (density: TranscriptDensity) => void;
@@ -133,6 +135,8 @@ export const Composer = memo(function Composer({
   permissionLabel: _permissionLabel = "先询问",
   agentMode = "agent",
   contextUsage,
+  sessionCost,
+  sessionTokens,
   variant = "follow-up",
   transcriptDensity: _transcriptDensity = "normal",
   onTranscriptDensityChange: _onTranscriptDensityChange,
@@ -560,9 +564,22 @@ export const Composer = memo(function Composer({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => chooseCommand(command)}
               >
-                <span className="command-item-name">/{command.name}</span>
+                <span className="command-item-name">
+                  /{command.name}
+                  {command.argsHint ? ` ${command.argsHint}` : ""}
+                </span>
                 <small className="command-item-desc">{command.description || command.source}</small>
-                <em className="command-item-source">{command.source}</em>
+                <em className="command-item-source">
+                  {command.source === "builtin"
+                    ? "内置"
+                    : command.source === "skill"
+                      ? "技能"
+                      : command.source === "mcp"
+                        ? "MCP"
+                        : command.source === "plugin" || command.source === "extension"
+                          ? "插件"
+                          : command.source}
+                </em>
               </button>
             ))}
           </div>
@@ -631,7 +648,7 @@ export const Composer = memo(function Composer({
             rows={1}
             disabled={disabled}
             className="composer-input"
-            // DSH's composer marker: better-sidebar inserts file references at this textarea's caret.
+            // Workbench file tree actions insert file references at this textarea's caret.
             data-phase={isStreaming ? "streaming" : "idle"}
             placeholder={placeholder}
             role="combobox"
@@ -818,6 +835,16 @@ export const Composer = memo(function Composer({
           </div>
 
           <div className="composer-toolbar-right">
+            {sessionCost !== undefined && sessionCost > 0 && (
+              <span
+                className="composer-session-cost"
+                title={sessionTokens
+                  ? `会话预估成本 · 输入 ${sessionTokens.input.toLocaleString()} / 输出 ${sessionTokens.output.toLocaleString()}${sessionTokens.reasoning ? `（推理 ${sessionTokens.reasoning.toLocaleString()}）` : ""}`
+                  : "会话预估成本"}
+              >
+                {sessionCost < 0.01 ? `$${sessionCost.toFixed(4)}` : `$${sessionCost.toFixed(2)}`}
+              </span>
+            )}
             {normalizedContextPercent !== null && (
               <span className="composer-context-usage">
                 <span

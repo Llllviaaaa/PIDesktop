@@ -1,0 +1,13 @@
+{
+  "name": "@pid/commands",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Slash command registry and execution service for the Harness Host (ADR 0002, 0003)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5"
+  }
+}

@@ -7,14 +7,14 @@ import { defineConfig } from "@playwright/test";
  * (packages/host/test/e2e-host.ts). It drives the installed Edge or Chrome,
  * so no browser download is needed: PID_E2E_CHANNEL picks one (default msedge).
  */
-const port = 4173;
+const port = Number(process.env.PID_E2E_PORT ?? 4173);
 export const E2E_ORIGIN = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: "e2e",
   // tsconfig.json maps @deepseek-ai/cordis to type declarations for the renderer;
-  // the e2e config resolves the real package, and better-sidebar's host aliases.
-  tsconfig: "./tsconfig.e2e-runtime.json",
+  // tsconfig.e2e.json resolves the real workspace and Cordis packages for E2E Host tests.
+  tsconfig: "./tsconfig.e2e.json",
   timeout: 60_000,
   expect: { timeout: 15_000 },
   workers: 2,

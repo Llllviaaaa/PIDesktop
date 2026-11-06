@@ -19,14 +19,15 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { Logger, type Exporter } from "@deepseek-ai/cordis";
-import type { Effort } from "@pid/llm";
 import type { AgentDelta, RunOutcome } from "@pid/agent";
+import type { Effort } from "@pid/llm";
 import type { PermissionMode } from "@pid/permissions";
-import { agentPlugins } from "./agent-plugins.ts";
-import { readHarnessConfig } from "./harness-config.ts";
-import { dpapiCodec } from "./secrets.ts";
+import { builtinPluginDefinitions, corePlugins } from "./agent-plugins.ts";
+import { readEffectiveHarnessConfig } from "./harness-config.ts";
 import { createHost } from "./host.ts";
+import { PluginManager } from "./plugin-manager.ts";
 import { readDefaultModel } from "./providers.ts";
+import { dpapiCodec } from "./secrets.ts";
 
 export interface HeadlessOptions {
   dataDir: string;
@@ -99,16 +100,12 @@ export async function runHeadless(argv: readonly string[], out: NodeJS.WritableS
     return 2;
   }
 
-  const { config, problems } = readHarnessConfig(join(options.dataDir, "harness.json"));
-  const permission = options.permission ?? config.permissions.defaultPermission ?? "workspace-write";
   const codec = await dpapiCodec();
   const host = createHost({
     version: "headless",
     dataDir: options.dataDir,
-    plugins: agentPlugins(options.dataDir, { config, permission, ...(codec === undefined ? {} : { codec }) }),
+    plugins: corePlugins(),
   });
-  for (const problem of problems) err.write(`[warn] ${problem}
-`);
   const exporter: Exporter = {
     colors: false,
     export(message) {
@@ -117,6 +114,28 @@ export async function runHeadless(argv: readonly string[], out: NodeJS.WritableS
   };
   host.ctx.logger.exporter(exporter);
   await host.start();
+  const reportedProblems = new Set<string>();
+  const pluginManager = new PluginManager(host.ctx, {
+    dataDir: options.dataDir,
+    version: "headless",
+    builtins: (trustedWorkspace) => {
+      const { config, problems } = readEffectiveHarnessConfig(options.dataDir, trustedWorkspace);
+      for (const problem of problems) {
+        if (!reportedProblems.has(problem)) {
+          reportedProblems.add(problem);
+          err.write(`[warn] ${problem}\n`);
+        }
+      }
+      const permission = options.permission ?? config.permissions.defaultPermission ?? "workspace-write";
+      return builtinPluginDefinitions(options.dataDir, config, {
+        permission,
+        ...(process.env.PID_COMPUTER_HELPER ? { computerHelper: process.env.PID_COMPUTER_HELPER } : {}),
+        ...(codec === undefined ? {} : { codec }),
+      });
+    },
+  });
+  await pluginManager.sync({ workspace: options.cwd });
+
   const { ctx } = host;
   try {
     let session = options.sessionId === undefined ? undefined : await ctx.sessions.get(options.sessionId);
@@ -179,6 +198,7 @@ export async function runHeadless(argv: readonly string[], out: NodeJS.WritableS
     err.write(`[session ${target.id}: ${outcome}]\n`);
     return outcome === "done" ? 0 : 1;
   } finally {
+    await pluginManager.dispose();
     await host.stop();
   }
 }

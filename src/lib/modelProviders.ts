@@ -13,13 +13,25 @@ export const PROVIDER_APIS = [
   ["openai-completions", "OpenAI Chat Completions"],
   ["openai-responses", "OpenAI Responses"],
   ["anthropic-messages", "Anthropic Messages"],
-  ["google-generative-ai", "Google Generative AI"],
-  ["mistral-conversations", "Mistral Conversations"],
-  ["azure-openai-responses", "Azure OpenAI Responses"],
-  ["openai-codex-responses", "OpenAI Codex Responses"],
-  ["google-vertex", "Google Vertex AI"],
-  ["bedrock-converse-stream", "Amazon Bedrock Converse"],
+  ["google-generative-ai", "Google Generative AI (Gemini)"],
 ] as const;
+
+export function requiresBaseUrl(api: string): boolean {
+  return api === "" || api === "openai-completions";
+}
+
+export function defaultBaseUrlPlaceholder(api: string): string {
+  switch (api) {
+    case "openai-responses":
+      return "默认 https://api.openai.com/v1（留空使用官方地址）";
+    case "anthropic-messages":
+      return "默认 https://api.anthropic.com（留空使用官方地址）";
+    case "google-generative-ai":
+      return "默认 https://generativelanguage.googleapis.com/v1beta（留空使用官方地址）";
+    default:
+      return "https://api.example.com/v1";
+  }
+}
 
 export function modelKey(providerId: string, modelId: string): string {
   return `${providerId}/${modelId}`;

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Context, Service } from "@deepseek-ai/cordis";
-import { deriveState, forkEvents, summarize, type SessionState } from "./derive.ts";
+import { currentBranch, deriveState, forkEvents, summarize, type SessionState } from "./derive.ts";
 import {
   SESSION_FORMAT,
   SESSION_FORMAT_VERSION,
@@ -37,18 +37,38 @@ export interface SessionDelta {
   [key: string]: unknown;
 }
 
+export interface SessionSearchOptions {
+  cwd?: string;
+  includeArchived?: boolean;
+  limit?: number;
+}
+
+export interface SessionSearchHit {
+  session: SessionSummary;
+  snippet: string;
+}
+
+export type SessionSearcher = (
+  query: string,
+  options: SessionSearchOptions & { limit: number },
+) => Promise<SessionSearchHit[]>;
+
 /**
  * Where logs live. `append` is called synchronously as each event commits,
  * so an event is with storage before anyone hears of it.
  */
 export interface SessionStorage {
   create(header: SessionHeader, events: readonly SessionEvent[]): void;
+  /** Ensure an already-open session is represented in this storage when hot-swapping storage backends. */
+  adopt?(header: SessionHeader, events: readonly SessionEvent[]): void;
   append(header: SessionHeader, event: SessionEvent): void;
   flush(header: SessionHeader): Promise<void>;
   load(id: string): Promise<{ header: SessionHeader; events: SessionEvent[] } | undefined>;
   list(): Promise<SessionSummary[]>;
   /** Remove the log for good; false when there was none. */
   delete(id: string): Promise<boolean>;
+  /** Full-text search across session titles, paths and messages; optional on minimal stores. */
+  search?(query: string, options?: SessionSearchOptions): Promise<SessionSearchHit[]>;
 }
 
 /** Keeps logs in memory; the default until a persistence plugin registers. */
@@ -59,8 +79,17 @@ export class MemoryStorage implements SessionStorage {
     this.logs.set(header.id, { header, events: [...events] });
   }
 
+  adopt(header: SessionHeader, events: readonly SessionEvent[]): void {
+    this.logs.set(header.id, { header, events: [...events] });
+  }
+
   append(header: SessionHeader, event: SessionEvent): void {
-    this.logs.get(header.id)?.events.push(event);
+    const existing = this.logs.get(header.id);
+    if (existing !== undefined) {
+      existing.events.push(event);
+    } else {
+      this.logs.set(header.id, { header, events: [event] });
+    }
   }
 
   async flush(): Promise<void> {}
@@ -176,6 +205,7 @@ export class Sessions extends Service {
   private readonly open = new Map<string, Session>();
   private readonly loading = new Map<string, Promise<Session | undefined>>();
   private readonly holds = new Map<string, number>();
+  private readonly searchers: SessionSearcher[] = [];
 
   constructor(ctx: Context) {
     super(ctx, "sessions");
@@ -206,6 +236,11 @@ export class Sessions extends Service {
     return this.open.size;
   }
 
+  /** Snapshot of currently open in-memory sessions. */
+  openSessions(): Session[] {
+    return [...this.open.values()];
+  }
+
   /** Unload the sessions nobody holds that were last used more than `idleMs` before `now`. */
   sweep(now = Date.now()): string[] {
     const unloaded: string[] = [];
@@ -218,16 +253,33 @@ export class Sessions extends Service {
     return unloaded;
   }
 
-  /** Keep logs in `storage` from now on. Returns the disposer. */
+  /**
+   * Keep logs in `storage` from now on without dropping active in-memory sessions.
+   * Any open sessions are adopted into the newly registered storage (and preserved
+   * in the fallback storage when unregistered).
+   */
   registerStorage(storage: SessionStorage): () => void {
     const previous = this.storage;
     this.storage = storage;
-    this.open.clear();
+    for (const session of this.open.values()) {
+      storage.adopt?.(session.header, session.events);
+    }
     return () => {
       if (this.storage === storage) {
         this.storage = previous;
-        this.open.clear();
+        for (const session of this.open.values()) {
+          previous.adopt?.(session.header, session.events);
+        }
       }
+    };
+  }
+
+  /** Register an external search provider (such as `@pid/session-search-fts`). Returns the disposer. */
+  registerSearcher(searcher: SessionSearcher): () => void {
+    this.searchers.push(searcher);
+    return () => {
+      const idx = this.searchers.lastIndexOf(searcher);
+      if (idx !== -1) this.searchers.splice(idx, 1);
     };
   }
 
@@ -248,6 +300,11 @@ export class Sessions extends Service {
     this.open.set(header.id, session);
     this.ctx.emit("session/created", session);
     return session;
+  }
+
+  /** Return an already-loaded in-memory session without hitting storage. */
+  peek(id: string): Session | undefined {
+    return this.open.get(id);
   }
 
   /** The session with `id`, loaded from storage on first use. */
@@ -275,6 +332,57 @@ export class Sessions extends Service {
     const stored = new Map((await this.storage.list()).map((summary) => [summary.id, summary]));
     for (const session of this.open.values()) stored.set(session.id, session.summary());
     return [...stored.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  /** Full-text search across sessions; prioritizes registered searchers, then storage search, then in-memory scan. */
+  async search(query: string, options: SessionSearchOptions = {}): Promise<SessionSearchHit[]> {
+    const trimmed = query.trim();
+    if (trimmed === "") return [];
+    const limit = Math.max(1, Math.min(options.limit ?? 30, 100));
+    const activeSearcher = this.searchers.at(-1);
+    if (activeSearcher !== undefined) {
+      const hits = await activeSearcher(trimmed, { ...options, limit });
+      return hits.map((hit) => {
+        const live = this.open.get(hit.session.id);
+        return live === undefined ? hit : { ...hit, session: live.summary() };
+      });
+    }
+    if (this.storage.search !== undefined) {
+      const hits = await this.storage.search(trimmed, { ...options, limit });
+      return hits.map((hit) => {
+        const live = this.open.get(hit.session.id);
+        return live === undefined ? hit : { ...hit, session: live.summary() };
+      });
+    }
+    const lower = trimmed.toLowerCase();
+    const all = await this.list();
+    const hits: SessionSearchHit[] = [];
+    for (const summary of all) {
+      if (summary.parent !== undefined || summary.side === true) continue;
+      if (options.includeArchived !== true && summary.archived) continue;
+      if (options.cwd !== undefined && options.cwd !== "" && summary.cwd.toLowerCase() !== options.cwd.toLowerCase()) continue;
+      const loaded = await this.get(summary.id);
+      const bodyParts: string[] = [];
+      for (const ev of currentBranch(loaded?.events ?? [])) {
+        if (ev.type === "user" || ev.type === "assistant") {
+          for (const b of ev.data.content) {
+            if (b.type === "text" && b.text.trim() !== "") bodyParts.push(b.text);
+          }
+        } else if (ev.type === "compaction") {
+          if (ev.data.summary.trim() !== "") bodyParts.push(ev.data.summary);
+        }
+      }
+      const body = bodyParts.join("\n");
+      const haystack = `${summary.title ?? ""}\n${summary.firstMessage ?? ""}\n${summary.cwd}\n${body}`;
+      const at = haystack.toLowerCase().indexOf(lower);
+      if (at === -1) continue;
+      const start = Math.max(0, at - 24);
+      const end = Math.min(haystack.length, at + trimmed.length + 48);
+      const snippet = `${start > 0 ? "…" : ""}${haystack.slice(start, end).replace(/\s+/g, " ").trim()}${end < haystack.length ? "…" : ""}`;
+      hits.push({ session: summary, snippet });
+      if (hits.length >= limit) break;
+    }
+    return hits;
   }
 
   /** Delete a session's log. The caller makes sure nothing is running in it. */

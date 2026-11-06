@@ -19,6 +19,7 @@ V2 重构（[REFACTOR_V2_PLAN.md](../archive/REFACTOR_V2_PLAN.md)）期间的架
 | [0013](0013-desktop-settings-and-secrets.md) | 桌面端设置、密钥与热重载 | 已接受 |
 | [0014](0014-frontend-harness-adapter.md) | 前端接入 Harness：在传输层模拟 Pi runtime | 已接受 |
 | [0015](0015-pi-session-import.md) | 导入 Pi 的历史任务 | 已废弃 |
+| [0016](0016-dynamic-plugins-and-hmr.md) | 动态插件内核、分层覆盖与全栈热重载 | 已接受 |
 
 ## 模板
 

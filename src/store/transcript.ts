@@ -1,6 +1,6 @@
 /** The conversation: the Host's transcript events, sending, queued messages, aborting, compacting. */
 import { describeError } from "../lib/errors";
-import { buildPromptPayload, harnessRuntimes } from "../lib/harnessRuntime";
+import { buildPromptPayload, harnessRuntimes, parseLeadingSlashCommand } from "../lib/harnessRuntime";
 import { appendManagedQueue, insertManagedQueueItem, moveManagedQueueItem, removeManagedQueueItem } from "../lib/managedQueue";
 import { completionNotification, isSilentUiRequest, uiRequestNotification } from "../lib/eventNotifications";
 import { agentBrowserFromResult, computerFromResult, isGrokBrowserTool, isGrokComputerTool } from "../lib/toolPanels";
@@ -172,7 +172,62 @@ export function createTranscriptSlice(set: SetState, get: GetState, ctx: StoreCo
         ctx.setManagedQueueForRuntime(runtimeId, appendManagedQueue(queue, item));
         return true;
       }
-      const optimistic = !wasStreaming && !payload.message.startsWith("/");
+      let effectivePayload = payload;
+      if (!wasStreaming && payload.images.length === 0) {
+        const slash = parseLeadingSlashCommand(payload.message);
+        if (slash !== null) {
+          try {
+            const commandResult = await harnessRuntimes.runCommand(runtimeId, slash.name, slash.rawArgs);
+            if (commandResult.handled) {
+              if (commandResult.clientAction === "clear") {
+                await get().newSession();
+                return true;
+              }
+              if (commandResult.clientAction === "compact") {
+                await get().compact();
+                return true;
+              }
+              if (commandResult.prompt !== undefined && commandResult.prompt.trim() !== "") {
+                effectivePayload = { message: commandResult.prompt, images: [] };
+              } else {
+                const now = Date.now();
+                const nonce = `${now}-${Math.random().toString(36).slice(2, 7)}`;
+                const outputText = commandResult.output ?? `已执行 \`/${slash.name}\`。`;
+                set((state) => {
+                  const widgets = { ...state.extensionWidgets };
+                  if (slash.name === "plan" && slash.rawArgs.trim().toLowerCase() === "clear") {
+                    delete widgets["pidesktop-plan"];
+                  }
+                  return {
+                    extensionWidgets: widgets,
+                    messages: [
+                      ...state.messages,
+                      {
+                        id: `slash-user-${nonce}`,
+                        role: "user",
+                        content: payload.message,
+                        timestamp: now,
+                      },
+                      {
+                        id: `slash-assistant-${nonce}`,
+                        role: "assistant",
+                        content: outputText,
+                        ...(commandResult.isError ? { isError: true } : {}),
+                        timestamp: now,
+                      },
+                    ],
+                  };
+                });
+                return true;
+              }
+            }
+          } catch (error) {
+            ctx.toast(describeError(error), "error");
+            return false;
+          }
+        }
+      }
+      const optimistic = !wasStreaming;
       if (!wasStreaming) ctx.activeTurnStartedAt = Date.now();
       if (optimistic) {
         const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -188,9 +243,9 @@ export function createTranscriptSlice(set: SetState, get: GetState, ctx: StoreCo
             {
               id: pending.userMessageId,
               role: "user",
-              content: payload.message,
-              images: payload.images.length
-                ? payload.images.map(({ data, mimeType }) => ({ type: "image", data, mimeType }))
+              content: effectivePayload.message,
+              images: effectivePayload.images.length
+                ? effectivePayload.images.map(({ data, mimeType }) => ({ type: "image", data, mimeType }))
                 : undefined,
               timestamp: Date.now(),
             },
@@ -207,9 +262,9 @@ export function createTranscriptSlice(set: SetState, get: GetState, ctx: StoreCo
       }
       try {
         if (wasStreaming) {
-          await harnessRuntimes.queue(runtimeId, behavior === "followUp" ? "followUp" : "steer", payload);
+          await harnessRuntimes.queue(runtimeId, behavior === "followUp" ? "followUp" : "steer", effectivePayload);
         } else {
-          await harnessRuntimes.prompt(runtimeId, payload);
+          await harnessRuntimes.prompt(runtimeId, effectivePayload);
           ctx.recordStartedSession(runtimeId);
           // The task has started: its model and thinking level now live in the runtime.
           ctx.queuedModelSelection = null;

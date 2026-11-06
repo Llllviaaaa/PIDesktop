@@ -1,21 +1,17 @@
-// Build the Harness Host (packages/host, ADR 0001) into one executable, the way
-// prepare-pi-runtime.mjs builds pi.exe: esbuild bundles it, then Bun compiles
-// the bundle. better-sidebar's host half (src/better-sidebar) is bundled in as
-// one of the host's plugins, with the DSH host packages it imports mapped to
-// packages/host/src/better-sidebar/shims, as dsh-aliases.ts maps them for vitest.
-// `--bundle-only` stops after the bundle, which
+// Build the Harness Host (packages/host, ADR 0001) into one executable:
+// esbuild bundles the microkernel core and built-in plugins, then Bun compiles
+// the bundle. `--bundle-only` stops after the bundle, which
 // `node <bundle> --data-dir <dir> --port 47100 --page-origin http://localhost:1420`
 // runs for browser-only development.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const hostDir = join(repoRoot, "packages", "host");
-const shimDir = join(hostDir, "src", "better-sidebar", "shims");
 const bundleDir = join(repoRoot, "node_modules", ".cache", "pidesktop-harness-host");
 const bundleFile = join(bundleDir, "host.mjs");
 const outputDir = join(repoRoot, "src-tauri", "resources", "harness");
@@ -25,12 +21,6 @@ const bunExecutable = join(repoRoot, "node_modules", "bun", "bin", "bun.exe");
 const bundleOnly = process.argv.includes("--bundle-only");
 const appVersion = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).version;
 
-const shims = Object.fromEntries(
-  readdirSync(shimDir)
-    .filter((file) => file.endsWith(".ts"))
-    .map((file) => [`@deepseek-ai/${file.slice(0, -".ts".length)}`, join(shimDir, file)]),
-);
-
 await build({
   entryPoints: [join(hostDir, "src", "bin.ts")],
   outfile: bundleFile,
@@ -39,10 +29,6 @@ await build({
   format: "esm",
   target: "node22",
   tsconfig: join(hostDir, "tsconfig.build.json"),
-  alias: {
-    ...shims,
-    "dsh-better-sidebar": join(repoRoot, "src", "better-sidebar"),
-  },
   define: { PID_HOST_VERSION: JSON.stringify(appVersion) },
   // ws loads these optional accelerators inside try/catch.
   external: ["bufferutil", "utf-8-validate"],

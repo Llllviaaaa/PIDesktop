@@ -13,7 +13,7 @@ export interface HostInfoResult {
 export interface ProviderSummary {
   id: string;
   name: string;
-  /** The adapter's wire protocol: `openai-compat` or `anthropic`. */
+  /** The adapter's wire protocol: `openai-compat`, `openai-responses`, `anthropic`, or `gemini`. */
   api: string;
   baseUrl: string;
   /**
@@ -32,6 +32,13 @@ export interface ModelListParams {
   provider: string;
 }
 
+export interface ModelPricingInfo {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
 export interface ModelSummary {
   id: string;
   name?: string;
@@ -39,6 +46,7 @@ export interface ModelSummary {
   maxOutputTokens?: number;
   reasoning?: boolean;
   input?: Array<"text" | "image">;
+  cost?: ModelPricingInfo;
 }
 
 export interface ModelListResult {
@@ -66,6 +74,8 @@ export interface TokenUsage {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /** Thinking / reasoning tokens (already included in `outputTokens`), when reported. */
+  reasoningTokens?: number;
 }
 
 export interface SessionInfo {
@@ -81,6 +91,8 @@ export interface SessionInfo {
   messageCount: number;
   /** Tokens of every model call in the session, rewound ones included. */
   usage: TokenUsage;
+  /** Estimated USD cost of the session based on local pricing, when non-zero. */
+  estimatedCostUsd?: number;
   forkedFrom?: { sessionId: string; seq: number };
   parent?: { sessionId: string; callId: string };
   /** A side chat of `forkedFrom.sessionId`; session lists leave it out. */
@@ -178,6 +190,22 @@ export interface SessionRenameParams extends SessionRef {
 
 export interface SessionArchiveParams extends SessionRef {
   archived?: boolean;
+}
+
+export interface SessionSearchParams {
+  query: string;
+  cwd?: string;
+  includeArchived?: boolean;
+  limit?: number;
+}
+
+export interface SessionSearchHit {
+  session: SessionInfo;
+  snippet: string;
+}
+
+export interface SessionSearchResult {
+  hits: SessionSearchHit[];
 }
 
 export interface ModelSetParams extends SessionRef, ModelChoice {}
@@ -282,11 +310,80 @@ export interface McpStatusResult {
   servers: McpServerStatus[];
 }
 
-/** Token totals over every session; costs are not computed yet. */
+export interface McpReconnectParams {
+  /** Reconnect one configured server by `id`, or all enabled servers when omitted. */
+  serverId?: string;
+}
+
+export interface McpResourcesParams {
+  serverId?: string;
+}
+
+export interface McpResourceInfo {
+  serverId: string;
+  serverName: string;
+  uri: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface McpResourcesResult {
+  resources: McpResourceInfo[];
+}
+
+export interface McpReadResourceParams {
+  serverId: string;
+  uri: string;
+}
+
+export interface McpReadResourceResult {
+  serverId: string;
+  uri: string;
+  text: string;
+}
+
+export interface McpPromptsParams {
+  serverId?: string;
+}
+
+export interface McpPromptInfo {
+  serverId: string;
+  serverName: string;
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: Array<{ name: string; description?: string; required?: boolean }>;
+}
+
+export interface McpPromptsResult {
+  prompts: McpPromptInfo[];
+}
+
+export interface McpGetPromptParams {
+  serverId: string;
+  name: string;
+  arguments?: Record<string, string>;
+}
+
+export interface McpGetPromptResult {
+  serverId: string;
+  name: string;
+  markdown: string;
+}
+
+/** Notification `mcp/changed`. */
+export interface McpChangedNotification {
+  servers: McpServerStatus[];
+}
+
+/** Token totals and local estimated USD cost over every session. */
 export interface UsageSummaryResult {
   sessions: number;
   messages: number;
   usage: TokenUsage;
+  totalCostUsd?: number;
 }
 
 /** `llm.complete`: one model call without tools or a session. Without `provider` and `model` it uses the default model. */
@@ -357,3 +454,344 @@ export interface SessionExportParams extends SessionRef {
 export interface SessionExportResult {
   path: string;
 }
+
+// Dynamic plugins and workspace trust (ADR 0016).
+
+/** Which tier a plugin comes from. `workspace` overrides `user`, which overrides `builtin`. */
+export type PluginTier = "builtin" | "user" | "workspace";
+
+/** Runtime lifecycle state of a plugin. `pending` means enabled, waiting on required `inject` services. */
+export type PluginStatus = "active" | "pending" | "disabled" | "errored" | "untrusted";
+
+/** How an external plugin was installed. */
+export type PluginInstallChannel = "local" | "archive" | "git" | "npm";
+
+export interface PluginInstallOrigin {
+  channel: PluginInstallChannel;
+  /** Original path, package specifier, or repository URL. */
+  spec: string;
+  installedAt: string;
+  updatedAt?: string;
+}
+
+export interface PluginInfo {
+  /** Stable identifier (for example `plan`, `mcp`, or `@scope/my-plugin`). */
+  id: string;
+  /** Human-readable title. */
+  name: string;
+  version: string;
+  description?: string;
+  tier: PluginTier;
+  status: PluginStatus;
+  enabled: boolean;
+  /** False when a built-in host transport gateway plugin cannot be disabled while the RPC host is running. */
+  canDisable?: boolean;
+  /** True when a user or workspace plugin replaces a built-in plugin with the same `id`. */
+  overridesBuiltin: boolean;
+  /** True when this plugin entry can be removed (for example an external plugin or user override). */
+  removable: boolean;
+  /** True when the plugin declares a host entry. */
+  hasHost: boolean;
+  /** True when the plugin declares a client UI bundle. */
+  hasClient: boolean;
+  /** Relative URL path on the Host WebServer (`/plugins/<encodedId>/client.js`) when `hasClient` is true. */
+  clientPath?: string;
+  /** Content revision hash of the client bundle, when `hasClient` is true; changes trigger UI HMR. */
+  clientEtag?: string;
+  /** Absolute directory path for `user` and `workspace` plugins. */
+  dir?: string;
+  /** Workspace root when `tier === "workspace"`. */
+  workspace?: string;
+  /** File-watch hot reload enabled (external plugins only). */
+  watch: boolean;
+  /** Installation provenance for `user` plugins installed through the manager. */
+  origin?: PluginInstallOrigin;
+  /** Current plugin configuration object. */
+  config?: Record<string, unknown>;
+  /** Optional JSON Schema describing `config` for settings UI rendering. */
+  configSchema?: Record<string, unknown>;
+  /** Declared Cordis service dependencies (`inject`). */
+  inject?: string[];
+  /** Declared Cordis service capabilities provided (`provides`). */
+  provides?: string[];
+  /** Required service names still missing when `status === "pending"`. */
+  missingInject?: string[];
+  /** Last load or HMR error message when `status === "errored"` or a reload rolled back. */
+  error?: string;
+}
+
+export interface PluginListParams {
+  /** Optional active workspace path so `<workspace>/.pid/plugins` entries are included. */
+  workspace?: string;
+}
+
+export interface PluginListResult {
+  plugins: PluginInfo[];
+}
+
+export interface PluginToggleParams {
+  id: string;
+  workspace?: string;
+  watch?: boolean;
+}
+
+export interface PluginConfigureParams {
+  id: string;
+  config: Record<string, unknown>;
+  watch?: boolean;
+  workspace?: string;
+}
+
+export interface PluginReloadParams {
+  /** Reload one plugin by `id`, or rescan and reload all plugins when omitted. */
+  id?: string;
+  workspace?: string;
+}
+
+export interface PluginInstallParams {
+  channel: PluginInstallChannel;
+  /** Local folder/archive path, Git URL (`github:owner/repo` / `https://...`), or npm package spec (`pkg@version`). */
+  spec: string;
+  /** For `local` channel: link the directory in place (default `true`, enables `watch`) instead of copying it into `<dataDir>/plugins`. */
+  link?: boolean;
+  /** Enable file watching after install (defaults to `true` for linked `local` plugins, `false` otherwise). */
+  watch?: boolean;
+}
+
+export interface PluginUpdateParams {
+  /** Update one installed `user` plugin by `id`, or all updatable `git`/`npm` plugins when omitted. */
+  id?: string;
+}
+
+export interface PluginRemoveParams {
+  id: string;
+  workspace?: string;
+}
+
+export interface PluginMutationResult {
+  plugin?: PluginInfo;
+  plugins: PluginInfo[];
+}
+
+export interface PluginClientBundleParams {
+  id: string;
+  workspace?: string;
+  ifNoneMatch?: string;
+}
+
+export interface PluginClientBundleResult {
+  notModified: boolean;
+  etag: string;
+  code?: string;
+}
+
+/** Notification `plugin/changed`. */
+export interface PluginChangedNotification {
+  reason: "installed" | "updated" | "removed" | "toggled" | "configured" | "reloaded" | "hmr" | "trust";
+  changedIds: string[];
+  plugins: PluginInfo[];
+}
+
+export interface WorkspaceTrustEntry {
+  path: string;
+  trustedAt: string;
+}
+
+export interface WorkspaceTrustStatusParams {
+  workspace?: string;
+}
+
+export interface WorkspaceTrustListResult {
+  trusted: WorkspaceTrustEntry[];
+  /** Present when `workspace` was passed: trust state and whether `.pid/plugins` or `.pid/harness.json` exists. */
+  current?: {
+    workspace: string;
+    trusted: boolean;
+    hasProjectPlugins: boolean;
+    hasProjectConfig: boolean;
+    pluginIds: string[];
+  };
+}
+
+export interface WorkspaceTrustSetParams {
+  workspace: string;
+  trusted: boolean;
+}
+
+/** Notification `workspace/trustChanged`. */
+export interface WorkspaceTrustChangedNotification {
+  workspace: string;
+  trusted: boolean;
+  trustedList: WorkspaceTrustEntry[];
+}
+
+// Slash commands (ADR 0002, 0003).
+
+export interface CommandInfo {
+  name: string;
+  description: string;
+  argsHint?: string;
+  source: string;
+}
+
+export interface CommandListParams {
+  cwd?: string;
+}
+
+export interface CommandListResult {
+  commands: CommandInfo[];
+}
+
+export interface CommandRunParams {
+  name: string;
+  args?: string;
+  sessionId?: string;
+  cwd?: string;
+}
+
+export interface CommandRunResult {
+  handled: boolean;
+  output?: string;
+  prompt?: string;
+  clientAction?: "clear" | "compact";
+  isError?: boolean;
+}
+
+/** Notification `command/changed`. */
+export interface CommandChangedNotification {
+  reason: string;
+}
+
+// Memory 2.0 & Skills Lifecycle (M3).
+
+export type MemoryScope = "user" | "project";
+
+export interface MemoryGetParams {
+  scope?: MemoryScope;
+  cwd?: string;
+}
+
+export interface MemoryGetResult {
+  scope: MemoryScope;
+  path: string;
+  content: string;
+  trusted: boolean;
+}
+
+export interface MemorySetParams {
+  scope?: MemoryScope;
+  cwd?: string;
+  content: string;
+}
+
+export interface MemoryDeleteParams {
+  scope?: MemoryScope;
+  cwd?: string;
+}
+
+export interface MemoryExportParams {
+  scope?: MemoryScope;
+  cwd?: string;
+  destination: string;
+}
+
+export interface MemoryExportResult {
+  path: string;
+}
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  path: string;
+  scope: "user" | "project";
+  enabled: boolean;
+  trusted: boolean;
+}
+
+export interface SkillListParams {
+  cwd?: string;
+}
+
+export interface SkillListResult {
+  skills: SkillInfo[];
+}
+
+export interface SkillReadParams {
+  path: string;
+  cwd?: string;
+}
+
+export interface SkillReadResult {
+  path: string;
+  content: string;
+  name: string;
+  description: string;
+}
+
+export interface SkillCreateParams {
+  scope: "user" | "project";
+  cwd?: string;
+  name: string;
+  description: string;
+  body?: string;
+}
+
+export interface SkillCreateResult {
+  skill: SkillInfo;
+  content: string;
+}
+
+export interface SkillSaveParams {
+  path: string;
+  cwd?: string;
+  content: string;
+}
+
+export interface SkillToggleParams {
+  path: string;
+  cwd?: string;
+  enabled: boolean;
+}
+
+export interface SkillDeleteParams {
+  path: string;
+  cwd?: string;
+}
+
+export type SandboxConfigKind = "wsb" | "devcontainer";
+
+export interface SandboxGenerateConfigParams {
+  kind: SandboxConfigKind;
+  cwd: string;
+  overwrite?: boolean;
+}
+
+export interface SandboxGenerateConfigResult {
+  kind: SandboxConfigKind;
+  path: string;
+  content: string;
+}
+
+// Unified native workbench (Stage 3).
+
+export type WorkbenchOpenTarget =
+  | "files"
+  | "editor"
+  | "review"
+  | "preview"
+  | "summary"
+  | "side-chat"
+  | "terminal";
+
+export interface WorkbenchOpenParams {
+  sessionId?: string;
+  cwd?: string;
+  target: WorkbenchOpenTarget;
+  path?: string;
+  line?: number;
+  endLine?: number;
+  url?: string;
+}
+
+/** Notification `workbench/open`. */
+export type WorkbenchOpenNotification = WorkbenchOpenParams;

@@ -11,6 +11,7 @@ import {
   ArchiveRestore,
   Bell,
   BookOpen,
+  Boxes,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -187,6 +188,7 @@ type SidebarGroupMode = "project" | "recent";
 const FOOTER_SETTINGS_PAGES: ReadonlyArray<readonly [SettingsPage, string, LucideIcon]> = [
   ["general", "设置", Settings],
   ["providers", "模型与连接", Cpu],
+  ["plugins", "插件扩展", Boxes],
   ["appearance", "外观", Palette],
   ["shortcuts", "快捷键", Keyboard],
 ];
@@ -283,7 +285,26 @@ export function Sidebar({
     queryFn: () => agent.listArchivedSessions().catch((): SessionInfo[] => []),
     enabled: workspaceView === "archived",
   });
-  const archivedSessions = archivedSessionsQuery.data ?? [];
+  const trimmedQuery = query.trim();
+  const sessionSearchQuery = useQuery({
+    queryKey: queryKeys.sessionSearch(trimmedQuery, workspaceView === "archived"),
+    queryFn: () => agent.searchSessions(trimmedQuery, { includeArchived: workspaceView === "archived", limit: 50 }),
+    enabled: trimmedQuery.length > 0,
+    placeholderData: (previous) => previous,
+  });
+  const snippetByFile = useMemo(() => {
+    if (!trimmedQuery) return new Map<string, string>();
+    return new Map((sessionSearchQuery.data ?? []).map((hit) => [hit.session.file, hit.snippet]));
+  }, [sessionSearchQuery.data, trimmedQuery]);
+  const archivedSessions = useMemo(() => {
+    const allArchived = archivedSessionsQuery.data ?? [];
+    if (!trimmedQuery) return allArchived;
+    const lower = trimmedQuery.toLowerCase();
+    return allArchived.filter((session) => {
+      const haystack = `${sessionTitle(session)} ${repoName(session.cwd)} ${session.cwd}`.toLowerCase();
+      return haystack.includes(lower) || snippetByFile.has(session.file);
+    });
+  }, [archivedSessionsQuery.data, snippetByFile, trimmedQuery]);
   const projectConfigs = projectsQuery.data ?? NO_PROJECTS;
   const setProjectConfigs = useCallback(
     (update: (current: ProjectConfig[]) => ProjectConfig[]) =>
@@ -334,15 +355,26 @@ export function Sidebar({
   const groups = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const result = new Map<string, SessionInfo[]>();
+    const seenFiles = new Set<string>();
     for (const session of sessions) {
+      seenFiles.add(session.file);
       const config = projectConfigs.find((project) => pathsEqual(project.path, session.cwd));
       if (config?.hidden) continue;
       const title = sessionTitle(session);
       const projectName = config?.name.trim() || repoName(session.cwd);
       const haystack = `${title} ${projectName} ${session.cwd}`.toLowerCase();
-      if (normalizedQuery && !haystack.includes(normalizedQuery)) continue;
+      if (normalizedQuery && !haystack.includes(normalizedQuery) && !snippetByFile.has(session.file)) continue;
       const key = session.cwd || "未知项目";
       result.set(key, [...(result.get(key) ?? []), session]);
+    }
+    if (normalizedQuery && workspaceView === "active") {
+      for (const hit of sessionSearchQuery.data ?? []) {
+        if (seenFiles.has(hit.session.file)) continue;
+        const config = projectConfigs.find((project) => pathsEqual(project.path, hit.session.cwd));
+        if (config?.hidden) continue;
+        const key = hit.session.cwd || "未知项目";
+        result.set(key, [...(result.get(key) ?? []), hit.session]);
+      }
     }
     for (const config of projectConfigs) {
       if (config.hidden || !config.path.trim() || result.has(config.path)) continue;
@@ -355,7 +387,7 @@ export function Sidebar({
       result.set(key, sortSidebarSessions(chats, pinnedSessionFiles, stableSessionOrder));
     }
     return sortSidebarProjectGroups([...result.entries()], projectConfigs, stableSessionOrder, sidebarOrder.workspaces);
-  }, [pinnedSessionFiles, projectConfigs, query, sessions, sidebarOrder.workspaces, stableSessionOrder]);
+  }, [pinnedSessionFiles, projectConfigs, query, sessionSearchQuery.data, sessions, sidebarOrder.workspaces, snippetByFile, stableSessionOrder, workspaceView]);
 
   // 按时间: every visible session in one list, pinned first, then most recently updated.
   const recentSessions = useMemo(() => groups
@@ -529,9 +561,16 @@ export function Sidebar({
     const active = !newTaskActive && sameLocalPath(session.file, currentSessionFile);
     const pinned = pinnedSessionFiles.includes(session.file);
     const status = approval ? "approval" : running ? "running" : active ? "active" : "idle";
+    const snippet = trimmedQuery ? snippetByFile.get(session.file) : undefined;
+    const openTargetSession = () => {
+      closePopovers();
+      setQuery("");
+      setProjectCollapsed(session.cwd, false);
+      onOpenSession(session);
+    };
     return (
       <div
-        className={`thread-row-shell ${active ? "active" : ""}`}
+        className={`thread-row-shell ${active ? "active" : ""}${snippet ? " has-snippet" : ""}`}
         key={session.file}
         onMouseEnter={(event) => showThreadPreview(session, event.currentTarget)}
         onMouseLeave={schedulePreviewClose}
@@ -539,12 +578,7 @@ export function Sidebar({
         <button
           type="button"
           className={`thread-row ${active ? "active" : ""}`}
-          onClick={() => {
-            closePopovers();
-            setQuery("");
-            setProjectCollapsed(session.cwd, false);
-            onOpenSession(session);
-          }}
+          onClick={openTargetSession}
           title={sessionTitle(session)}
         >
           <span
@@ -557,6 +591,16 @@ export function Sidebar({
             ? <span className="thread-row-time thread-row-badge">待审批</span>
             : <span className="thread-row-time">{compactRelativeTime(session)}</span>}
         </button>
+        {snippet && (
+          <button
+            type="button"
+            className="thread-search-snippet"
+            onClick={openTargetSession}
+            title={snippet}
+          >
+            {snippet}
+          </button>
+        )}
         <div className="thread-row-actions">
           <button
             type="button"
@@ -662,7 +706,7 @@ export function Sidebar({
                 setQuery("");
               }
             }}
-            placeholder="搜索"
+            placeholder="搜索会话标题、正文或项目…"
           />
         </label>
       )}

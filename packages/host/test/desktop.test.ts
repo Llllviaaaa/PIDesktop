@@ -16,7 +16,8 @@ import { Ui } from "@pid/ui";
 import { featureEntries, withMcpSecrets } from "../src/agent-plugins.ts";
 import { applyDesktopMessage, importDesktopTasks, parseControlLine } from "../src/control.ts";
 import { effortFromThinking, harnessFromDesktop, personalInstructions } from "../src/desktop-settings.ts";
-import { defaultHarnessConfig, readHarnessConfig } from "../src/harness-config.ts";
+import { defaultHarnessConfig, readEffectiveHarnessConfig, readHarnessConfig } from "../src/harness-config.ts";
+import { readPluginsStore, updatePluginsStore } from "../src/plugin-store.ts";
 import { readDefaultModel } from "../src/providers.ts";
 import { ReloadablePlugins } from "../src/reloadable.ts";
 import { fileSecretResolver, readSecretFile, writeSecretFile, type SecretCodec } from "../src/secrets.ts";
@@ -81,6 +82,8 @@ describe("desktop settings", () => {
     expect(config.subagents).toEqual({ enabled: true, concurrency: 4, model: defaultModel, effort: "high" });
     expect(config.browser).toEqual({ enabled: true, headless: false, confirmActions: true, profileDir: join("C:/cfg", "browser-profile") });
     expect(config.computer).toEqual({ enabled: false, confirmActions: true, helper: "C:/app/Pi Desktop.exe" });
+    expect(config.sandbox).toEqual({ enabled: false });
+    expect(harnessFromDesktop({ settings: { sandboxEnabled: true }, configDir: "C:/cfg" }).config.sandbox).toEqual({ enabled: true });
     expect(config.prompt.instructions).toBe("Communication style: be direct, implementation-focused, and concise. Lead with concrete outcomes.\n\nAnswer in Chinese.");
   });
 
@@ -137,6 +140,46 @@ describe("control channel", () => {
     const providers = JSON.parse(readFileSync(join(dataDir, "providers.json"), "utf8"));
     expect(providers.providers.map((entry: { id: string }) => entry.id)).toEqual(["deepseek"]);
     expect(providers.defaultModel).toEqual({ provider: "deepseek", model: "deepseek-reasoner" });
+  });
+
+  it("reconciles DesktopMessage toggle flips with plugins.json without clobbering untouched plugin toggles, and overlays trusted .pid/harness.json", () => {
+    dir = mkdtempSync(join(tmpdir(), "pid-control-reconcile-"));
+    const dataDir = join(dir, "data");
+    const cfgDir = join(dir, "cfg");
+
+    // 1. Initial desktop sync writes harness.json (plan = true).
+    applyDesktopMessage(dataDir, { settings: { ...desktopSettings, planTrackingEnabled: true }, configDir: cfgDir });
+    // 2. User disables `plan` and `mcp` in PluginsSettingsPanel -> stored in plugins.json.
+    updatePluginsStore(dataDir, (store) => {
+      store.plugins.plan = { enabled: false, config: { custom: 1 } };
+      store.plugins.mcp = { enabled: false };
+    });
+
+    // 3. Unrelated desktop change (model switch) does NOT clobber plugins.json overrides!
+    applyDesktopMessage(dataDir, { settings: { ...desktopSettings, planTrackingEnabled: true, model: "deepseek-reasoner" }, configDir: cfgDir });
+    expect(readPluginsStore(dataDir).plugins.plan).toEqual({ enabled: false, config: { custom: 1 } });
+    expect(readPluginsStore(dataDir).plugins.mcp).toEqual({ enabled: false });
+
+    // 4. Explicit flip of `planTrackingEnabled` and `mcpEnabled` in Desktop Settings clears the stale enabled override while keeping `config`!
+    applyDesktopMessage(dataDir, {
+      settings: { ...desktopSettings, planTrackingEnabled: false, mcpEnabled: false },
+      configDir: cfgDir,
+    });
+    expect(readPluginsStore(dataDir).plugins.plan).toEqual({ config: { custom: 1 } });
+    expect(readPluginsStore(dataDir).plugins.mcp).toBeUndefined();
+
+    // 5. Workspace `.pid/harness.json` overlays only explicitly provided sections when trustedWorkspace is supplied.
+    const workspace = join(dir, "trusted-proj");
+    mkdirSync(join(workspace, ".pid"), { recursive: true });
+    writeFileSync(join(workspace, ".pid", "harness.json"), JSON.stringify({
+      permissions: { defaultPermission: "read-only" },
+      plan: { enabled: true },
+    }));
+    expect(readEffectiveHarnessConfig(dataDir).config.plan.enabled).toBe(false);
+    const merged = readEffectiveHarnessConfig(dataDir, workspace).config;
+    expect(merged.plan.enabled).toBe(true);
+    expect(merged.permissions.defaultPermission).toBe("read-only");
+    expect(merged.permissions.alwaysConfirmShell).toBe(false);
   });
 });
 

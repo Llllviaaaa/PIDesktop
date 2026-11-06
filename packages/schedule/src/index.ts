@@ -15,6 +15,15 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Context, Service } from "@deepseek-ai/cordis";
 import type { RunOutcome } from "@pid/agent";
+import {
+  ErrorCode,
+  type ScheduleListResult,
+  type ScheduleRunsResult,
+  type ScheduleTaskNotification,
+  type ScheduledRunInfo,
+  type ScheduledTaskInfo,
+} from "@pid/protocol";
+import { RpcError } from "@pid/rpc";
 import type { Session } from "@pid/session";
 import "@pid/ui";
 import {
@@ -73,6 +82,7 @@ function writeJsonAtomic(file: string, value: unknown): void {
 
 export class Schedule extends Service {
   static inject = ["sessions", "agents", "ui"];
+  static provide = "schedule";
 
   private tasks: ScheduledTask[] = [];
   private readonly running = new Map<string, { cancelled: boolean; sessionId?: string }>();
@@ -91,6 +101,71 @@ export class Schedule extends Service {
         this.running.delete(id);
       }
     }, "schedule: stop runs");
+    this.registerRpcMethods(ctx);
+  }
+
+  private registerRpcMethods(ctx: Context): void {
+    ctx.inject(["rpc"], (rpcCtx) => {
+      rpcCtx.on("schedule/task", (id, task) => {
+        const notification: ScheduleTaskNotification = task === undefined ? { id, deleted: true } : { id, task };
+        rpcCtx.rpc.broadcast("schedule/task", notification);
+      });
+      rpcCtx.on("schedule/run", (run) => rpcCtx.rpc.broadcast("schedule/run", run));
+
+      const requireId = (params: unknown): string => {
+        const value = (params as { id?: unknown } | undefined)?.id;
+        if (typeof value !== "string" || value === "") throw new RpcError(ErrorCode.InvalidParams, "id must be a string");
+        return value;
+      };
+      const invalid = <T>(fn: () => T): T => {
+        try {
+          return fn();
+        } catch (error) {
+          throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+        }
+      };
+
+      const methods: Record<string, (params: unknown) => unknown> = {
+        "schedule.list": (): ScheduleListResult => ({
+          tasks: this.list().map((task) => ({ ...task, running: this.isRunning(task.id) })),
+        }),
+        "schedule.save": (params): { task: ScheduledTaskInfo } => {
+          const task = (params as { task?: unknown } | undefined)?.task;
+          if (typeof task !== "object" || task === null) throw new RpcError(ErrorCode.InvalidParams, "schedule.save needs { task }");
+          const saved = invalid(() => this.save(task as Partial<ScheduledTask>));
+          return { task: { ...saved, running: this.isRunning(saved.id) } };
+        },
+        "schedule.delete": (params) => {
+          if (!this.delete(requireId(params))) throw new RpcError(ErrorCode.InvalidParams, "No such scheduled task");
+          return {};
+        },
+        "schedule.run": async (params): Promise<{ run: ScheduledRunInfo }> => {
+          const taskId = requireId(params);
+          try {
+            return { run: await this.run(taskId, "manual") };
+          } catch (error) {
+            throw new RpcError(ErrorCode.InvalidParams, error instanceof Error ? error.message : String(error));
+          }
+        },
+        "schedule.cancel": (params) => {
+          if (!this.cancel(requireId(params))) throw new RpcError(ErrorCode.InvalidParams, "That task is not running");
+          return {};
+        },
+        "schedule.runs": (params): ScheduleRunsResult => {
+          const { taskId, limit } = (params ?? {}) as { taskId?: unknown; limit?: unknown };
+          return {
+            runs: this.runs(
+              typeof taskId === "string" ? taskId : undefined,
+              Number.isInteger(limit) ? Math.min(500, Math.max(1, limit as number)) : 50,
+            ),
+          };
+        },
+      };
+
+      for (const [method, handler] of Object.entries(methods)) {
+        rpcCtx.effect(() => rpcCtx.rpc.method(method, handler), `schedule: ${method}`);
+      }
+    });
   }
 
   list(): ScheduledTask[] {

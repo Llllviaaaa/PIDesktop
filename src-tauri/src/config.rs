@@ -24,6 +24,8 @@ pub(crate) struct AppSettings {
     pub(crate) block_write_outside_workspace: bool,
     /// Newline- or comma-separated command prefixes that skip shell confirmation under ask/workspace-write.
     pub(crate) shell_allow_prefixes: String,
+    #[serde(default)]
+    pub(crate) sandbox_enabled: bool,
     pub(crate) tool_rules: Vec<ToolPermissionRule>,
     /// Default new-task environment: "local" or "worktree".
     pub(crate) default_task_environment: String,
@@ -39,6 +41,8 @@ pub(crate) struct AppSettings {
     pub(crate) language: String,
     pub(crate) default_file_opener: String,
     pub(crate) terminal_shell: String,
+    #[serde(default)]
+    pub(crate) terminal_shell_args: String,
     pub(crate) terminal_output: String,
     pub(crate) notifications_enabled: bool,
     pub(crate) notify_on_completion: bool,
@@ -60,6 +64,8 @@ pub(crate) struct AppSettings {
     pub(crate) custom_instructions: String,
     pub(crate) suggested_prompts: bool,
     pub(crate) memory_enabled: bool,
+    #[serde(default = "default_true")]
+    pub(crate) project_memory_enabled: bool,
     pub(crate) plan_tracking_enabled: bool,
     pub(crate) hooks_enabled: bool,
     pub(crate) hooks_inherit_environment: bool,
@@ -190,6 +196,10 @@ pub(crate) fn default_transcript_density() -> String {
     "normal".to_string()
 }
 
+pub(crate) fn default_true() -> bool {
+    true
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -202,6 +212,7 @@ impl Default for AppSettings {
             always_confirm_shell: true,
             block_write_outside_workspace: true,
             shell_allow_prefixes: String::new(),
+            sandbox_enabled: false,
             tool_rules: Vec::new(),
             default_task_environment: "local".to_string(),
             show_thinking: true,
@@ -213,6 +224,7 @@ impl Default for AppSettings {
             language: "zh-CN".to_string(),
             default_file_opener: "system".to_string(),
             terminal_shell: "PowerShell".to_string(),
+            terminal_shell_args: String::new(),
             terminal_output: "summary".to_string(),
             notifications_enabled: true,
             notify_on_completion: true,
@@ -233,6 +245,7 @@ impl Default for AppSettings {
             custom_instructions: String::new(),
             suggested_prompts: true,
             memory_enabled: true,
+            project_memory_enabled: true,
             plan_tracking_enabled: true,
             hooks_enabled: false,
             hooks_inherit_environment: false,

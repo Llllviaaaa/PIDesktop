@@ -4,10 +4,10 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 /**
- * Four environments live in this repository and they do not share globals:
+ * Three environments live in this repository and they do not share globals:
  * the Vite renderer under src/, the assertion suites under tests/ and the
- * scripts under scripts/, the Pi extensions under src-tauri/resources/ that
- * run inside the Pi runtime, and the Harness packages under packages/ that run in the Harness Host.
+ * scripts under scripts/, and the Harness packages under packages/ that run in
+ * the Harness Host.
  */
 export default tseslint.config(
   {
@@ -21,10 +21,6 @@ export default tseslint.config(
       "src-tauri/gen/**",
       // Vendored tooling, not project source.
       ".gitnexus/**",
-      // DeepSeek Harness packages kept as they are upstream (MIT); see dsh-aliases.ts.
-      "src/dsh/**",
-      // dsh-better-sidebar (MIT, © 2026 dsh-external), kept as it is upstream.
-      "src/better-sidebar/**",
     ],
   },
 
@@ -60,6 +56,35 @@ export default tseslint.config(
       // state that follows a prop through useSyncOnChange, and clocks through
       // useSyncExternalStore. An effect only talks to things outside React.
       "react-hooks/set-state-in-effect": "error",
+      // Renderer code only talks to the Harness Host over the wire protocol (docs/adr/0005).
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@pid/*", "!@pid/protocol", "@pid/protocol/**"],
+              message: "Renderer code under src/ may only import @pid/protocol from @pid/* (ADR 0005).",
+            },
+            {
+              regex: "(?:^|[\\\\/])packages(?:[\\\\/]|$)",
+              message: "Renderer code under src/ must not import packages/ by path; use @pid/protocol (ADR 0005).",
+            },
+          ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            ":matches(ImportExpression, TSImportType) > :matches(Literal.source[value=/^@pid\\/(?!protocol$)/], TemplateLiteral.source[expressions.length=0][quasis.0.value.cooked=/^@pid\\/(?!protocol$)/])",
+          message: "Renderer code under src/ may only import @pid/protocol from @pid/* (ADR 0005).",
+        },
+        {
+          selector:
+            ":matches(ImportExpression, TSImportType) > :matches(Literal.source[value=/(?:^|[\\\\/])packages(?:[\\\\/]|$)/], TemplateLiteral.source[expressions.length=0][quasis.0.value.cooked=/(?:^|[\\\\/])packages(?:[\\\\/]|$)/])",
+          message: "Renderer code under src/ must not import packages/ by path; use @pid/protocol (ADR 0005).",
+        },
+      ],
     },
   },
 
@@ -70,16 +95,6 @@ export default tseslint.config(
     },
     rules: {
       // Assertion scripts report through stdout.
-      "no-console": "off",
-    },
-  },
-
-  {
-    files: ["src-tauri/resources/*.ts"],
-    languageOptions: {
-      globals: { ...globals.node },
-    },
-    rules: {
       "no-console": "off",
     },
   },

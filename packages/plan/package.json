@@ -9,6 +9,9 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/commands": "*",
+    "@pid/protocol": "*",
+    "@pid/rpc": "*",
     "@pid/session": "*",
     "@pid/tools": "*"
   }

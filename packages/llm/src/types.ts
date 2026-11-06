@@ -82,6 +82,8 @@ export interface Usage {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /** Subset of `outputTokens` spent on model thinking/reasoning when reported by the provider. */
+  reasoningTokens?: number;
 }
 
 export type FinishReason = "stop" | "length" | "tool-use" | "refusal" | "error" | "aborted";
@@ -119,6 +121,14 @@ export interface LlmErrorInfo {
   retryable: boolean;
 }
 
+/** Per-million-token USD pricing for a model (`@pid/pricing`). */
+export interface ModelPricing {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
 export interface ModelInfo {
   id: string;
   name?: string;
@@ -126,6 +136,7 @@ export interface ModelInfo {
   maxOutputTokens?: number;
   reasoning?: boolean;
   input?: Array<"text" | "image">;
+  cost?: ModelPricing;
 }
 
 export interface ProviderInfo {

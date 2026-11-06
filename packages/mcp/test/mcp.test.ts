@@ -95,4 +95,47 @@ describe("MCP plugin", () => {
     expect(c.mcp.statuses()).toMatchObject([{ config: { id: "broken" }, connected: false }]);
     expect(c.tools.schemas()).toEqual([]);
   });
+
+  it("hot-refreshes remote tools on notifications/tools/list_changed without restarting", async () => {
+    const { ctx: c, call, text } = await setup({ servers: [server()], confirmTools: false }, { answer: true });
+    let changedEvents = 0;
+    c.on("mcp/changed", () => {
+      changedEvents += 1;
+    });
+
+    expect(c.tools.schemas().map((schema) => schema.name)).not.toContain("mcp__fixture__added_live");
+    await call("mcp__fixture__echo", { text: "__emit_tools_changed__" });
+
+    await expect.poll(() => c.tools.schemas().map((schema) => schema.name)).toContain("mcp__fixture__added_live");
+    expect(c.mcp.statuses()[0]?.toolCount).toBe(3);
+    expect(changedEvents).toBeGreaterThan(0);
+    expect(text(await call("mcp__fixture__added_live"))).toBe("live-ok");
+  });
+
+  it("auto-reconnects after unexpected server exit and supports direct resource/prompt inspection", async () => {
+    const { ctx: c, call, text } = await setup(
+      { servers: [server()], confirmTools: false, reconnectDelaysMs: [40, 80] },
+      { answer: true },
+    );
+
+    const resources = await c.mcp.listAllResources("fixture");
+    expect(resources).toMatchObject([{ serverId: "fixture", uri: "fixture://note" }]);
+    const readRes = await c.mcp.readServerResource("fixture", "fixture://note");
+    expect(readRes.serverId).toBe("fixture");
+    expect(readRes.uri).toBe("fixture://note");
+    expect(readRes.text).toContain("note v1");
+    const prompts = await c.mcp.listAllPrompts("fixture");
+    expect(prompts).toMatchObject([{ serverId: "fixture", name: "review" }]);
+    expect((await c.mcp.getServerPrompt("fixture", "review", { path: "index.ts" })).markdown).toContain("Review index.ts");
+
+    // Trigger unexpected child exit and wait for automatic backoff reconnect.
+    await call("mcp__fixture__echo", { text: "__exit_now__" });
+    await expect.poll(() => c.mcp.statuses()[0]?.connected, { timeout: 4_000 }).toBe(true);
+    expect(text(await call("mcp__fixture__echo", { text: "after-crash" }))).toBe("echo: after-crash");
+
+    // Manual reconnect also succeeds cleanly.
+    const reconnected = await c.mcp.reconnect("fixture");
+    expect(reconnected[0]?.connected).toBe(true);
+    expect(text(await call("mcp__fixture__echo", { text: "after-manual" }))).toBe("echo: after-manual");
+  });
 });
