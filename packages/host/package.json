@@ -8,8 +8,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.5",
-    "@deepseek-ai/schemastery": "^3.18.5",
+    "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/schemastery": "^3.19.0",
     "@pid/agent": "*",
     "@pid/agent-loop": "*",
     "@pid/browser": "*",
@@ -41,7 +41,7 @@
     "@pid/tool-fs": "*",
     "@pid/tools": "*",
     "@pid/ui": "*",
-    "ws": "^8.18.3"
+    "ws": "^8.22.1"
   },
   "devDependencies": {
     "@pid/testkit": "*"
