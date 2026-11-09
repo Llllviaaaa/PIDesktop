@@ -10,7 +10,7 @@
  *   over the standard RPC bus (`"workbench/open"` notification).
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, isAbsolute, relative, resolve } from "node:path";
@@ -76,13 +76,24 @@ const MIME_TYPES: Readonly<Record<string, string>> = {
 };
 
 function isInsideRoot(root: string, target: string): boolean {
-  const rel = relative(root, target);
+  const normalizedRoot = process.platform === "win32" ? root.toLowerCase() : root;
+  const normalizedTarget = process.platform === "win32" ? target.toLowerCase() : target;
+  const rel = relative(normalizedRoot, normalizedTarget);
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 function canonicalizeRoot(cwd: string): string {
   const resolved = resolve(cwd);
-  return existsSync(resolved) ? realpathSync(resolved) : resolved;
+  try {
+    return realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
+function rootLookupKey(canonicalRoot: string): string {
+  const cleaned = canonicalRoot.replace(/\\/g, "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? cleaned.toLowerCase() : cleaned;
 }
 
 function normalizeWorkspacePath(cwd: string, rawPath: string): string {
@@ -122,10 +133,11 @@ export function apply(ctx: Context): void {
     const port = boundPort(webServer);
     if (port === null) return null;
     const canonicalRoot = canonicalizeRoot(cwd);
-    let cap = rootToCapability.get(canonicalRoot);
+    const rootKey = rootLookupKey(canonicalRoot);
+    let cap = rootToCapability.get(rootKey);
     if (cap === undefined) {
       cap = randomBytes(18).toString("base64url");
-      rootToCapability.set(canonicalRoot, cap);
+      rootToCapability.set(rootKey, cap);
       capabilityToRoot.set(cap, canonicalRoot);
     }
     const encodedPath = normalizedPath
@@ -197,8 +209,11 @@ export function apply(ctx: Context): void {
         return;
       }
 
-      const realTarget = await realpath(targetPath);
-      if (!isInsideRoot(canonicalRoot, realTarget)) {
+      const [realRoot, realTarget] = await Promise.all([
+        realpath(canonicalRoot).catch(() => canonicalRoot),
+        realpath(targetPath),
+      ]);
+      if (!isInsideRoot(realRoot, realTarget)) {
         res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
         res.end("forbidden");
         return;
