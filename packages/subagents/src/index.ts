@@ -8,6 +8,7 @@
  */
 import type { Context } from "@deepseek-ai/cordis";
 import "@pid/agent";
+import type { Effort } from "@pid/llm";
 import type { Session } from "@pid/session";
 import { textOutput, type ToolDefinition, type ToolEnv } from "@pid/tools";
 import { normalizeSubagentTasks, subagentPrompt, type SubagentPermission, type SubagentRole, type SubagentTask } from "./core.ts";
@@ -20,7 +21,7 @@ export const inject = ["sessions", "tools", "agents"];
 export interface Config {
   /** Model for subagents; defaults to the parent session's. */
   model?: { provider: string; model: string };
-  effort?: "off" | "low" | "medium" | "high";
+  effort?: Effort;
   /** Subagents running at once, 1..4. Default 3. */
   concurrency?: number;
 }

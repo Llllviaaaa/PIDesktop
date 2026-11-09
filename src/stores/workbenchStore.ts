@@ -1,8 +1,8 @@
 import { create } from "zustand";
-import type { WorkbenchOpenNotification } from "@pid/protocol";
+import type { WorkbenchOpenNotification, WorkbenchPreviewUrlResult } from "@pid/protocol";
 import { agent } from "../lib/agent";
 import { describeError } from "../lib/errors";
-import { harnessRuntimes } from "../lib/harnessRuntime";
+import { harnessRuntimes, isRpcMethodNotFound } from "../lib/harnessRuntime";
 
 export type BuiltinWorkbenchTab =
   | "files"
@@ -11,6 +11,28 @@ export type BuiltinWorkbenchTab =
   | "preview"
   | "summary"
   | "side-chat";
+
+export type WorkbenchFileViewMode = "preview" | "split" | "code";
+export type WorkbenchPreviewKind = "html" | "svg" | "markdown" | null;
+
+export function previewKindForPath(filePath: string): WorkbenchPreviewKind {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "html" || ext === "htm") return "html";
+  if (ext === "svg") return "svg";
+  if (ext === "md" || ext === "mdx" || ext === "markdown") return "markdown";
+  return null;
+}
+
+export async function resolveWorkspacePreviewUrl(cwd: string, path: string): Promise<string | null> {
+  if (!cwd.trim() || !path.trim()) return null;
+  try {
+    const res = await harnessRuntimes.call<WorkbenchPreviewUrlResult>("workbench.previewUrl", { cwd, path });
+    return res.url ?? null;
+  } catch (error) {
+    if (isRpcMethodNotFound(error)) return null;
+    return null;
+  }
+}
 
 export interface OpenWorkbenchFile {
   path: string;
@@ -26,11 +48,13 @@ export interface OpenWorkbenchFile {
   error?: string;
   line?: number;
   endLine?: number;
+  viewMode?: WorkbenchFileViewMode;
 }
 
 export interface OpenFileOptions {
   line?: number;
   endLine?: number;
+  viewMode?: WorkbenchFileViewMode;
 }
 
 function normalizeRelativeWorkspacePath(cwd: string, rawPath: string): {
@@ -79,6 +103,7 @@ export interface WorkbenchState {
   openFile: (cwd: string, rawPath: string, options?: OpenFileOptions) => Promise<void>;
   reloadFile: (cwd: string, path: string) => Promise<void>;
   selectFile: (path: string) => void;
+  setFileViewMode: (path: string, mode: WorkbenchFileViewMode) => void;
   updateFileContent: (path: string, content: string) => void;
   saveFile: (cwd: string, path: string) => Promise<boolean>;
   closeFile: (path: string) => void;
@@ -138,15 +163,21 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     const { path, parsedLine } = normalizeRelativeWorkspacePath(cwd, rawPath);
     const line = options?.line ?? parsedLine;
     const endLine = options?.endLine;
+    const kind = previewKindForPath(path);
+    const defaultViewMode: WorkbenchFileViewMode = options?.viewMode ?? (
+      line ? "code" : (kind === "html" || kind === "svg" ? "preview" : "code")
+    );
     const existing = get().openFiles.find((item) => item.path === path);
 
     if (existing && !existing.error) {
+      const nextMode: WorkbenchFileViewMode = options?.viewMode
+        ?? (line ? "code" : (existing.viewMode ?? defaultViewMode));
       set((state) => ({
         rightOpen: true,
         activeTab: "editor",
         activeFilePath: path,
         openFiles: state.openFiles.map((item) => (
-          item.path === path ? { ...item, line, endLine } : item
+          item.path === path ? { ...item, line, endLine, viewMode: nextMode } : item
         )),
       }));
       // Preserve unsaved edits; refresh clean files in background.
@@ -162,6 +193,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
         loading: true,
         line,
         endLine,
+        viewMode: defaultViewMode,
       };
       set((state) => ({
         rightOpen: true,
@@ -194,6 +226,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
             error: undefined,
             line: item.line,
             endLine: item.endLine,
+            viewMode: item.viewMode ?? defaultViewMode,
           };
         }),
       }));
@@ -248,6 +281,12 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   },
 
   selectFile: (path) => set({ rightOpen: true, activeTab: "editor", activeFilePath: path }),
+
+  setFileViewMode: (path, mode) => set((state) => ({
+    openFiles: state.openFiles.map((item) => (
+      item.path === path ? { ...item, viewMode: mode } : item
+    )),
+  })),
 
   updateFileContent: (path, content) => set((state) => ({
     openFiles: state.openFiles.map((item) => (

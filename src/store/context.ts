@@ -12,6 +12,7 @@ import { buildPromptPayload, HARNESS_SESSION_PREFIX, harnessRuntimes } from "../
 import { insertManagedQueueItem } from "../lib/managedQueue";
 import { persistModelCatalog } from "../lib/modelCatalogCache";
 import { sameLocalPath } from "../lib/pathIdentity";
+import { mergeThinkingLevels } from "../lib/thinkingLevels";
 import { agentBrowserFromMessages, computerFromMessages } from "../lib/toolPanels";
 import { streamAssistant } from "../lib/transcript";
 import { createNotices } from "../notifications";
@@ -220,7 +221,10 @@ export class StoreContext {
       if (get().runtimeId !== runtimeId || expectedVersion !== this.connectionVersion) return;
       set({
         availableModels: models,
-        availableThinkingLevels: harnessRuntimes.thinkingLevels(),
+        availableThinkingLevels: mergeThinkingLevels(
+          harnessRuntimes.thinkingLevels(get().model),
+          get().settings?.customThinkingLevels,
+        ),
         commands,
       });
       this.persistCurrentModelCatalog();
@@ -231,6 +235,7 @@ export class StoreContext {
     });
     const data = await stateRequest;
     if (get().runtimeId !== runtimeId || expectedVersion !== this.connectionVersion) return;
+    const activeModel = (keepQueuedModel ? this.queuedModelSelection : null) ?? data.model ?? null;
     set({
       sessionFile: data.sessionFile ?? null,
       sessionId: data.sessionId ?? null,
@@ -239,7 +244,15 @@ export class StoreContext {
       isCompacting: data.isCompacting ?? false,
       thinkingLevel: data.thinkingLevel ?? get().thinkingLevel,
       // A fresh runtime reports its default; keep showing the pick connect() is about to apply.
-      model: (keepQueuedModel ? this.queuedModelSelection : null) ?? data.model ?? null,
+      model: activeModel,
+      ...(activeModel
+        ? {
+            availableThinkingLevels: mergeThinkingLevels(
+              harnessRuntimes.thinkingLevels(activeModel),
+              get().settings?.customThinkingLevels,
+            ),
+          }
+        : {}),
     });
     this.persistCurrentModelCatalog();
 

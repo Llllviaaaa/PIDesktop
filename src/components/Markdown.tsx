@@ -28,7 +28,7 @@ const FILE_SCHEME = "pifile://";
  *   the whitelist keeps domains (pi.dev) and version numbers (1.30.0) unlinked.
  */
 const BARE_FILE_EXTENSIONS =
-  "tsx|ts|jsx|js|mjs|cjs|rs|py|go|java|rb|php|md|markdown|json|jsonc|css|scss|less|html|htm|toml|yaml|yml|txt|xml|sql|ps1|bat|ini|cfg|conf|lock|csv|svelte|vue";
+  "tsx|ts|jsx|js|mjs|cjs|rs|py|go|java|rb|php|md|markdown|json|jsonc|css|scss|less|html|htm|svg|toml|yaml|yml|txt|xml|sql|ps1|bat|ini|cfg|conf|lock|csv|svelte|vue";
 const PATH_FILE_TOKEN = String.raw`(?:[A-Za-z]:[\\/])?(?:\.{1,2}[\\/])?[\w.-]+(?:[\\/][\w.-]+)+\.[A-Za-z0-9]{1,6}`;
 const BARE_FILE_TOKEN = String.raw`[\w-]+(?:\.[\w-]+)*\.(?:${BARE_FILE_EXTENSIONS})(?![\w.-])`;
 const INLINE_FILE_RE = new RegExp(`^(${PATH_FILE_TOKEN}|${BARE_FILE_TOKEN})(?::(\\d+))?$`);

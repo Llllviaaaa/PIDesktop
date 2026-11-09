@@ -49,8 +49,28 @@ export function normalizeResponsesBaseUrl(raw?: string): string {
   return trimmed;
 }
 
-function effortValue(effort: Effort | undefined): Exclude<Effort, "off"> | undefined {
-  return effort === undefined || effort === "off" ? undefined : effort;
+function effortValue(effort: Effort | undefined, baseUrl?: string): string | undefined {
+  const trimmed = effort?.trim();
+  if (trimmed === undefined || trimmed === "" || trimmed === "off") return undefined;
+  if (trimmed === "max" && (baseUrl === undefined || /api\.openai\.com/i.test(baseUrl))) {
+    return "xhigh";
+  }
+  return trimmed;
+}
+
+function parseEffortList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const normalized = item.trim().toLowerCase();
+    if (!/^[a-z0-9._:-]{1,64}$/.test(normalized) || seen.has(normalized)) continue;
+    seen.add(normalized);
+    list.push(normalized);
+  }
+  if (list.length === 0) return undefined;
+  return seen.has("off") || seen.has("none") ? list : ["off", ...list];
 }
 
 function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
@@ -100,7 +120,7 @@ function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
   return input;
 }
 
-export function buildRequestBody(request: LlmRequest, model?: ModelInfo): Record<string, unknown> {
+export function buildRequestBody(request: LlmRequest, model?: ModelInfo, baseUrl?: string): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: request.model,
     input: toResponsesInput(request.messages),
@@ -123,7 +143,7 @@ export function buildRequestBody(request: LlmRequest, model?: ModelInfo): Record
   const maxOutputTokens = request.maxTokens ?? model?.maxOutputTokens;
   if (maxOutputTokens !== undefined) body.max_output_tokens = maxOutputTokens;
 
-  const effort = effortValue(request.effort);
+  const effort = model?.reasoning === false ? undefined : effortValue(request.effort, baseUrl);
   if (effort !== undefined) {
     body.reasoning = { effort, summary: "auto" };
   } else if (request.temperature !== undefined) {
@@ -345,7 +365,7 @@ export class OpenAiResponsesAdapter implements LlmAdapter {
     const events = postSse(
       joinUrl(this.baseUrl, "responses"),
       await this.headers(request),
-      buildRequestBody(request, model),
+      buildRequestBody(request, model, this.baseUrl),
       signal,
       this.provider.id,
     );
@@ -365,7 +385,27 @@ export class OpenAiResponsesAdapter implements LlmAdapter {
         if (typeof model.context_window === "number" && model.context_window > 0) info.contextWindow = model.context_window;
         else if (typeof model.context_length === "number" && model.context_length > 0) info.contextWindow = model.context_length;
         if (typeof model.max_output_tokens === "number" && model.max_output_tokens > 0) info.maxOutputTokens = model.max_output_tokens;
-        if (model.reasoning === true) info.reasoning = true;
+        const levels =
+          parseEffortList(model.thinking_levels)
+          ?? parseEffortList(model.supported_thinking_levels)
+          ?? parseEffortList(model.reasoning_efforts)
+          ?? parseEffortList(model.supported_reasoning_efforts);
+        if (levels !== undefined) info.thinkingLevels = levels;
+        const rawEffort = typeof model.thinking_level === "string"
+          ? model.thinking_level.trim().toLowerCase()
+          : typeof model.reasoning_effort === "string"
+            ? model.reasoning_effort.trim().toLowerCase()
+            : "";
+        if (rawEffort !== "" && /^[a-z0-9._:-]{1,64}$/.test(rawEffort)) {
+          info.thinkingLevel = rawEffort;
+        }
+        if (
+          model.reasoning === true
+          || Boolean(levels?.some((lvl) => lvl !== "off" && lvl !== "none"))
+          || (info.thinkingLevel !== undefined && info.thinkingLevel !== "off" && info.thinkingLevel !== "none")
+        ) {
+          info.reasoning = true;
+        }
         if (model.vision === true) info.input = ["text", "image"];
         return [info];
       });

@@ -161,7 +161,7 @@ export const DEFAULT_MAX_TOKENS = 16_384;
 
 // Providers that publish their own models; their catalog entries win ties over resellers.
 const FIRST_PARTY = new Set(["anthropic", "openai", "google", "xai", "deepseek", "mistral", "moonshotai", "zai", "minimax", "xiaomi", "qwen-token-plan"]);
-const VARIANT_SUFFIX = /-(latest|preview|exp|experimental|high|medium|low|minimal|max|thinking|non-thinking|nothinking|think|instruct|chat|fast|turbo)$/;
+const VARIANT_SUFFIX = /-(latest|preview|exp|experimental|xhigh|high|medium|low|minimal|max|thinking|non-thinking|nothinking|think|instruct|chat|fast|turbo)$/;
 const DATE_SUFFIX = /-(\d{8}|\d{4}-\d{2}-\d{2}|\d{4})$/;
 
 /** Canonical form for comparing model IDs across providers and relays. */
@@ -230,11 +230,48 @@ export interface GuessedModelProfile {
 
 function detectExplicitEffortSuffix(normalizedId: string): ModelThinkingLevel | null {
   if (/-(non-thinking|nothinking)$/.test(normalizedId)) return "off";
-  if (/-(minimal|low)$/.test(normalizedId)) return "low";
+  if (/-minimal$/.test(normalizedId)) return "minimal";
+  if (/-low$/.test(normalizedId)) return "low";
   if (/-medium$/.test(normalizedId)) return "medium";
-  if (/-(high|xhigh)$/.test(normalizedId)) return "high";
+  if (/-xhigh$/.test(normalizedId)) return "xhigh";
+  if (/-high$/.test(normalizedId)) return "high";
   if (/-max$/.test(normalizedId)) return "max";
   return null;
+}
+
+/**
+ * Dynamically infer supported thinking/reasoning effort tiers per model family
+ * (modeled after DeepSeek Harness `@deepseek-ai/dsh-llm` + `dsh-better-reasoning-effort`),
+ * used when `/models` does not return an explicit `thinkingLevels` array.
+ */
+export function inferModelThinkingLevels(modelId: string, reasoning?: boolean): string[] {
+  const id = normalizeModelId(modelId);
+  if (!id || reasoning === false || /-(non-thinking|nothinking)$/.test(id)) return [];
+  const canReason = reasoning ?? guessModelProfile(modelId).reasoning;
+  if (!canReason) return [];
+
+  if (/^gpt-5-[2-9]/.test(id) || /(^|-)codex(-|$)/.test(id) || /^o[13]-pro(-|$)/.test(id)) {
+    return ["off", "minimal", "low", "medium", "high", "xhigh"];
+  }
+  if (/^gpt-5/.test(id)) {
+    return ["off", "minimal", "low", "medium", "high"];
+  }
+  if (/^o[134](-|$)/.test(id)) {
+    return ["off", "low", "medium", "high"];
+  }
+  if (/^gemini-(2-5|[3-9])/.test(id)) {
+    return ["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"];
+  }
+  if (/^claude-(3-7|(opus|sonnet|haiku)-[4-9])/.test(id)) {
+    return ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+  }
+  if (/^grok-(3-mini|[4-9])/.test(id)) {
+    return ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+  }
+  if (/^deepseek-(r1|reasoner|v3-[1-9]|v[4-9])/.test(id)) {
+    return ["off", "minimal", "low", "medium", "high"];
+  }
+  return ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 }
 
 /** Rich capability & limit heuristics for 2025–2026 mainstream models when catalog has no match. */
@@ -343,11 +380,19 @@ export function enrichModel(model: ModelProviderModel, catalog: ModelCatalog): E
   const source: CapabilitySource = fromApi && model.contextWindow ? "api"
     : match ? "catalog"
       : hasProfileGuess ? "guess" : "default";
+  const explicitLevels = model.thinkingLevels?.filter(Boolean)
+    ?? match?.model.thinkingLevels?.filter(Boolean);
+  const resolvedThinkingLevels = !reasoning
+    ? undefined
+    : explicitLevels && explicitLevels.length > 0
+      ? explicitLevels
+      : inferModelThinkingLevels(model.id, true);
   return {
     model: {
       ...model,
       reasoning,
       thinkingLevel,
+      ...(resolvedThinkingLevels && resolvedThinkingLevels.length > 0 ? { thinkingLevels: resolvedThinkingLevels } : {}),
       input: image ? ["text", "image"] : ["text"],
       contextWindow,
       maxTokens,

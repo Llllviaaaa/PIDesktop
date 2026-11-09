@@ -138,7 +138,7 @@ export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) 
                 <button
                   type="button"
                   className="pid-wb-row-action"
-                  title="附加到当前对话"
+                  title="附加到主对话"
                   onClick={(event) => {
                     event.stopPropagation();
                     onAddToChat(entry.path);
@@ -218,7 +218,7 @@ export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) 
                       <button
                         type="button"
                         className="pid-wb-row-action"
-                        title="附加到当前对话"
+                        title="附加到主对话"
                         onClick={() => onAddToChat(entry.path)}
                       >
                         <MessageSquarePlus size={13} />

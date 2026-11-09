@@ -23,11 +23,27 @@ export const name = "pid-llm-gemini";
 export const inject = ["llm", "credentials"];
 
 export const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
-const THINKING_BUDGET: Record<Exclude<Effort, "off">, number> = {
+const THINKING_BUDGET: Record<string, number> = {
+  minimal: 512,
   low: 2_048,
   medium: 8_192,
   high: 24_576,
+  xhigh: 28_672,
+  max: 32_768,
+  auto: -1,
 };
+
+export function resolveThinkingBudget(effort: Effort): number {
+  const normalized = effort.trim().toLowerCase();
+  if (normalized in THINKING_BUDGET) return THINKING_BUDGET[normalized] as number;
+  const numericMatch = /^(?:budget:)?(-?\d+)(k)?$/.exec(normalized);
+  if (numericMatch) {
+    const base = Number(numericMatch[1]);
+    const tokens = numericMatch[2] ? base * 1_024 : base;
+    if (Number.isFinite(tokens) && tokens >= -1) return Math.round(tokens);
+  }
+  return THINKING_BUDGET.medium as number;
+}
 
 export interface ProviderConfig {
   id: string;
@@ -188,13 +204,14 @@ export function buildRequestBody(request: LlmRequest, model?: ModelInfo): Record
   const maxOutputTokens = request.maxTokens ?? model?.maxOutputTokens;
   if (maxOutputTokens !== undefined) generationConfig.maxOutputTokens = maxOutputTokens;
   if (request.temperature !== undefined) generationConfig.temperature = request.temperature;
-  if (request.effort !== undefined && request.effort !== "off") {
+  if (request.effort !== undefined && request.effort !== "off" && model?.reasoning !== false) {
     generationConfig.thinkingConfig = {
       includeThoughts: true,
-      thinkingBudget: THINKING_BUDGET[request.effort],
+      thinkingBudget: resolveThinkingBudget(request.effort),
     };
   } else if (request.effort === "off" && model?.reasoning === true) {
-    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    const minBudget = /^gemini-2\.5-pro/i.test(cleanModelId(request.model)) ? 128 : 0;
+    generationConfig.thinkingConfig = { thinkingBudget: minBudget };
   }
   if (Object.keys(generationConfig).length > 0) {
     body.generationConfig = generationConfig;

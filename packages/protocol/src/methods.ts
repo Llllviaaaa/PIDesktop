@@ -45,7 +45,8 @@ export interface ModelSummary {
   contextWindow?: number;
   maxOutputTokens?: number;
   reasoning?: boolean;
-  thinkingLevel?: "off" | "low" | "medium" | "high" | "max";
+  thinkingLevel?: string;
+  thinkingLevels?: string[];
   input?: Array<"text" | "image">;
   cost?: ModelPricingInfo;
 }
@@ -67,7 +68,7 @@ export interface ModelChoice {
   model: string;
 }
 
-export type EffortLevel = "off" | "low" | "medium" | "high";
+export type EffortLevel = string;
 
 export interface TokenUsage {
   /** Input tokens not served from the provider's cache. */
@@ -796,3 +797,13 @@ export interface WorkbenchOpenParams {
 
 /** Notification `workbench/open`. */
 export type WorkbenchOpenNotification = WorkbenchOpenParams;
+
+export interface WorkbenchPreviewUrlParams {
+  cwd: string;
+  path: string;
+}
+
+export interface WorkbenchPreviewUrlResult {
+  url: string | null;
+  path: string;
+}

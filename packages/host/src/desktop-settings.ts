@@ -30,23 +30,13 @@ const bool = (value: unknown, fallback: boolean): boolean => (typeof value === "
 const num = (value: unknown, fallback: number): number => (typeof value === "number" && Number.isFinite(value) ? value : fallback);
 const list = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
 
-/** Pi's thinking levels as the harness's efforts. */
+const EFFORT_ID_RE = /^[a-zA-Z0-9._:-]{1,64}$/;
+
+/** Desktop thinking levels as harness reasoning efforts (preserving extended & custom tiers). */
 export function effortFromThinking(level: string): Effort | undefined {
-  switch (level) {
-    case "off":
-      return "off";
-    case "minimal":
-    case "low":
-      return "low";
-    case "medium":
-      return "medium";
-    case "high":
-    case "xhigh":
-    case "max":
-      return "high";
-    default:
-      return undefined;
-  }
+  const trimmed = level.trim();
+  if (trimmed === "" || !EFFORT_ID_RE.test(trimmed)) return undefined;
+  return trimmed;
 }
 
 /** The personality line and custom instructions, as launch.rs appends them to Pi's system prompt. */

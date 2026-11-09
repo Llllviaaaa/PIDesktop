@@ -40,7 +40,7 @@ export interface HeadlessOptions {
   prompt: string;
 }
 
-const EFFORTS = ["off", "low", "medium", "high"];
+const EFFORT_ID_RE = /^[a-zA-Z0-9._:-]{1,64}$/;
 const PERMISSIONS = ["read-only", "ask", "workspace-write", "full-access"];
 
 export function parseHeadlessOptions(argv: readonly string[], cwd = process.cwd()): HeadlessOptions {
@@ -64,9 +64,9 @@ export function parseHeadlessOptions(argv: readonly string[], cwd = process.cwd(
       if (slash <= 0 || slash === spec.length - 1) throw new Error("--model must be <provider>/<model>");
       options.model = { provider: spec.slice(0, slash), model: spec.slice(slash + 1) };
     } else if (flag === "--effort") {
-      const effort = value();
-      if (!EFFORTS.includes(effort)) throw new Error(`--effort must be one of ${EFFORTS.join(", ")}`);
-      options.effort = effort as Effort;
+      const effort = value().trim();
+      if (!EFFORT_ID_RE.test(effort)) throw new Error("--effort must be a valid effort identifier (e.g. off, minimal, low, medium, high, xhigh, max)");
+      options.effort = effort;
     } else if (flag === "--permission") {
       const permission = value();
       if (!PERMISSIONS.includes(permission)) throw new Error(`--permission must be one of ${PERMISSIONS.join(", ")}`);

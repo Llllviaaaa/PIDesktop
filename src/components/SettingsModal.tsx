@@ -26,6 +26,7 @@ export const DEFAULTS: AppSettings = {
   provider: "",
   model: "",
   thinkingLevel: "medium",
+  customThinkingLevels: [],
   agentMode: "agent",
   permissionMode: "ask",
   alwaysConfirmShell: true,

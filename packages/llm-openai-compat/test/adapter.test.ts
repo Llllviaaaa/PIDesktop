@@ -229,4 +229,46 @@ describe("openai-compat adapter", () => {
     ]);
     expect(server.requests).toHaveLength(2);
   });
+
+  it("discovers per-model thinkingLevels from /models and clamps unsupported extended reasoning_effort tiers on 400", async () => {
+    const { ctx, server } = await setup({ reasoningEffort: true });
+    server.reply({
+      status: 200,
+      json: {
+        data: [
+          {
+            id: "grok-4.7",
+            name: "Grok 4.7",
+            default_reasoning_effort: "high",
+            supported_reasoning_efforts: ["low", "medium", "high", "xhigh", "ultra"],
+          },
+        ],
+      },
+    });
+
+    const models = await ctx.llm.listModels("compat");
+    expect(models).toEqual([
+      expect.objectContaining({
+        id: "grok-4.7",
+        reasoning: true,
+        thinkingLevel: "high",
+        thinkingLevels: ["off", "low", "medium", "high", "xhigh", "ultra"],
+      }),
+    ]);
+
+    // First attempt sends `reasoning_effort: "xhigh"`, upstream rejects enum value with 400 -> adapter retries clamped to `"high"`.
+    server.reply(
+      {
+        status: 400,
+        json: { error: { message: "Invalid value 'xhigh' for reasoning_effort; supported values are low, medium, high" } },
+      },
+      { sse: fixture("reasoning-text.sse") },
+    );
+    const result = await assemble(ctx.llm.stream({ ...request, model: "grok-4.7", effort: "xhigh" }));
+    expect(result.reason).toBe("stop");
+    expect(server.requests.slice(-2).map((req) => (req.body as { reasoning_effort?: string }).reasoning_effort)).toEqual([
+      "xhigh",
+      "high",
+    ]);
+  });
 });

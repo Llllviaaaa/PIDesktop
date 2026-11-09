@@ -48,6 +48,7 @@ function modelFromHost(model: ModelSummary): ModelProviderModel {
     name: model.name ?? model.id,
     reasoning: model.reasoning === true,
     ...(model.thinkingLevel ? { thinkingLevel: model.thinkingLevel } : {}),
+    ...(model.thinkingLevels && model.thinkingLevels.length > 0 ? { thinkingLevels: [...model.thinkingLevels] } : {}),
     input: model.input ?? ["text"],
     contextWindow: model.contextWindow ?? null,
     maxTokens: model.maxOutputTokens ?? null,
@@ -59,11 +60,15 @@ function modelToHost(model: ModelProviderModel): ModelSummary {
   const hasCost = model.cost !== undefined && model.cost !== null
     && Number.isFinite(model.cost.input) && Number.isFinite(model.cost.output)
     && (model.cost.input > 0 || model.cost.output > 0);
+  const cleanLevels = model.thinkingLevels
+    ?.map((lvl) => lvl.trim())
+    .filter((lvl, idx, arr) => lvl !== "" && arr.indexOf(lvl) === idx);
   return {
     id: model.id,
     ...(model.name && model.name !== model.id ? { name: model.name } : {}),
     reasoning: model.reasoning,
     ...(model.thinkingLevel ? { thinkingLevel: model.thinkingLevel } : {}),
+    ...(model.reasoning && cleanLevels && cleanLevels.length > 0 ? { thinkingLevels: cleanLevels } : {}),
     input: model.input.filter((kind): kind is "text" | "image" => kind === "text" || kind === "image"),
     ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
     ...(model.maxTokens ? { maxOutputTokens: model.maxTokens } : {}),
@@ -120,6 +125,7 @@ export function summaryFromHost(provider: HostProviderConfig, models: ModelSumma
       name: model.name ?? model.id,
       reasoning: model.reasoning === true,
       ...(model.thinkingLevel ? { thinkingLevel: model.thinkingLevel } : {}),
+      ...(model.thinkingLevels && model.thinkingLevels.length > 0 ? { thinkingLevels: [...model.thinkingLevels] } : {}),
       input: model.input ?? ["text"],
       contextWindow: model.contextWindow ?? null,
       maxTokens: model.maxOutputTokens ?? null,
@@ -138,6 +144,7 @@ export interface ProviderModelSummary {
   name: string;
   reasoning: boolean;
   thinkingLevel?: ModelThinkingLevel;
+  thinkingLevels?: string[];
   input: string[];
   contextWindow: number | null;
   maxTokens: number | null;

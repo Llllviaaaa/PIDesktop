@@ -19,7 +19,16 @@ export interface Usage {
   };
 }
 
-export type ModelThinkingLevel = "off" | "low" | "medium" | "high" | "max";
+export type ModelThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max"
+  | "auto"
+  | (string & {});
 
 export interface ModelInfo {
   id: string;
@@ -28,6 +37,8 @@ export interface ModelInfo {
   api?: string;
   reasoning?: boolean;
   thinkingLevel?: ModelThinkingLevel;
+  /** Supported thinking/reasoning effort tiers advertised by `/models` or inferred/configured per model. */
+  thinkingLevels?: string[];
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;
@@ -39,6 +50,8 @@ export interface ModelProviderModel {
   name: string;
   reasoning: boolean;
   thinkingLevel?: ModelThinkingLevel | null;
+  /** Optional explicit thinking levels configured or discovered for this model. */
+  thinkingLevels?: string[] | null;
   input: string[];
   contextWindow?: number | null;
   maxTokens?: number | null;
@@ -125,6 +138,8 @@ export interface AppSettings {
   provider: string;
   model: string;
   thinkingLevel: string;
+  /** User-defined custom thinking/reasoning effort tiers (e.g. `xhigh`, `ultra`, `16384`). */
+  customThinkingLevels?: string[];
   /** `provider/model` keys hidden from the composer model picker. */
   hiddenModels?: string[];
   agentMode: "agent" | "plan" | "ask";

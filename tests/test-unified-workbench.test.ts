@@ -314,4 +314,35 @@ describe("Unified Workbench Store & Host Notification Routing", () => {
     expect(calls.some((c) => c.method === "session.rewind" && c.params?.toSeq === 2)).toBe(true);
     runtimes.close();
   });
+
+  it("opens .html and .svg files in dynamic preview mode by default and switches between preview, split, and code", async () => {
+    vi.spyOn(agent, "readWorkspaceFile").mockImplementation(async (_cwd, path) => ({
+      path,
+      fileName: path.split("/").pop() ?? path,
+      text: path.endsWith(".svg")
+        ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>'
+        : "<!doctype html><html><body><h1>Pelican</h1></body></html>",
+      size: 64,
+      truncated: false,
+      isBinary: false,
+    }));
+
+    const cwd = "D:\\Workspace\\Demo";
+    await useWorkbenchStore.getState().openFile(cwd, "pelican-bicycle.html");
+    expect(useWorkbenchStore.getState().openFiles[0]?.viewMode).toBe("preview");
+
+    useWorkbenchStore.getState().setFileViewMode("pelican-bicycle.html", "split");
+    expect(useWorkbenchStore.getState().openFiles[0]?.viewMode).toBe("split");
+
+    useWorkbenchStore.getState().setFileViewMode("pelican-bicycle.html", "code");
+    expect(useWorkbenchStore.getState().openFiles[0]?.viewMode).toBe("code");
+
+    // Opening with an explicit line number jumps straight to source code view.
+    await useWorkbenchStore.getState().openFile(cwd, "chart.html:18");
+    expect(useWorkbenchStore.getState().openFiles.find((f) => f.path === "chart.html")?.viewMode).toBe("code");
+
+    // Standalone .svg also opens in preview mode when clicked without a line anchor.
+    await useWorkbenchStore.getState().openFile(cwd, "diagram.svg");
+    expect(useWorkbenchStore.getState().openFiles.find((f) => f.path === "diagram.svg")?.viewMode).toBe("preview");
+  });
 });

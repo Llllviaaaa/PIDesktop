@@ -997,3 +997,79 @@
   background: var(--panel);
   color: var(--text-2);
 }
+
+.codex-shot .model-picker-levels > button > .model-picker-level-remove {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity 0.12s ease, background-color 0.12s ease, color 0.12s ease;
+}
+
+.codex-shot .model-picker-levels > button:hover > .model-picker-level-remove,
+.codex-shot .model-picker-levels > button:focus-visible > .model-picker-level-remove {
+  opacity: 1;
+}
+
+.codex-shot .model-picker-levels > button > .model-picker-level-remove:hover {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+}
+
+.codex-shot .model-picker-levels > button.model-picker-level-add-btn {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.codex-shot .model-picker-levels > button.model-picker-level-add-btn > svg {
+  color: var(--text-3);
+}
+
+.codex-shot .model-picker-level-custom-form {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 4px;
+}
+
+.codex-shot .model-picker-level-custom-form input {
+  flex: 1;
+  min-width: 108px;
+  height: 27px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--code-font);
+  font-size: 11.5px;
+  outline: none;
+}
+
+.codex-shot .model-picker-level-custom-form input:focus {
+  border-color: var(--accent);
+}
+
+.codex-shot .model-picker-level-custom-form button {
+  flex: 0 0 auto;
+  height: 27px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.codex-shot .model-picker-level-custom-form button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

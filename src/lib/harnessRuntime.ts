@@ -36,6 +36,7 @@ import type { AttachmentPayload, ExtensionUIRequest, ForkPoint, ModelInfo, Sessi
 import type { SessionTreeNode } from "./sessionTree";
 import { connectHarness, harnessEndpoint, isRpcMethodNotFound, type HarnessConnection } from "./harnessClient";
 import { HARNESS_THINKING_LEVELS, effortForLevel, forkPointsOf, sessionTreeOf } from "./hostSessions";
+import { guessModelProfile, inferModelThinkingLevels } from "./modelProviders";
 import { TranscriptTranslator, historyToUi, interruptTurn, type TranscriptEvent } from "./transcript";
 
 export { isRpcMethodNotFound };
@@ -290,8 +291,18 @@ export class HarnessRuntimes {
     return replay.status.running ? messages : interruptTurn(messages);
   }
 
-  thinkingLevels(): string[] {
-    return HARNESS_THINKING_LEVELS;
+  thinkingLevels(model?: ModelInfo | null): string[] {
+    if (model === undefined) return [...HARNESS_THINKING_LEVELS];
+    if (model === null) return [];
+    if (model.thinkingLevels && model.thinkingLevels.length > 0) {
+      return model.thinkingLevels.includes("off")
+        ? [...model.thinkingLevels]
+        : ["off", ...model.thinkingLevels];
+    }
+    if (model.reasoning === false) return ["off"];
+    if (model.reasoning === true) return inferModelThinkingLevels(model.id, true);
+    const inferred = inferModelThinkingLevels(model.id);
+    return inferred.length > 0 ? inferred : ["off"];
   }
 
   /** Slash commands registered by the Host, active feature plugins, and workspace skills. */
@@ -536,26 +547,40 @@ export class HarnessRuntimes {
   }
 
   /** Every model the Host's providers offer; a provider that cannot be reached is skipped. */
-  models(): Promise<ModelInfo[]> {
-    if (this.catalog !== undefined && Date.now() - this.catalog.at < MODEL_CATALOG_TTL_MS) return this.catalog.models;
+  models(force = false): Promise<ModelInfo[]> {
+    if (!force && this.catalog !== undefined && Date.now() - this.catalog.at < MODEL_CATALOG_TTL_MS) return this.catalog.models;
     const models = (async () => {
       const rpc = await this.rpc();
       const { providers } = await rpc.call<ProviderListResult>("provider.list");
       const lists = await Promise.all(providers.map(async (provider) => {
         try {
           const { models: found } = await rpc.call<ModelListResult>("model.list", { provider: provider.id });
-          return found.map((model): ModelInfo => ({
-            id: model.id,
-            name: model.name ?? model.id,
-            provider: provider.id,
-            api: provider.api,
-            ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
-            ...(model.thinkingLevel === undefined ? {} : { thinkingLevel: model.thinkingLevel }),
-            ...(model.input === undefined ? {} : { input: model.input }),
-            ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
-            ...(model.maxOutputTokens === undefined ? {} : { maxTokens: model.maxOutputTokens }),
-            ...(model.cost === undefined ? {} : { cost: { ...model.cost } }),
-          }));
+          return found.map((model): ModelInfo => {
+            const inferredProfile = model.reasoning === undefined ? guessModelProfile(model.id) : null;
+            const reasoning = model.reasoning ?? (inferredProfile?.reasoning ? true : undefined);
+            const thinkingLevel = model.thinkingLevel ?? (reasoning ? inferredProfile?.thinkingLevel : undefined);
+            const rawLevels = model.thinkingLevels && model.thinkingLevels.length > 0
+              ? model.thinkingLevels
+              : reasoning
+                ? inferModelThinkingLevels(model.id, true)
+                : undefined;
+            const thinkingLevels = rawLevels && thinkingLevel && thinkingLevel !== "off" && !rawLevels.includes(thinkingLevel)
+              ? [...rawLevels, thinkingLevel]
+              : rawLevels;
+            return {
+              id: model.id,
+              name: model.name ?? model.id,
+              provider: provider.id,
+              api: provider.api,
+              ...(reasoning === undefined ? {} : { reasoning }),
+              ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+              ...(thinkingLevels === undefined || thinkingLevels.length === 0 ? {} : { thinkingLevels }),
+              ...(model.input === undefined ? {} : { input: model.input }),
+              ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+              ...(model.maxOutputTokens === undefined ? {} : { maxTokens: model.maxOutputTokens }),
+              ...(model.cost === undefined ? {} : { cost: { ...model.cost } }),
+            };
+          });
         } catch {
           return [];
         }

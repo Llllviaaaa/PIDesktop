@@ -38,7 +38,7 @@ export interface Config {
   defaultModel?: ModelChoice | (() => ModelChoice | undefined);
 }
 
-const EFFORTS: readonly Effort[] = ["off", "low", "medium", "high"];
+const EFFORT_ID_RE = /^[a-zA-Z0-9._:-]{1,64}$/;
 
 type Params = Record<string, unknown>;
 
@@ -61,8 +61,14 @@ function optionalSeq(p: Params, key: string): number | undefined {
 }
 
 function effortOf(value: unknown): Effort {
-  if (!EFFORTS.includes(value as Effort)) throw new RpcError(ErrorCode.InvalidParams, `effort must be one of ${EFFORTS.join(", ")}`);
-  return value as Effort;
+  if (typeof value !== "string") {
+    throw new RpcError(ErrorCode.InvalidParams, "effort must be a non-empty effort identifier");
+  }
+  const trimmed = value.trim();
+  if (!EFFORT_ID_RE.test(trimmed)) {
+    throw new RpcError(ErrorCode.InvalidParams, "effort must be a valid effort identifier (e.g. off, minimal, low, medium, high, xhigh, max)");
+  }
+  return trimmed;
 }
 
 /** Validate prompt content; a string becomes one text block. */

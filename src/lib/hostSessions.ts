@@ -8,14 +8,13 @@ import type { PersistedEvent, SessionInfo as HostSessionInfo } from "@pid/protoc
 import type { ForkPoint, SessionInfo } from "../types";
 import { currentBranch, userMessageOf } from "./transcript";
 
-/** The harness's efforts as thinking levels, and back. */
-export const HARNESS_THINKING_LEVELS = ["off", "low", "medium", "high"];
+/** The harness's built-in thinking/reasoning effort ladder; custom efforts pass through intact. */
+export const HARNESS_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
-export function effortForLevel(level: string): "off" | "low" | "medium" | "high" {
-  if (level === "off") return "off";
-  if (level === "minimal" || level === "low") return "low";
-  if (level === "high" || level === "xhigh" || level === "max") return "high";
-  return "medium";
+export function effortForLevel(level: string): string {
+  const trimmed = level.trim().toLowerCase();
+  if (!trimmed || !/^[a-z0-9._:-]{1,64}$/.test(trimmed)) return "medium";
+  return trimmed;
 }
 
 /** A Host session as a sidebar entry; its file is `harness:<id>`. */

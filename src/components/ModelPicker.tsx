@@ -1,7 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Check, ChevronDown, ChevronRight, Image as ImageIcon, Search, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Image as ImageIcon, Plus, Search, X } from "lucide-react";
 import type { ModelInfo } from "../types";
-import { effectiveThinkingLevel, resolveThinkingLevels, thinkingLabel } from "../lib/thinkingLevels";
+import { useAppStore } from "../store";
+import {
+  effectiveThinkingLevel,
+  normalizeThinkingLevelId,
+  resolveThinkingLevels,
+  thinkingLabel,
+} from "../lib/thinkingLevels";
 
 interface ModelPickerProps {
   model: ModelInfo | null;
@@ -36,9 +42,73 @@ export function ModelPicker({
   onModelChange,
   onThinkingChange,
 }: ModelPickerProps) {
-  const levels = useMemo(() => resolveThinkingLevels(thinkingLevels, model), [model, thinkingLevels]);
+  const settings = useAppStore((state) => state.settings);
+  const saveSettings = useAppStore((state) => state.saveSettings);
+  const [localCustomLevels, setLocalCustomLevels] = useState<string[]>([]);
+
+  const customLevels = useMemo(() => {
+    const merged = new Set<string>(settings?.customThinkingLevels ?? []);
+    for (const item of localCustomLevels) merged.add(item);
+    return [...merged];
+  }, [localCustomLevels, settings?.customThinkingLevels]);
+
+  const baseLevels = useMemo(
+    () => new Set(resolveThinkingLevels(thinkingLevels, model, null)),
+    [model, thinkingLevels],
+  );
+  const levels = useMemo(
+    () => resolveThinkingLevels(thinkingLevels, model, customLevels),
+    [customLevels, model, thinkingLevels],
+  );
+  const removableCustomLevels = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of customLevels) {
+      if (!baseLevels.has(item)) set.add(item);
+    }
+    return set;
+  }, [baseLevels, customLevels]);
+
   const currentLevel = effectiveThinkingLevel(thinkingLevel, levels);
   const modelName = model ? (model.name || model.id) : null;
+
+  const handleAddCustomLevel = (raw: string) => {
+    const normalized = normalizeThinkingLevelId(raw);
+    if (!normalized) return;
+    setLocalCustomLevels((prev) => (prev.includes(normalized) ? prev : [...prev, normalized]));
+    const latestSettings = useAppStore.getState().settings;
+    if (latestSettings) {
+      const existing = latestSettings.customThinkingLevels ?? [];
+      if (!existing.includes(normalized)) {
+        void saveSettings({
+          ...latestSettings,
+          customThinkingLevels: [...existing, normalized],
+        });
+      }
+    }
+    onClose();
+    if (normalized !== currentLevel) {
+      onThinkingChange(normalized);
+    }
+  };
+
+  const handleRemoveCustomLevel = (target: string) => {
+    setLocalCustomLevels((prev) => prev.filter((item) => item !== target));
+    const latestSettings = useAppStore.getState().settings;
+    if (latestSettings) {
+      const existing = latestSettings.customThinkingLevels ?? [];
+      void saveSettings({
+        ...latestSettings,
+        customThinkingLevels: existing.filter((item) => item !== target),
+      });
+    }
+    if (currentLevel === target) {
+      const remaining = levels.filter((item) => item !== target);
+      const fallback = remaining.includes("medium")
+        ? "medium"
+        : remaining.find((item) => item !== "off") ?? "off";
+      onThinkingChange(fallback);
+    }
+  };
 
   return (
     <div className="model-picker-wrap">
@@ -62,10 +132,13 @@ export function ModelPicker({
           model={model}
           models={models}
           levels={levels}
+          removableCustomLevels={removableCustomLevels}
           currentLevel={currentLevel}
           onClose={onClose}
           onModelChange={onModelChange}
           onThinkingChange={onThinkingChange}
+          onAddCustomLevel={handleAddCustomLevel}
+          onRemoveCustomLevel={handleRemoveCustomLevel}
         />
       )}
     </div>
@@ -80,22 +153,29 @@ function ModelPickerMenu({
   model,
   models,
   levels,
+  removableCustomLevels,
   currentLevel,
   onClose,
   onModelChange,
   onThinkingChange,
+  onAddCustomLevel,
+  onRemoveCustomLevel,
 }: {
   model: ModelInfo | null;
   models: ModelInfo[];
   levels: string[];
+  removableCustomLevels: ReadonlySet<string>;
   currentLevel: string | null;
   onClose: () => void;
   onModelChange: (model: ModelInfo) => void;
   onThinkingChange: (level: string) => void;
+  onAddCustomLevel: (raw: string) => void;
+  onRemoveCustomLevel: (level: string) => void;
 }) {
   // Query and flyout state live here so they reset for free whenever the menu unmounts.
   const [query, setQuery] = useState("");
   const [levelsOpen, setLevelsOpen] = useState<LevelsOpen>(false);
+  const [customInputOpen, setCustomInputOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -121,7 +201,9 @@ function ModelPickerMenu({
   }, []);
 
   const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const inSearch = event.target === searchRef.current;
+    const target = event.target as HTMLElement | null;
+    if (target?.tagName === "INPUT" && target !== searchRef.current) return;
+    const inSearch = target === searchRef.current;
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     if (inSearch && (event.key === "Home" || event.key === "End")) return;
     const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>(ITEM_SELECTOR) ?? []);
@@ -135,7 +217,10 @@ function ModelPickerMenu({
     items[index - 1].focus();
   };
 
-  const closeLevels = () => setLevelsOpen(false);
+  const closeLevels = () => {
+    if (customInputOpen) return;
+    setLevelsOpen(false);
+  };
 
   return (
     <div ref={menuRef} className="model-picker-menu" role="dialog" aria-label="选择模型和思考等级" onKeyDown={moveFocus}>
@@ -174,7 +259,7 @@ function ModelPickerMenu({
             aria-haspopup="menu"
             aria-expanded={Boolean(levelsOpen)}
             onPointerEnter={() => setLevelsOpen((value) => value || "pointer")}
-            onClick={() => setLevelsOpen((value) => value || "keyboard")}
+            onClick={() => setLevelsOpen((value) => (value === "keyboard" ? false : "keyboard"))}
             onKeyDown={(event) => {
               if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
               event.preventDefault();
@@ -188,9 +273,12 @@ function ModelPickerMenu({
           {levelsOpen && (
             <ThinkingLevelMenu
               levels={levels}
+              removableCustomLevels={removableCustomLevels}
               currentLevel={currentLevel}
               focusOnOpen={levelsOpen === "keyboard"}
+              onCustomInputOpenChange={setCustomInputOpen}
               onDismiss={() => {
+                setCustomInputOpen(false);
                 setLevelsOpen(false);
                 thinkingRowRef.current?.focus();
               }}
@@ -198,6 +286,8 @@ function ModelPickerMenu({
                 onClose();
                 if (level !== currentLevel) onThinkingChange(level);
               }}
+              onAddCustom={onAddCustomLevel}
+              onRemoveCustom={onRemoveCustomLevel}
             />
           )}
         </div>
@@ -255,24 +345,40 @@ function ModelPickerMenu({
 
 function ThinkingLevelMenu({
   levels,
+  removableCustomLevels,
   currentLevel,
   focusOnOpen,
+  onCustomInputOpenChange,
   onDismiss,
   onSelect,
+  onAddCustom,
+  onRemoveCustom,
 }: {
   levels: string[];
+  removableCustomLevels: ReadonlySet<string>;
   currentLevel: string | null;
   focusOnOpen: boolean;
+  onCustomInputOpenChange: (open: boolean) => void;
   onDismiss: () => void;
   onSelect: (level: string) => void;
+  onAddCustom: (raw: string) => void;
+  onRemoveCustom: (level: string) => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [addingCustom, setAddingCustom] = useState(false);
+  const [customDraft, setCustomDraft] = useState("");
+
+  useEffect(() => {
+    onCustomInputOpenChange(addingCustom);
+  }, [addingCustom, onCustomInputOpenChange]);
 
   useEffect(() => {
     if (!focusOnOpen) return;
     const buttons = menuRef.current?.querySelectorAll<HTMLElement>("button");
     (menuRef.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? buttons?.[0])?.focus();
   }, [focusOnOpen]);
+
+  const normalizedDraft = normalizeThinkingLevelId(customDraft);
 
   return (
     <div
@@ -281,6 +387,15 @@ function ThinkingLevelMenu({
       role="menu"
       aria-label="思考等级"
       onKeyDown={(event) => {
+        if ((event.target as HTMLElement | null)?.tagName === "INPUT") {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            setAddingCustom(false);
+            setCustomDraft("");
+          }
+          return;
+        }
         if (event.key === "Escape" || event.key === "ArrowLeft" || event.key === "ArrowRight") {
           event.preventDefault();
           event.stopPropagation();
@@ -297,19 +412,69 @@ function ThinkingLevelMenu({
       }}
     >
       <div className="model-picker-levels-heading">思考等级</div>
-      {levels.map((level) => (
+      {levels.map((level) => {
+        const isRemovable = removableCustomLevels.has(level);
+        return (
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={level === currentLevel}
+            className={level === currentLevel ? "active" : ""}
+            key={level}
+            onClick={() => onSelect(level)}
+          >
+            <span>{thinkingLabel(level)}</span>
+            {isRemovable && (
+              <span
+                role="button"
+                tabIndex={-1}
+                aria-label={`移除思考等级 ${level}`}
+                title={`移除自定义等级 ${level}`}
+                className="model-picker-level-remove"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRemoveCustom(level);
+                }}
+              >
+                <X size={11} strokeWidth={2} />
+              </span>
+            )}
+            {level === currentLevel && <Check size={13} strokeWidth={2} />}
+          </button>
+        );
+      })}
+      <div className="model-picker-separator" />
+      {!addingCustom ? (
         <button
           type="button"
-          role="menuitemradio"
-          aria-checked={level === currentLevel}
-          className={level === currentLevel ? "active" : ""}
-          key={level}
-          onClick={() => onSelect(level)}
+          className="model-picker-level-add-btn"
+          onClick={() => setAddingCustom(true)}
         >
-          <span>{thinkingLabel(level)}</span>
-          {level === currentLevel && <Check size={13} strokeWidth={2} />}
+          <Plus size={12} strokeWidth={2} />
+          <span>新增思考等级…</span>
         </button>
-      ))}
+      ) : (
+        <form
+          className="model-picker-level-custom-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!normalizedDraft) return;
+            onAddCustom(normalizedDraft);
+          }}
+        >
+          <input
+            autoFocus
+            value={customDraft}
+            onChange={(event) => setCustomDraft(event.target.value)}
+            placeholder="如 xhigh / auto / 16384"
+            aria-label="自定义思考等级"
+            spellCheck={false}
+          />
+          <button type="submit" disabled={!normalizedDraft}>
+            添加
+          </button>
+        </form>
+      )}
     </div>
   );
 }

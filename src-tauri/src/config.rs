@@ -13,6 +13,8 @@ pub(crate) struct AppSettings {
     pub(crate) model: String,
     #[serde(alias = "thinking_level")]
     pub(crate) thinking_level: String,
+    #[serde(default, alias = "custom_thinking_levels")]
+    pub(crate) custom_thinking_levels: Vec<String>,
     /// `provider/model` keys the user hid from the composer model picker.
     pub(crate) hidden_models: Vec<String>,
     pub(crate) agent_mode: String,
@@ -206,6 +208,7 @@ impl Default for AppSettings {
             provider: String::new(),
             model: String::new(),
             thinking_level: "medium".to_string(),
+            custom_thinking_levels: Vec::new(),
             hidden_models: Vec::new(),
             agent_mode: "agent".to_string(),
             permission_mode: "ask".to_string(),

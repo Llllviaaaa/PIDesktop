@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { cpp } from "@codemirror/lang-cpp";
 import { css } from "@codemirror/lang-css";
@@ -24,9 +25,28 @@ import {
   keymap,
   lineNumbers,
 } from "@codemirror/view";
-import { FileCode2, FolderOpen, RotateCcw, Save, X } from "lucide-react";
+import {
+  Code2,
+  Columns2,
+  ExternalLink,
+  Eye,
+  FileCode2,
+  FolderOpen,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  X,
+} from "lucide-react";
+import { Markdown } from "../Markdown";
 import { useAppStore } from "../../store";
-import { useWorkbenchStore, type OpenWorkbenchFile } from "../../stores/workbenchStore";
+import {
+  previewKindForPath,
+  resolveWorkspacePreviewUrl,
+  useWorkbenchStore,
+  type OpenWorkbenchFile,
+  type WorkbenchFileViewMode,
+  type WorkbenchPreviewKind,
+} from "../../stores/workbenchStore";
 
 export interface CodeEditorTabProps {
   cwd: string;
@@ -226,15 +246,165 @@ function CodeMirrorSurface({ file, onSave }: CodeMirrorSurfaceProps) {
   return <div ref={hostRef} className="pid-wb-cm-host" />;
 }
 
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function injectBaseTag(rawHtml: string, baseUrl: string | null): string {
+  if (!baseUrl) return rawHtml;
+  if (/<base\b/i.test(rawHtml)) return rawHtml;
+  const baseTag = `<base href="${escapeHtmlAttr(baseUrl)}" />`;
+  if (/<head(\s[^>]*)?>/i.test(rawHtml)) {
+    return rawHtml.replace(/<head(\s[^>]*)?>/i, (match) => `${match}\n${baseTag}`);
+  }
+  if (/<html(\s[^>]*)?>/i.test(rawHtml)) {
+    return rawHtml.replace(/<html(\s[^>]*)?>/i, (match) => `${match}\n<head>${baseTag}</head>`);
+  }
+  return `<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8" />\n${baseTag}\n</head>\n<body>\n${rawHtml}\n</body>\n</html>`;
+}
+
+function buildSvgStageHtml(svgContent: string, baseUrl: string | null): string {
+  const baseTag = baseUrl ? `<base href="${escapeHtmlAttr(baseUrl)}" />` : "";
+  return [
+    "<!DOCTYPE html>",
+    "<html>",
+    "<head>",
+    '<meta charset="utf-8" />',
+    baseTag,
+    "<style>",
+    "  html, body {",
+    "    margin: 0;",
+    "    min-height: 100vh;",
+    "    display: grid;",
+    "    place-items: center;",
+    "    padding: 16px;",
+    "    box-sizing: border-box;",
+    "    background: transparent;",
+    "  }",
+    "  svg { max-width: 100%; height: auto; }",
+    "</style>",
+    "</head>",
+    `<body>${svgContent}</body>`,
+    "</html>",
+  ].join("\n");
+}
+
+function appendCacheVersion(url: string, token: string): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}_v=${encodeURIComponent(token)}`;
+}
+
+interface DynamicDocumentPreviewProps {
+  file: OpenWorkbenchFile;
+  kind: Exclude<WorkbenchPreviewKind, null>;
+  previewHttpUrl: string | null;
+  reloadNonce: number;
+}
+
+function DynamicDocumentPreview({
+  file,
+  kind,
+  previewHttpUrl,
+  reloadNonce,
+}: DynamicDocumentPreviewProps) {
+  const isDirty = file.content !== file.savedContent;
+  const [debouncedContent, setDebouncedContent] = useState(file.content);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const timer = window.setTimeout(() => {
+      setDebouncedContent(file.content);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [file.content, file.path, isDirty]);
+
+  const renderedContent = isDirty ? debouncedContent : file.content;
+
+  const liveDataUrl = useMemo(() => {
+    if (kind === "markdown") return "";
+    const htmlDoc = kind === "svg"
+      ? buildSvgStageHtml(renderedContent, previewHttpUrl)
+      : injectBaseTag(renderedContent, previewHttpUrl);
+    return `data:text/html;charset=utf-8,${encodeURIComponent(htmlDoc)}`;
+  }, [kind, previewHttpUrl, renderedContent]);
+
+  if (kind === "markdown") {
+    return (
+      <div className="pid-wb-md-preview dshc-md" data-workbench-preview="markdown">
+        <Markdown content={file.content} />
+      </div>
+    );
+  }
+
+  if (kind === "svg" && file.isBinary && file.data) {
+    return (
+      <div className="pid-wb-image-preview" data-workbench-preview="svg-binary">
+        <img src={`data:image/svg+xml;base64,${file.data}`} alt={file.path} />
+      </div>
+    );
+  }
+
+  const useLoopbackServer = !isDirty
+    && previewHttpUrl !== null
+    && (kind === "html" || (kind === "svg" && file.content.trim() === ""));
+
+  const frameSrc = useLoopbackServer
+    ? appendCacheVersion(previewHttpUrl, `${reloadNonce}-${file.savedContent.length}`)
+    : liveDataUrl;
+
+  const sandboxFlags = useLoopbackServer
+    ? "allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+    : "allow-scripts allow-forms allow-popups allow-modals";
+
+  return (
+    <div className="pid-wb-preview-stage" data-workbench-preview={kind}>
+      <iframe
+        key={`${file.path}:${useLoopbackServer ? "http" : "data"}:${reloadNonce}`}
+        className="pid-wb-iframe"
+        src={frameSrc}
+        title={`动态预览 ${file.path}`}
+        sandbox={sandboxFlags}
+      />
+    </div>
+  );
+}
+
 export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
   const openFiles = useWorkbenchStore((state) => state.openFiles);
   const activeFilePath = useWorkbenchStore((state) => state.activeFilePath);
   const activeFile = openFiles.find((item) => item.path === activeFilePath) ?? openFiles[0] ?? null;
 
+  const [previewUrlEntry, setPreviewUrlEntry] = useState<{ key: string; url: string | null } | null>(null);
+  const [previewNonce, setPreviewNonce] = useState(0);
+
+  const previewKind = activeFile ? previewKindForPath(activeFile.path) : null;
+  const activePreviewKey = activeFile && cwd && (previewKind === "html" || previewKind === "svg")
+    ? `${cwd}::${activeFile.path}`
+    : null;
+  const previewHttpUrl = activePreviewKey && previewUrlEntry?.key === activePreviewKey
+    ? previewUrlEntry.url
+    : null;
+
+  useEffect(() => {
+    if (!activePreviewKey || !activeFile || !cwd) return;
+    let cancelled = false;
+    void resolveWorkspacePreviewUrl(cwd, activeFile.path).then((url) => {
+      if (!cancelled) setPreviewUrlEntry({ key: activePreviewKey, url });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeFile, activePreviewKey, cwd]);
+
   const handleSave = useCallback(async () => {
     if (!activeFile || !cwd) return;
     const saved = await useWorkbenchStore.getState().saveFile(cwd, activeFile.path);
     if (saved) {
+      setPreviewNonce((n) => n + 1);
       useAppStore.getState().showToast(`已保存 ${activeFile.path.split("/").pop() ?? activeFile.path}`, "info");
       void useAppStore.getState().refreshGit();
     }
@@ -248,6 +418,7 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
     ) {
       return;
     }
+    setPreviewNonce((n) => n + 1);
     void useWorkbenchStore.getState().reloadFile(cwd, activeFile.path);
   }, [activeFile, cwd]);
 
@@ -279,10 +450,32 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
   }
 
   const isDirty = activeFile.content !== activeFile.savedContent;
+  const canRenderPreview = previewKind !== null && (!activeFile.isBinary || previewKind === "svg");
+  const defaultMode: WorkbenchFileViewMode =
+    previewKind === "html" || previewKind === "svg" ? "preview" : "code";
+  const effectiveMode: WorkbenchFileViewMode = !canRenderPreview
+    ? "code"
+    : activeFile.isBinary
+      ? "preview"
+      : (activeFile.viewMode ?? defaultMode);
+
+  const setMode = (mode: WorkbenchFileViewMode) => {
+    useWorkbenchStore.getState().setFileViewMode(activeFile.path, mode);
+  };
 
   return (
     <div className="pid-wb-pane">
-      <div className="pid-wb-editor-tabs" role="tablist" aria-label="已打开文件">
+      <div
+        className="pid-wb-editor-tabs"
+        role="tablist"
+        aria-label="已打开文件"
+        onWheel={(event) => {
+          const el = event.currentTarget;
+          if (el.scrollWidth > el.clientWidth && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+            el.scrollLeft += event.deltaY;
+          }
+        }}
+      >
         {openFiles.map((file) => {
           const dirty = file.content !== file.savedContent;
           const active = file.path === activeFile.path;
@@ -319,6 +512,70 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
       <div className="pid-wb-subbar">
         <span className="pid-wb-filepath" title={activeFile.path}>{activeFile.path}</span>
         <div className="pid-wb-subbar-actions">
+          {canRenderPreview && !activeFile.isBinary && (
+            <div className="pid-wb-view-seg" role="tablist" aria-label="文件视图模式">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={effectiveMode === "preview"}
+                className={`pid-wb-view-seg-btn${effectiveMode === "preview" ? " active" : ""}`}
+                title="动态渲染预览"
+                onClick={() => setMode("preview")}
+              >
+                <Eye size={12} />
+                <span>预览</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={effectiveMode === "split"}
+                className={`pid-wb-view-seg-btn${effectiveMode === "split" ? " active" : ""}`}
+                title="源码与实时预览分栏"
+                onClick={() => setMode("split")}
+              >
+                <Columns2 size={12} />
+                <span>分栏</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={effectiveMode === "code"}
+                className={`pid-wb-view-seg-btn${effectiveMode === "code" ? " active" : ""}`}
+                title="编辑源码"
+                onClick={() => setMode("code")}
+              >
+                <Code2 size={12} />
+                <span>源码</span>
+              </button>
+            </div>
+          )}
+
+          {effectiveMode !== "code" && (previewKind === "html" || previewKind === "svg") && (
+            <>
+              <button
+                type="button"
+                className="pid-wb-icon-btn"
+                title="重新运行动态预览"
+                aria-label="刷新预览"
+                onClick={() => setPreviewNonce((n) => n + 1)}
+              >
+                <RefreshCw size={13} />
+              </button>
+              <button
+                type="button"
+                className="pid-wb-icon-btn"
+                disabled={!previewHttpUrl}
+                title="在外部浏览器中打开"
+                aria-label="在外部浏览器中打开"
+                onClick={() => {
+                  if (previewHttpUrl) void openUrl(previewHttpUrl);
+                }}
+              >
+                <ExternalLink size={13} />
+              </button>
+            </>
+          )}
+
           {activeFile.truncated && (
             <span className="pid-wb-badge warn" title="大文件已截断为只读预览">只读（大文件截断）</span>
           )}
@@ -350,6 +607,27 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
           <div className="pid-wb-empty">正在读取 {activeFile.path}…</div>
         ) : activeFile.error ? (
           <div className="pid-wb-empty error">{activeFile.error}</div>
+        ) : canRenderPreview && previewKind !== null && effectiveMode === "preview" ? (
+          <DynamicDocumentPreview
+            file={activeFile}
+            kind={previewKind}
+            previewHttpUrl={previewHttpUrl}
+            reloadNonce={previewNonce}
+          />
+        ) : canRenderPreview && previewKind !== null && effectiveMode === "split" ? (
+          <div className="pid-wb-split-view">
+            <div className="pid-wb-split-pane is-code">
+              <CodeMirrorSurface cwd={cwd} file={activeFile} onSave={() => void handleSave()} />
+            </div>
+            <div className="pid-wb-split-pane is-preview">
+              <DynamicDocumentPreview
+                file={activeFile}
+                kind={previewKind}
+                previewHttpUrl={previewHttpUrl}
+                reloadNonce={previewNonce}
+              />
+            </div>
+          </div>
         ) : activeFile.isBinary ? (
           activeFile.mimeType?.startsWith("image/") && activeFile.data ? (
             <div className="pid-wb-image-preview">

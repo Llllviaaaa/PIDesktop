@@ -80,7 +80,14 @@ describe("live progress as transcript events", () => {
         chunk: { type: "retry", attempt: 1, maxAttempts: 5, delayMs: 2_000, effort: "medium", error: { kind: "network", message: "reset", retryable: true } },
       }),
     ).toEqual([{ type: "retry-status", text: "长流中断，已自动下调思考强度重试 1/4（2s 后）…" }]);
-    expect(["off", "minimal", "medium", "xhigh", "max"].map(effortForLevel)).toEqual(["off", "low", "medium", "high", "high"]);
+    expect(["off", "minimal", "medium", "xhigh", "max", "ultra"].map(effortForLevel)).toEqual([
+      "off",
+      "minimal",
+      "medium",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
 
     const streamed = streamAssistant([], { text: "half", thinking: "partial thought" }, 100);
     expect(streamed[0]).toMatchObject({ content: "half", thinking: "partial thought", isStreaming: true });

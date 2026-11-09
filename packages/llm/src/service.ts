@@ -74,6 +74,8 @@ const DEFAULT_MAX_RETRYABLE_ATTEMPT_MS = 45_000;
 const DEFAULT_LONG_STREAM_STEP_DOWN_MS = 60_000;
 
 function stepDownEffort(effort: Effort | undefined): Effort | undefined {
+  if (effort === "max") return "xhigh";
+  if (effort === "xhigh") return "high";
   if (effort === "high") return "medium";
   if (effort === "medium") return "low";
   return undefined;

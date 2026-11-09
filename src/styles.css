@@ -2939,7 +2939,11 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   z-index: 1;
   top: -5px;
   right: calc(100% + 9px);
-  width: 136px;
+  min-width: 164px;
+  width: max-content;
+  max-width: 236px;
+  max-height: 332px;
+  overflow-y: auto;
   padding: 4px;
   border: 1px solid #e1e2e5;
   border-radius: 10px;
@@ -4665,16 +4669,15 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .codex-shot .inspector-panel.workspace-dock-panel,
 .codex-shot .files-pane,
 .codex-shot .document-pane,
-.codex-shot .workspace-browser-pane,
-.codex-shot .side-chat-pane {
+.codex-shot .workspace-browser-pane {
   position: relative;
   inset: auto;
   z-index: 1;
   top: auto;
   right: auto;
   bottom: auto;
-  flex: 0 0 clamp(320px, var(--workspace-panel-width, 420px), calc(100% - 360px));
-  width: clamp(320px, var(--workspace-panel-width, 420px), calc(100% - 360px));
+  flex: 0 0 clamp(320px, var(--workspace-panel-width, 460px), calc(100% - 360px));
+  width: clamp(320px, var(--workspace-panel-width, 460px), calc(100% - 360px));
   min-width: 320px;
   max-width: none;
   max-height: none;
@@ -4685,6 +4688,23 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   border-left: 1px solid #eceef1;
   border-radius: 0;
   background: #fff;
+  box-shadow: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.codex-shot .side-chat-pane {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  min-height: 0;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--app);
   box-shadow: none;
   overflow: hidden;
   display: flex;
@@ -5039,10 +5059,9 @@ body.sidebar-is-resizing .codex-shot .primary-sidebar-panel { transition: none; 
   color: #a1a1aa;
 }
 
-.codex-shot .workspace-browser-pane,
-.codex-shot .side-chat-pane {
-  flex: 0 0 clamp(320px, var(--workspace-panel-width, 420px), calc(100% - 360px));
-  width: clamp(320px, var(--workspace-panel-width, 420px), calc(100% - 360px));
+.codex-shot .workspace-browser-pane {
+  flex: 0 0 clamp(320px, var(--workspace-panel-width, 460px), calc(100% - 360px));
+  width: clamp(320px, var(--workspace-panel-width, 460px), calc(100% - 360px));
   min-width: 320px;
   min-height: 0;
   border-left: 1px solid #eceef1;
@@ -5205,40 +5224,24 @@ body.sidebar-is-resizing .codex-shot .primary-sidebar-panel { transition: none; 
   cursor: pointer;
 }
 .codex-shot .side-chat-pane[hidden] { display: none !important; }
-.codex-shot .side-chat-header {
-  flex-basis: 44px;
-  height: 44px;
-  padding-left: 12px;
-  border-bottom: 1px solid #eceef1;
-}
-.codex-shot .side-chat-header .workspace-pane-title { flex: 1; }
-.codex-shot .side-chat-header .workspace-pane-title strong {
-  min-width: 0;
-  overflow: hidden;
-  color: #34373d;
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.codex-shot .side-chat-running { flex: 0 0 auto; color: #7c3aed; }
+.codex-shot .side-chat-running { flex: 0 0 auto; color: var(--accent); }
 .codex-shot .side-chat-delete-action:hover { background: #fff1f0; color: #c0392b; }
 .codex-shot .side-chat-messages {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 18px 18px 26px;
+  padding: 16px 16px 22px;
   scrollbar-gutter: stable;
 }
 .codex-shot .side-chat-messages .message-row {
   width: 100%;
-  max-width: 720px;
+  max-width: 748px;
   margin-left: auto;
   margin-right: auto;
 }
-.codex-shot .side-chat-messages .user-message { padding-left: 26px; }
+.codex-shot .side-chat-messages .user-message { padding-left: 20px; }
 .codex-shot .side-chat-state {
-  width: min(300px, 88%);
+  width: min(320px, 90%);
   height: 100%;
   min-height: 220px;
   margin: 0 auto;
@@ -5252,7 +5255,7 @@ body.sidebar-is-resizing .codex-shot .primary-sidebar-panel { transition: none; 
 }
 .codex-shot .side-chat-state > strong { color: #3f4248; font-size: 14px; font-weight: 600; }
 .codex-shot .side-chat-state > span,
-.codex-shot .side-chat-state > small { font-size: 12px; line-height: 1.5; }
+.codex-shot .side-chat-state > small { font-size: 12px; line-height: 1.55; }
 .codex-shot .side-chat-state > small { color: #a0a4ac; }
 .codex-shot .side-chat-state > button {
   min-height: 30px;
@@ -5274,9 +5277,13 @@ body.sidebar-is-resizing .codex-shot .primary-sidebar-panel { transition: none; 
 .codex-shot .side-chat-empty-state > svg { margin-bottom: 4px; color: #c5c8ce; }
 .codex-shot .side-chat-composer-dock {
   flex: 0 0 auto;
-  padding: 0 12px 14px;
+  padding: 4px 14px 14px;
 }
-.codex-shot .side-chat-composer-dock .composer-area.codex-composer { max-width: none; }
+.codex-shot .side-chat-composer-dock > .composer-area.codex-composer {
+  width: 100%;
+  max-width: min(748px, 100%);
+  margin: 0 auto;
+}
 .codex-shot .side-chat-composer-dock .composer-card.follow-up {
   border-radius: 18px;
   padding-top: 7px;
@@ -5286,19 +5293,25 @@ body.sidebar-is-resizing .codex-shot .primary-sidebar-panel { transition: none; 
   max-height: 140px;
   font-size: 13px;
 }
-.codex-shot .side-chat-composer-dock .composer-toolbar { padding-inline: 7px; }
+.codex-shot .side-chat-composer-dock .composer-toolbar { padding-inline: 8px; }
 .codex-shot .side-chat-composer-dock .model-picker-menu {
   right: -2px;
-  width: min(272px, calc(var(--workspace-panel-width, 420px) - 30px));
+  width: min(284px, calc(100cqi - 12px));
 }
 /* The side panel clips anything left of it, so the level list opens inline under its row. */
 .codex-shot .side-chat-composer-dock .model-picker-levels {
   position: static;
+  min-width: 0;
   width: auto;
-  padding: 0 0 2px 12px;
-  border: 0;
-  background: transparent;
+  max-width: none;
+  max-height: 220px;
+  margin: 2px 2px 4px;
+  padding: 4px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
   box-shadow: none;
+  animation: none;
 }
 .codex-shot .side-chat-composer-dock .model-picker-levels-heading { display: none; }
 .codex-shot .diff-comment-row { position: relative; }
@@ -6225,25 +6238,33 @@ body,
 }
 
 /* The composer can become narrow while the app viewport stays wide in split view. */
-@container composer (max-width: 620px) {
+@container composer (max-width: 560px) {
   .codex-shot .composer-toolbar { gap: 4px; }
   .codex-shot .composer-toolbar-left,
-  .codex-shot .composer-toolbar-right { gap: 1px; }
+  .codex-shot .composer-toolbar-right { gap: 2px; }
   .codex-shot .chip-permission {
-    width: 32px;
-    height: 32px;
+    padding-inline: 6px;
+    gap: 4px;
+    font-size: 11.5px;
+  }
+  .codex-shot .model-picker-wrap { max-width: 172px; }
+  .codex-shot .model-combo { padding-inline: 5px; }
+}
+
+@container composer (max-width: 420px) {
+  .codex-shot .model-picker-wrap { max-width: 128px; }
+  .codex-shot .composer-context-usage { display: none; }
+}
+
+@container composer (max-width: 310px) {
+  .codex-shot .chip-permission {
+    width: 30px;
+    height: 28px;
     justify-content: center;
     padding: 0;
   }
   .codex-shot .chip-permission > span,
   .codex-shot .chip-permission > svg:last-child { display: none; }
-  .codex-shot .model-picker-wrap { max-width: 180px; }
-  .codex-shot .model-combo { padding-inline: 5px; }
-}
-
-@container composer (max-width: 420px) {
-  .codex-shot .model-picker-wrap { max-width: 132px; }
-  .codex-shot .composer-context-usage { display: none; }
 }
 
 /* Review is a dedicated reading surface, separate from the task-summary inspector. */

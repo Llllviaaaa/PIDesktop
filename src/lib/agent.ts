@@ -3,6 +3,7 @@ import type {
   SandboxConfigKind,
   SandboxGenerateConfigResult,
   UsageSummaryResult,
+  WorkbenchPreviewUrlResult,
 } from "@pid/protocol";
 import type {
   AppSettings,
@@ -140,8 +141,25 @@ export const agent = {
     invoke<WorkspaceDirEntry[]>("search_workspace_files", { cwd, query, requestId }),
   cancelWorkspaceSearch: (requestId: string) =>
     invoke<void>("cancel_workspace_search", { requestId }),
-  readWorkspaceFile: (cwd: string, path: string) =>
-    invoke<WorkspaceFileContent>("read_workspace_file", { cwd, path }),
+  readWorkspaceFile: async (cwd: string, path: string): Promise<WorkspaceFileContent> => {
+    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+      return invoke<WorkspaceFileContent>("read_workspace_file", { cwd, path });
+    }
+    const res = await harnessRuntimes.call<WorkbenchPreviewUrlResult>("workbench.previewUrl", { cwd, path });
+    if (!res.url) throw new Error("无法获取工作区文件预览地址");
+    const response = await fetch(res.url);
+    if (!response.ok) throw new Error(`读取文件失败 (${response.status})`);
+    const text = await response.text();
+    const normalizedPath = res.path || path;
+    return {
+      path: normalizedPath,
+      fileName: normalizedPath.split("/").pop() ?? normalizedPath,
+      text,
+      size: text.length,
+      truncated: false,
+      isBinary: false,
+    };
+  },
   writeWorkspaceFile: (cwd: string, path: string, content: string) =>
     invoke<void>("write_workspace_file", { cwd, path, content }),
   openWorkspaceInFileManager: (path: string) => invoke<void>("open_workspace_in_file_manager", { path }),

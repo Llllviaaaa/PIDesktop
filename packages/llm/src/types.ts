@@ -62,8 +62,22 @@ export interface ToolSchema {
   parameters: Record<string, unknown>;
 }
 
-/** How hard the model should think, where the provider supports it. */
-export type Effort = "off" | "low" | "medium" | "high";
+/**
+ * How hard the model should think, where the provider supports it.
+ * Open string union (like DeepSeek Harness `ReasoningEffortId`) so built-in
+ * tiers (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `auto`),
+ * numeric token budgets, and custom gateway effort IDs all flow end-to-end.
+ */
+export type Effort =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max"
+  | "auto"
+  | (string & {});
 
 export interface LlmRequest {
   provider: string;
@@ -132,7 +146,7 @@ export interface ModelPricing {
   cacheWrite?: number;
 }
 
-export type ModelThinkingLevel = "off" | "low" | "medium" | "high" | "max";
+export type ModelThinkingLevel = Effort;
 
 export interface ModelInfo {
   id: string;
@@ -141,6 +155,8 @@ export interface ModelInfo {
   maxOutputTokens?: number;
   reasoning?: boolean;
   thinkingLevel?: ModelThinkingLevel;
+  /** Supported thinking/reasoning effort tiers advertised by `/models` or configured per model. */
+  thinkingLevels?: string[];
   input?: Array<"text" | "image">;
   cost?: ModelPricing;
 }

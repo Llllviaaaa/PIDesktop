@@ -1584,6 +1584,7 @@ export default function App() {
           onAddToChat={(path) => void addWorkspaceFileToChat(path)}
           onNotify={notify}
         >
+        <WorkspaceFileOpenContext.Provider value={openPreviewFile}>
         <div className="work-surface">
         <div className="stage-canvas">
         <header className={`topbar ${newTask && !hubView ? "topbar-home" : ""}`} data-tauri-drag-region>
@@ -1712,7 +1713,6 @@ export default function App() {
         </header>
 
         <div className="work-body">
-        <WorkspaceFileOpenContext.Provider value={openPreviewFile}>
         <main className="main-stage">
           <WorkspaceTrustBanner
             workspace={workspaceCwd || cwd}
@@ -1835,7 +1835,6 @@ export default function App() {
           </>}
           </Suspense>
         </main>
-        </WorkspaceFileOpenContext.Provider>
         </div>
         <BottomWorkbench
           cwd={workspaceCwd || cwd}
@@ -1860,6 +1859,7 @@ export default function App() {
           }}
         />
         </div>
+        </WorkspaceFileOpenContext.Provider>
         </FileActionsProvider>
       </div>
 

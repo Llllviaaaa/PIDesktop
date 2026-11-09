@@ -6,13 +6,20 @@
  */
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LoaderCircle, MessageSquare, Plus, RotateCcw, Trash2, X } from "lucide-react";
-import { buildPromptPayload, harnessRuntimes } from "../lib/harnessRuntime";
+import { GitBranch, LoaderCircle, MessageSquare, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { useSyncOnChange } from "../hooks/useSyncOnChange";
+import {
+  buildPromptPayload,
+  harnessRuntimes,
+  parseLeadingSlashCommand,
+} from "../lib/harnessRuntime";
 import { agent, respondToExtension, subscribeToRuntimes } from "../lib/agent";
 import {
   completeAssistant,
   endToolCall,
+  interruptTurn,
   replaceOrAppend,
+  resetStreamingAssistant,
   startAssistant,
   startToolCall,
   streamAssistant,
@@ -20,7 +27,10 @@ import {
 } from "../lib/transcript";
 import { sameLocalPath } from "../lib/pathIdentity";
 import { loadAttachmentFiles, mergeAttachments } from "../lib/attachments";
+import { filterHiddenModels } from "../lib/modelProviders";
+import { fallbackThinkingLevel, mergeThinkingLevels } from "../lib/thinkingLevels";
 import { findMentionCandidates } from "../lib/workspaceSearch";
+import { useAppStore } from "../store";
 import type {
   AppSettings,
   AttachmentPayload,
@@ -47,6 +57,11 @@ interface SideChatPanelProps {
   chatId: string;
   cwd: string;
   parentSessionFile: string;
+  parentModel?: ModelInfo | null;
+  parentThinkingLevel?: string;
+  parentCommands?: SlashCommand[];
+  parentMessageCount?: number;
+  parentIsStreaming?: boolean;
   hidden?: boolean;
   showThinking: boolean;
   settings: AppSettings | null;
@@ -58,7 +73,6 @@ interface SideChatPanelProps {
   onError?: (message: string) => void;
 }
 
-
 function permissionLabel(mode: AppSettings["permissionMode"]): string {
   if (mode === "read-only") return "只读";
   if (mode === "workspace-write") return "工作区写入";
@@ -68,17 +82,21 @@ function permissionLabel(mode: AppSettings["permissionMode"]): string {
 
 function promptTitle(text: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
-  if (!normalized || normalized.startsWith("/")) return "侧边聊天";
+  if (!normalized || normalized.startsWith("/")) return "侧边对话";
   return normalized.length > 28 ? `${normalized.slice(0, 28)}…` : normalized;
 }
 
-/** The Harness Host has no slash commands of its own. */
-const NO_COMMANDS: SlashCommand[] = [];
+const EMPTY_COMMANDS: SlashCommand[] = [];
 
 export function SideChatPanel({
   chatId,
   cwd,
   parentSessionFile,
+  parentModel = null,
+  parentThinkingLevel,
+  parentCommands = EMPTY_COMMANDS,
+  parentMessageCount = 0,
+  parentIsStreaming = false,
   hidden = false,
   showThinking,
   settings,
@@ -92,32 +110,91 @@ export function SideChatPanel({
   const [phase, setPhase] = useState<SideChatPhase>("starting");
   const [error, setError] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isCompacting, setIsCompacting] = useState(false);
+  const [retryStatus, setRetryStatus] = useState<string | null>(null);
   const [extensionRequest, setExtensionRequest] = useState<ExtensionUIRequest | null>(null);
   const [attachments, setAttachments] = useState<AttachmentPayload[]>([]);
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [model, setModel] = useState<ModelInfo | null>(null);
-  const [thinkingLevel, setThinkingLevel] = useState("off");
+  const [model, setModel] = useState<ModelInfo | null>(parentModel);
+  const [thinkingLevel, setThinkingLevel] = useState(parentThinkingLevel ?? "off");
   const [thinkingLevels, setThinkingLevels] = useState<string[]>(["off"]);
+  const [fetchedCommands, setFetchedCommands] = useState<SlashCommand[] | null>(null);
   const [isSwitchingModel, setIsSwitchingModel] = useState(false);
-  const [permissionMode, setPermissionMode] = useState<AppSettings["permissionMode"]>(settings?.permissionMode ?? "ask");
-  const [agentMode, setAgentMode] = useState<AppSettings["agentMode"]>(settings?.agentMode ?? "agent");
+  const [permissionOverride, setPermissionOverride] = useState<AppSettings["permissionMode"] | null>(null);
+  const [agentModeOverride, setAgentModeOverride] = useState<AppSettings["agentMode"] | null>(null);
   const [stats, setStats] = useState<SessionStats | null>(null);
-  const [title, setTitle] = useState("侧边聊天");
+  const [title, setTitle] = useState("侧边对话");
   const [restartToken, setRestartToken] = useState(0);
+  const [forkedParentCount, setForkedParentCount] = useState(parentMessageCount);
+
+  const permissionMode: AppSettings["permissionMode"] = permissionOverride ?? settings?.permissionMode ?? "ask";
+  const agentMode: AppSettings["agentMode"] = agentModeOverride ?? settings?.agentMode ?? "agent";
+
   const runtimeRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeTurnStartedAtRef = useRef<number | null>(null);
+  const parentSyncInputsRef = useRef({
+    parentModel,
+    parentThinkingLevel,
+    permissionMode,
+    agentMode,
+  });
+
+  useEffect(() => {
+    parentSyncInputsRef.current = {
+      parentModel,
+      parentThinkingLevel,
+      permissionMode,
+      agentMode,
+    };
+  }, [agentMode, parentModel, parentThinkingLevel, permissionMode]);
+
   const displayMessages = useMemo(() => groupTranscriptMessages(messages), [messages]);
+  const visibleModels = useMemo(
+    () => filterHiddenModels(models, settings?.hiddenModels, model),
+    [model, models, settings?.hiddenModels],
+  );
+  const commands = fetchedCommands ?? parentCommands;
+
+  // Keep an untouched side chat synced to the latest settled main conversation turn.
+  useSyncOnChange([parentMessageCount, parentIsStreaming], () => {
+    if (parentIsStreaming || parentMessageCount <= forkedParentCount) return;
+    if (messages.length === 0 && !isStreaming && phase === "ready") {
+      setForkedParentCount(parentMessageCount);
+      setPhase("starting");
+      setError(null);
+      setRestartToken((value) => value + 1);
+    }
+  });
+
+  useSyncOnChange([cwd, parentSessionFile], () => {
+    setPhase("starting");
+    setError(null);
+    setForkedParentCount(parentMessageCount);
+  });
+
+  const hasNewerParentContext = !parentIsStreaming && parentMessageCount > forkedParentCount && messages.length > 0;
 
   const reportError = useCallback((reason: unknown) => {
     const message = reason instanceof Error ? reason.message : String(reason);
-    onError?.(message);
+    if (onError) onError(message);
+    else useAppStore.getState().showToast(message, "error");
     return message;
   }, [onError]);
 
   useEffect(() => {
     onStateChange?.(chatId, { title, phase, isStreaming });
   }, [chatId, isStreaming, onStateChange, phase, title]);
+
+  // Keep the Host side session's permission & agentMode aligned with UI state.
+  useEffect(() => {
+    const runtimeId = runtimeRef.current;
+    if (!runtimeId || phase !== "ready") return;
+    void harnessRuntimes.setPermission(runtimeId, {
+      permission: permissionMode,
+      agentMode,
+    }).catch(() => undefined);
+  }, [agentMode, permissionMode, phase]);
 
   useEffect(() => {
     let disposed = false;
@@ -137,14 +214,21 @@ export function SideChatPanel({
       switch (event.type) {
         case "turn-start":
           activeTurnStartedAtRef.current = Date.now();
+          setRetryStatus(null);
           setIsStreaming(true);
           return;
         case "turn-end":
+          activeTurnStartedAtRef.current = null;
+          setRetryStatus(null);
           setIsStreaming(false);
           void refreshStats(runtimeId);
           return;
+        case "turn-interrupted":
+          setRetryStatus(null);
+          setIsStreaming(false);
+          setMessages((current) => interruptTurn(current));
+          return;
         case "user":
-          // The message shown when it was sent becomes the recorded one.
           setMessages((current) => {
             const last = [...current].reverse().find((message) => message.role === "user");
             const pending = last && !last.entryId && last.content === event.message.content ? last.id : undefined;
@@ -152,28 +236,46 @@ export function SideChatPanel({
           });
           return;
         case "assistant-start":
+          setRetryStatus(null);
           setMessages((current) => startAssistant(current));
           return;
         case "assistant-delta":
+          setRetryStatus(null);
           setMessages((current) => streamAssistant(current, event));
           return;
         case "assistant-tool-calls":
+          setRetryStatus(null);
           setMessages((current) => streamAssistant(current, { toolCalls: event.calls }));
           return;
         case "assistant": {
           const startedAt = activeTurnStartedAtRef.current;
           const durationMs = startedAt === null ? undefined : Date.now() - startedAt;
+          setRetryStatus(null);
           setMessages((current) => completeAssistant(current, { ...event.message, durationMs }));
           return;
         }
+        case "retry-status":
+          setRetryStatus(event.text);
+          setMessages((current) => resetStreamingAssistant(current));
+          return;
         case "tool-start":
           setMessages((current) => startToolCall(current, event.callId, event.name, event.args));
           return;
         case "tool-end":
           setMessages((current) => endToolCall(current, event.callId, event.name, event.result));
           return;
+        case "compaction-start":
+          setIsCompacting(true);
+          return;
+        case "compaction-end":
+          setIsCompacting(false);
+          return;
         case "ui-request":
-          if (event.request.method !== "notify") setExtensionRequest(event.request);
+          if (event.request.method === "notify") {
+            useAppStore.getState().showToast(event.request.message, event.request.notifyType ?? "info");
+          } else {
+            setExtensionRequest(event.request);
+          }
           return;
         default:
           return;
@@ -183,8 +285,6 @@ export function SideChatPanel({
     // Stopping a side runtime also removes its forked session, which lives outside the session list.
     const stopAndDeleteSideRuntime = (runtimeId: string) => agent.stop(runtimeId).catch(() => undefined);
 
-    setPhase("starting");
-    setError(null);
     void (async () => {
       try {
         unsubscribe = await subscribeToRuntimes({
@@ -204,20 +304,55 @@ export function SideChatPanel({
           return;
         }
         runtimeRef.current = started.runtimeId;
-        const [state, availableModels] = await Promise.all([
+        const [state, availableModels, availableCommands] = await Promise.all([
           harnessRuntimes.state(started.runtimeId),
           harnessRuntimes.models(),
+          harnessRuntimes.commands(cwd).catch((): SlashCommand[] | null => null),
         ]);
         const sideFile = state.sessionFile ?? null;
         if (!sideFile || sameLocalPath(sideFile, parentSessionFile)) {
           throw new Error("无法创建独立的侧边聊天会话");
         }
         await agent.bindSession(started.runtimeId, sideFile);
+
+        const initial = parentSyncInputsRef.current;
+        await harnessRuntimes.setPermission(started.runtimeId, {
+          permission: initial.permissionMode,
+          agentMode: initial.agentMode,
+        }).catch(() => undefined);
+
+        let resolvedModel = state.model ?? initial.parentModel ?? null;
+        if (
+          initial.parentModel
+          && (!state.model
+            || state.model.provider !== initial.parentModel.provider
+            || state.model.id !== initial.parentModel.id)
+        ) {
+          resolvedModel = await harnessRuntimes
+            .setModel(started.runtimeId, initial.parentModel.provider, initial.parentModel.id)
+            .catch(() => resolvedModel);
+        }
+
+        let resolvedLevel = state.thinkingLevel ?? initial.parentThinkingLevel ?? "off";
+        if (
+          initial.parentThinkingLevel
+          && initial.parentThinkingLevel !== resolvedLevel
+        ) {
+          await harnessRuntimes
+            .setThinkingLevel(started.runtimeId, initial.parentThinkingLevel)
+            .then(() => {
+              resolvedLevel = initial.parentThinkingLevel ?? resolvedLevel;
+            })
+            .catch(() => undefined);
+        }
+
         if (!disposed) {
-          setModel(state.model ?? null);
-          setThinkingLevel(state.thinkingLevel ?? "off");
+          setModel(resolvedModel);
+          setThinkingLevel(resolvedLevel);
           setModels(availableModels);
-          setThinkingLevels(harnessRuntimes.thinkingLevels());
+          setThinkingLevels(harnessRuntimes.thinkingLevels(resolvedModel));
+          if (availableCommands !== null) setFetchedCommands(availableCommands);
+          setError(null);
           setPhase("ready");
           void refreshStats(started.runtimeId);
         }
@@ -227,7 +362,9 @@ export function SideChatPanel({
         if (runtimeId) await stopAndDeleteSideRuntime(runtimeId);
         if (!disposed) {
           setPhase("error");
-          setError(reportError(reason));
+          const message = reason instanceof Error ? reason.message : String(reason);
+          setError(message);
+          onError?.(message);
         }
       }
     })();
@@ -239,7 +376,7 @@ export function SideChatPanel({
       runtimeRef.current = null;
       if (runtimeId) void stopAndDeleteSideRuntime(runtimeId);
     };
-  }, [cwd, parentSessionFile, reportError, restartToken]);
+  }, [cwd, onError, parentSessionFile, restartToken]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -249,30 +386,109 @@ export function SideChatPanel({
     return () => window.cancelAnimationFrame(frame);
   }, [isStreaming, messages]);
 
+  const restart = useCallback(() => {
+    setMessages([]);
+    setAttachments([]);
+    setStats(null);
+    setRetryStatus(null);
+    setIsCompacting(false);
+    setTitle("侧边对话");
+    setError(null);
+    setPhase("starting");
+    setForkedParentCount(parentMessageCount);
+    setRestartToken((value) => value + 1);
+  }, [parentMessageCount]);
+
   const submit = async (text: string, behavior?: "steer" | "followUp") => {
     const runtimeId = runtimeRef.current;
     const payload = buildPromptPayload(text, attachments);
     if (!runtimeId || phase !== "ready" || (!payload.message && payload.images.length === 0)) return false;
     const wasStreaming = isStreaming;
-    const optimistic = !payload.message.startsWith("/");
-    if (optimistic) {
+
+    let effectivePayload = payload;
+    if (!wasStreaming && payload.images.length === 0) {
+      const slash = parseLeadingSlashCommand(payload.message);
+      if (slash !== null) {
+        try {
+          const commandResult = await harnessRuntimes.runCommand(runtimeId, slash.name, slash.rawArgs);
+          if (commandResult.handled) {
+            if (commandResult.clientAction === "clear") {
+              restart();
+              return true;
+            }
+            if (commandResult.clientAction === "compact") {
+              setIsCompacting(true);
+              try {
+                await harnessRuntimes.compact(runtimeId);
+                const nextStats = await harnessRuntimes.stats(runtimeId).catch(() => null);
+                if (runtimeRef.current === runtimeId) setStats(nextStats);
+                setMessages((current) => [
+                  ...current,
+                  {
+                    id: `side-compact-${Date.now()}`,
+                    role: "notice",
+                    content: "已压缩侧边对话上下文。",
+                    timestamp: Date.now(),
+                  },
+                ]);
+              } finally {
+                setIsCompacting(false);
+              }
+              return true;
+            }
+            if (commandResult.prompt !== undefined && commandResult.prompt.trim() !== "") {
+              effectivePayload = { message: commandResult.prompt, images: [] };
+            } else {
+              const now = Date.now();
+              const nonce = `${now}-${Math.random().toString(36).slice(2, 7)}`;
+              const outputText = commandResult.output ?? `已执行 \`/${slash.name}\`。`;
+              setMessages((current) => [
+                ...current,
+                {
+                  id: `side-slash-user-${nonce}`,
+                  role: "user",
+                  content: payload.message,
+                  timestamp: now,
+                },
+                {
+                  id: `side-slash-assistant-${nonce}`,
+                  role: "assistant",
+                  content: outputText,
+                  ...(commandResult.isError ? { isError: true } : {}),
+                  timestamp: now,
+                },
+              ]);
+              return true;
+            }
+          }
+        } catch (reason) {
+          reportError(reason);
+          return false;
+        }
+      }
+    }
+
+    if (!wasStreaming) {
       setMessages((current) => [...current, {
         id: `side-user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         role: "user",
-        content: payload.message,
-        images: payload.images.length
-          ? payload.images.map(({ data, mimeType }) => ({ type: "image", data, mimeType }))
+        content: effectivePayload.message,
+        images: effectivePayload.images.length
+          ? effectivePayload.images.map(({ data, mimeType }) => ({ type: "image", data, mimeType }))
           : undefined,
         timestamp: Date.now(),
       }]);
-      if (title === "侧边聊天") setTitle(promptTitle(payload.message));
+      if (title === "侧边对话") setTitle(promptTitle(payload.message));
     }
     setAttachments([]);
     setIsStreaming(true);
     if (!wasStreaming) activeTurnStartedAtRef.current = Date.now();
     try {
-      if (wasStreaming) await harnessRuntimes.queue(runtimeId, behavior === "followUp" ? "followUp" : "steer", payload);
-      else await harnessRuntimes.prompt(runtimeId, payload);
+      if (wasStreaming) {
+        await harnessRuntimes.queue(runtimeId, behavior === "followUp" ? "followUp" : "steer", effectivePayload);
+      } else {
+        await harnessRuntimes.prompt(runtimeId, effectivePayload);
+      }
       return true;
     } catch (reason) {
       setIsStreaming(wasStreaming);
@@ -298,7 +514,7 @@ export function SideChatPanel({
   };
 
   const pickAttachments = async () => {
-    const selected = await open({ multiple: true, directory: false, title: "向侧边聊天添加文件" });
+    const selected = await open({ multiple: true, directory: false, title: "向侧边对话添加文件" });
     await attachFiles(typeof selected === "string" ? [selected] : selected ?? []);
   };
 
@@ -309,8 +525,22 @@ export function SideChatPanel({
     setModel(next);
     setIsSwitchingModel(true);
     try {
-      setModel(await harnessRuntimes.setModel(runtimeId, next.provider, next.id));
-      setThinkingLevels(harnessRuntimes.thinkingLevels());
+      const confirmed = await harnessRuntimes.setModel(runtimeId, next.provider, next.id);
+      const nextLevels = mergeThinkingLevels(
+        harnessRuntimes.thinkingLevels(confirmed),
+        settings?.customThinkingLevels,
+      );
+      setModel(confirmed);
+      setThinkingLevels(nextLevels);
+      const targetLevel = confirmed.reasoning === false
+        ? "off"
+        : (confirmed.thinkingLevel ?? next.thinkingLevel ?? (nextLevels.length > 0 && !nextLevels.includes(thinkingLevel)
+          ? (fallbackThinkingLevel(thinkingLevel, nextLevels) ?? undefined)
+          : undefined));
+      if (targetLevel && targetLevel !== thinkingLevel) {
+        await harnessRuntimes.setThinkingLevel(runtimeId, targetLevel).catch(() => undefined);
+        setThinkingLevel(targetLevel);
+      }
     } catch (reason) {
       setModel(previous);
       reportError(reason);
@@ -335,7 +565,7 @@ export function SideChatPanel({
     if (!runtimeId || isStreaming) return;
     try {
       await harnessRuntimes.setPermission(runtimeId, { permission: mode });
-      setPermissionMode(mode);
+      setPermissionOverride(mode);
     } catch (reason) {
       reportError(reason);
     }
@@ -346,47 +576,58 @@ export function SideChatPanel({
     if (!runtimeId || isStreaming) return;
     try {
       await harnessRuntimes.setPermission(runtimeId, { agentMode: mode });
-      setAgentMode(mode);
+      setAgentModeOverride(mode);
     } catch (reason) {
       reportError(reason);
     }
   };
 
-  const restart = () => {
-    setMessages([]);
-    setAttachments([]);
-    setStats(null);
-    setTitle("侧边聊天");
-    setRestartToken((value) => value + 1);
-  };
-
   const requestDelete = () => {
-    const confirmed = window.confirm("这个侧边聊天将被删除，且无法恢复。你确定吗？");
+    const confirmed = window.confirm("这个侧边对话将被删除，且无法恢复。你确定吗？");
     if (confirmed) onDelete?.();
   };
 
+  const statusBadge = isCompacting
+    ? "正在压缩…"
+    : retryStatus || (hasNewerParentContext ? "主对话已有新进展" : "独立分叉 · 不修改主对话");
+
   return (
     <section className="side-chat-pane" aria-label="侧边聊天" hidden={hidden}>
-      <header className="workspace-pane-header side-chat-header">
-        <span className="workspace-pane-title">
-          <MessageSquare size={15} strokeWidth={1.75} />
-          <strong title={title}>{title}</strong>
-          {isStreaming && <LoaderCircle className="spin side-chat-running" size={13} aria-label="运行中" />}
+      <header className="pid-wb-subbar side-chat-header">
+        <span className="side-chat-title-group">
+          <GitBranch size={12.5} strokeWidth={1.8} className="side-chat-fork-icon" />
+          <strong className="side-chat-topic" title={title}>{title}</strong>
+          <span className={`side-chat-context-pill${hasNewerParentContext ? " is-stale" : ""}`}>
+            {statusBadge}
+          </span>
+          {(isStreaming || isCompacting) && (
+            <LoaderCircle className="spin side-chat-running" size={13} aria-label="运行中" />
+          )}
         </span>
-        <span className="workspace-pane-actions">
+        <span className="pid-wb-subbar-actions">
+          <button
+            type="button"
+            className="pid-wb-btn small side-chat-reset-btn"
+            disabled={phase === "starting" || isStreaming}
+            title={hasNewerParentContext ? "清空当前侧边对话并同步主对话最新上下文" : "清空并重新分叉侧边对话"}
+            onClick={restart}
+          >
+            <RotateCcw size={12} strokeWidth={1.8} />
+            <span>{hasNewerParentContext ? "同步最新" : "重新开始"}</span>
+          </button>
           {onNew && (
-            <button type="button" className="icon-button" title="新建侧边聊天" onClick={onNew}>
-              <Plus size={14} strokeWidth={1.75} />
+            <button type="button" className="pid-wb-icon-btn" title="新建侧边聊天" onClick={onNew}>
+              <Plus size={13} strokeWidth={1.75} />
             </button>
           )}
           {onClose && (
-            <button type="button" className="icon-button" title="隐藏侧边聊天" onClick={onClose}>
-              <X size={14} strokeWidth={1.75} />
+            <button type="button" className="pid-wb-icon-btn" title="隐藏侧边聊天" onClick={onClose}>
+              <X size={13} strokeWidth={1.75} />
             </button>
           )}
           {onDelete && (
-            <button type="button" className="icon-button side-chat-delete-action" title="删除侧边聊天" onClick={requestDelete}>
-              <Trash2 size={14} strokeWidth={1.75} />
+            <button type="button" className="pid-wb-icon-btn side-chat-delete-action" title="删除侧边聊天" onClick={requestDelete}>
+              <Trash2 size={13} strokeWidth={1.75} />
             </button>
           )}
         </span>
@@ -396,29 +637,30 @@ export function SideChatPanel({
         {phase === "starting" && (
           <div className="side-chat-state">
             <LoaderCircle className="spin" size={19} />
-            <strong>正在创建侧边聊天</strong>
+            <strong>正在创建侧边对话</strong>
+            <span>正在从当前主对话创建独立临时分支…</span>
           </div>
         )}
         {phase === "error" && (
           <div className="side-chat-state error">
-            <strong>无法创建侧边聊天</strong>
+            <strong>无法创建侧边对话</strong>
             <span>{error}</span>
             <button type="button" onClick={restart}><RotateCcw size={14} />重试</button>
           </div>
         )}
         {phase === "expired" && (
           <div className="side-chat-state">
-            <strong>侧边聊天已过期</strong>
-            <span>这个临时侧边聊天已不可用，请新建侧边聊天后继续。</span>
-            <button type="button" onClick={restart}><RotateCcw size={14} />新建侧边聊天</button>
+            <strong>侧边对话已过期</strong>
+            <span>这个临时侧边对话已结束，点击重新开始即可从主对话最新上下文继续。</span>
+            <button type="button" onClick={restart}><RotateCcw size={14} />重新开始</button>
           </div>
         )}
         {phase === "ready" && messages.length === 0 && (
           <div className="side-chat-state side-chat-empty-state">
             <MessageSquare size={22} strokeWidth={1.45} />
-            <strong>侧边聊天</strong>
-            <span>侧边聊天是临时的，关闭标签页后会消失。</span>
-            <small>它继承当前任务的上下文，但不会改变主对话。</small>
+            <strong>侧边对话</strong>
+            <span>继承当前主对话上下文，用于临时追问、验证想法或查阅代码。</span>
+            <small>这里的提问和回复完全独立，不会写入或打乱左侧主对话。</small>
           </div>
         )}
         {displayMessages.map((message, index) => (
@@ -426,7 +668,7 @@ export function SideChatPanel({
             key={message.id}
             message={message}
             showThinking={showThinking}
-            expectVisibleThinking={thinkingLevel !== "off"}
+            expectVisibleThinking={thinkingLevel !== "off" && model?.reasoning === true}
             isLastAssistant={message.role === "assistant" && index === displayMessages.length - 1}
             globalStreaming={isStreaming}
             allowRichContent
@@ -437,22 +679,26 @@ export function SideChatPanel({
       <div className="side-chat-composer-dock">
         <Composer
           variant="follow-up"
+          scope="side"
           isStreaming={isStreaming}
           isSwitchingModel={isSwitchingModel}
           disabled={phase !== "ready"}
           attachments={attachments}
-          commands={NO_COMMANDS}
-          models={models}
+          commands={commands}
+          models={visibleModels}
           model={model}
           thinkingLevel={thinkingLevel}
-          thinkingLevels={thinkingLevels}
+          thinkingLevels={mergeThinkingLevels(thinkingLevels, settings?.customThinkingLevels)}
           pendingCount={0}
           requireCtrlEnter={settings?.requireCtrlEnter}
           defaultFollowUpBehavior={settings?.followUpBehavior}
+          workspace={cwd}
           permissionMode={permissionMode}
           permissionLabel={permissionLabel(permissionMode)}
           agentMode={agentMode}
           contextUsage={stats?.contextUsage}
+          sessionCost={stats?.cost}
+          sessionTokens={stats?.tokens}
           onSend={submit}
           onStop={stop}
           onPickAttachments={() => void pickAttachments()}
