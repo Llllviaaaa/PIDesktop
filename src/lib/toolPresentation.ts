@@ -13,6 +13,7 @@ export type ToolKind =
   | "computer"
   | "mcp"
   | "plan"
+  | "ui"
   | "other";
 
 export type ToolDiffLineType = "add" | "del" | "ctx" | "hunk" | "meta";
@@ -283,6 +284,7 @@ export function classifyToolKind(name: string): ToolKind {
   ) return "search";
   if (normalized.includes("web_search") || normalized.includes("search_web")) return "web-search";
   if (normalized === "update_plan") return "plan";
+  if (normalized === "render_ui" || normalized === "update_ui") return "ui";
   return "other";
 }
 
@@ -374,7 +376,7 @@ export function presentToolCall(call: UiToolCall): ToolPresentation {
     ? (content || resultText)
     : kind === "shell"
       ? resultText
-      : kind === "edit" || kind === "plan"
+      : kind === "edit" || kind === "plan" || kind === "ui"
         ? undefined
         : kind === "search" && hits.length > 0
           ? undefined
@@ -383,6 +385,7 @@ export function presentToolCall(call: UiToolCall): ToolPresentation {
             : resultText;
   const preview = previewSource ? truncatePreview(previewSource) : undefined;
   const plan = kind === "plan" ? planFromToolCall(call) ?? undefined : undefined;
+  const uiTitle = kind === "ui" ? stringArg(call.args, ["title", "id"]) : undefined;
 
   let heading: string;
   if (kind === "web-search") {
@@ -406,10 +409,18 @@ export function presentToolCall(call: UiToolCall): ToolPresentation {
     heading = computerHeading(call.name);
   } else if (kind === "plan") {
     heading = plan ? `计划 ${plan.completed}/${plan.steps.length}` : "更新计划";
+  } else if (kind === "ui") {
+    const base = normalizedToolName(call.name) === "update_ui" ? "更新交互组件" : "渲染交互组件";
+    heading = uiTitle ? `${base} · ${clipHeading(uiTitle, 48)}` : base;
   } else if (kind === "mcp") {
     const parts = call.name.split("__");
     const label = `MCP · ${(parts[parts.length - 1] || call.name).replace(/_/g, " ")}`;
     heading = path ? `${label} · ${displayPath(path)}` : label;
+  } else if (normalizedToolName(call.name) === "activate_tools") {
+    const requested = Array.isArray(call.args.names)
+      ? call.args.names.filter((item): item is string => typeof item === "string" && item.trim() !== "").join(", ")
+      : "";
+    heading = requested ? `加载扩展工具 · ${clipHeading(requested, 48)}` : "加载扩展工具";
   } else {
     heading = path ? `${call.name} · ${displayPath(path)}` : call.name;
   }

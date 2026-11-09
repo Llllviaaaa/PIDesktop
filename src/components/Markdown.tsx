@@ -8,7 +8,10 @@ import { useAppStore } from "../store";
 import { showToast } from "../notifications";
 import { stripCodeReviewDirectives } from "../lib/codeReview";
 import { parseRichContent, RICH_CONTENT_LANGUAGE } from "../lib/richContent";
+import { INTELLIGENT_UI_FENCE_LANGUAGE, parseIntelligentUiFence } from "../lib/intelligentUi";
+import { useIntelligentUiStore } from "../stores/intelligentUiStore";
 import { DiagramBlock, diagramKindForLanguage } from "./DiagramBlock";
+import { IntelligentUiCard } from "./IntelligentUiCard";
 import { RichContent } from "./RichContent";
 import { useFileActions } from "./WorkspaceOpeners";
 
@@ -92,6 +95,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
   mjs: "JavaScript",
   php: "PHP",
   "pidesktop-rich": "PIDesktop Rich",
+  "intelligent-ui": "Intelligent UI",
   ps1: "PowerShell",
   powershell: "PowerShell",
   py: "Python",
@@ -169,11 +173,18 @@ function CodeFence({ children }: { children?: ReactNode }) {
 
 function MarkdownPre({ children, allowRichContent = false }: { children?: ReactNode; allowRichContent?: boolean }) {
   const { language, text } = codeFenceDetails(children);
+  const intelligentUiEnabled = useIntelligentUiStore((state) => state.pluginEnabled);
   const richDocument = useMemo(
     () => allowRichContent && language === RICH_CONTENT_LANGUAGE ? parseRichContent(text) : null,
     [allowRichContent, language, text],
   );
+  const intelligentUiGroup = useMemo(() => {
+    if (!intelligentUiEnabled || language !== INTELLIGENT_UI_FENCE_LANGUAGE) return null;
+    const artifact = parseIntelligentUiFence(text);
+    return artifact ? { id: artifact.id, versions: [artifact], latest: artifact } : null;
+  }, [intelligentUiEnabled, language, text]);
   if (richDocument) return <RichContent document={richDocument} />;
+  if (intelligentUiGroup) return <IntelligentUiCard group={intelligentUiGroup} mode="inline" />;
   const diagramKind = diagramKindForLanguage(language);
   if (diagramKind) return <DiagramBlock kind={diagramKind} source={text} />;
   return <CodeFence>{children}</CodeFence>;

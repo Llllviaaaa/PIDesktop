@@ -86,9 +86,33 @@ describe("LlmService", () => {
     const ctx = await setup();
     const adapter = scripted(() => throws(overloaded), ok);
     ctx.llm.registerAdapter(info, adapter);
-    const result = await assemble(ctx.llm.stream(request));
-    expect(result.reason).toBe("stop");
+    const seenChunks: StreamChunk[] = [];
+    for await (const chunk of ctx.llm.stream(request)) seenChunks.push(chunk);
+    expect(seenChunks.some((c) => c.type === "retry" && c.attempt === 1 && c.maxAttempts === 3)).toBe(true);
+    expect(seenChunks.at(-1)).toEqual({ type: "finish", reason: "stop" });
     expect(adapter.calls).toHaveLength(2);
+  });
+
+  it("does not retry when a single attempt already hung past maxRetryableAttemptMs", async () => {
+    root = new Context();
+    await root.plugin(Credentials);
+    await root.plugin(LlmService, { maxAttempts: 3, baseDelayMs: 0, maxRetryableAttemptMs: 1_000 });
+    let fakeNow = 10_000;
+    const origNow = Date.now;
+    Date.now = () => fakeNow;
+    try {
+      const slowTimeoutAdapter = scripted(async function* () {
+        yield* [];
+        fakeNow += 1_500;
+        throw overloaded;
+      }, ok);
+      root.llm.registerAdapter(info, slowTimeoutAdapter);
+      const result = await assemble(root.llm.stream(request));
+      expect(result.reason).toBe("error");
+      expect(slowTimeoutAdapter.calls).toHaveLength(1);
+    } finally {
+      Date.now = origNow;
+    }
   });
 
   it("retries an error finish from the adapter as well as a throw", async () => {
@@ -111,23 +135,56 @@ describe("LlmService", () => {
     expect(adapter.calls).toHaveLength(3);
   });
 
-  it("does not retry non-retryable errors or failures after content", async () => {
+  it("does not retry non-retryable errors, and recovers cleanly from mid-stream drops", async () => {
     const ctx = await setup();
     const auth = scripted(() => throws(new LlmError({ kind: "auth", message: "no", retryable: false })));
     ctx.llm.registerAdapter(info, auth);
     expect((await assemble(ctx.llm.stream(request))).error?.kind).toBe("auth");
     expect(auth.calls).toHaveLength(1);
 
-    async function* halfThenFail(): AsyncGenerator<StreamChunk> {
-      yield { type: "text-delta", index: 0, text: "par" };
-      throw overloaded;
+    async function* halfThenReset(): AsyncGenerator<StreamChunk> {
+      yield { type: "thinking-delta", index: 0, text: "partial reasoning..." };
+      throw new LlmError({ kind: "network", message: "ECONNRESET: The socket connection was closed unexpectedly.", retryable: true });
     }
-    const half = scripted(halfThenFail);
-    ctx.llm.registerAdapter({ ...info, id: "half" }, half);
-    const result = await assemble(ctx.llm.stream({ ...request, provider: "half" }));
-    expect(result.reason).toBe("error");
-    expect(result.message.content).toEqual([{ type: "text", text: "par" }]);
-    expect(half.calls).toHaveLength(1);
+    const recovered = scripted(halfThenReset, ok);
+    ctx.llm.registerAdapter({ ...info, id: "recovered" }, recovered);
+    const recoveredResult = await assemble(ctx.llm.stream({ ...request, provider: "recovered" }));
+    expect(recoveredResult.reason).toBe("stop");
+    expect(recoveredResult.message.content).toEqual([{ type: "text", text: "hello" }]);
+    expect(recovered.calls).toHaveLength(2);
+
+    // When every retry also drops mid-stream, the final attempt's partial content and error are preserved.
+    const exhausted = scripted(halfThenReset);
+    ctx.llm.registerAdapter({ ...info, id: "exhausted" }, exhausted);
+    const exhaustedResult = await assemble(ctx.llm.stream({ ...request, provider: "exhausted" }));
+    expect(exhaustedResult.reason).toBe("error");
+    expect(exhaustedResult.message.content).toEqual([{ type: "thinking", text: "partial reasoning..." }]);
+    expect(exhausted.calls).toHaveLength(3);
+  });
+
+  it("steps down reasoning effort when an active long stream is cut off mid-flight", async () => {
+    root = new Context();
+    await root.plugin(Credentials);
+    await root.plugin(LlmService, { maxAttempts: 4, baseDelayMs: 0, longStreamStepDownMs: 1_000 });
+    let fakeNow = 50_000;
+    const origNow = Date.now;
+    Date.now = () => fakeNow;
+    try {
+      const longDrop = async function* (): AsyncGenerator<StreamChunk> {
+        yield { type: "thinking-delta", index: 0, text: "long thinking..." };
+        fakeNow += 2_000;
+        throw new LlmError({ kind: "network", message: "ECONNRESET", retryable: true });
+      };
+      const adapter = scripted(longDrop, longDrop, ok);
+      root.llm.registerAdapter(info, adapter);
+      const chunks: StreamChunk[] = [];
+      for await (const chunk of root.llm.stream({ ...request, effort: "high" })) chunks.push(chunk);
+      expect(adapter.calls.map((c) => c.effort)).toEqual(["high", "medium", "low"]);
+      const retries = chunks.filter((c): c is Extract<StreamChunk, { type: "retry" }> => c.type === "retry");
+      expect(retries.map((r) => r.effort)).toEqual(["medium", "low"]);
+    } finally {
+      Date.now = origNow;
+    }
   });
 
   it("finishes as aborted when the signal fires", async () => {

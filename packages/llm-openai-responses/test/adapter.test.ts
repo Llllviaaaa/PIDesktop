@@ -80,6 +80,14 @@ describe("@pid/llm-openai-responses adapter", () => {
         { type: "function_call_output", call_id: "call_99", output: "all green" },
       ],
     });
+
+    const cachedBody = openaiResponses.buildRequestBody({
+      provider: "openai",
+      model: "gpt-5.2",
+      sessionId: "sess-cache-1",
+      messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }],
+    });
+    expect(cachedBody.prompt_cache_key).toBe("sess-cache-1");
   });
 
   it("streams reasoning summary deltas, text, function calls, cached tokens, and reasoningTokens", async () => {

@@ -4,12 +4,14 @@ import { ArrowUp, ChevronDown, ChevronUp, Info, Link2, LoaderCircle, Pencil, Rot
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import type { UiMessage, UiToolCall, WorkStep } from "../types";
 import type { TaskPlanSummary } from "../lib/envSources";
-import { foldThinking } from "../lib/thinkingDisplay";
+import type { IntelligentUiVersionGroup, TurnWidgetRef } from "../lib/intelligentUi";
+import { extractInlineThinking, foldThinking } from "../lib/thinkingDisplay";
 import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
 import { presentToolCall, type ToolDiffLine, type ToolKind } from "../lib/toolPresentation";
 import { showToast } from "../notifications";
 import { isGoalToolCall } from "../lib/activeGoal";
 import { ConversationPlan } from "./ConversationPlan";
+import { IntelligentUiCard } from "./IntelligentUiCard";
 import { Markdown } from "./Markdown";
 import { ToolCall } from "./ToolCall";
 import { DisclosureRow, TextShimmer } from "./TranscriptPrimitives";
@@ -609,6 +611,8 @@ export const Message = memo(function Message({
   density = "normal",
   editing = false,
   plan,
+  uiWidgets,
+  uiGroups,
   footer,
   onOpenPlan,
   onEdit,
@@ -637,6 +641,10 @@ export const Message = memo(function Message({
   editing?: boolean;
   /** The plan this turn finished with; hidden while the turn works, when the composer shows it. */
   plan?: TaskPlanSummary;
+  /** Interactive widgets created or updated in this turn via `render_ui` / `update_ui`. */
+  uiWidgets?: readonly TurnWidgetRef[];
+  /** Session-wide widget version groups keyed by normalized widget ID. */
+  uiGroups?: ReadonlyMap<string, IntelligentUiVersionGroup>;
   /** Closes a settled turn between its answer and its actions (the session's change card). */
   footer?: ReactNode;
   onOpenPlan?: () => void;
@@ -860,7 +868,7 @@ export const Message = memo(function Message({
             </div>
           )}
         </motion.div>
-        {message.content && (
+        {(message.content || (message.images && message.images.length > 0)) && (
           <MessageIconActions
             text={message.content}
             time={message.timestamp}
@@ -923,8 +931,10 @@ export const Message = memo(function Message({
 
   const working = message.role === "assistant"
     && (message.isStreaming || (isLastAssistant && globalStreaming));
+  const normalizedAssistant = extractInlineThinking(message.content, message.thinking);
+  const assistantContent = normalizedAssistant.content;
   const toolCalls = (message.toolCalls ?? []).filter((call) => !isGoalToolCall(call));
-  const thinkingText = showThinking ? foldThinking(message.thinking, message.content) : "";
+  const thinkingText = showThinking ? foldThinking(normalizedAssistant.thinking, assistantContent) : "";
   // Ordered process rows: the turn's own steps, or its thinking then its tools for an older message.
   const steps: WorkStep[] = message.workSteps
     ? message.workSteps.filter((step) => (step.kind === "tool" ? !isGoalToolCall(step.call) : step.kind !== "thinking" || showThinking))
@@ -933,10 +943,10 @@ export const Message = memo(function Message({
       ...toolCalls.map((call) => ({ kind: "tool" as const, call })),
     ];
   const hasProcess = steps.length > 0;
-  const hasContent = Boolean(message.content.trim());
+  const hasContent = Boolean(assistantContent.trim());
   const hasRunningTool = toolCalls.some((call) => call.running);
   const lastStep = steps[steps.length - 1];
-  const reasoningLive = working && !hasContent && lastStep?.kind === "thinking";
+  const reasoningLive = showThinking && working && !hasContent && lastStep?.kind === "thinking";
   const thinkingCount = steps.filter((step) => step.kind === "thinking").length;
   const segments = processSegments(steps);
   const mergedFileTools = computeMergedFileTools(steps.flatMap((step) => step.kind === "tool" ? [step.call] : []));
@@ -958,7 +968,7 @@ export const Message = memo(function Message({
     : "复制回复";
 
   const shareContent = () => {
-    const text = message.content;
+    const text = assistantContent;
     const share = (navigator as Navigator & { share?: (data: ShareData) => Promise<void> }).share;
     if (typeof share === "function") {
       void share({ text }).catch(() => {
@@ -1037,9 +1047,16 @@ export const Message = memo(function Message({
   });
 
   // Every mode folds a settled turn behind its duration divider, leaving the answer; the divider opens it again.
+  // When `showThinking` is false and there are no visible work steps (no tools/notes), omit the pure-thinking duration bar.
   const canCollapse = hasProcess;
   const settledProcessVisible = hasProcess && processOpen;
-  const showTurnProcess = !working && (hasProcess || durationMs !== null || reasoningUnavailable || message.isAborted === true);
+  const showTurnProcess = !working && (
+    hasProcess
+    || (showThinking && durationMs !== null)
+    || reasoningUnavailable
+    || message.isAborted === true
+    || message.isError === true
+  );
   const turnProcessLabel = message.isError
     ? "处理失败"
     : message.isAborted
@@ -1050,7 +1067,7 @@ export const Message = memo(function Message({
   const durationParts = !message.isError && durationMs !== null ? formatRunDuration(Math.max(1000, durationMs)) : [];
   const liveProcessVisible = working && hasProcess;
   const liveLabel = liveActivityLabel(workingLabel, hasRunningTool, reasoningLive, working && hasContent);
-  const activityKey = `${message.content.length}:${(message.thinking ?? "").length}:${toolCalls.length}:${toolCalls.filter((call) => call.running).length}`;
+  const activityKey = `${assistantContent.length}:${(normalizedAssistant.thinking ?? "").length}:${toolCalls.length}:${toolCalls.filter((call) => call.running).length}`;
 
   return (
     <article
@@ -1086,20 +1103,36 @@ export const Message = memo(function Message({
       {settledProcessVisible && !working && renderProcess(true)}
       {liveProcessVisible && renderProcess(policy.liveGrouping)}
       {plan && !working && <ConversationPlan plan={plan} onOpenPlan={onOpenPlan} />}
+      {!message.isError && uiWidgets && uiWidgets.length > 0 && uiGroups && (
+        <div className="dshc-turn-widgets">
+          {uiWidgets.map((ref) => {
+            const group = uiGroups.get(ref.id);
+            if (!group) return null;
+            return (
+              <IntelligentUiCard
+                key={ref.id}
+                group={group}
+                defaultVersion={ref.version}
+                mode="inline"
+              />
+            );
+          })}
+        </div>
+      )}
       {hasContent && (message.isError
         ? (
           <div className="dshc-turn-error" role="status">
             <span className="dshc-state-dot" data-state="error" aria-hidden="true" />
             <div className="dshc-turn-error-copy">
               <span className="dshc-turn-error-title">本轮出错</span>
-              <span className="dshc-turn-error-message">{message.content}</span>
+              <span className="dshc-turn-error-message">{assistantContent}</span>
             </div>
           </div>
         )
         : (
           <div className="dshc-answer" data-streaming={working || undefined}>
             <div className="dshc-md dshc-md-prose">
-              <Markdown content={message.content} allowRichContent={allowRichContent && !working} />
+              <Markdown content={assistantContent} allowRichContent={allowRichContent && !working} />
             </div>
           </div>
         ))}
@@ -1115,7 +1148,7 @@ export const Message = memo(function Message({
       {footer && !working && <div className="dshc-turn-footer">{footer}</div>}
       {hasContent && !working && (
         <MessageIconActions
-          text={message.content}
+          text={assistantContent}
           time={message.timestamp}
           clock="end"
           copyTitle={copyTitle}

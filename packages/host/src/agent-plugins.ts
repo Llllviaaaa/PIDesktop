@@ -17,6 +17,7 @@ import * as checkpoints from "@pid/checkpoints";
 import { Commands } from "@pid/commands";
 import * as computer from "@pid/computer";
 import * as hooks from "@pid/hooks";
+import * as intelligentUi from "@pid/intelligent-ui";
 import { Credentials, LlmService } from "@pid/llm";
 import * as llmAnthropic from "@pid/llm-anthropic";
 import * as llmGemini from "@pid/llm-gemini";
@@ -233,6 +234,16 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
       hasClient: false,
       plugin: plan,
       inject: ["sessions", "tools"],
+    },
+    {
+      id: "intelligent-ui",
+      name: "Intelligent UI 交互式界面 (intelligent-ui)",
+      description: "支持在对话流内生成可交互计算器、动态图表、参数表单与安全沙箱微应用，支持多版本切换与右侧画布展开",
+      enabled: config.intelligentUi.enabled,
+      hasHost: true,
+      hasClient: true,
+      plugin: intelligentUi,
+      inject: ["sessions", "tools", "systemPrompt"],
     },
     {
       id: "memory",

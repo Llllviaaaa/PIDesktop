@@ -27,6 +27,7 @@ export type TranscriptEvent =
   | { type: "queue"; steering: number; followUp: number }
   | { type: "compaction-start" }
   | { type: "compaction-end"; failed: boolean }
+  | { type: "retry-status"; text: string }
   | { type: "plan"; lines: string[] }
   | { type: "ui-request"; request: ExtensionUIRequest };
 
@@ -208,6 +209,25 @@ export function streamAssistant(messages: UiMessage[], delta: { text?: string; t
   return next;
 }
 
+/** Clear partial text, thinking and tool calls of the reply being streamed when an attempt retries. */
+export function resetStreamingAssistant(messages: UiMessage[]): UiMessage[] {
+  const index = lastStreamingAssistant(messages);
+  if (index < 0) return messages;
+  const previous = messages[index];
+  if (previous.content === "" && previous.thinking === undefined && previous.toolCalls === undefined) {
+    return messages;
+  }
+  const next = [...messages];
+  next[index] = {
+    id: previous.id,
+    role: "assistant",
+    content: "",
+    isStreaming: true,
+    timestamp: previous.timestamp,
+  };
+  return next;
+}
+
 /**
  * The finished reply replaces the one being streamed, keeping its id and
  * what its tool calls have done so far; without one it is appended.
@@ -361,6 +381,16 @@ export class TranscriptTranslator {
         const call = this.toolCalls.get(Number(chunk.index));
         if (call !== undefined) call.json += String(chunk.argumentsDelta ?? "");
         return [];
+      }
+      case "retry": {
+        this.toolCalls.clear();
+        const attempt = typeof chunk.attempt === "number" ? chunk.attempt : 1;
+        const maxAttempts = typeof chunk.maxAttempts === "number" ? chunk.maxAttempts : attempt + 1;
+        const totalRetries = Math.max(1, maxAttempts - 1);
+        const delayMs = typeof chunk.delayMs === "number" ? chunk.delayMs : 0;
+        const waitHint = delayMs >= 1_500 ? `（${Math.round(delayMs / 1000)}s 后）` : "";
+        const prefix = typeof chunk.effort === "string" ? "长流中断，已自动下调思考强度重试" : "连接波动，正在重试";
+        return [{ type: "retry-status", text: `${prefix} ${attempt}/${totalRetries}${waitHint}…` }];
       }
       case "finish": {
         if (this.toolCalls.size === 0) return [];

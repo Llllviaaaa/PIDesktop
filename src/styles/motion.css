@@ -1,0 +1,283 @@
+/*
+ * Pi Desktop — Calibrated Motion & Micro-Interaction Physics (`motion.css`)
+ *
+ * Tactile spring curves, GPU-composited popover/dialog entrances, tactile press
+ * micro-feedback, and full `prefers-reduced-motion` accessibility compliance.
+ */
+
+:root {
+  --pi-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --pi-ease-quart: cubic-bezier(0.22, 1, 0.36, 1);
+  --pi-ease-spring: cubic-bezier(0.22, 1.25, 0.36, 1);
+}
+
+@keyframes piMenuDownIn {
+  from {
+    opacity: 0;
+    scale: 0.97;
+    translate: 0 -4px;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes piMenuUpIn {
+  from {
+    opacity: 0;
+    scale: 0.97;
+    translate: 0 5px;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes piBackdropIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes piModalIn {
+  from {
+    opacity: 0;
+    scale: 0.965;
+    translate: 0 8px;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes piStageReveal {
+  from {
+    opacity: 0;
+    translate: 0 5px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes piDrawerSlideRight {
+  from {
+    opacity: 0;
+    translate: 12px 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes piDrawerSlideUp {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes piToastIn {
+  from {
+    opacity: 0;
+    scale: 0.96;
+    translate: 0 8px;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+    translate: 0 0;
+  }
+}
+
+/* ── Popovers, Menus & Comboboxes ───────────────────────────────────── */
+
+.codex-shot .app-menu-dropdown,
+.codex-shot .topbar-menu,
+.codex-shot .sidebar-popover,
+.codex-shot .models-combo-popover,
+.codex-shot .task-start-composer .permission-menu,
+.codex-shot .task-start-composer .composer-actions-menu,
+.codex-shot .task-start-composer .model-picker-menu,
+.codex-shot .task-start-composer .command-menu,
+.codex-shot .task-start-composer .pi-iui-composer-menu {
+  transform-origin: top left;
+  animation: piMenuDownIn 160ms var(--pi-ease-out) both;
+}
+
+.codex-shot .topbar-right .topbar-menu {
+  transform-origin: top right;
+}
+
+.codex-shot .follow-up-composer .permission-menu,
+.codex-shot .follow-up-composer .composer-actions-menu,
+.codex-shot .follow-up-composer .model-picker-menu,
+.codex-shot .follow-up-composer .command-menu,
+.codex-shot .follow-up-composer .pi-iui-composer-menu,
+.codex-shot .workspace-context-menu,
+.codex-shot .model-picker-levels {
+  transform-origin: bottom left;
+  animation: piMenuUpIn 165ms var(--pi-ease-out) both;
+}
+
+/* Glassmorphic crisp popover elevation */
+.codex-shot .app-menu-dropdown,
+.codex-shot .topbar-menu,
+.codex-shot .sidebar-popover,
+.codex-shot .permission-menu,
+.codex-shot .composer-actions-menu,
+.codex-shot .model-picker-menu,
+.codex-shot .workspace-context-menu,
+.codex-shot .command-menu,
+.codex-shot .pi-iui-composer-menu,
+.models-combo-popover {
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  background: color-mix(in srgb, var(--panel) 94%, transparent) !important;
+  border-color: var(--border-strong) !important;
+  box-shadow:
+    0 12px 32px -6px rgba(15, 23, 42, 0.12),
+    0 3px 10px -2px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+}
+
+:root[data-theme="dark"] .codex-shot .app-menu-dropdown,
+:root[data-theme="dark"] .codex-shot .topbar-menu,
+:root[data-theme="dark"] .codex-shot .sidebar-popover,
+:root[data-theme="dark"] .codex-shot .permission-menu,
+:root[data-theme="dark"] .codex-shot .composer-actions-menu,
+:root[data-theme="dark"] .codex-shot .model-picker-menu,
+:root[data-theme="dark"] .codex-shot .workspace-context-menu,
+:root[data-theme="dark"] .codex-shot .command-menu,
+:root[data-theme="dark"] .codex-shot .pi-iui-composer-menu,
+:root[data-theme="dark"] .models-combo-popover {
+  background: color-mix(in srgb, var(--panel) 92%, #0a0c0f) !important;
+  box-shadow:
+    0 16px 40px -8px rgba(0, 0, 0, 0.62),
+    0 4px 12px -2px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+/* ── Modals & Dialogs ───────────────────────────────────────────────── */
+
+.models-editor-backdrop,
+.plugin-install-backdrop,
+.modal-backdrop {
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: piBackdropIn 170ms var(--pi-ease-quart) both;
+}
+
+.models-editor,
+.plugin-install-dialog,
+.modal-card {
+  animation: piModalIn 210ms var(--pi-ease-out) both;
+}
+
+/* ── Stage, Workbench & Toast Entrances ─────────────────────────────── */
+
+.codex-shot .new-task-screen.dsh-claude-home .minimal-home-core,
+.codex-shot .feature-hub,
+.codex-shot .scheduled-page {
+  animation: piStageReveal 220ms var(--pi-ease-out) both;
+}
+
+.codex-shot .pid-right-workbench {
+  animation: piDrawerSlideRight 190ms var(--pi-ease-out) both;
+}
+
+.codex-shot .pid-bottom-workbench {
+  animation: piDrawerSlideUp 180ms var(--pi-ease-out) both;
+}
+
+.codex-shot .toast {
+  animation: piToastIn 200ms var(--pi-ease-spring) both;
+}
+
+/* ── Tactile Press & Spring Switch Physics ──────────────────────────── */
+
+.codex-shot .primary-button,
+.codex-shot .secondary-button,
+.codex-shot .composer-send,
+.codex-shot .nav-item,
+.codex-shot .dsh-claude-new-session,
+.settings-center .primary-button,
+.settings-center .secondary-button,
+.settings-center .plugin-mini-button {
+  transition:
+    background-color 140ms var(--pi-ease-quart),
+    border-color 140ms var(--pi-ease-quart),
+    color 140ms var(--pi-ease-quart),
+    box-shadow 160ms var(--pi-ease-quart),
+    opacity 140ms var(--pi-ease-quart),
+    scale 120ms var(--pi-ease-out);
+}
+
+.codex-shot .primary-button:active:not(:disabled),
+.codex-shot .secondary-button:active:not(:disabled),
+.codex-shot .composer-send:active:not(:disabled),
+.settings-center .primary-button:active:not(:disabled),
+.settings-center .secondary-button:active:not(:disabled),
+.settings-center .plugin-mini-button:active:not(:disabled),
+.codex-shot .icon-button:active:not(:disabled) {
+  scale: 0.97;
+}
+
+/* Spring Switch Thumb */
+.settings-switch {
+  transition: background-color 180ms var(--pi-ease-quart), opacity 140ms ease !important;
+}
+
+.settings-switch span {
+  transition:
+    transform 220ms var(--pi-ease-spring),
+    width 140ms var(--pi-ease-quart),
+    background-color 150ms ease !important;
+  box-shadow: 0 1px 2.5px rgba(0, 0, 0, 0.22);
+}
+
+.settings-switch:active:not(:disabled) span {
+  width: 20px;
+}
+
+.settings-switch.on:active:not(:disabled) span {
+  transform: translateX(14px);
+}
+
+/* Sidebar collapse/expand smoothness */
+.codex-shot .primary-sidebar-panel {
+  transition:
+    width 200ms var(--pi-ease-out),
+    opacity 160ms var(--pi-ease-quart);
+}
+
+body.sidebar-is-resizing .codex-shot .primary-sidebar-panel {
+  transition: none !important;
+}
+
+/* ── Reduced Motion Accessibility ───────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -319,6 +319,8 @@ export function evaluateToolPermission(options: {
     "fetch",
     "update_plan",
     "sidebar_open",
+    "render_ui",
+    "update_ui",
     "mcp_list_resources",
     "mcp_read_resource",
     "mcp_subscribe_resource",

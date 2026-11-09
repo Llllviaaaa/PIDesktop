@@ -55,5 +55,12 @@ export function apply(ctx: Context): void {
     requests: ctx.ui.pending().map(({ requestId, sessionId, request }) => ({ requestId, ...(sessionId === undefined ? {} : { sessionId }), ...request })),
   })), "ui-rpc: ui.pending");
 
-  ctx.effect(() => ctx.systemPrompt.section("rich-content", () => RICH_CONTENT_INSTRUCTIONS, { order: SectionOrder.environment - 10 }), "ui-rpc: rich content section");
+  ctx.effect(
+    () => ctx.systemPrompt.section(
+      "rich-content",
+      ({ tools }) => (tools.some((tool) => tool.name === "render_ui") ? undefined : RICH_CONTENT_INSTRUCTIONS),
+      { order: SectionOrder.environment - 10 },
+    ),
+    "ui-rpc: rich content section",
+  );
 }

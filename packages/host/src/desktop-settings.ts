@@ -42,6 +42,7 @@ export function effortFromThinking(level: string): Effort | undefined {
       return "medium";
     case "high":
     case "xhigh":
+    case "max":
       return "high";
     default:
       return undefined;
@@ -124,6 +125,7 @@ export function harnessFromDesktop(message: DesktopMessage): DesktopHarness {
     },
     // The host is the only scheduler since Pi and the desktop's own went (P6c).
     schedule: { enabled: true },
+    intelligentUi: { enabled: bool(settings.intelligentUiEnabled, true) },
     sandbox: { enabled: bool(settings.sandboxEnabled, false) },
     prompt: { instructions: personalInstructions(settings) },
   };

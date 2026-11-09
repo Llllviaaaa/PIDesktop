@@ -88,6 +88,25 @@ describe("openai-compat adapter", () => {
     expect(server.requests[0].headers["http-referer"]).toBe("https://pid.example");
   });
 
+  it("auto-sends reasoning_effort and session affinity headers for configured reasoning models, with graceful 400 fallback", async () => {
+    const { ctx, server } = await setup({
+      models: [{ id: "grok-4.7", reasoning: true, thinkingLevel: "max" }, { id: "quirky-reasoner", reasoning: true }],
+    });
+    server.reply({ sse: fixture("reasoning-text.sse") });
+    await assemble(ctx.llm.stream({ ...request, model: "grok-4.7", sessionId: "sess-abc" }));
+    expect((server.requests[0].body as Record<string, unknown>).reasoning_effort).toBe("high");
+    expect(server.requests[0].headers["x-session-id"]).toBe("sess-abc");
+    expect(server.requests[0].headers["x-grok-conv-id"]).toBe("sess-abc");
+
+    // If a proxy rejects reasoning_effort with HTTP 400, adapter strips it and succeeds on immediate fallback.
+    server.reply({ status: 400, json: { error: { message: "Unrecognized request argument supplied: reasoning_effort" } } });
+    server.reply({ sse: fixture("reasoning-text.sse") });
+    const fallbackResult = await assemble(ctx.llm.stream({ ...request, model: "quirky-reasoner", sessionId: "sess-abc" }));
+    expect(fallbackResult.reason).toBe("stop");
+    expect((server.requests[1].body as Record<string, unknown>).reasoning_effort).toBe("high");
+    expect((server.requests[2].body as Record<string, unknown>).reasoning_effort).toBeUndefined();
+  });
+
   it("translates DeepSeek reasoning, text and cached usage", async () => {
     const { ctx, server } = await setup();
     server.reply({ sse: fixture("reasoning-text.sse") });
@@ -143,6 +162,35 @@ describe("openai-compat adapter", () => {
 
     server.reply({ status: 404 });
     expect(await ctx.llm.listModels("compat")).toEqual([{ id: "deepseek-chat", contextWindow: 128_000 }, { id: "local-only" }]);
+
+    server.reply({
+      status: 200,
+      json: {
+        object: "list",
+        data: [
+          {
+            id: "google/gemini-2.5-pro",
+            name: "Gemini 2.5 Pro",
+            context_length: 1_048_576,
+            top_provider: { max_completion_tokens: 65_536 },
+            supported_parameters: ["tools", "reasoning"],
+            thinking_level: "high",
+            architecture: { input_modalities: ["text", "image"] },
+            pricing: { prompt: "0.00000125", completion: "0.00001" },
+          },
+        ],
+      },
+    });
+    expect(await ctx.llm.listModels("compat")).toContainEqual({
+      id: "google/gemini-2.5-pro",
+      name: "Gemini 2.5 Pro",
+      contextWindow: 1_048_576,
+      maxOutputTokens: 65_536,
+      reasoning: true,
+      thinkingLevel: "high",
+      input: ["text", "image"],
+      cost: { input: 1.25, output: 10 },
+    });
   });
 
   it("extracts completion_tokens_details.reasoning_tokens when reported", async () => {
@@ -163,5 +211,22 @@ describe("openai-compat adapter", () => {
       cacheWriteTokens: 0,
       reasoningTokens: 18,
     });
+  });
+
+  it("treats a truncated SSE stream without finish_reason or [DONE] as a retryable network drop", async () => {
+    const { ctx, server } = await setup();
+    server.reply(
+      {
+        sse: 'data: {"choices":[{"delta":{"reasoning_content":"half thought"},"finish_reason":null}]}\n\n',
+      },
+      { sse: fixture("reasoning-text.sse") },
+    );
+    const result = await assemble(ctx.llm.stream(request));
+    expect(result.reason).toBe("stop");
+    expect(result.message.content).toEqual([
+      { type: "thinking", text: "The user wants a greeting." },
+      { type: "text", text: "Hello there!" },
+    ]);
+    expect(server.requests).toHaveLength(2);
   });
 });

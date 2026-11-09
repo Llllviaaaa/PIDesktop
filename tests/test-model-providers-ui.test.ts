@@ -123,4 +123,23 @@ test("model providers ui", async () => {
   assert.deepEqual(guessCapabilities("gpt-4o-2024-11-20"), { reasoning: false, image: true });
   assert.deepEqual(guessCapabilities("o3-mini"), { reasoning: true, image: false });
   assert.deepEqual(guessCapabilities("llama-3.1-8b-instruct"), { reasoning: false, image: false });
+
+  const emptyCatalog = buildModelCatalog([]);
+  const geminiPro = enrichModel({ id: "gemini-2.5-pro", name: "gemini-2.5-pro", reasoning: false, input: ["text"] }, emptyCatalog);
+  assert.deepEqual(
+    [geminiPro.model.contextWindow, geminiPro.model.reasoning, geminiPro.model.thinkingLevel, geminiPro.model.input],
+    [1_048_576, true, "high", ["text", "image"]],
+  );
+
+  const claude46 = enrichModel({ id: "claude-sonnet-4-6", name: "claude-sonnet-4-6", reasoning: false, input: ["text"] }, emptyCatalog);
+  assert.deepEqual(
+    [claude46.model.contextWindow, claude46.model.reasoning, claude46.model.thinkingLevel, claude46.model.input],
+    [200_000, true, "medium", ["text", "image"]],
+  );
+
+  const gpt5High = enrichModel({ id: "gpt-5.2-high", name: "gpt-5.2-high", reasoning: false, input: ["text"] }, emptyCatalog);
+  assert.deepEqual(
+    [gpt5High.model.contextWindow, gpt5High.model.reasoning, gpt5High.model.thinkingLevel, gpt5High.model.input],
+    [400_000, true, "high", ["text", "image"]],
+  );
 });

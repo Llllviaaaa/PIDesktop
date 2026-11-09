@@ -1,0 +1,1126 @@
+/*
+ * Cool-Gray Minimalist stylesheet for Intelligent UI (`@pid/intelligent-ui`).
+ *
+ * Uses PI-Desktop's semantic CSS custom properties (`--panel`, `--panel-soft`,
+ * `--border`, `--text`, `--text-2`, `--text-3`, `--accent`) with clean 1px hairlines,
+ * restrained Slate-Blue accents, and zero neon glow or heavy shadows.
+ */
+
+.dshc-turn-widgets {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+
+.pi-iui-card {
+  border: 1px solid var(--muse-divider, var(--border));
+  border-radius: 18px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--muse-elevation-pill);
+  overflow: hidden;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.pi-iui-card-inline {
+  max-width: 100%;
+}
+
+.pi-iui-card-canvas {
+  border-radius: 16px;
+}
+
+/* Header */
+.pi-iui-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--muse-divider, var(--border));
+  background: var(--muse-soft-fill, var(--panel-soft));
+  flex-wrap: wrap;
+}
+
+.pi-iui-header-main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.pi-iui-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.pi-iui-titles {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pi-iui-title-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.pi-iui-title {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.pi-iui-engine-tag {
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.pi-iui-live-pill {
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.pi-iui-subtitle {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Header Toolbar */
+.pi-iui-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.pi-iui-versions,
+.pi-iui-seg {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  gap: 1px;
+}
+
+.pi-iui-version-btn,
+.pi-iui-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.pi-iui-version-btn:hover,
+.pi-iui-seg-btn:hover {
+  color: var(--text);
+}
+
+.pi-iui-version-btn.is-active,
+.pi-iui-seg-btn.is-active {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.pi-iui-icon-btn,
+.pi-iui-canvas-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.pi-iui-icon-btn {
+  width: 26px;
+  padding: 0;
+}
+
+.pi-iui-icon-btn:hover,
+.pi-iui-canvas-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+  border-color: var(--border-strong, var(--border));
+}
+
+/* Card Body */
+.pi-iui-body {
+  padding: 14px 16px;
+}
+
+.pi-iui-declarative-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pi-iui-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pi-iui-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pi-iui-block-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.01em;
+}
+
+.pi-iui-block-subtitle {
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Controls */
+.pi-iui-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.pi-iui-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-soft) 45%, var(--panel));
+}
+
+.pi-iui-control-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pi-iui-control-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.pi-iui-control-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--code-font);
+}
+
+.pi-iui-control-unit {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.pi-iui-control-help {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.35;
+}
+
+.pi-iui-control input[type="range"] {
+  width: 100%;
+  margin: 2px 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.pi-iui-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong, var(--border));
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.pi-iui-input:focus {
+  border-color: var(--accent);
+}
+
+.pi-iui-control-toggle {
+  justify-content: center;
+}
+
+.pi-iui-control-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pi-iui-control-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pi-iui-switch {
+  position: relative;
+  width: 34px;
+  height: 19px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong, var(--border));
+  background: var(--panel-strong, var(--panel-soft));
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+  flex-shrink: 0;
+}
+
+.pi-iui-switch.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.pi-iui-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 140ms ease;
+}
+
+.pi-iui-switch.is-on .pi-iui-switch-thumb {
+  transform: translateX(15px);
+}
+
+/* KPI Stats */
+.pi-iui-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 9px;
+}
+
+.pi-iui-stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.pi-iui-stat-card[data-tone="accent"] {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel));
+}
+
+.pi-iui-stat-card[data-tone="good"] .pi-iui-stat-value {
+  color: var(--green);
+}
+
+.pi-iui-stat-card[data-tone="warn"] .pi-iui-stat-value {
+  color: var(--yellow);
+}
+
+.pi-iui-stat-label {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.pi-iui-stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.pi-iui-stat-caption {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* Charts */
+.pi-iui-chart-block {
+  padding: 11px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-soft) 35%, var(--panel));
+}
+
+.pi-iui-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.pi-iui-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pi-iui-bar-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.pi-iui-bar-label {
+  color: var(--text-2);
+}
+
+.pi-iui-bar-value {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--code-font);
+  font-size: 11.5px;
+}
+
+.pi-iui-bar-track {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--panel-strong, var(--border));
+  overflow: hidden;
+}
+
+.pi-iui-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+.pi-iui-bar-row[data-tone="good"] .pi-iui-bar-fill {
+  background: var(--green);
+}
+
+.pi-iui-bar-row[data-tone="warn"] .pi-iui-bar-fill {
+  background: var(--yellow);
+}
+
+.pi-iui-bar-row[data-tone="muted"] .pi-iui-bar-fill {
+  background: var(--text-3);
+}
+
+.pi-iui-line-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+}
+
+.pi-iui-svg-axis {
+  fill: var(--text-3);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pi-iui-donut-layout {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.pi-iui-donut-svg {
+  width: 132px;
+  height: 132px;
+  flex-shrink: 0;
+}
+
+.pi-iui-donut-total-label {
+  fill: var(--text-3);
+  font-size: 10.5px;
+}
+
+.pi-iui-donut-total-value {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.pi-iui-donut-legend {
+  flex: 1 1 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pi-iui-donut-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.pi-iui-donut-legend-row.is-active {
+  background: var(--hover);
+}
+
+.pi-iui-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.pi-iui-legend-name {
+  color: var(--text-2);
+  flex: 1;
+}
+
+.pi-iui-legend-val {
+  color: var(--text);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+}
+
+/* Table */
+.pi-iui-table-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-3);
+}
+
+.pi-iui-table-search input {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 11.5px;
+  outline: none;
+  width: 128px;
+}
+
+.pi-iui-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.pi-iui-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pi-iui-table th,
+.pi-iui-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pi-iui-table thead th {
+  background: var(--panel-soft);
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 11.5px;
+}
+
+.pi-iui-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.pi-iui-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--hover) 60%, transparent);
+}
+
+.pi-iui-th-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pi-iui-sort-arrow {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.pi-iui-table-empty {
+  text-align: center;
+  color: var(--text-3);
+  padding: 16px !important;
+}
+
+/* Tabs */
+.pi-iui-tabs-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.pi-iui-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--panel-soft);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.pi-iui-tab-btn {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pi-iui-tab-btn.is-active {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.pi-iui-tab-panel {
+  padding: 12px;
+}
+
+.pi-iui-tab-prose {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+
+/* Form & Checklist */
+.pi-iui-form-block,
+.pi-iui-checklist-block {
+  padding: 11px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-soft) 35%, var(--panel));
+}
+
+.pi-iui-form-desc {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.pi-iui-form-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.pi-iui-submit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text, #ffffff);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.pi-iui-submit-btn:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.pi-iui-submit-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pi-iui-checklist-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pi-iui-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.pi-iui-check-row:hover {
+  background: var(--hover);
+}
+
+.pi-iui-check-row input[type="checkbox"] {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.pi-iui-check-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pi-iui-check-label {
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.pi-iui-check-detail {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+/* Callout */
+.pi-iui-callout {
+  padding: 9px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-3);
+  background: var(--panel-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pi-iui-callout[data-tone="info"] {
+  border-left-color: var(--accent);
+}
+
+.pi-iui-callout[data-tone="good"] {
+  border-left-color: var(--green);
+}
+
+.pi-iui-callout[data-tone="warn"] {
+  border-left-color: var(--yellow);
+}
+
+.pi-iui-callout-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pi-iui-callout-body {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+/* Source & HTML Sandbox */
+.pi-iui-source-view {
+  max-height: 380px;
+  overflow: auto;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  padding: 10px 12px;
+}
+
+.pi-iui-source-view pre {
+  margin: 0;
+  font: 11.5px/1.55 var(--code-font);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pi-iui-html-frame-wrap {
+  margin: -14px -16px;
+}
+
+.pi-iui-html-frame {
+  width: 100%;
+  border: 0;
+  display: block;
+  background: transparent;
+}
+
+/* Card Footer */
+.pi-iui-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-soft) 40%, var(--panel));
+  flex-wrap: wrap;
+}
+
+.pi-iui-footer-hint {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.pi-iui-footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pi-iui-footer-link:hover {
+  text-decoration: underline;
+}
+
+/* Right Workbench Canvas Tab */
+.pi-iui-canvas-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.pi-iui-canvas-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.pi-iui-canvas-switcher {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.pi-iui-canvas-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  color: var(--text-2);
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pi-iui-canvas-pill.is-active {
+  background: var(--panel);
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.pi-iui-canvas-pill small {
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pi-iui-canvas-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-2);
+  font-size: 11.5px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.pi-iui-canvas-export-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.pi-iui-canvas-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.pi-iui-canvas-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px 18px;
+}
+
+.pi-iui-canvas-empty-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.pi-iui-canvas-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  color: var(--accent);
+}
+
+.pi-iui-canvas-empty-hero h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pi-iui-canvas-empty-hero p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+.pi-iui-canvas-empty-hero code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--panel-soft);
+  font-family: var(--code-font);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.pi-iui-canvas-starters {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.pi-iui-canvas-starters-heading {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.pi-iui-starter-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.pi-iui-starter-card:hover {
+  background: var(--hover);
+  border-color: var(--border-strong, var(--border));
+}
+
+.pi-iui-starter-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.pi-iui-starter-title-row svg {
+  color: var(--accent);
+}
+
+.pi-iui-starter-card span {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.4;
+}
+
+/* Composer Action Chip & Popover */
+.pi-iui-composer-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.pi-iui-composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pi-iui-composer-count {
+  font-style: normal;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.pi-iui-composer-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: 268px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong, var(--border));
+  background: var(--popover, var(--panel));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pi-iui-composer-menu-head {
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.pi-iui-composer-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pi-iui-composer-menu-item:hover {
+  background: var(--hover);
+}
+
+.pi-iui-composer-menu-item svg {
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+.pi-iui-composer-menu-label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.pi-iui-composer-menu-item small {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.pi-iui-composer-menu-sep {
+  height: 1px;
+  margin: 4px 4px;
+  background: var(--border);
+}

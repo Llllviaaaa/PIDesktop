@@ -1,0 +1,19 @@
+{
+  "name": "@pid/intelligent-ui",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Built-in Intelligent UI generative widget & interactive component plugin for Pi Desktop",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@pid/commands": "*",
+    "@pid/protocol": "*",
+    "@pid/rpc": "*",
+    "@pid/session": "*",
+    "@pid/system-prompt": "*",
+    "@pid/tools": "*"
+  }
+}

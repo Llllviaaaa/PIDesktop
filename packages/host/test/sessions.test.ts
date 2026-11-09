@@ -282,12 +282,27 @@ describe("headless run", () => {
     expect(code).toBe(0);
     expect(readFileSync(join(work, "out.txt"), "utf8")).toBe("done");
     expect(out.text).toBe("Wrote out.txt.\n");
-    const body = server.requests[1]?.body as { messages: Array<{ role: string }>; tools: Array<{ function: { name: string } }> };
+    const body = server.requests[1]?.body as { messages: Array<{ role: string }>; tools: Array<{ function: { name: string; description: string } }> };
     expect(body.messages.map((message) => message.role)).toEqual(["system", "user", "assistant", "tool"]);
     const toolNames = body.tools.map((tool) => tool.function.name);
-    expect(toolNames.filter((tool) => tool.startsWith("browser_"))).toHaveLength(11);
-    expect(toolNames.filter((tool) => !tool.startsWith("computer_") && !tool.startsWith("browser_"))).toEqual(["bash", "delegate_task", "desktop_memory", "edit", "find", "grep", "ls", "read", "update_plan", "write"]);
-    expect(toolNames.filter((tool) => tool.startsWith("computer_"))).toHaveLength(11);
+    expect(toolNames).toEqual([
+      "activate_tools",
+      "bash",
+      "delegate_task",
+      "desktop_memory",
+      "edit",
+      "find",
+      "grep",
+      "ls",
+      "read",
+      "render_ui",
+      "update_plan",
+      "update_ui",
+      "write",
+    ]);
+    const activateSchema = body.tools.find((tool) => tool.function.name === "activate_tools");
+    expect(activateSchema?.function.description).toContain("browser (11 tools:");
+    expect(activateSchema?.function.description).toContain("computer (11 tools:");
 
     const sessionId = /\[session ([0-9a-f-]+): done\]/.exec(err.text)?.[1];
     expect(sessionId).toBeDefined();

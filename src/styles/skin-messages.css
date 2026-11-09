@@ -1,45 +1,42 @@
 /*
- * Claude Code Desktop skin: the transcript, ported from what DSH Desktop draws
- * under `dsh-claude-style` — DeepSeek Harness' chat modules (`MessageItem`,
- * `TurnProcessNodeView`, `ChatGroupSeat`, `ReasoningRow`, `AssistantMarkdown`,
- * `MessageIconActions`, `ToolRow`, `DisclosureRow`, `TextShimmer`,
- * `MarkdownText`, `CodeBlock`; MIT) with the skin's own overrides on top
- * (palette, prose face, markdown rhythm, inline code, waiting line; MIT).
+ * Pi Desktop — Precision Instrument Transcript & Execution Spine
  *
- * Every size below is the host's at its default 14px content size.
+ * Styles conversation flow, user directive cards, agent reasoning & tool
+ * execution traces, markdown artifacts, turn calibration rail, and live
+ * plan/goal modules.
  */
 
-/* ── Tokens: the host aliases the transcript reads, per palette ─────── */
+/* ── Tokens: dynamic palette-aware transcript aliases ─────────────────── */
 
 .codex-shot {
   --dshc-label-primary: var(--text);
   --dshc-label-secondary: var(--text-2);
   --dshc-label-tertiary: var(--text-3);
-  --dshc-label-caption: #6b6a65;
+  --dshc-label-caption: color-mix(in srgb, var(--text-3) 84%, transparent);
   --dshc-border-l1: var(--border);
   --dshc-border-l2: var(--border-strong);
-  --dshc-border-l3: #3a3833;
+  --dshc-border-l3: color-mix(in srgb, var(--text) 22%, var(--border-strong));
   --dshc-bg-base: var(--app);
-  --dshc-hover: rgba(255, 255, 255, 0.08);
-  --dshc-hover-solid: #2e2c29;
-  --dshc-bubble: #2c2c2e;
-  --dshc-code-block: #1c1b1a;
-  --dshc-code-banner: #1c1b1a;
-  --dshc-inline-code-bg: rgba(255, 255, 255, 0.05);
-  --dshc-inline-code-fg: #e8a08a;
-  --dshc-link: #8ab4f8;
-  --dshc-link-underline: rgba(138, 180, 248, 0.6);
-  --dshc-file-link: #e08a6d;
-  --dshc-table-head: #242320;
-  --dshc-quote-bg: #faf9f50f;
-  --dshc-success: #22c55e;
-  --dshc-error: #f25a5a;
-  --dshc-warn: #f59e0b;
-  --dshc-warn-label: #dd8629;
-  --dshc-diff-added: #22c55e1f;
-  --dshc-diff-deleted: #f25a5a1f;
-  --dshc-shimmer: color-mix(in srgb, #fff 45%, transparent);
-  --dshc-deep-diving: color-mix(in srgb, #5686fe 55%, #adb2b8);
+  --dshc-hover: var(--hover);
+  --dshc-hover-solid: var(--panel-soft);
+  --dshc-bubble: var(--muse-user-bubble, #0074e8);
+  --dshc-code-block: #181819;
+  --dshc-code-banner: rgba(255, 255, 255, 0.04);
+  --dshc-inline-code-bg: color-mix(in srgb, var(--text) 7%, transparent);
+  --dshc-inline-code-fg: var(--text);
+  --dshc-link: var(--accent);
+  --dshc-link-underline: color-mix(in srgb, var(--accent) 40%, transparent);
+  --dshc-file-link: var(--accent);
+  --dshc-table-head: var(--panel-soft);
+  --dshc-quote-bg: color-mix(in srgb, var(--panel-soft) 68%, transparent);
+  --dshc-success: var(--green, #1ea66c);
+  --dshc-error: var(--red, #df5458);
+  --dshc-warn: var(--yellow, #d89620);
+  --dshc-warn-label: var(--yellow, #d89620);
+  --dshc-diff-added: color-mix(in srgb, var(--green, #1ea66c) 12%, transparent);
+  --dshc-diff-deleted: color-mix(in srgb, var(--red, #df5458) 12%, transparent);
+  --dshc-shimmer: color-mix(in srgb, var(--text) 52%, transparent);
+  --dshc-deep-diving: var(--accent);
   --dshc-font-ui: var(--font-ui);
   --dshc-font-prose: var(--font-prose);
   --dshc-font-code: var(--code-font);
@@ -55,25 +52,20 @@
 }
 
 :root[data-theme="light"] .codex-shot {
-  --dshc-label-caption: #a6a094;
-  --dshc-border-l3: #d0cdc1;
-  --dshc-hover: rgba(0, 0, 0, 0.08);
-  --dshc-hover-solid: #f0efe9;
-  --dshc-bubble: rgba(0, 0, 0, 0.08);
+  --dshc-bubble: var(--muse-user-bubble, #b8dbfe);
   --dshc-code-block: #ffffff;
-  --dshc-code-banner: #ffffff;
-  --dshc-inline-code-bg: rgba(0, 0, 0, 0.05);
-  --dshc-inline-code-fg: #943333;
-  --dshc-link: #184f95;
-  --dshc-link-underline: rgba(24, 79, 149, 0.6);
-  --dshc-file-link: #c6613f;
-  --dshc-table-head: #f0f0ef;
-  --dshc-quote-bg: #1414130a;
-  --dshc-error: #ec1313;
-  --dshc-diff-added: #22c55e14;
-  --dshc-diff-deleted: #ec131314;
-  --dshc-shimmer: color-mix(in srgb, #000 30%, transparent);
-  --dshc-deep-diving: color-mix(in srgb, #4176e6 70%, #172554);
+  --dshc-code-banner: rgba(17, 17, 18, 0.032);
+  --dshc-inline-code-bg: color-mix(in srgb, var(--text) 5.5%, transparent);
+  --dshc-inline-code-fg: var(--text);
+  --dshc-link: var(--accent);
+  --dshc-link-underline: color-mix(in srgb, var(--accent) 38%, transparent);
+  --dshc-file-link: var(--accent);
+  --dshc-table-head: var(--panel-soft);
+  --dshc-quote-bg: color-mix(in srgb, var(--panel-soft) 75%, transparent);
+  --dshc-diff-added: color-mix(in srgb, var(--green, #178a57) 10%, transparent);
+  --dshc-diff-deleted: color-mix(in srgb, var(--red, #cf3d40) 10%, transparent);
+  --dshc-shimmer: color-mix(in srgb, var(--text) 38%, transparent);
+  --dshc-deep-diving: var(--accent);
 }
 
 .codex-shot .dshc-visually-hidden {
@@ -89,7 +81,7 @@
 
 .codex-shot .conversation:not(.new-task-conversation) {
   position: relative;
-  padding-bottom: 16px;
+  padding-bottom: 24px;
 }
 
 .codex-shot .dshc-flow {
@@ -154,12 +146,12 @@
   top: -8px;
   height: 2px;
   border-radius: 1px;
-  background: var(--accent, #d97757);
+  background: var(--accent, #4c6a88);
   pointer-events: none;
   animation: dsh-claude-turn-nav-landed 1.4s ease-out forwards;
 }
 
-/* ── User row: right-aligned plain-text bubble (MessageItem.module.css) ── */
+/* ── User row: Soft De-Bordered Minimalist Bubble (MessageItem) ─────── */
 
 .codex-shot .dshc-user-row {
   display: flex;
@@ -174,21 +166,23 @@
   align-items: flex-end;
   gap: 8px;
   min-width: 0;
-  max-width: min(70.2%, 82%);
+  max-width: min(560px, 82%);
 }
 
 .codex-shot .side-chat-messages .dshc-user-stack {
-  max-width: 82%;
+  max-width: 86%;
 }
 
 .codex-shot .dshc-bubble {
   position: relative;
   box-sizing: border-box;
   max-width: 100%;
-  padding: 10px 16px;
-  border-radius: 20px;
-  background: var(--dshc-bubble);
-  color: var(--dshc-label-primary);
+  padding: 11px 16px;
+  border: 0;
+  border-radius: 22px 22px 6px 22px;
+  background: var(--muse-user-bubble, var(--dshc-bubble));
+  color: var(--muse-user-ink, var(--dshc-label-primary));
+  box-shadow: none;
   font-family: var(--dshc-font-ui);
   font-size: var(--dshc-fs);
   line-height: calc(22px + var(--dshc-fd));
@@ -225,7 +219,7 @@
   height: calc(24px + var(--dshc-fd));
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--dshc-label-secondary);
   display: inline-flex;
@@ -251,8 +245,8 @@
   max-width: 240px;
   max-height: 200px;
   object-fit: contain;
-  border: 0.5px solid var(--dshc-border-l2);
-  border-radius: 12px;
+  border: 1px solid var(--dshc-border-l2);
+  border-radius: 8px;
   background: var(--dshc-bg-base);
 }
 
@@ -263,13 +257,13 @@
 .codex-shot .dshc-user-row .message-edit-card {
   width: 100%;
   border: 1px solid var(--dshc-border-l2);
-  border-radius: 20px;
+  border-radius: 10px;
   background: var(--dsh-claude-input-major, var(--panel));
-  box-shadow: 0 4px 12px rgba(20, 20, 19, 0.06);
+  box-shadow: var(--pi-bevel-top), 0 4px 14px rgba(0, 0, 0, 0.08);
 }
 
 .codex-shot .dshc-user-row .message-edit-submit {
-  border-radius: 9999px;
+  border-radius: 7px;
   background: var(--accent);
   color: var(--accent-text);
   font-weight: 500;
@@ -280,21 +274,25 @@
 .codex-shot .dshc-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   height: calc(28px + var(--dshc-fd));
 }
 
 .codex-shot .dshc-time-start {
-  padding-right: 12px;
+  padding-right: 10px;
   color: var(--dshc-label-tertiary);
-  font-size: var(--dshc-fs-2);
+  font-family: var(--dshc-font-code);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
   line-height: calc(24px + var(--dshc-fd));
   white-space: nowrap;
 }
 
 .codex-shot .dshc-time-end {
   color: inherit;
-  font-size: 12px;
+  font-family: var(--dshc-font-code);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
   line-height: 24px;
   white-space: nowrap;
 }
@@ -312,11 +310,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: calc(28px + var(--dshc-fd));
-  height: calc(28px + var(--dshc-fd));
-  padding: 6px;
+  width: calc(26px + var(--dshc-fd));
+  height: calc(26px + var(--dshc-fd));
+  padding: 5px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--dshc-label-tertiary);
   cursor: pointer;
@@ -382,39 +380,41 @@
 .codex-shot .dshc-turn > * + .dshc-answer,
 .codex-shot .dshc-turn > * + .dshc-turn-error,
 .codex-shot .dshc-turn > * + .turn-plan {
-  margin-top: 16px;
+  margin-top: 10px;
 }
 
 .codex-shot .dshc-turn[data-turn-open] > * + .dshc-answer,
 .codex-shot .dshc-turn > * + .dshc-running {
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .codex-shot .dshc-turn > * + .dshc-turn-actions {
-  margin-top: 16px;
+  margin-top: 6px;
+  margin-left: 2px;
 }
 
-/* The settled turn's duration and process disclosure (TurnProcessNodeView.module.css). */
+/* The settled turn's duration and process disclosure — Muse micro-status pill */
 .codex-shot .dshc-turn-process {
   box-sizing: border-box;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
   min-width: 0;
-  height: calc(33px + var(--dshc-fd));
+  height: 28px;
   margin-bottom: 0;
-  padding: 0 0 8px;
-  border: none;
-  border-bottom: 0.5px solid var(--dshc-border-l2);
-  border-radius: 0;
-  background: transparent;
-  color: var(--dshc-label-tertiary);
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--muse-soft-fill, var(--panel-soft));
+  color: var(--dshc-label-secondary);
   font: inherit;
   font-family: var(--dshc-font-ui);
-  font-size: var(--dshc-fs);
+  font-size: 12px;
+  font-weight: 520;
   text-align: left;
   cursor: pointer;
-  transition: color 0.1s;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
 .codex-shot .dshc-turn-process:disabled {
@@ -422,7 +422,8 @@
 }
 
 .codex-shot .dshc-turn-process:hover:not(:disabled) {
-  color: var(--dshc-label-secondary);
+  color: var(--dshc-label-primary);
+  background: var(--muse-soft-fill-hover, var(--hover));
 }
 
 .codex-shot .dshc-turn-process-label {
@@ -605,21 +606,21 @@
   opacity: 1;
 }
 
-/* The skin sets every `*title*` in its serif display face at 500 (dsh-claude-style Typography). */
+/* Precision UI title face for agent steps & tool operations */
 .codex-shot .dshc-title {
   flex: none;
-  color: inherit;
-  font-family: var(--dshc-font-prose);
+  color: var(--dshc-label-secondary);
+  font-family: var(--dshc-font-ui);
   font-size: var(--dshc-fs-2);
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font-weight: 560;
+  letter-spacing: -0.005em;
   line-height: 1.25;
 }
 
 .codex-shot .dshc-sep {
   flex: none;
-  width: 2px;
-  height: 2px;
+  width: 3px;
+  height: 3px;
   margin: 0 8px;
   border-radius: 1px;
   background: var(--dshc-label-caption);
@@ -638,7 +639,7 @@
   content: "";
   position: absolute;
   inset: 20%;
-  border-radius: 50%;
+  border-radius: 1.5px;
   background: currentColor;
 }
 
@@ -684,7 +685,7 @@
   100% { stroke-dasharray: 12 150; stroke-dashoffset: 0; }
 }
 
-/* ── Process group: a folded header over a capped body (ChatGroupSeat.module.css) ── */
+/* ── Process group: folded telemetry header over vertical execution spine ── */
 
 .codex-shot .dshc-group {
   min-width: 0;
@@ -695,15 +696,15 @@
   align-items: center;
   gap: 6px;
   max-width: 100%;
-  padding: 0;
+  padding: 2px 0;
   border: 0;
   background: none;
   color: var(--dshc-label-tertiary);
   font: inherit;
-  font-family: var(--dshc-font-prose);
-  font-size: var(--dshc-fs);
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font-family: var(--dshc-font-ui);
+  font-size: 13px;
+  font-weight: 560;
+  letter-spacing: -0.005em;
   line-height: 1.25;
   text-align: left;
   cursor: pointer;
@@ -711,11 +712,12 @@
 }
 
 .codex-shot .dshc-group-title:hover {
-  color: var(--dshc-label-secondary);
+  color: var(--dshc-label-primary);
 }
 
 .codex-shot .dshc-group-title[aria-expanded="true"] {
   padding-bottom: 8px;
+  color: var(--dshc-label-secondary);
 }
 
 .codex-shot .dshc-group-leading {
@@ -767,7 +769,7 @@
 }
 
 .codex-shot .dshc-group-body {
-  max-height: min(400px, 50vh);
+  max-height: min(400px, calc(var(--ui-vh, 100vh) * 0.5));
   overflow-y: auto;
   overscroll-behavior-y: auto;
   scrollbar-gutter: stable;
@@ -797,6 +799,9 @@
 .codex-shot .dshc-group-content {
   display: flex;
   flex-direction: column;
+  margin-left: 7px;
+  padding-left: 13px;
+  border-left: 1px solid var(--dshc-border-l2);
 }
 
 .codex-shot .dshc-group-content > * {
@@ -858,7 +863,9 @@
 
 .codex-shot .dshc-think-body {
   min-width: 0;
-  padding: 4px 0 4px calc(22px + var(--dshc-fd));
+  margin: 4px 0 4px 7px;
+  padding: 4px 0 4px 14px;
+  border-left: 1.5px dashed var(--dshc-border-l2);
 }
 
 /* The live reasoning window grows with its text up to the process body's cap, then follows the newest line. */
@@ -945,13 +952,13 @@
   margin: 4px 0 4px 4px;
 }
 
-/* Terminal card (TerminalBlock.module.css with ToolRow's small-code rebinding). */
+/* Terminal card: precision console enclosure */
 .codex-shot .dshc-terminal {
   position: relative;
   overflow: hidden;
   padding-left: 30px;
-  border: 0.5px solid var(--dshc-border-l1);
-  border-radius: 16px;
+  border: 1px solid var(--dshc-border-l1);
+  border-radius: 10px;
   background: var(--dshc-code-block);
   color: var(--dshc-label-primary);
 }
@@ -962,12 +969,13 @@
   gap: 12px;
   max-height: 150px;
   margin-left: -30px;
-  padding: 9px 14px 9px 30px;
+  padding: 8px 14px 8px 30px;
   overflow-y: auto;
+  background: var(--dshc-code-banner);
 }
 
 .codex-shot .dshc-terminal[data-body] .dshc-terminal-header {
-  border-bottom: 0.5px solid var(--dshc-border-l2);
+  border-bottom: 1px solid var(--dshc-border-l1);
 }
 
 .codex-shot .dshc-terminal-prompt {
@@ -1040,7 +1048,9 @@
 /* Code card, diff and read bodies (CodeCard / DiffBlock / ReadBlock). */
 .codex-shot .dshc-code-card {
   position: relative;
-  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--dshc-border-l1);
+  border-radius: 10px;
   background: var(--dshc-code-block);
   color: var(--dshc-label-primary);
   font: 11px/19px var(--dshc-font-code);
@@ -1050,9 +1060,11 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 18px 8px 22px;
+  padding: 8px 14px 8px 16px;
+  border-bottom: 1px solid var(--dshc-border-l1);
+  background: var(--dshc-code-banner);
   color: var(--dshc-label-secondary);
-  font: 11px/18px var(--dshc-font-ui);
+  font: 11px/18px var(--dshc-font-code);
 }
 
 .codex-shot .dshc-code-card-title {
@@ -1131,10 +1143,12 @@
   color: var(--dshc-label-primary);
 }
 
-/* Search card (SearchBlock.module.css). */
+/* Search card (SearchBlock). */
 .codex-shot .dshc-search {
   position: relative;
-  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--dshc-border-l1);
+  border-radius: 10px;
   background: var(--dshc-code-block);
   color: var(--dshc-label-primary);
 }
@@ -1143,9 +1157,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 9px 14px;
-  border-top-left-radius: 16px;
-  border-top-right-radius: 16px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--dshc-border-l1);
   background: var(--dshc-code-banner);
 }
 
@@ -1202,8 +1215,8 @@
 .codex-shot .dshc-io-card {
   display: flex;
   flex-direction: column;
-  border: 0.5px solid var(--dshc-border-l1);
-  border-radius: 16px;
+  border: 1px solid var(--dshc-border-l1);
+  border-radius: 10px;
   background: var(--dshc-code-block);
   font: 11px/16px var(--dshc-font-code);
 }
@@ -1288,16 +1301,27 @@
   object-fit: contain;
 }
 
-/* ── The answer: AssistantMarkdown in the skin's prose face ───────── */
+/* ── The answer: Meta AI Muse grouped bubble (`hatch-chat-groupable-bubble`) ── */
 
 .codex-shot .dshc-answer {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+  width: fit-content;
+  max-width: min(100%, 740px);
   min-width: 0;
-  color: var(--dshc-label-primary);
+  padding: 13px 18px;
+  border: 0;
+  border-radius: 22px 22px 22px 6px;
+  background: var(--muse-agent-bubble, var(--panel-soft));
+  color: var(--muse-agent-ink, var(--dshc-label-primary));
   font-size: var(--dshc-fs);
   line-height: calc(24px + var(--dshc-fd));
+}
+
+.codex-shot .dshc-answer:has(.markdown-code, .markdown-table-scroll) {
+  width: 100%;
+  max-width: 100%;
 }
 
 .codex-shot .dshc-md .markdown-body {
@@ -1455,15 +1479,15 @@
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
-  padding: 1px;
+  padding: 1.5px 5px;
   border: 1px solid var(--dshc-border-l1);
   border-radius: 4px;
   background: var(--dshc-inline-code-bg);
   color: var(--dshc-inline-code-fg);
   font-family: var(--dshc-font-code);
-  font-size: calc(1em - 1px);
-  font-weight: 400;
-  line-height: 1.2;
+  font-size: calc(1em - 1.5px);
+  font-weight: 450;
+  line-height: 1.25;
 }
 
 /* A path written as inline code stays a plain code chip (as DSH draws it); it is still clickable. */
@@ -1502,13 +1526,13 @@
   background: var(--dshc-border-l2);
 }
 
-/* Fenced code (CodeBlock.module.css under the skin's 12px bordered card). */
+/* Fenced code (Muse crisp inner surface inside bubble). */
 .codex-shot .dshc-md .markdown-code {
   position: relative;
   margin: 12px 0;
   overflow: hidden;
-  border: 1px solid var(--dshc-border-l1);
-  border-radius: 12px;
+  border: 1px solid var(--muse-divider, var(--dshc-border-l1));
+  border-radius: 14px;
   background: var(--dshc-code-block);
   color: var(--dshc-label-primary);
   box-shadow: none;
@@ -1519,9 +1543,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 0;
-  padding: 6px 10px 0 14px;
-  border-bottom: 0;
+  min-height: 30px;
+  padding: 5px 10px 5px 14px;
+  border-bottom: 1px solid var(--muse-divider, var(--dshc-border-l1));
   background: var(--dshc-code-banner);
   color: var(--dshc-label-secondary);
   font: 11px/18px var(--dshc-font-code);
@@ -1545,7 +1569,7 @@
 
 .codex-shot .dshc-md .markdown-code pre {
   margin: 0;
-  padding: 6px 14px 12px;
+  padding: 10px 14px 12px;
   border: 0;
   border-radius: 0;
   background: var(--dshc-code-block);
@@ -2002,7 +2026,7 @@
 
 .codex-shot .dsh-claude-turn-rail-mark[data-current]::before,
 .codex-shot .dsh-claude-turn-nav-row[data-current] .dsh-claude-turn-nav-dash {
-  background: var(--text);
+  background: var(--accent);
   transform: scaleX(1);
 }
 
@@ -2012,20 +2036,20 @@
   top: 50%;
   transform: translateY(-50%);
   width: 280px;
-  max-width: calc(100vw - 32px);
+  max-width: calc(var(--ui-vw, 100vw) - 32px);
   max-height: 280px;
   padding: 6px;
   border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--dsh-claude-raised, var(--popover));
-  box-shadow: 0 8px 30px rgba(20, 20, 19, 0.14), 0 2px 8px rgba(20, 20, 19, 0.06);
+  box-shadow: var(--pi-shadow-popover, 0 8px 30px rgba(0, 0, 0, 0.2));
   overflow: hidden;
   animation: dsh-claude-popover-in 0.15s ease both;
 }
 
 :root[data-theme="dark"] .codex-shot .dsh-claude-turn-nav {
   border-color: var(--dsh-claude-border-l2, var(--border-strong));
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--pi-shadow-popover, 0 12px 34px rgba(0, 0, 0, 0.52));
 }
 
 @keyframes dsh-claude-popover-in {
@@ -2089,15 +2113,69 @@
   white-space: nowrap;
 }
 
-/* ── Conversation cards (plan, changes, diff chip) ─────────────────── */
+/* ── Pinned Agent Modules (live plan, active goal, changes, diff chip) ── */
 
 .codex-shot .live-plan,
 .codex-shot .conversation-change-card {
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 12px;
-  background: var(--dsh-claude-card, var(--panel));
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--panel);
   color: var(--text);
-  box-shadow: 0 4px 18px rgba(20, 20, 19, 0.06), 0 1px 3px rgba(20, 20, 19, 0.03);
+  box-shadow: var(--pi-bevel-top), 0 6px 18px -10px rgba(0, 0, 0, 0.18);
+}
+
+.codex-shot .live-plan-toggle strong {
+  color: var(--accent);
+  font-family: var(--code-font);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.codex-shot .active-goal-card {
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border-strong));
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 7%, var(--panel)) 0%,
+    var(--panel) 45%
+  );
+  box-shadow: var(--pi-bevel-top), 0 6px 18px -10px rgba(0, 0, 0, 0.2);
+}
+
+.codex-shot .active-goal-status {
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel-soft));
+  color: var(--accent);
+}
+
+.codex-shot .active-goal-card.status-blocked .active-goal-status {
+  border-color: color-mix(in srgb, var(--red) 34%, transparent);
+  background: color-mix(in srgb, var(--red) 14%, var(--panel-soft));
+  color: var(--red);
+}
+
+.codex-shot .active-goal-copy strong {
+  color: var(--accent);
+  font-family: var(--code-font);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.codex-shot .active-goal-card.status-blocked .active-goal-copy strong {
+  color: var(--red);
+}
+
+.codex-shot .active-goal-meta {
+  color: var(--text-3);
+  font-family: var(--code-font);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .codex-shot .conversation-change-open {
@@ -2110,14 +2188,14 @@
 }
 
 .codex-shot .conversation-change-icon {
-  border-radius: 8px;
+  border-radius: 7px;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
 }
 
 .codex-shot .conversation-change-card button {
   border-color: var(--dsh-claude-border-l1, var(--border));
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text);
 }
@@ -2126,8 +2204,6 @@
   background: var(--dsh-claude-hover-bg, var(--hover));
 }
 
-/* 撤销 / 审核 are buttons and need an edge; the card-wide border-l1 above all but
-   vanishes on the dark card (#242320), so they take the stronger border. */
 .codex-shot .conversation-change-heading > button:not(.conversation-change-open) {
   border: 1px solid var(--dsh-claude-border-l2, var(--border-strong));
 }
@@ -2155,7 +2231,7 @@
   gap: 10px;
   padding: 2px 6px 2px 2px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
 }
 
 .codex-shot .dshc-turn-footer .conversation-change-icon {
@@ -2164,11 +2240,12 @@
 }
 
 .codex-shot .dshc-turn-footer .conversation-change-heading strong {
-  font-size: 13.5px;
+  font-size: 13px;
 }
 
 .codex-shot .conversation-change-stat {
-  font-size: 12.5px;
+  font-family: var(--code-font);
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2220,6 +2297,8 @@
   flex: none;
   max-width: 50%;
   overflow: hidden;
+  font-family: var(--code-font);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2229,7 +2308,8 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-3);
-  font-size: 12px;
+  font-family: var(--code-font);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2240,11 +2320,12 @@
 
 .codex-shot .conversation-change-card .conversation-change-files .conversation-change-more {
   color: var(--text-3);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .codex-shot .title-diff-chip {
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 999px;
-  background: var(--dsh-claude-card, var(--panel));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  font-family: var(--code-font);
 }

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronUp } from "lucide-react";
 import { useAppStore } from "../store";
+import { useIntelligentUiStore } from "../stores/intelligentUiStore";
 import type { UiMessage } from "../types";
 import { deriveTurnPlans } from "../lib/envSources";
+import { deriveSessionIntelligentUis } from "../lib/intelligentUi";
 import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
 import { groupTranscriptMessages } from "../lib/transcriptTurns";
 import { Message } from "./Message";
@@ -50,8 +52,13 @@ export function ConversationMessages({
   conversationKey: string;
 }) {
   const messages = useAppStore((state) => state.messages);
+  const intelligentUiEnabled = useIntelligentUiStore((state) => state.pluginEnabled);
   const transcriptDensity = normalizeTranscriptDensity(density);
   const displayMessages = useMemo(() => groupTranscriptMessages(messages), [messages]);
+  const intelligentUis = useMemo(
+    () => (intelligentUiEnabled ? deriveSessionIntelligentUis(displayMessages) : null),
+    [displayMessages, intelligentUiEnabled],
+  );
   const { turnPlans, latestPlanMessageId } = useMemo(() => {
     const allPlans = deriveTurnPlans(displayMessages);
     return {
@@ -213,6 +220,8 @@ export function ConversationMessages({
           density={transcriptDensity}
           editing={editingMessageId === message.id}
           plan={turnPlans.get(message.id)}
+          uiWidgets={intelligentUis?.turnWidgetsByMessageId.get(message.id)}
+          uiGroups={intelligentUis?.groupsById}
           footer={message.id === lastAssistantId ? lastTurnFooter : undefined}
           onOpenPlan={message.id === latestPlanMessageId ? onOpenPlan : undefined}
           onEdit={message.role === "user" ? onEdit : undefined}

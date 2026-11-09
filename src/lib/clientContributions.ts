@@ -2,14 +2,15 @@
  * Unified Client Contribution Registry (`ctx.contributions` / `@pid/client`).
  *
  * Replaces DSH's multi-tree slot bridge with a single reactive contribution
- * registry shared by PI-Desktop's own React tree and dynamic UI/theme/pet plugins.
+ * registry shared by PI-Desktop's own React tree and dynamic UI/theme plugins.
  * All contribution types (`pages`, `leftSidebar`, `rightWorkbenchTabs`,
- * `bottomPanelTabs`, `topbarActions`, `composerToolbar`, `themes`, `pets`) are
+ * `bottomPanelTabs`, `topbarActions`, `composerToolbar`, `themes`) are
  * equal, flat registrations returning a clean disposer `() => void` for HMR.
  */
 import { useSyncExternalStore, type ReactNode } from "react";
 import { Context, Service } from "@deepseek-ai/cordis";
-import type { AppearancePetDefinition, AppearanceThemeDefinition } from "./appearanceCatalog";
+import type { UiMessage } from "../types";
+import type { AppearanceThemeDefinition } from "./appearanceCatalog";
 
 declare module "@deepseek-ai/cordis" {
   interface Context {
@@ -50,6 +51,19 @@ export interface ClientActionContribution {
   render: (context: WorkbenchSlotContext) => ReactNode;
 }
 
+export interface ClientRewindHandlerContribution {
+  id: string;
+  order?: number;
+  onRewindMessage: (message: UiMessage) => Promise<boolean> | boolean;
+  onOpenTimeline?: () => void;
+}
+
+export interface ClientSlashInterceptorContribution {
+  id: string;
+  order?: number;
+  onSlashCommand: (name: string, rawArgs: string, context: WorkbenchSlotContext) => Promise<boolean> | boolean;
+}
+
 export interface ClientContributionsSnapshot {
   readonly pages: readonly ClientPageContribution[];
   readonly leftSidebar: readonly ClientSidebarSectionContribution[];
@@ -57,8 +71,11 @@ export interface ClientContributionsSnapshot {
   readonly bottomPanelTabs: readonly ClientWorkbenchTabContribution[];
   readonly topbarActions: readonly ClientActionContribution[];
   readonly composerToolbar: readonly ClientActionContribution[];
+  readonly composerBanners: readonly ClientActionContribution[];
+  readonly overlays: readonly ClientActionContribution[];
+  readonly rewindHandlers: readonly ClientRewindHandlerContribution[];
+  readonly slashInterceptors: readonly ClientSlashInterceptorContribution[];
   readonly themes: readonly AppearanceThemeDefinition[];
-  readonly pets: readonly AppearancePetDefinition[];
 }
 
 function sortByOrder<T extends { id: string; order?: number }>(items: Iterable<T>): T[] {
@@ -72,8 +89,11 @@ export class ClientContributionRegistry {
   private readonly bottomPanelTabs = new Map<string, ClientWorkbenchTabContribution>();
   private readonly topbarActions = new Map<string, ClientActionContribution>();
   private readonly composerToolbar = new Map<string, ClientActionContribution>();
+  private readonly composerBanners = new Map<string, ClientActionContribution>();
+  private readonly overlays = new Map<string, ClientActionContribution>();
+  private readonly rewindHandlers = new Map<string, ClientRewindHandlerContribution>();
+  private readonly slashInterceptors = new Map<string, ClientSlashInterceptorContribution>();
   private readonly themes = new Map<string, AppearanceThemeDefinition>();
-  private readonly pets = new Map<string, AppearancePetDefinition>();
   private readonly listeners = new Set<() => void>();
   private snapshot: ClientContributionsSnapshot = this.buildSnapshot();
 
@@ -85,8 +105,11 @@ export class ClientContributionRegistry {
       bottomPanelTabs: sortByOrder(this.bottomPanelTabs.values()),
       topbarActions: sortByOrder(this.topbarActions.values()),
       composerToolbar: sortByOrder(this.composerToolbar.values()),
+      composerBanners: sortByOrder(this.composerBanners.values()),
+      overlays: sortByOrder(this.overlays.values()),
+      rewindHandlers: sortByOrder(this.rewindHandlers.values()),
+      slashInterceptors: sortByOrder(this.slashInterceptors.values()),
       themes: [...this.themes.values()],
-      pets: [...this.pets.values()],
     };
   }
 
@@ -130,12 +153,53 @@ export class ClientContributionRegistry {
     return this.insert(this.composerToolbar, item);
   }
 
-  registerTheme(theme: AppearanceThemeDefinition): () => void {
-    return this.insert(this.themes, { ...theme, scope: theme.scope ?? "user" });
+  registerComposerBanner(item: ClientActionContribution): () => void {
+    return this.insert(this.composerBanners, item);
   }
 
-  registerPet(pet: AppearancePetDefinition): () => void {
-    return this.insert(this.pets, { ...pet, scope: pet.scope ?? "user" });
+  registerOverlay(item: ClientActionContribution): () => void {
+    return this.insert(this.overlays, item);
+  }
+
+  registerRewindHandler(handler: ClientRewindHandlerContribution): () => void {
+    return this.insert(this.rewindHandlers, handler);
+  }
+
+  registerSlashInterceptor(interceptor: ClientSlashInterceptorContribution): () => void {
+    return this.insert(this.slashInterceptors, interceptor);
+  }
+
+  hasRewindHandler(): boolean {
+    return this.snapshot.rewindHandlers.length > 0;
+  }
+
+  async tryHandleRewind(message: UiMessage): Promise<boolean> {
+    const primary = this.snapshot.rewindHandlers[0];
+    if (!primary) return false;
+    return await primary.onRewindMessage(message);
+  }
+
+  openRewindTimeline(): boolean {
+    for (const handler of this.snapshot.rewindHandlers) {
+      if (typeof handler.onOpenTimeline === "function") {
+        handler.onOpenTimeline();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async tryHandleSlashCommand(name: string, rawArgs: string, context: WorkbenchSlotContext): Promise<boolean> {
+    for (const item of this.snapshot.slashInterceptors) {
+      if (await item.onSlashCommand(name, rawArgs, context)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  registerTheme(theme: AppearanceThemeDefinition): () => void {
+    return this.insert(this.themes, { ...theme, scope: theme.scope ?? "user" });
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -154,8 +218,11 @@ export class ClientContributionRegistry {
     this.bottomPanelTabs.clear();
     this.topbarActions.clear();
     this.composerToolbar.clear();
+    this.composerBanners.clear();
+    this.overlays.clear();
+    this.rewindHandlers.clear();
+    this.slashInterceptors.clear();
     this.themes.clear();
-    this.pets.clear();
     this.emit();
   }
 }
@@ -198,12 +265,24 @@ export class ClientContributionService extends Service {
     return this.track(this.registry.registerComposerToolbar(item));
   }
 
-  registerTheme(theme: AppearanceThemeDefinition): () => void {
-    return this.track(this.registry.registerTheme(theme));
+  registerComposerBanner(item: ClientActionContribution): () => void {
+    return this.track(this.registry.registerComposerBanner(item));
   }
 
-  registerPet(pet: AppearancePetDefinition): () => void {
-    return this.track(this.registry.registerPet(pet));
+  registerOverlay(item: ClientActionContribution): () => void {
+    return this.track(this.registry.registerOverlay(item));
+  }
+
+  registerRewindHandler(handler: ClientRewindHandlerContribution): () => void {
+    return this.track(this.registry.registerRewindHandler(handler));
+  }
+
+  registerSlashInterceptor(interceptor: ClientSlashInterceptorContribution): () => void {
+    return this.track(this.registry.registerSlashInterceptor(interceptor));
+  }
+
+  registerTheme(theme: AppearanceThemeDefinition): () => void {
+    return this.track(this.registry.registerTheme(theme));
   }
 }
 

@@ -1,22 +1,24 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queries";
 import { describeError } from "../lib/errors";
 import {
-  Brain,
   Check,
   ChevronDown,
   CircleAlert,
   CircleCheck,
   CloudDownload,
-  Image,
+  Eye,
+  EyeOff,
   KeyRound,
   LoaderCircle,
   Pencil,
   Plus,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
@@ -29,28 +31,52 @@ import {
   defaultBaseUrlPlaceholder,
   endpointPreview,
   enrichModel,
-  formatCost,
   formatTokenCount,
   groupProviders,
   isCustomProvider,
   modelKey,
   PROVIDER_APIS,
-  providerHue,
-  providerMonogram,
   requiresBaseUrl,
   slugifyProviderId,
   type CapabilitySource,
   type EnrichedModel,
   type ModelCatalog,
 } from "../lib/modelProviders";
+import {
+  BUILTIN_PROVIDER_PRESETS,
+  ProviderBrandIcon,
+  type BuiltinProviderPreset,
+} from "./ProviderBrandIcon";
 import { useAppStore } from "../store";
-import type { AppSettings, ModelProviderConfig, ModelProviderInput, ModelProviderModel } from "../types";
+import type {
+  AppSettings,
+  ModelProviderConfig,
+  ModelProviderInput,
+  ModelProviderModel,
+  ModelThinkingLevel,
+} from "../types";
 
 type Update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 
-const THINKING_LEVELS: Array<[string, string]> = [
-  ["off", "关闭"], ["minimal", "最少"], ["low", "低"], ["medium", "中"], ["high", "高"], ["xhigh", "极高"], ["max", "最高"],
+const PRIMARY_THINKING_LEVELS: ReadonlyArray<readonly [string, string]> = [
+  ["off", "关"],
+  ["low", "低"],
+  ["medium", "中"],
+  ["high", "高"],
+  ["max", "最高"],
 ];
+
+const ALL_THINKING_LABELS: Record<string, string> = {
+  off: "关",
+  minimal: "极低",
+  low: "低",
+  medium: "中",
+  high: "高",
+  xhigh: "极高",
+  max: "最高",
+};
+
+const PILL_SPRING = { type: "spring" as const, stiffness: 520, damping: 38, mass: 0.7 };
 
 interface CheckState {
   providerId: string;
@@ -60,31 +86,92 @@ interface CheckState {
 
 type Notice = { kind: "success" | "error"; text: string } | null;
 
+type AccordionEntry =
+  | { kind: "provider"; id: string; provider: ProviderSummary; presetMeta?: BuiltinProviderPreset }
+  | { kind: "preset"; id: string; preset: BuiltinProviderPreset };
+
 function errorText(error: unknown): string {
   return describeError(error);
+}
+
+const MODEL_THINKING_OPTIONS: ReadonlyArray<readonly [ModelThinkingLevel, string]> = [
+  ["off", "不支持思考"],
+  ["low", "思考 · 低"],
+  ["medium", "思考 · 中"],
+  ["high", "思考 · 高"],
+  ["max", "思考 · 最高"],
+];
+
+const CONTEXT_WINDOW_PRESETS: ReadonlyArray<readonly [number, string]> = [
+  [32_768, "32K"],
+  [65_536, "64K"],
+  [128_000, "128K"],
+  [131_072, "128K (131K)"],
+  [200_000, "200K"],
+  [256_000, "256K"],
+  [400_000, "400K"],
+  [1_000_000, "1M"],
+  [1_048_576, "1M (1048K)"],
+];
+
+function effectiveModelThinking(reasoning: boolean, level?: ModelThinkingLevel | null): ModelThinkingLevel {
+  if (!reasoning) return "off";
+  if (level && level !== "off") return level;
+  return "medium";
+}
+
+function modelTraitBadges(
+  reasoning: boolean,
+  thinkingLevel: ModelThinkingLevel | null | undefined,
+  input: readonly string[],
+  contextWindow: number | null | undefined,
+): Array<{ key: string; label: string; tone: "ctx" | "think" | "vision" }> {
+  const badges: Array<{ key: string; label: string; tone: "ctx" | "think" | "vision" }> = [];
+  const ctx = formatTokenCount(contextWindow ?? null);
+  if (ctx) badges.push({ key: "ctx", label: `上下文 ${ctx}`, tone: "ctx" });
+  if (reasoning) {
+    const lvl = effectiveModelThinking(reasoning, thinkingLevel);
+    const shortLabel = ALL_THINKING_LABELS[lvl] ?? "中";
+    badges.push({ key: "think", label: `思考·${shortLabel}`, tone: "think" });
+  }
+  if (input.includes("image")) {
+    badges.push({ key: "vision", label: "支持图片", tone: "vision" });
+  }
+  return badges;
 }
 
 const NO_PROVIDERS: ProviderSummary[] = [];
 const NO_CONFIGS: ModelProviderConfig[] = [];
 
+async function checkProviderWithElapsed(providerId: string): Promise<{ ok: boolean; message: string }> {
+  const started = performance.now();
+  const result = await harnessProviders.check(providerId);
+  const elapsedSec = ((performance.now() - started) / 1000).toFixed(1);
+  return {
+    ok: result.ok,
+    message: result.ok ? `${result.message} · ${elapsedSec}s` : result.message,
+  };
+}
+
 export function ModelsPage({ form, update }: { form: AppSettings; update: Update }) {
-  const isTauri = "__TAURI_INTERNALS__" in window;
+  const hasHost = "__TAURI_INTERNALS__" in window || Boolean(new URLSearchParams(window.location.search).get("host"));
   const reloadProviderCatalog = useAppStore((state) => state.reloadProviderCatalog);
   const queryClient = useQueryClient();
+
   const providersQuery = useQuery({
     queryKey: queryKeys.modelProviders(),
     queryFn: () => harnessProviders.list(),
-    enabled: isTauri,
+    enabled: hasHost,
   });
-  // models.json only marks which providers are custom; it never holds up the list.
   const configsQuery = useQuery({
     queryKey: queryKeys.modelConfigs(),
     queryFn: () => agent.listModelProviders(),
-    enabled: isTauri,
+    enabled: hasHost,
   });
+
   const providers = providersQuery.data ?? NO_PROVIDERS;
   const configs = configsQuery.data ?? NO_CONFIGS;
-  // The Host reads providers.json on every change, so refreshing is reading it again.
+
   const refreshMutation = useMutation({
     mutationFn: async () => {
       await Promise.all([
@@ -99,20 +186,80 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
     void providersQuery.refetch();
     void configsQuery.refetch();
   };
+
   const loading = providersQuery.isFetching || refreshMutation.isPending;
   const failure = refreshMutation.error ?? providersQuery.error;
   const loadError = failure ? errorText(failure) : "";
+
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  /** The provider whose key is being saved. */
+  const [expandedId, setExpandedId] = useState<string | null | undefined>(undefined);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [check, setCheck] = useState<CheckState | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const [editor, setEditor] = useState<ModelProviderInput | null>(null);
+
+  const presetMap = useMemo(
+    () => new Map(BUILTIN_PROVIDER_PRESETS.map((p) => [p.id, p])),
+    [],
+  );
   const modelsJsonIds = useMemo(() => new Set(configs.map((config) => config.id)), [configs]);
-  const catalog = useMemo(() => buildModelCatalog(providers), [providers]);
+  const existingProviderIds = useMemo(() => new Set(providers.map((p) => p.id)), [providers]);
+  const catalog = useMemo(() => {
+    const presetFallbacks: ProviderSummary[] = BUILTIN_PROVIDER_PRESETS.map((preset) => ({
+      id: preset.id,
+      name: preset.name,
+      configured: false,
+      keySource: "none",
+      baseUrl: preset.baseUrl,
+      models: preset.models.map((m) => ({
+        id: m.id,
+        name: m.name,
+        reasoning: m.reasoning,
+        ...(m.thinkingLevel ? { thinkingLevel: m.thinkingLevel } : {}),
+        input: [...m.input],
+        contextWindow: m.contextWindow ?? null,
+        maxTokens: m.maxTokens ?? null,
+        cost: m.cost ? { input: m.cost.input, output: m.cost.output } : null,
+      })),
+    }));
+    return buildModelCatalog([...presetFallbacks, ...providers]);
+  }, [providers]);
   const groups = useMemo(() => groupProviders(providers, query), [providers, query]);
-  const selected = providers.find((provider) => provider.id === selectedId) ?? groups[0]?.providers[0] ?? null;
+
+  const availablePresets = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return BUILTIN_PROVIDER_PRESETS.filter((preset) => {
+      if (existingProviderIds.has(preset.id)) return false;
+      if (!needle) return true;
+      return (
+        preset.name.toLowerCase().includes(needle) ||
+        preset.id.toLowerCase().includes(needle) ||
+        preset.subtitle.toLowerCase().includes(needle) ||
+        preset.models.some((m) => m.id.toLowerCase().includes(needle) || m.name.toLowerCase().includes(needle))
+      );
+    });
+  }, [existingProviderIds, query]);
+
+  const entries = useMemo<AccordionEntry[]>(() => {
+    const list: AccordionEntry[] = [];
+    for (const group of groups) {
+      for (const provider of group.providers) {
+        list.push({
+          kind: "provider",
+          id: provider.id,
+          provider,
+          presetMeta: presetMap.get(provider.id),
+        });
+      }
+    }
+    for (const preset of availablePresets) {
+      list.push({ kind: "preset", id: preset.id, preset });
+    }
+    return list;
+  }, [availablePresets, groups, presetMap]);
+
+  const activeExpandedId = expandedId === undefined ? (entries[0]?.id ?? null) : expandedId;
+  const connectedCount = useMemo(() => providers.filter((p) => p.configured).length, [providers]);
   const hidden = useMemo(() => new Set(form.hiddenModels ?? []), [form.hiddenModels]);
 
   const applyProviders = (next: ProviderSummary[], text: string) => {
@@ -136,26 +283,66 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
     }
   };
 
-  const disconnect = async (provider: ProviderSummary) => {
-    if (!window.confirm(`删除已保存的 API 密钥并断开 ${provider.name}？`)) return;
+  const activatePreset = async (
+    preset: BuiltinProviderPreset,
+    apiKey: string,
+    baseUrl: string,
+    selectedIds?: ReadonlySet<string>,
+  ) => {
+    if (connecting !== null) return;
+    setConnecting(preset.id);
+    setNotice(null);
     try {
-      await harnessProviders.setKey(provider.id, "");
-      applyProviders(await harnessProviders.list(), `已断开 ${provider.name}`);
-      setCheck(null);
+      const chosen = preset.models.filter((m) => !selectedIds || selectedIds.has(m.id));
+      const modelsToSave = (chosen.length > 0 ? chosen : preset.models).map((m) => ({ ...m, input: [...m.input] }));
+      const draft: ModelProviderInput = {
+        originalId: null,
+        id: preset.id,
+        name: preset.name,
+        baseUrl: baseUrl.trim() || preset.baseUrl,
+        api: preset.api,
+        apiKey: apiKey.trim(),
+        keepExistingApiKey: false,
+        authHeader: false,
+        models: modelsToSave,
+      };
+      await agent.saveModelProvider(draft);
+      if (apiKey.trim() && !apiKey.trim().startsWith("$")) {
+        await harnessProviders.setKey(preset.id, apiKey.trim());
+      }
+      await refresh();
+      setExpandedId(preset.id);
+      setNotice({ kind: "success", text: `已启用 ${preset.name}` });
+      void reloadProviderCatalog();
     } catch (error) {
-      setNotice({ kind: "error", text: `断开失败：${errorText(error)}` });
+      setNotice({ kind: "error", text: `启用 ${preset.name} 失败：${errorText(error)}` });
+    } finally {
+      setConnecting(null);
     }
   };
 
-  /** Asks the provider for its models: a cheap call that proves the key and the address. */
+  const disconnect = async (provider: ProviderSummary) => {
+    if (connecting !== null) return;
+    setConnecting(provider.id);
+    setNotice(null);
+    setCheck(null);
+    try {
+      await harnessProviders.setKey(provider.id, "");
+      applyProviders(await harnessProviders.list(), `已断开 ${provider.name}`);
+    } catch (error) {
+      setNotice({ kind: "error", text: `断开失败：${errorText(error)}` });
+    } finally {
+      setConnecting(null);
+    }
+  };
+
   const runCheck = async (provider: ProviderSummary) => {
     setCheck({ providerId: provider.id, status: "checking", message: "" });
-    const started = Date.now();
-    const result = await harnessProviders.check(provider.id);
+    const result = await checkProviderWithElapsed(provider.id);
     setCheck({
       providerId: provider.id,
       status: result.ok ? "ok" : "error",
-      message: result.ok ? `${result.message}，用时 ${((Date.now() - started) / 1000).toFixed(1)} 秒` : result.message,
+      message: result.message,
     });
   };
 
@@ -170,191 +357,389 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
 
   const afterConfigChange = async (text: string, nextSelected?: string) => {
     await refresh();
-    if (nextSelected) setSelectedId(nextSelected);
+    if (nextSelected) setExpandedId(nextSelected);
     setNotice({ kind: "success", text });
     void reloadProviderCatalog();
   };
 
   const deleteCustom = async (provider: ProviderSummary) => {
-    if (!window.confirm(`从 models.json 删除自定义提供商“${provider.name}”及其模型？`)) return;
+    if (!window.confirm(`从 providers.json 删除提供商“${provider.name}”及其模型？`)) return;
     try {
       await agent.deleteModelProvider(provider.id);
-      setSelectedId(null);
-      await afterConfigChange(`已删除 ${provider.name}`);
+      setExpandedId(null);
+      await afterConfigChange(`已移除 ${provider.name}`);
     } catch (error) {
       setNotice({ kind: "error", text: `删除失败：${errorText(error)}` });
     }
   };
 
-  const config = selected ? configs.find((item) => item.id === selected.id) : undefined;
-
   return (
-    <div className="models-page">
-      <div className="settings-page-heading models-heading">
-        <div>
-          <h1>模型与连接</h1>
-          <p>连接模型提供商，选择新任务默认使用的模型，并决定哪些模型出现在输入框的模型选择器中。</p>
-        </div>
-        <button className="secondary-button compact" disabled={loading || !isTauri} onClick={() => void refresh()} title="重新读取凭据和 models.json">
-          <RefreshCw size={13} className={loading ? "spinner-icon" : ""} />刷新
-        </button>
-      </div>
+    <div className="models-single-stream">
+      <DefaultPreferencesCard
+        providers={providers}
+        hidden={hidden}
+        form={form}
+        update={update}
+      />
 
-      <DefaultModelCard providers={providers} hidden={hidden} form={form} update={update} />
-
-      {notice && (
-        <div className={`models-notice ${notice.kind}`} role="status">
-          {notice.kind === "success" ? <CircleCheck size={14} /> : <CircleAlert size={14} />}
-          <span>{notice.text}</span>
-          <button className="icon-button" onClick={() => setNotice(null)} title="关闭"><X size={13} /></button>
-        </div>
-      )}
-
-      <div className="models-workspace">
-        <aside className="models-list" aria-label="模型提供商">
-          <label className="models-search">
-            <Search size={13} />
-            <input placeholder="搜索提供商或模型" value={query} onChange={(event) => setQuery(event.target.value)} />
-            {query && <button type="button" onClick={() => setQuery("")} title="清除"><X size={12} /></button>}
-          </label>
-          <div className="models-list-scroll">
-            {loading && providers.length === 0 && <div className="models-list-empty"><LoaderCircle size={14} className="spinner-icon" />正在读取提供商…</div>}
-            {groups.map((group) => (
-              <section key={group.id}>
-                <h3>{group.label}<span>{group.providers.length}</span></h3>
-                {group.providers.map((provider) => (
-                  <button
-                    key={provider.id}
-                    className={`models-list-item ${selected?.id === provider.id ? "active" : ""}`}
-                    onClick={() => { setSelectedId(provider.id); setCheck(null); }}
-                  >
-                    <ProviderAvatar provider={provider} />
-                    <span>
-                      <strong>{provider.name}</strong>
-                      <small>{`${provider.models.length} 个模型`}</small>
-                    </span>
-                    {provider.configured && <i className="models-dot" aria-label="已连接" />}
-                  </button>
-                ))}
-              </section>
-            ))}
-            {!loading && groups.length === 0 && !loadError && <div className="models-list-empty">{query ? "没有匹配的提供商" : "还没有可用的提供商"}</div>}
+      <section className="settings-layered-section">
+        <div className="models-section-head">
+          <div className="models-section-title-wrap">
+            <h2>服务商与 API 密钥</h2>
+            {connectedCount > 0 && (
+              <span className="models-connected-count">已启用 {connectedCount}</span>
+            )}
           </div>
-          <button className="models-add" onClick={() => setEditor(emptyDraft())} disabled={!isTauri}>
-            <Plus size={13} />添加自定义提供商
-          </button>
-        </aside>
 
-        <section className="models-detail">
-          {loadError ? (
-            <div className="models-empty-state">
-              <CircleAlert size={20} />
-              <strong>无法读取模型提供商</strong>
-              <p>{loadError}</p>
-              <button className="secondary-button compact" onClick={retry}>重试</button>
-            </div>
-          ) : !selected ? (
-            <div className="models-empty-state">
-              {loading ? <LoaderCircle size={20} className="spinner-icon" /> : <KeyRound size={20} />}
-              <strong>{loading ? "正在启动模型服务…" : providers.length === 0 ? "还没有模型提供商" : "选择一个提供商"}</strong>
-              <p>{!isTauri ? "模型设置需要在桌面应用中打开。" : providers.length === 0 ? "点击左下角“添加自定义提供商”，接入 OpenAI 兼容的网关或本地模型。" : "从左侧选择提供商，连接后即可在输入框中使用它的模型。"}</p>
-            </div>
-          ) : (
-            <ProviderDetail
-              key={selected.id}
-              provider={selected}
-              custom={isCustomProvider(selected, modelsJsonIds)}
-              config={config}
-              connecting={connecting === selected.id}
-              check={check?.providerId === selected.id ? check : null}
-              hidden={hidden}
-              onConnect={(apiKey) => void connect(selected, apiKey)}
-              onDisconnect={() => void disconnect(selected)}
-              onCheck={() => void runCheck(selected)}
-              onVisibility={(modelIds, visible) => setModelsVisible(selected, modelIds, visible)}
-              onEdit={() => config && setEditor(draftFromConfig(config))}
-              onDelete={() => void deleteCustom(selected)}
-            />
+          <div className="models-section-tools">
+            <label className="models-inline-search">
+              <Search size={13} />
+              <input
+                placeholder="搜索服务商或模型…"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              {query && (
+                <button type="button" onClick={() => setQuery("")} title="清除">
+                  <X size={12} />
+                </button>
+              )}
+            </label>
+
+            <button
+              type="button"
+              className="icon-button"
+              disabled={loading || !hasHost}
+              onClick={() => void refresh()}
+              title="重新读取凭据与模型目录"
+              aria-label="刷新模型目录"
+            >
+              <RefreshCw size={14} className={loading ? "spinner-icon" : ""} />
+            </button>
+
+            <button
+              type="button"
+              className="secondary-button models-add-trigger"
+              onClick={() => setEditor(emptyDraft())}
+              disabled={!hasHost}
+            >
+              <Plus size={13} strokeWidth={2.1} />
+              <span>添加自定义提供商</span>
+            </button>
+          </div>
+        </div>
+
+        <AnimatePresence initial={false}>
+          {notice && (
+            <motion.div
+              className={`models-notice ${notice.kind}`}
+              role="status"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.14 }}
+            >
+              {notice.kind === "success" ? <CircleCheck size={14} /> : <CircleAlert size={14} />}
+              <span>{notice.text}</span>
+              <button type="button" className="icon-button" onClick={() => setNotice(null)} title="关闭">
+                <X size={13} />
+              </button>
+            </motion.div>
           )}
-        </section>
-      </div>
+        </AnimatePresence>
 
-      {editor && (
-        <CustomProviderEditor
-          initial={editor}
-          takenIds={new Set(providers.map((provider) => provider.id).filter((id) => id !== editor.originalId))}
-          catalog={catalog}
-          onClose={() => setEditor(null)}
-          onSaved={async (saved) => {
-            setEditor(null);
-            await afterConfigChange(saved.originalId ? `已更新 ${saved.name || saved.id}` : `已添加 ${saved.name || saved.id}`, saved.id);
-          }}
-        />
-      )}
+        {loadError ? (
+          <div className="settings-soft-card models-state-box">
+            <CircleAlert size={18} />
+            <strong>无法读取模型目录</strong>
+            <p>{loadError}</p>
+            <button type="button" className="secondary-button" onClick={retry}>重试</button>
+          </div>
+        ) : loading && entries.length === 0 ? (
+          <div className="settings-soft-card models-state-box">
+            <LoaderCircle size={16} className="spinner-icon" />
+            <span>正在读取服务商目录…</span>
+          </div>
+        ) : entries.length === 0 ? (
+          <div className="settings-soft-card models-state-box">
+            <span>没有匹配搜索条件的服务商</span>
+          </div>
+        ) : (
+          <div className="settings-soft-card models-accordion-card">
+            {entries.map((entry) => {
+              const isOpen = activeExpandedId === entry.id;
+              const toggleOpen = () => {
+                setExpandedId(isOpen ? null : entry.id);
+                setCheck(null);
+              };
+
+              if (entry.kind === "provider") {
+                const { provider, presetMeta } = entry;
+                const config = configs.find((item) => item.id === provider.id);
+                const summary = presetMeta?.subtitle
+                  ?? (provider.models.slice(0, 3).map((m) => m.name || m.id).join(" · ") || provider.id);
+
+                return (
+                  <div
+                    key={`provider:${provider.id}`}
+                    className={`models-acc-item ${isOpen ? "is-open" : ""}`}
+                    data-provider-id={provider.id}
+                  >
+                    <button
+                      type="button"
+                      className="models-acc-header"
+                      aria-expanded={isOpen}
+                      onClick={toggleOpen}
+                    >
+                      <ProviderBrandIcon id={provider.id} name={provider.name} size="sm" />
+                      <span className="models-acc-titles">
+                        <strong>{provider.name}</strong>
+                        <small>{summary}</small>
+                      </span>
+                      <span className="models-acc-right">
+                        {provider.configured ? (
+                          <span className="models-acc-status is-on">
+                            <i />
+                            <span>已启用</span>
+                          </span>
+                        ) : (
+                          <span className="models-acc-status">配置密钥</span>
+                        )}
+                        <ChevronDown size={15} className={`models-acc-chevron ${isOpen ? "open" : ""}`} />
+                      </span>
+                    </button>
+
+                    <AnimatePresence initial={false}>
+                      {isOpen && (
+                        <motion.div
+                          className="models-acc-collapse"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                        >
+                          <ProviderAccordionBody
+                            provider={provider}
+                            custom={isCustomProvider(provider, modelsJsonIds)}
+                            config={config}
+                            connecting={connecting === provider.id}
+                            check={check?.providerId === provider.id ? check : null}
+                            hidden={hidden}
+                            onConnect={(apiKey) => void connect(provider, apiKey)}
+                            onDisconnect={() => void disconnect(provider)}
+                            onCheck={() => void runCheck(provider)}
+                            onVisibility={(modelIds, visible) => setModelsVisible(provider, modelIds, visible)}
+                            onEdit={() => config && setEditor(draftFromConfig(config))}
+                            onDelete={() => void deleteCustom(provider)}
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              }
+
+              const { preset } = entry;
+              return (
+                <div
+                  key={`preset:${preset.id}`}
+                  className={`models-acc-item ${isOpen ? "is-open" : ""}`}
+                  data-provider-id={preset.id}
+                >
+                  <button
+                    type="button"
+                    className="models-acc-header"
+                    aria-expanded={isOpen}
+                    onClick={toggleOpen}
+                  >
+                    <ProviderBrandIcon id={preset.id} name={preset.name} size="sm" />
+                    <span className="models-acc-titles">
+                      <strong>{preset.name}</strong>
+                      <small>{preset.subtitle}</small>
+                    </span>
+                    <span className="models-acc-right">
+                      <span className="models-acc-status">
+                        {preset.keyless ? "免密钥直连" : "配置密钥"}
+                      </span>
+                      <ChevronDown size={15} className={`models-acc-chevron ${isOpen ? "open" : ""}`} />
+                    </span>
+                  </button>
+
+                  <AnimatePresence initial={false}>
+                    {isOpen && (
+                      <motion.div
+                        className="models-acc-collapse"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                      >
+                        <PresetAccordionBody
+                          preset={preset}
+                          busy={connecting === preset.id}
+                          hasHost={hasHost}
+                          onActivate={(apiKey, baseUrl, selectedIds) => void activatePreset(preset, apiKey, baseUrl, selectedIds)}
+                          onOpenAdvanced={(selectedIds) =>
+                            setEditor({
+                              originalId: null,
+                              id: preset.id,
+                              name: preset.name,
+                              baseUrl: preset.baseUrl,
+                              api: preset.api,
+                              apiKey: "",
+                              keepExistingApiKey: false,
+                              authHeader: false,
+                              models: preset.models
+                                .filter((m) => selectedIds.has(m.id))
+                                .map((m) => ({ ...m, input: [...m.input] })),
+                            })
+                          }
+                        />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <AnimatePresence>
+        {editor && (
+          <CustomProviderEditor
+            initial={editor}
+            takenIds={new Set(providers.map((provider) => provider.id).filter((id) => id !== editor.originalId))}
+            catalog={catalog}
+            onClose={() => setEditor(null)}
+            onSaved={async (saved) => {
+              setEditor(null);
+              await afterConfigChange(saved.originalId ? `已更新 ${saved.name || saved.id}` : `已添加 ${saved.name || saved.id}`, saved.id);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
-  );
-}
-
-function ProviderAvatar({ provider, large = false }: { provider: ProviderSummary; large?: boolean }) {
-  const hue = providerHue(provider.id);
-  return (
-    <span className={`models-avatar ${large ? "large" : ""}`} style={{ ["--avatar-hue" as string]: String(hue) }} aria-hidden="true">
-      {providerMonogram(provider.name)}
-    </span>
   );
 }
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} aria-label={label} className={`settings-switch models-switch ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className={`settings-switch models-switch ${checked ? "on" : ""}`}
+      onClick={() => onChange(!checked)}
+    >
       <span />
     </button>
   );
 }
 
-function DefaultModelCard({ providers, hidden, form, update }: { providers: ProviderSummary[]; hidden: ReadonlySet<string>; form: AppSettings; update: Update }) {
+function DefaultPreferencesCard({
+  providers,
+  hidden,
+  form,
+  update,
+}: {
+  providers: ProviderSummary[];
+  hidden: ReadonlySet<string>;
+  form: AppSettings;
+  update: Update;
+}) {
   const connected = providers.filter((provider) => provider.configured);
   const options = connected
     .map((provider) => ({
       provider,
-      models: provider.models.filter((model) => !hidden.has(modelKey(provider.id, model.id))
-        || (provider.id === form.provider && model.id === form.model)),
+      models: provider.models.filter(
+        (model) => !hidden.has(modelKey(provider.id, model.id)) || (provider.id === form.provider && model.id === form.model),
+      ),
     }))
     .filter((group) => group.models.length > 0);
   const currentProvider = providers.find((provider) => provider.id === form.provider);
   const staleDefault = Boolean(form.provider && form.model && providers.length > 0 && !currentProvider?.configured);
+
+  const thinkingOptions = useMemo(() => {
+    const base = [...PRIMARY_THINKING_LEVELS];
+    if (form.thinkingLevel && !base.some(([val]) => val === form.thinkingLevel)) {
+      base.push([form.thinkingLevel, ALL_THINKING_LABELS[form.thinkingLevel] ?? form.thinkingLevel]);
+    }
+    return base;
+  }, [form.thinkingLevel]);
+
   return (
-    <section className="models-default">
-      <div className="models-default-row">
-        <span>
-          <strong>默认模型</strong>
-          <small>{staleDefault ? "当前默认模型的提供商尚未连接，新任务需要在输入框中选择模型。" : "新任务使用的模型；在输入框中切换模型后，这里会更新为最后一次的选择。"}</small>
-        </span>
-        <ModelCombobox
-          groups={options}
-          providerId={form.provider}
-          modelId={form.model}
-          warning={staleDefault}
-          onChange={(provider, model) => {
-            update("provider", provider);
-            update("model", model);
-          }}
-        />
-      </div>
-      <div className="models-default-row">
-        <span>
-          <strong>推理等级</strong>
-          <small>模型支持时生效；在输入框中调整后，新任务也会沿用。</small>
-        </span>
-        <select value={form.thinkingLevel} onChange={(event) => update("thinkingLevel", event.target.value)}>
-          {THINKING_LEVELS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
+    <section className="settings-layered-section">
+      <h2>默认偏好</h2>
+      <div className="settings-soft-card">
+        <div className="setting-row">
+          <span>
+            <strong>默认对话模型</strong>
+            <small>新对话与后台自动化任务默认选用的模型</small>
+          </span>
+          <div>
+            <ModelCombobox
+              groups={options}
+              providerId={form.provider}
+              modelId={form.model}
+              warning={staleDefault}
+              onChange={(provider, model) => {
+                update("provider", provider);
+                update("model", model);
+                const picked = options
+                  .find((g) => g.provider.id === provider)
+                  ?.models.find((m) => m.id === model);
+                if (picked?.thinkingLevel) {
+                  update("thinkingLevel", picked.thinkingLevel);
+                } else if (picked && !picked.reasoning) {
+                  update("thinkingLevel", "off");
+                }
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="setting-row">
+          <span>
+            <strong>默认推理强度</strong>
+            <small>深度思考（Reasoning）模型的默认推理预算</small>
+          </span>
+          <div>
+            <LayoutGroup id="models-thinking-seg">
+              <div className="settings-segmented" role="radiogroup" aria-label="推理等级">
+                {thinkingOptions.map(([value, label]) => {
+                  const active = form.thinkingLevel === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={active ? "active" : ""}
+                      onClick={() => update("thinkingLevel", value)}
+                    >
+                      {active && <motion.span layoutId="models-thinking-thumb" className="settings-segmented-thumb" transition={PILL_SPRING} />}
+                      <span>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </LayoutGroup>
+          </div>
+        </div>
       </div>
     </section>
   );
 }
 
-function ModelCombobox({ groups, providerId, modelId, warning, onChange }: {
+function ModelCombobox({
+  groups,
+  providerId,
+  modelId,
+  warning,
+  onChange,
+}: {
   groups: Array<{ provider: ProviderSummary; models: ProviderModelSummary[] }>;
   providerId: string;
   modelId: string;
@@ -364,19 +749,23 @@ function ModelCombobox({ groups, providerId, modelId, warning, onChange }: {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!open) return;
     const onPointer = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        setOpen(false);
+      }
     };
     document.addEventListener("mousedown", onPointer);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onPointer);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
 
@@ -384,14 +773,18 @@ function ModelCombobox({ groups, providerId, modelId, warning, onChange }: {
   const filtered = groups
     .map((group) => ({
       ...group,
-      models: group.models.filter((model) => !needle
-        || model.name.toLowerCase().includes(needle)
-        || model.id.toLowerCase().includes(needle)
-        || group.provider.name.toLowerCase().includes(needle)),
+      models: group.models.filter(
+        (model) =>
+          !needle ||
+          model.name.toLowerCase().includes(needle) ||
+          model.id.toLowerCase().includes(needle) ||
+          group.provider.name.toLowerCase().includes(needle),
+      ),
     }))
     .filter((group) => group.models.length > 0);
   const current = groups.find((group) => group.provider.id === providerId)?.models.find((model) => model.id === modelId);
   const providerName = groups.find((group) => group.provider.id === providerId)?.provider.name ?? providerId;
+
   const choose = (nextProvider: string, nextModel: string) => {
     onChange(nextProvider, nextModel);
     setOpen(false);
@@ -407,20 +800,29 @@ function ModelCombobox({ groups, providerId, modelId, warning, onChange }: {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <span>{current?.name ?? (modelId || "不设默认模型")}</span>
+        <span>{current?.name ?? (modelId || "跟随会话选择")}</span>
         {modelId && <small>{providerName}</small>}
         <ChevronDown size={13} />
       </button>
       {open && (
         <div className="models-combo-popover" data-escape-layer>
-          <label className="models-search">
+          <label className="models-inline-search full">
             <Search size={13} />
-            <input autoFocus placeholder="搜索模型" value={query} onChange={(event) => setQuery(event.target.value)} />
+            <input autoFocus placeholder="搜索已启用模型…" value={query} onChange={(event) => setQuery(event.target.value)} />
           </label>
           <div className="models-combo-scroll" role="listbox">
             {!needle && (
-              <button role="option" aria-selected={!modelId} className={`models-combo-option ${!modelId ? "selected" : ""}`} onClick={() => choose("", "")}>
-                <span><strong>不设默认模型</strong><small className="plain">新任务需要在输入框中选择模型</small></span>
+              <button
+                type="button"
+                role="option"
+                aria-selected={!modelId}
+                className={`models-combo-option ${!modelId ? "selected" : ""}`}
+                onClick={() => choose("", "")}
+              >
+                <span>
+                  <strong>跟随会话选择</strong>
+                  <small className="plain">沿用对话输入框最近选择的模型</small>
+                </span>
                 {!modelId && <Check size={13} />}
               </button>
             )}
@@ -430,15 +832,25 @@ function ModelCombobox({ groups, providerId, modelId, warning, onChange }: {
                 {group.models.map((model) => {
                   const active = group.provider.id === providerId && model.id === modelId;
                   return (
-                    <button key={model.id} role="option" aria-selected={active} className={`models-combo-option ${active ? "selected" : ""}`} onClick={() => choose(group.provider.id, model.id)}>
-                      <span><strong>{model.name}</strong><small>{model.id}</small></span>
+                    <button
+                      key={model.id}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      className={`models-combo-option ${active ? "selected" : ""}`}
+                      onClick={() => choose(group.provider.id, model.id)}
+                    >
+                      <span>
+                        <strong>{model.name}</strong>
+                        <small>{model.id}</small>
+                      </span>
                       {active && <Check size={13} />}
                     </button>
                   );
                 })}
               </section>
             ))}
-            {groups.length === 0 && <div className="models-combo-empty">先在下方连接一个提供商</div>}
+            {groups.length === 0 && <div className="models-combo-empty">启用至少一个服务商后可指定默认模型</div>}
             {groups.length > 0 && filtered.length === 0 && needle && <div className="models-combo-empty">没有匹配的模型</div>}
           </div>
         </div>
@@ -447,9 +859,159 @@ function ModelCombobox({ groups, providerId, modelId, warning, onChange }: {
   );
 }
 
-function ProviderDetail({
-  provider, custom, config, connecting, check, hidden,
-  onConnect, onDisconnect, onCheck, onVisibility, onEdit, onDelete,
+function PresetAccordionBody({
+  preset,
+  busy,
+  hasHost,
+  onActivate,
+  onOpenAdvanced,
+}: {
+  preset: BuiltinProviderPreset;
+  busy: boolean;
+  hasHost: boolean;
+  onActivate: (apiKey: string, baseUrl: string, selectedIds: ReadonlySet<string>) => void;
+  onOpenAdvanced: (selectedIds: ReadonlySet<string>) => void;
+}) {
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState(preset.baseUrl);
+  const [showCustomUrl, setShowCustomUrl] = useState(Boolean(preset.keyless));
+  const [reveal, setReveal] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(preset.models.map((m) => m.id)));
+
+  useSyncOnChange([preset.id], () => {
+    setApiKey("");
+    setBaseUrl(preset.baseUrl);
+    setShowCustomUrl(Boolean(preset.keyless));
+    setReveal(false);
+    setSelectedIds(new Set(preset.models.map((m) => m.id)));
+  });
+
+  const canSubmit = hasHost && !busy && selectedIds.size > 0 && (Boolean(preset.keyless) || Boolean(apiKey.trim()));
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (canSubmit) onActivate(apiKey, baseUrl, selectedIds);
+  };
+
+  const togglePresetModel = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        if (next.size > 1) next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className="models-acc-drawer">
+      <form className="models-drawer-form" onSubmit={submit}>
+        <div className="models-key-row">
+          <span className="models-key-input">
+            <KeyRound size={13} />
+            <input
+              type={reveal ? "text" : "password"}
+              autoComplete="new-password"
+              spellCheck={false}
+              placeholder={preset.keyless ? "本地服务免密钥（可直接启用）" : `输入 ${preset.name} API Key（sk-... 或 $ENV_VAR）`}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              disabled={busy}
+            />
+            {apiKey && (
+              <button
+                type="button"
+                className="models-key-eye"
+                onClick={() => setReveal((v) => !v)}
+                title={reveal ? "隐藏密钥" : "显示密钥"}
+              >
+                {reveal ? <EyeOff size={13} /> : <Eye size={13} />}
+              </button>
+            )}
+          </span>
+          <button type="submit" className="primary-button" disabled={!canSubmit}>
+            {busy && <LoaderCircle size={13} className="spinner-icon" />}
+            <span>保存并启用</span>
+          </button>
+        </div>
+
+        <div className="models-drawer-meta-bar">
+          <button
+            type="button"
+            className="models-subtle-link"
+            onClick={() => setShowCustomUrl((v) => !v)}
+          >
+            <span>{showCustomUrl ? "收起代理地址" : `自定义代理地址（默认 ${preset.baseUrl}）`}</span>
+          </button>
+
+          <button
+            type="button"
+            className="models-subtle-link"
+            onClick={() => onOpenAdvanced(selectedIds)}
+            disabled={!hasHost}
+          >
+            <SlidersHorizontal size={12} />
+            <span>从 API 拉取 / 高级模型配置</span>
+          </button>
+        </div>
+
+        {showCustomUrl && (
+          <div className="models-url-override">
+            <input
+              className="models-plain-input"
+              value={baseUrl}
+              spellCheck={false}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder={preset.baseUrl}
+              disabled={busy}
+            />
+          </div>
+        )}
+      </form>
+
+      <div className="models-mini-list">
+        {preset.models.map((model) => {
+          const checked = selectedIds.has(model.id);
+          const badges = modelTraitBadges(model.reasoning, model.thinkingLevel, model.input, model.contextWindow);
+          return (
+            <label key={model.id} className={`models-mini-row is-checkable ${checked ? "" : "is-muted"}`}>
+              <span className="models-mini-name">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => togglePresetModel(model.id)}
+                />
+                <strong>{model.name}</strong>
+                {model.name !== model.id && <code>{model.id}</code>}
+              </span>
+              <span className="models-capability-badges">
+                {badges.map((badge) => (
+                  <span key={badge.key} className={`models-cap-pill is-${badge.tone}`}>{badge.label}</span>
+                ))}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ProviderAccordionBody({
+  provider,
+  custom,
+  config,
+  connecting,
+  check,
+  hidden,
+  onConnect,
+  onDisconnect,
+  onCheck,
+  onVisibility,
+  onEdit,
+  onDelete,
 }: {
   provider: ProviderSummary;
   custom: boolean;
@@ -465,213 +1027,186 @@ function ProviderDetail({
   onDelete: () => void;
 }) {
   const [replacingKey, setReplacingKey] = useState(false);
-  // Saving a key, or the provider's configured state changing, ends key replacement.
   useSyncOnChange([connecting, provider.configured], () => {
     if (!connecting) setReplacingKey(false);
   });
 
+  const effectiveUrl = config?.baseUrl || provider.baseUrl || "";
+
   return (
-    <div className="models-detail-scroll">
-      <header className="models-detail-header">
-        <ProviderAvatar provider={provider} large />
-        <div>
-          <h2>{provider.name}{custom && <span className="models-tag">自定义</span>}</h2>
-          <p><code>{provider.id}</code>{provider.baseUrl && <span title={provider.baseUrl}>{provider.baseUrl}</span>}</p>
-        </div>
-        <span className={`models-status ${provider.configured ? "on" : ""}`}>{provider.configured ? "已连接" : "未连接"}</span>
-      </header>
-
-      <div className="models-block">
-        <h3>连接</h3>
-        {provider.configured && !replacingKey ? (
-          <ConnectedState provider={provider} custom={custom} onDisconnect={onDisconnect} onReplaceKey={() => setReplacingKey(true)} onEdit={onEdit} />
-        ) : (
-          <ConnectForm
-            custom={custom}
-            busy={connecting}
-            replacing={replacingKey}
-            onConnect={onConnect}
-            onCancelReplace={() => setReplacingKey(false)}
-            onEdit={onEdit}
-          />
-        )}
-      </div>
-
-      {provider.configured && (
-        <div className="models-block">
-          <h3>检查连接</h3>
-          <div className="models-check">
-            <button className="secondary-button compact" disabled={check?.status === "checking"} onClick={onCheck}>
-              {check?.status === "checking" ? <LoaderCircle size={13} className="spinner-icon" /> : <CircleCheck size={13} />}
-              {check?.status === "checking" ? "正在检查" : "检查连接"}
-            </button>
-          </div>
-          {check && check.status !== "checking" && (
-            <p className={`models-check-result ${check.status}`}>
-              {check.status === "ok" ? <CircleCheck size={13} /> : <CircleAlert size={13} />}
-              <span>{check.message}</span>
-            </p>
-          )}
-          <small className="models-hint">会向提供商请求模型列表，不调用模型，不产生费用。</small>
+    <div className="models-acc-drawer">
+      {check && check.status !== "checking" && (
+        <div className={`models-check-banner ${check.status}`}>
+          {check.status === "ok" ? <CircleCheck size={14} /> : <CircleAlert size={14} />}
+          <span>{check.message}</span>
         </div>
       )}
 
-      <ModelList provider={provider} hidden={hidden} custom={custom} onVisibility={onVisibility} onEdit={onEdit} />
-
-      {custom && config && (
-        <div className="models-block">
-          <h3>配置</h3>
-          <dl className="models-config">
-            <div><dt>协议</dt><dd>{PROVIDER_APIS.find(([value]) => value === config.api)?.[1] ?? (config.api || "默认")}</dd></div>
-            <div><dt>API 地址</dt><dd><code>{config.baseUrl || "—"}</code></dd></div>
-            {config.baseUrl && <div><dt>请求地址</dt><dd><code>{endpointPreview(config.api, config.baseUrl)}</code></dd></div>}
-          </dl>
+      {provider.configured && !replacingKey ? (
+        <div className="models-connected-bar">
+          <div className="models-connected-info">
+            <span className="models-masked-key">••••••••••••••••••••</span>
+            <small>{credentialSourceText(provider)}</small>
+          </div>
           <div className="models-actions">
-            <button className="secondary-button compact" onClick={onEdit}><Pencil size={13} />编辑配置</button>
-            <button className="secondary-button compact danger" onClick={onDelete}><Trash2 size={13} />删除提供商</button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={check?.status === "checking"}
+              onClick={onCheck}
+            >
+              {check?.status === "checking" ? <LoaderCircle size={13} className="spinner-icon" /> : <CircleCheck size={13} />}
+              <span>{check?.status === "checking" ? "检测中…" : "测试连接"}</span>
+            </button>
+            {provider.keySource === "stored" && (
+              <button type="button" className="secondary-button" onClick={() => setReplacingKey(true)}>
+                <span>更换密钥</span>
+              </button>
+            )}
+            {custom && config && (
+              <button type="button" className="secondary-button" onClick={onEdit}>
+                <Pencil size={12} />
+                <span>管理</span>
+              </button>
+            )}
+            {canDisconnect(provider) && (
+              <button type="button" className="secondary-button danger" onClick={onDisconnect}>
+                <span>断开</span>
+              </button>
+            )}
+            {custom && config && (
+              <button type="button" className="icon-button" onClick={onDelete} title="移除提供商">
+                <Trash2 size={14} />
+              </button>
+            )}
           </div>
+        </div>
+      ) : (
+        <ConnectForm
+          busy={connecting}
+          replacing={replacingKey}
+          providerName={provider.name}
+          onConnect={onConnect}
+          onCancelReplace={() => setReplacingKey(false)}
+        />
+      )}
+
+      {effectiveUrl && (
+        <div className="models-drawer-meta-bar">
+          <span className="models-endpoint-inline">
+            端点：<code>{effectiveUrl}</code>
+          </span>
+          {custom && config && (
+            <button type="button" className="models-subtle-link" onClick={onEdit}>
+              <SlidersHorizontal size={12} />
+              <span>编辑地址与模型</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {provider.models.length > 0 && (
+        <div className="models-mini-list">
+          {provider.models.map((model) => {
+            const visible = !hidden.has(modelKey(provider.id, model.id));
+            const badges = modelTraitBadges(model.reasoning, model.thinkingLevel, model.input, model.contextWindow);
+            return (
+              <div key={model.id} className={`models-mini-row ${visible ? "" : "is-muted"}`}>
+                <span className="models-mini-name">
+                  <strong>{model.name}</strong>
+                  {model.name !== model.id && <code>{model.id}</code>}
+                </span>
+                <span className="models-mini-right">
+                  {badges.length > 0 && (
+                    <span className="models-capability-badges">
+                      {badges.map((badge) => (
+                        <span key={badge.key} className={`models-cap-pill is-${badge.tone}`}>{badge.label}</span>
+                      ))}
+                    </span>
+                  )}
+                  <Toggle
+                    checked={visible}
+                    label={`在模型选择器中显示 ${model.name}`}
+                    onChange={(value) => onVisibility([model.id], value)}
+                  />
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-function ConnectedState({ provider, custom, onDisconnect, onReplaceKey, onEdit }: {
-  provider: ProviderSummary;
-  custom: boolean;
-  onDisconnect: () => void;
-  onReplaceKey: () => void;
-  onEdit: () => void;
-}) {
-  const hint = provider.keySource === "environment"
-    ? "密钥来自环境变量引用（$变量），由 Harness 在使用时读取。如需更换，请修改环境变量后重启应用。"
-    : "密钥加密保存在本机的 ~/.pid/secrets.dat，只供本应用使用。";
-  return (
-    <div className="models-connected">
-      <CircleCheck size={16} />
-      <span>
-        <strong>{credentialSourceText(provider)}</strong>
-        {hint && <small>{hint}</small>}
-      </span>
-      <div className="models-actions">
-        {provider.keySource === "stored" && <button className="secondary-button compact" onClick={onReplaceKey}><KeyRound size={13} />更换密钥</button>}
-        {custom && provider.keySource === "environment" && <button className="secondary-button compact" onClick={onEdit}><Pencil size={13} />编辑配置</button>}
-        {canDisconnect(provider) && <button className="secondary-button compact danger" onClick={onDisconnect}>删除密钥</button>}
-      </div>
-    </div>
-  );
-}
-
-function ConnectForm({ custom, busy, replacing, onConnect, onCancelReplace, onEdit }: {
-  custom: boolean;
+function ConnectForm({
+  busy,
+  replacing,
+  providerName,
+  onConnect,
+  onCancelReplace,
+}: {
   busy: boolean;
   replacing: boolean;
+  providerName: string;
   onConnect: (apiKey: string) => void;
   onCancelReplace: () => void;
-  onEdit: () => void;
 }) {
   const [apiKey, setApiKey] = useState("");
+  const [reveal, setReveal] = useState(false);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (apiKey.trim()) onConnect(apiKey.trim());
   };
   return (
-    <div className="models-connect">
-      <form className="models-key-form" onSubmit={submit}>
-        <div className="models-key-row">
-          <span className="models-key-input">
-            <KeyRound size={13} />
-            <input
-              type="password"
-              autoComplete="new-password"
-              spellCheck={false}
-              placeholder="API 密钥"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              disabled={busy}
-            />
-          </span>
-          <button type="submit" className="primary-button compact" disabled={busy || !apiKey.trim()}>
-            {busy ? <LoaderCircle size={13} className="spinner-icon" /> : null}{replacing ? "保存" : "连接"}
+    <form className="models-key-row" onSubmit={submit}>
+      <span className="models-key-input">
+        <KeyRound size={13} />
+        <input
+          type={reveal ? "text" : "password"}
+          autoComplete="new-password"
+          spellCheck={false}
+          placeholder={`输入 ${providerName} API Key（如 sk-...）`}
+          value={apiKey}
+          onChange={(event) => setApiKey(event.target.value)}
+          disabled={busy}
+        />
+        {apiKey && (
+          <button
+            type="button"
+            className="models-key-eye"
+            onClick={() => setReveal((v) => !v)}
+            title={reveal ? "隐藏密钥" : "显示密钥"}
+          >
+            {reveal ? <EyeOff size={13} /> : <Eye size={13} />}
           </button>
-          {replacing && <button type="button" className="secondary-button compact" onClick={onCancelReplace}>取消</button>}
-        </div>
-        <small className="models-hint">
-          {custom
-            ? <>密钥加密保存在本机的 ~/.pid/secrets.dat。也可以在 <button type="button" className="models-link" onClick={onEdit}>编辑配置</button> 中填写 $环境变量。</>
-            : "密钥加密保存在本机的 ~/.pid/secrets.dat，只供本应用使用。"}
-        </small>
-      </form>
-    </div>
-  );
-}
-
-function ModelList({ provider, hidden, custom, onVisibility, onEdit }: {
-  provider: ProviderSummary;
-  hidden: ReadonlySet<string>;
-  custom: boolean;
-  onVisibility: (modelIds: readonly string[], visible: boolean) => void;
-  onEdit: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const needle = query.trim().toLowerCase();
-  const models = provider.models.filter((model) => !needle || model.name.toLowerCase().includes(needle) || model.id.toLowerCase().includes(needle));
-  const visibleCount = provider.models.filter((model) => !hidden.has(modelKey(provider.id, model.id))).length;
-  return (
-    <div className="models-block">
-      <div className="models-block-header">
-        <h3>模型 <span>{visibleCount === provider.models.length ? provider.models.length : `${visibleCount} / ${provider.models.length}`}</span></h3>
-        {provider.models.length > 8 && (
-          <label className="models-search compact">
-            <Search size={12} />
-            <input placeholder="筛选模型" value={query} onChange={(event) => setQuery(event.target.value)} />
-          </label>
         )}
-        {provider.models.length > 1 && (
-          <div className="models-text-actions">
-            <button onClick={() => onVisibility(models.map((model) => model.id), true)}>全部显示</button>
-            <button onClick={() => onVisibility(models.map((model) => model.id), false)}>全部隐藏</button>
-          </div>
-        )}
-      </div>
-      <small className="models-hint">
-        {provider.configured ? "关闭的模型不会出现在输入框的模型选择器中。" : "连接后，开启的模型会出现在输入框的模型选择器中。"}
-      </small>
-      {provider.models.length === 0 ? (
-        <div className="models-model-empty">
-          {custom ? <>还没有配置模型。<button className="models-link" onClick={onEdit}>添加模型</button></> : "内置目录中还没有此提供商的模型，连接后刷新即可获取。"}
-        </div>
-      ) : (
-        <div className="models-model-list">
-          {models.map((model) => {
-            const visible = !hidden.has(modelKey(provider.id, model.id));
-            const context = formatTokenCount(model.contextWindow);
-            const cost = formatCost(model.cost);
-            return (
-              <div key={model.id} className={`models-model ${visible ? "" : "off"}`}>
-                <span className="models-model-name">
-                  <strong>{model.name}</strong>
-                  {model.name !== model.id && <code>{model.id}</code>}
-                </span>
-                <span className="models-caps">
-                  {model.reasoning && <em title="支持推理"><Brain size={11} />推理</em>}
-                  {model.input.includes("image") && <em title="支持图片输入"><Image size={11} />图片</em>}
-                  {context && <em title="上下文窗口">{context}</em>}
-                  {cost && <em title="每百万 token 输入 / 输出价格">{cost}</em>}
-                </span>
-                <Toggle checked={visible} label={`在模型选择器中显示 ${model.name}`} onChange={(value) => onVisibility([model.id], value)} />
-              </div>
-            );
-          })}
-          {models.length === 0 && <div className="models-model-empty">没有匹配的模型</div>}
-        </div>
+      </span>
+      <button type="submit" className="primary-button" disabled={busy || !apiKey.trim()}>
+        {busy && <LoaderCircle size={13} className="spinner-icon" />}
+        <span>{replacing ? "保存密钥" : "保存并启用"}</span>
+      </button>
+      {replacing && (
+        <button type="button" className="secondary-button" onClick={onCancelReplace}>
+          取消
+        </button>
       )}
-    </div>
+    </form>
   );
 }
 
 function emptyDraft(): ModelProviderInput {
-  return { originalId: null, id: "", name: "", baseUrl: "", api: "openai-completions", apiKey: "", keepExistingApiKey: false, authHeader: false, models: [] };
+  return {
+    originalId: null,
+    id: "",
+    name: "",
+    baseUrl: "",
+    api: "openai-completions",
+    apiKey: "",
+    keepExistingApiKey: false,
+    authHeader: false,
+    models: [],
+  };
 }
 
 function draftFromConfig(config: ModelProviderConfig): ModelProviderInput {
@@ -690,8 +1225,8 @@ function draftFromConfig(config: ModelProviderConfig): ModelProviderInput {
 
 const SOURCE_LABELS: Record<Exclude<CapabilitySource, "api">, { label: string; hint: string }> = {
   catalog: { label: "内置目录", hint: "能力和上下文来自内置目录中的同名模型" },
-  guess: { label: "按名称推测", hint: "内置目录中没有同名模型，能力按模型名称推测，上下文使用默认值，请确认" },
-  default: { label: "默认值", hint: "无法识别此模型，使用自定义模型的默认值，请按实际情况修改" },
+  guess: { label: "按名称推测", hint: "能力按模型名称自动识别" },
+  default: { label: "默认值", hint: "使用默认参数，可点击详情修改" },
 };
 
 function CapabilitySourceTag({ entry }: { entry: EnrichedModel | undefined }) {
@@ -701,7 +1236,13 @@ function CapabilitySourceTag({ entry }: { entry: EnrichedModel | undefined }) {
   return <em className={`models-source ${entry.source}`} title={title}>{label}</em>;
 }
 
-function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: {
+function CustomProviderEditor({
+  initial,
+  takenIds,
+  catalog,
+  onClose,
+  onSaved,
+}: {
   initial: ModelProviderInput;
   takenIds: ReadonlySet<string>;
   catalog: ModelCatalog;
@@ -710,9 +1251,9 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
 }) {
   const editing = Boolean(initial.originalId);
   const [draft, setDraft] = useState<ModelProviderInput>(initial);
-  const [idTouched, setIdTouched] = useState(editing);
+  const [idTouched, setIdTouched] = useState(editing || Boolean(initial.id));
   const [discovered, setDiscovered] = useState<ModelProviderModel[]>([]);
-  // How each fetched or added model's capabilities were filled; cleared once the user edits them.
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [sources, setSources] = useState<Record<string, EnrichedModel>>({});
   const [discovering, setDiscovering] = useState(false);
   const [manualId, setManualId] = useState("");
@@ -723,29 +1264,47 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) onClose();
+      if (event.key === "Escape" && !busy) {
+        event.stopPropagation();
+        onClose();
+      }
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [busy, onClose]);
 
   const patch = (next: Partial<ModelProviderInput>) => setDraft((current) => ({ ...current, ...next }));
   const setName = (name: string) => patch(idTouched ? { name } : { name, id: slugifyProviderId(name) });
   const selectedIds = new Set(draft.models.map((model) => model.id));
-  const candidates = [...draft.models, ...discovered.filter((model) => !selectedIds.has(model.id))];
   const needle = modelQuery.trim().toLowerCase();
-  const shown = candidates.filter((model) => !needle || model.id.toLowerCase().includes(needle) || model.name.toLowerCase().includes(needle));
+  const filteredDiscovered = discovered.filter(
+    (model) => !needle || model.id.toLowerCase().includes(needle) || model.name.toLowerCase().includes(needle),
+  );
   const preview = endpointPreview(draft.api, draft.baseUrl);
   const idError = !draft.id.trim()
     ? ""
-    : !/^[a-z0-9][a-z0-9._-]*$/i.test(draft.id) ? "只能包含字母、数字、点、下划线和连字符"
-      : takenIds.has(draft.id) ? "该 ID 已被其他提供商使用" : "";
+    : !/^[a-z0-9][a-z0-9._-]*$/i.test(draft.id)
+      ? "只能包含字母、数字、点、下划线和连字符"
+      : takenIds.has(draft.id)
+        ? "该 ID 已被其他提供商使用"
+        : "";
 
   const toggleModel = (model: ModelProviderModel) => {
-    patch({ models: selectedIds.has(model.id) ? draft.models.filter((item) => item.id !== model.id) : [...draft.models, model] });
+    if (selectedIds.has(model.id)) {
+      patch({ models: draft.models.filter((item) => item.id !== model.id) });
+      if (expanded === model.id) setExpanded(null);
+      return;
+    }
+    const enriched = enrichModel(model, catalog);
+    setSources((current) => ({ ...current, [model.id]: enriched }));
+    patch({ models: [...draft.models, enriched.model] });
+  };
+  const removeSelectedModel = (id: string) => {
+    patch({ models: draft.models.filter((item) => item.id !== id) });
+    if (expanded === id) setExpanded(null);
   };
   const changeModel = (id: string, next: Partial<ModelProviderModel>) => {
-    patch({ models: draft.models.map((model) => model.id === id ? { ...model, ...next } : model) });
+    patch({ models: draft.models.map((model) => (model.id === id ? { ...model, ...next } : model)) });
     setSources(({ [id]: _edited, ...rest }) => rest);
   };
   const addManual = () => {
@@ -765,12 +1324,32 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
     setDiscovering(true);
     setError("");
     try {
-      // Most OpenAI-compatible relays list only IDs; fill capabilities the way other clients do.
-      const enriched = (await agent.discoverModelProviderModels({ ...draft, id: draft.id || "discover" }))
-        .map((model) => enrichModel(model, catalog));
+      const enriched = (await agent.discoverModelProviderModels({ ...draft, id: draft.id || "discover" })).map((model) =>
+        enrichModel(model, catalog),
+      );
       const models = enriched.map((entry) => entry.model);
+      const byEnriched = new Map(models.map((item) => [item.id, item]));
+      // Also sync capabilities onto any already-selected models that lacked explicit limits.
+      if (draft.models.length > 0) {
+        patch({
+          models: draft.models.map((existing) => {
+            const synced = byEnriched.get(existing.id);
+            if (!synced) return enrichModel(existing, catalog).model;
+            return {
+              ...existing,
+              contextWindow: existing.contextWindow ?? synced.contextWindow,
+              maxTokens: existing.maxTokens ?? synced.maxTokens,
+              reasoning: existing.reasoning || synced.reasoning,
+              thinkingLevel: existing.thinkingLevel ?? synced.thinkingLevel,
+              input: existing.input.includes("image") || synced.input.includes("image") ? ["text", "image"] : ["text"],
+              cost: existing.cost ?? synced.cost,
+            };
+          }),
+        });
+      }
       setSources((current) => ({ ...current, ...Object.fromEntries(enriched.map((entry) => [entry.model.id, entry])) }));
       setDiscovered(models);
+      setPickerOpen(models.length > 0);
       if (models.length === 0) setError("该接口没有返回模型列表，请手动添加模型 ID。");
     } catch (nextError) {
       setError(`获取模型失败：${errorText(nextError)}`);
@@ -785,8 +1364,22 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
     setBusy(true);
     setError("");
     try {
-      await agent.saveModelProvider(draft);
-      await onSaved(draft);
+      // Strictly persist ONLY the user's selected `draft.models`, with normalized capabilities.
+      const normalizedDraft: ModelProviderInput = {
+        ...draft,
+        models: draft.models.map((item) => {
+          const level = effectiveModelThinking(item.reasoning, item.thinkingLevel);
+          return {
+            ...item,
+            reasoning: level !== "off",
+            thinkingLevel: level,
+            contextWindow: item.contextWindow || 128_000,
+            input: item.input.includes("image") ? ["text", "image"] : ["text"],
+          };
+        }),
+      };
+      await agent.saveModelProvider(normalizedDraft);
+      await onSaved(normalizedDraft);
     } catch (nextError) {
       setError(errorText(nextError));
       setBusy(false);
@@ -794,24 +1387,53 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
   };
 
   return (
-    <div className="models-editor-backdrop" data-escape-layer onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <div className="models-editor" role="dialog" aria-modal="true" aria-label={editing ? "编辑自定义提供商" : "添加自定义提供商"}>
+    <motion.div
+      className="models-editor-backdrop"
+      data-escape-layer
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
+    >
+      <motion.div
+        className="models-editor"
+        role="dialog"
+        aria-modal="true"
+        aria-label={editing ? "编辑自定义提供商" : "添加自定义提供商"}
+        initial={{ opacity: 0, scale: 0.965, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.975, y: 6 }}
+        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+      >
         <header>
           <strong>{editing ? `编辑 ${initial.name || initial.id}` : "添加自定义提供商"}</strong>
-          <button className="icon-button" onClick={onClose} disabled={busy} title="关闭"><X size={16} /></button>
+          <button type="button" className="icon-button" onClick={onClose} disabled={busy} title="关闭">
+            <X size={16} />
+          </button>
         </header>
         <div className="models-editor-body">
           <div className="models-editor-fields">
             <label>
               <span>名称</span>
-              <input autoFocus={!editing} value={draft.name} onChange={(event) => setName(event.target.value)} placeholder="例如 公司网关 或 本地 Ollama" />
+              <input
+                autoFocus={!editing}
+                value={draft.name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="例如 公司网关 或 本地 Ollama"
+              />
             </label>
             <label>
               <span>提供商 ID</span>
               <input
                 value={draft.id}
                 disabled={editing}
-                onChange={(event) => { setIdTouched(true); patch({ id: event.target.value.trim() }); }}
+                onChange={(event) => {
+                  setIdTouched(true);
+                  patch({ id: event.target.value.trim() });
+                }}
                 placeholder="根据名称自动生成"
               />
               {idError && <em className="models-field-error">{idError}</em>}
@@ -819,7 +1441,9 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
             <label>
               <span>接口协议</span>
               <select value={draft.api} onChange={(event) => patch({ api: event.target.value })}>
-                {PROVIDER_APIS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                {PROVIDER_APIS.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
               </select>
             </label>
             <label>
@@ -831,30 +1455,60 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
                   autoComplete="new-password"
                   spellCheck={false}
                   value={draft.apiKey}
-                  onChange={(event) => patch({ apiKey: event.target.value, keepExistingApiKey: event.target.value ? false : draft.keepExistingApiKey })}
-                  placeholder={draft.keepExistingApiKey ? "已配置，留空则保留" : "sk-…、$ENV_VAR 或 !command"}
+                  onChange={(event) =>
+                    patch({ apiKey: event.target.value, keepExistingApiKey: event.target.value ? false : draft.keepExistingApiKey })
+                  }
+                  placeholder={draft.keepExistingApiKey ? "已配置，留空则保留" : "sk-…、$ENV_VAR 或留空"}
                 />
               </span>
             </label>
             <label className="wide">
               <span>API 地址</span>
-              <input value={draft.baseUrl} onChange={(event) => patch({ baseUrl: event.target.value })} placeholder={defaultBaseUrlPlaceholder(draft.api)} spellCheck={false} />
-              {preview && <em className="models-field-hint">请求会发到 <code>{preview}</code></em>}
+              <input
+                value={draft.baseUrl}
+                onChange={(event) => patch({ baseUrl: event.target.value })}
+                placeholder={defaultBaseUrlPlaceholder(draft.api)}
+                spellCheck={false}
+              />
+              {preview && <em className="models-field-hint">请求端点预览：<code>{preview}</code></em>}
             </label>
             <label className="wide models-editor-inline">
               <Toggle checked={draft.authHeader} label="Authorization Bearer" onChange={(value) => patch({ authHeader: value })} />
-              <span><span>自动添加 <code>Authorization: Bearer</code> 请求头</span><small>仅当非标准接口要求时开启。</small></span>
+              <span>
+                <span>强制注入 <code>Authorization: Bearer</code> 请求头</span>
+                <small>仅当非标准反向代理网关要求时开启。</small>
+              </span>
             </label>
           </div>
 
           <div className="models-editor-models">
-            <div className="models-block-header">
-              <h3>模型 <span>已选 {draft.models.length}</span></h3>
-              <button className="secondary-button compact" disabled={discovering || (requiresBaseUrl(draft.api) && !draft.baseUrl.trim())} onClick={() => void discover()}>
-                {discovering ? <LoaderCircle size={13} className="spinner-icon" /> : <CloudDownload size={13} />}
-                {discovering ? "正在获取" : "从 API 获取"}
-              </button>
+            <div className="models-editor-models-head">
+              <h3>
+                已选模型
+                <span>仅同步保留已选的 {draft.models.length} 个模型</span>
+              </h3>
+              <div className="models-editor-head-actions">
+                {discovered.length > 0 && !pickerOpen && (
+                  <button
+                    type="button"
+                    className="models-subtle-link"
+                    onClick={() => setPickerOpen(true)}
+                  >
+                    <span>展开 API 候选（{discovered.length}）</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={discovering || (requiresBaseUrl(draft.api) && !draft.baseUrl.trim())}
+                  onClick={() => void discover()}
+                >
+                  {discovering ? <LoaderCircle size={13} className="spinner-icon" /> : <CloudDownload size={13} />}
+                  <span>{discovering ? "正在获取…" : "从 API 获取"}</span>
+                </button>
+              </div>
             </div>
+
             <div className="models-key-row">
               <span className="models-key-input">
                 <Plus size={13} />
@@ -862,96 +1516,277 @@ function CustomProviderEditor({ initial, takenIds, catalog, onClose, onSaved }: 
                   value={manualId}
                   spellCheck={false}
                   onChange={(event) => setManualId(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addManual(); } }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addManual();
+                    }
+                  }}
                   placeholder="手动输入模型 ID，回车添加"
                 />
               </span>
-              {candidates.length > 8 && (
-                <label className="models-search compact">
-                  <Search size={12} />
-                  <input placeholder="筛选" value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} />
-                </label>
+              {manualId.trim() && (
+                <button type="button" className="secondary-button" onClick={addManual}>
+                  <span>添加 ID</span>
+                </button>
               )}
             </div>
-            <div className="models-editor-model-list">
-              {candidates.length === 0 && <div className="models-model-empty">填写 API 地址后点击「从 API 获取」，或手动添加模型 ID。</div>}
-              {shown.map((model) => {
-                const selected = selectedIds.has(model.id);
-                const current = draft.models.find((item) => item.id === model.id) ?? model;
-                return (
-                  <div key={model.id} className={`models-editor-model ${selected ? "selected" : ""}`}>
-                    <div className="models-editor-model-row">
-                      <label>
-                        <input type="checkbox" checked={selected} onChange={() => toggleModel(model)} />
-                        <span><strong>{current.name || current.id}</strong>{current.name && current.name !== current.id && <code>{current.id}</code>}</span>
-                      </label>
-                      <span className="models-caps">
-                        {current.reasoning && <em><Brain size={11} />推理</em>}
-                        {current.input.includes("image") && <em><Image size={11} />图片</em>}
-                        {current.contextWindow ? <em>{formatTokenCount(current.contextWindow)}</em> : null}
-                        <CapabilitySourceTag entry={sources[model.id]} />
-                      </span>
-                      {selected && <button className="models-link" onClick={() => setExpanded(expanded === model.id ? null : model.id)}>{expanded === model.id ? "收起" : "详情"}</button>}
-                    </div>
-                    {selected && expanded === model.id && (
-                      <div className="models-editor-model-details">
-                        <label><span>显示名称</span><input value={current.name} onChange={(event) => changeModel(model.id, { name: event.target.value })} placeholder={current.id} /></label>
-                        <label><span>上下文</span><input type="number" min="1" value={current.contextWindow ?? ""} onChange={(event) => changeModel(model.id, { contextWindow: event.target.value ? Number(event.target.value) : null })} /></label>
-                        <label><span>最大输出</span><input type="number" min="1" value={current.maxTokens ?? ""} onChange={(event) => changeModel(model.id, { maxTokens: event.target.value ? Number(event.target.value) : null })} /></label>
-                        <label>
-                          <span>输入单价 ($/M)</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={current.cost?.input ?? ""}
-                            placeholder="内置目录自动估算"
-                            onChange={(event) => {
-                              const raw = event.target.value;
-                              const nextInput = raw === "" ? null : Number(raw);
-                              const nextOutput = current.cost?.output ?? 0;
-                              changeModel(model.id, {
-                                cost: nextInput === null && !current.cost?.output ? null : { ...current.cost, input: nextInput ?? 0, output: nextOutput },
-                              });
-                            }}
-                          />
-                        </label>
-                        <label>
-                          <span>输出单价 ($/M)</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={current.cost?.output ?? ""}
-                            placeholder="内置目录自动估算"
-                            onChange={(event) => {
-                              const raw = event.target.value;
-                              const nextOutput = raw === "" ? null : Number(raw);
-                              const nextInput = current.cost?.input ?? 0;
-                              changeModel(model.id, {
-                                cost: nextOutput === null && !current.cost?.input ? null : { ...current.cost, input: nextInput, output: nextOutput ?? 0 },
-                              });
-                            }}
-                          />
-                        </label>
-                        <label className="models-editor-inline"><Toggle checked={current.reasoning} label="推理模型" onChange={(value) => changeModel(model.id, { reasoning: value })} /><span>推理</span></label>
-                        <label className="models-editor-inline"><Toggle checked={current.input.includes("image")} label="支持图片" onChange={(value) => changeModel(model.id, { input: value ? ["text", "image"] : ["text"] })} /><span>图片</span></label>
-                      </div>
-                    )}
+
+            {pickerOpen && discovered.length > 0 && (
+              <div className="models-api-picker-box">
+                <div className="models-api-picker-head">
+                  <span>
+                    API 可用模型（共 {discovered.length} 个，已选 {draft.models.filter((m) => discovered.some((d) => d.id === m.id)).length} 个）
+                  </span>
+                  <div className="models-api-picker-tools">
+                    <label className="models-inline-search">
+                      <Search size={12} />
+                      <input
+                        placeholder="搜索 API 模型…"
+                        value={modelQuery}
+                        onChange={(event) => setModelQuery(event.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="models-picker-done-btn"
+                      onClick={() => setPickerOpen(false)}
+                    >
+                      <Check size={12} />
+                      <span>完成选择</span>
+                    </button>
                   </div>
-                );
-              })}
+                </div>
+                <div className="models-api-picker-list">
+                  {filteredDiscovered.length === 0 ? (
+                    <div className="models-model-empty">没有匹配“{modelQuery}”的候选模型</div>
+                  ) : (
+                    filteredDiscovered.map((candidate) => {
+                      const checked = selectedIds.has(candidate.id);
+                      const badges = modelTraitBadges(
+                        candidate.reasoning,
+                        candidate.thinkingLevel,
+                        candidate.input,
+                        candidate.contextWindow,
+                      );
+                      return (
+                        <label
+                          key={candidate.id}
+                          className={`models-api-candidate ${checked ? "is-checked" : ""}`}
+                        >
+                          <span className="models-api-candidate-left">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleModel(candidate)}
+                            />
+                            <strong>{candidate.name || candidate.id}</strong>
+                            {candidate.name && candidate.name !== candidate.id && <code>{candidate.id}</code>}
+                          </span>
+                          <span className="models-capability-badges">
+                            {badges.map((badge) => (
+                              <span key={badge.key} className={`models-cap-pill is-${badge.tone}`}>{badge.label}</span>
+                            ))}
+                            <CapabilitySourceTag entry={sources[candidate.id]} />
+                          </span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="models-editor-model-list">
+              {draft.models.length === 0 ? (
+                <div className="models-model-empty">
+                  {discovered.length > 0
+                    ? "请从上方 API 候选列表中勾选要启用的模型（未选模型不会被同步）。"
+                    : "填写 API 地址后点击“从 API 获取”按需勾选，或手动输入模型 ID 回车添加。"}
+                </div>
+              ) : (
+                draft.models.map((current) => {
+                  const hasImage = current.input.includes("image");
+                  const currentThinking = effectiveModelThinking(current.reasoning, current.thinkingLevel);
+                  const currentCtx = current.contextWindow ?? 128_000;
+                  const hasPresetCtx = CONTEXT_WINDOW_PRESETS.some(([val]) => val === currentCtx);
+
+                  return (
+                    <div key={current.id} className="models-editor-model selected">
+                      <div className="models-editor-model-row">
+                        <div className="models-selected-title">
+                          <strong>{current.name || current.id}</strong>
+                          {current.name && current.name !== current.id && <code>{current.id}</code>}
+                          <CapabilitySourceTag entry={sources[current.id]} />
+                        </div>
+
+                        <div className="models-inline-cap-controls">
+                          <select
+                            className="models-cap-select"
+                            aria-label={`${current.id} 最大上下文`}
+                            title="最大上下文窗口"
+                            value={String(currentCtx)}
+                            onChange={(event) => changeModel(current.id, { contextWindow: Number(event.target.value) })}
+                          >
+                            {!hasPresetCtx && (
+                              <option value={String(currentCtx)}>
+                                上下文 {formatTokenCount(currentCtx) || currentCtx}
+                              </option>
+                            )}
+                            {CONTEXT_WINDOW_PRESETS.map(([val, label]) => (
+                              <option key={val} value={String(val)}>上下文 {label}</option>
+                            ))}
+                          </select>
+
+                          <select
+                            className={`models-cap-select ${currentThinking !== "off" ? "is-active-think" : ""}`}
+                            aria-label={`${current.id} 思考等级`}
+                            title="模型思考能力与默认推理等级"
+                            value={currentThinking}
+                            onChange={(event) => {
+                              const nextLevel = event.target.value as ModelThinkingLevel;
+                              changeModel(current.id, {
+                                reasoning: nextLevel !== "off",
+                                thinkingLevel: nextLevel,
+                              });
+                            }}
+                          >
+                            {MODEL_THINKING_OPTIONS.map(([val, label]) => (
+                              <option key={val} value={val}>{label}</option>
+                            ))}
+                          </select>
+
+                          <button
+                            type="button"
+                            className={`models-cap-toggle ${hasImage ? "is-on" : ""}`}
+                            aria-pressed={hasImage}
+                            title="切换该模型是否支持图片多模态输入"
+                            onClick={() => changeModel(current.id, { input: hasImage ? ["text"] : ["text", "image"] })}
+                          >
+                            <span>{hasImage ? "支持图片" : "不支持图片"}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            className="models-subtle-link"
+                            onClick={() => setExpanded(expanded === current.id ? null : current.id)}
+                          >
+                            {expanded === current.id ? "收起" : "详情"}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="models-remove-selected"
+                            title={`移除 ${current.name || current.id}`}
+                            aria-label={`移除 ${current.name || current.id}`}
+                            onClick={() => removeSelectedModel(current.id)}
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {expanded === current.id && (
+                        <div className="models-editor-model-details">
+                          <label>
+                            <span>显示名称</span>
+                            <input
+                              value={current.name}
+                              onChange={(event) => changeModel(current.id, { name: event.target.value })}
+                              placeholder={current.id}
+                            />
+                          </label>
+                          <label>
+                            <span>上下文</span>
+                            <input
+                              type="number"
+                              min="1"
+                              value={current.contextWindow ?? ""}
+                              onChange={(event) =>
+                                changeModel(current.id, { contextWindow: event.target.value ? Number(event.target.value) : null })
+                              }
+                            />
+                          </label>
+                          <label>
+                            <span>最大输出</span>
+                            <input
+                              type="number"
+                              min="1"
+                              value={current.maxTokens ?? ""}
+                              onChange={(event) =>
+                                changeModel(current.id, { maxTokens: event.target.value ? Number(event.target.value) : null })
+                              }
+                            />
+                          </label>
+                          <label>
+                            <span>输入单价 ($/M)</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={current.cost?.input ?? ""}
+                              placeholder="自动估算"
+                              onChange={(event) => {
+                                const raw = event.target.value;
+                                const nextInput = raw === "" ? null : Number(raw);
+                                const nextOutput = current.cost?.output ?? 0;
+                                changeModel(current.id, {
+                                  cost:
+                                    nextInput === null && !current.cost?.output
+                                      ? null
+                                      : { ...current.cost, input: nextInput ?? 0, output: nextOutput },
+                                });
+                              }}
+                            />
+                          </label>
+                          <label>
+                            <span>输出单价 ($/M)</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={current.cost?.output ?? ""}
+                              placeholder="自动估算"
+                              onChange={(event) => {
+                                const raw = event.target.value;
+                                const nextOutput = raw === "" ? null : Number(raw);
+                                const nextInput = current.cost?.input ?? 0;
+                                changeModel(current.id, {
+                                  cost:
+                                    nextOutput === null && !current.cost?.input
+                                      ? null
+                                      : { ...current.cost, input: nextInput, output: nextOutput ?? 0 },
+                                });
+                              }}
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
         <footer>
-          {error ? <span className="models-field-error"><CircleAlert size={13} />{error}</span> : <span className="models-hint">保存到 ~/.pid/providers.json</span>}
-          <button className="secondary-button compact" onClick={onClose} disabled={busy}>取消</button>
-          <button className="primary-button compact" onClick={() => void save()} disabled={busy}>
-            {busy && <LoaderCircle size={13} className="spinner-icon" />}{editing ? "保存" : "添加"}
+          {error ? (
+            <span className="models-field-error">
+              <CircleAlert size={13} />
+              <span>{error}</span>
+            </span>
+          ) : (
+            <span className="models-hint">配置将持久化保存至 ~/.pid/providers.json</span>
+          )}
+          <button type="button" className="secondary-button" onClick={onClose} disabled={busy}>
+            取消
+          </button>
+          <button type="button" className="primary-button" onClick={() => void save()} disabled={busy}>
+            {busy && <LoaderCircle size={13} className="spinner-icon" />}
+            <span>{editing ? "保存" : "添加"}</span>
           </button>
         </footer>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

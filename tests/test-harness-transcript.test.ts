@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { PersistedEvent } from "@pid/protocol";
 import { effortForLevel, forkPointsOf, sessionTreeOf } from "../src/lib/hostSessions";
-import { TranscriptTranslator, currentBranch, historyToUi, planWidgetLines } from "../src/lib/transcript";
+import { TranscriptTranslator, currentBranch, historyToUi, planWidgetLines, resetStreamingAssistant, streamAssistant } from "../src/lib/transcript";
 
 const golden = (name: string): PersistedEvent[] => readFileSync(join(import.meta.dirname, "..", "packages", "agent-loop", "test", "golden", `${name}.jsonl`), "utf8")
   .trim()
@@ -74,7 +74,18 @@ describe("live progress as transcript events", () => {
     expect(translator.delta({ type: "plan", plan })).toEqual([{ type: "plan", lines: ["计划 1/2", "[x] Read", "[>] Fix"] }]);
     expect(planWidgetLines({ items: [] })).toEqual([]);
     expect(translator.delta({ type: "queue", steer: 2, followUp: 0 })).toEqual([{ type: "queue", steering: 2, followUp: 0 }]);
-    expect(["off", "minimal", "medium", "xhigh"].map(effortForLevel)).toEqual(["off", "low", "medium", "high"]);
+    expect(
+      translator.delta({
+        type: "llm-chunk",
+        chunk: { type: "retry", attempt: 1, maxAttempts: 5, delayMs: 2_000, effort: "medium", error: { kind: "network", message: "reset", retryable: true } },
+      }),
+    ).toEqual([{ type: "retry-status", text: "长流中断，已自动下调思考强度重试 1/4（2s 后）…" }]);
+    expect(["off", "minimal", "medium", "xhigh", "max"].map(effortForLevel)).toEqual(["off", "low", "medium", "high", "high"]);
+
+    const streamed = streamAssistant([], { text: "half", thinking: "partial thought" }, 100);
+    expect(streamed[0]).toMatchObject({ content: "half", thinking: "partial thought", isStreaming: true });
+    const reset = resetStreamingAssistant(streamed);
+    expect(reset[0]).toEqual({ id: "stream-100", role: "assistant", content: "", isStreaming: true, timestamp: 100 });
   });
 });
 

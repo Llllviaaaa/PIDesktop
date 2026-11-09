@@ -131,3 +131,31 @@ export function bottomPanelMaxHeight(windowHeight: number, layoutScale: number):
     Math.min(BOTTOM_PANEL_BOUNDS.max, windowHeight / layoutScale - 240),
   );
 }
+
+export function resolveUiScale(uiScale: number | undefined): number {
+  const numeric = Number(uiScale ?? 100);
+  const clamped = Number.isFinite(numeric) ? Math.min(150, Math.max(75, numeric)) : 100;
+  return clamped / 100;
+}
+
+/**
+ * Applies global UI zoom on `#root` without overriding its `100%` width/height.
+ *
+ * Standardized CSS `zoom` resolves percentage widths/heights directly against
+ * the unzoomed containing block (`<body>`), so setting `width: 100/scale%` would
+ * shrink `#root` when `scale > 1` and overflow the window when `scale < 1`.
+ */
+export function applyUiScale(
+  documentRoot: Pick<HTMLElement, "style">,
+  appRoot: Pick<HTMLElement, "style"> | null,
+  uiScale: number | undefined,
+): number {
+  const scale = resolveUiScale(uiScale);
+  documentRoot.style.setProperty("--ui-scale", String(scale));
+  if (appRoot) {
+    appRoot.style.zoom = scale === 1 ? "" : String(scale);
+    appRoot.style.removeProperty("width");
+    appRoot.style.removeProperty("height");
+  }
+  return scale;
+}

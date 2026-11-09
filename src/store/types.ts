@@ -5,7 +5,7 @@
  */
 import type { TranscriptEvent } from "../lib/transcript";
 import type { RuntimeStatus } from "../lib/agent";
-import type { HostStatus } from "../lib/harnessRuntime";
+import type { HostStatus, RewindExecutionResult, RewindMode } from "../lib/harnessRuntime";
 import type {
   AgentBrowserState,
   AppNotification,
@@ -99,6 +99,8 @@ export interface SessionsSlice {
   sessionTreeLoading: boolean;
   resolveMessageForkPoint: (messageId: string) => Promise<ForkPoint | null>;
   rewindMessage: (entryId: string) => Promise<boolean>;
+  rewindMessageWithMode: (entryId: string, mode?: RewindMode) => Promise<RewindExecutionResult | null>;
+  syncActiveSession: () => Promise<void>;
   editAndResend: (entryId: string, text: string, attachments?: AttachmentPayload[]) => Promise<boolean>;
   newSession: () => Promise<void>;
   cloneSession: () => Promise<void>;

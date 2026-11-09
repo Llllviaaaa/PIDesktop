@@ -21,13 +21,23 @@
   cursor: col-resize;
   position: relative;
   z-index: 8;
+}
+
+.pid-right-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: transparent;
   transition: background-color 120ms ease;
 }
 
-.pid-right-resizer:hover,
-.pid-right-resizer:focus-visible,
-body.workspace-is-resizing .pid-right-resizer {
-  background: color-mix(in srgb, var(--accent) 42%, transparent);
+.pid-right-resizer:hover::after,
+.pid-right-resizer:focus-visible::after,
+body.workspace-is-resizing .pid-right-resizer::after {
+  background: var(--accent);
 }
 
 .pid-right-workbench {
@@ -36,7 +46,7 @@ body.workspace-is-resizing .pid-right-resizer {
   height: 100%;
   min-width: 0;
   flex-shrink: 0;
-  background: var(--panel);
+  background: var(--app);
   border-left: 1px solid var(--border);
   color: var(--text);
   overflow: hidden;
@@ -51,24 +61,40 @@ body.workspace-is-resizing .pid-right-resizer {
   display: none;
 }
 
-.pid-wb-header,
+.pid-wb-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--app);
+  flex-shrink: 0;
+}
+
 .pid-bottom-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  min-height: 38px;
-  padding: 4px 8px;
+  min-height: 36px;
+  padding: 4px 10px;
   border-bottom: 1px solid var(--border);
-  background: var(--panel);
+  background: var(--app);
   flex-shrink: 0;
 }
 
 .pid-wb-tabs,
 .pid-bottom-tabs {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   overflow-x: auto;
   scrollbar-width: none;
   min-width: 0;
@@ -80,40 +106,59 @@ body.workspace-is-resizing .pid-right-resizer {
 }
 
 .pid-wb-tab-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 28px;
-  padding: 0 8px;
-  border-radius: 6px;
-  border: 1px solid transparent;
+  height: 27px;
+  padding: 0 9px;
+  border-radius: 7px;
+  border: 0;
   background: transparent;
   color: var(--text-2);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 480;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
+  isolation: isolate;
+  transition: color 130ms ease;
 }
 
-.pid-wb-tab-btn:hover {
-  background: var(--panel-soft);
+.pid-wb-tab-btn:hover:not(.active) {
+  background: var(--hover);
   color: var(--text);
 }
 
 .pid-wb-tab-btn.active {
-  background: var(--panel-strong, var(--panel-soft));
   color: var(--text);
-  border-color: var(--border);
+  font-weight: 550;
+  box-shadow: none;
+}
+
+.pid-wb-tab-pill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 7px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+}
+
+:root[data-theme="dark"] .pid-wb-tab-pill {
+  background: var(--panel-strong);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .pid-wb-tab-count {
+  font-family: var(--code-font);
   font-style: normal;
   font-size: 10.5px;
+  font-weight: 520;
+  font-variant-numeric: tabular-nums;
   padding: 0 5px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 18%, var(--panel-soft));
-  color: var(--text);
+  background: var(--panel-soft);
+  color: var(--text-2);
 }
 
 .pid-wb-window-btns,
@@ -446,7 +491,8 @@ body.workspace-is-resizing .pid-right-resizer {
 }
 
 .pid-wb-filepath {
-  font-size: 11.5px;
+  font-family: var(--code-font);
+  font-size: 11px;
   color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -495,7 +541,7 @@ body.workspace-is-resizing .pid-right-resizer {
 .pid-wb-pill {
   height: 24px;
   padding: 0 8px;
-  border-radius: 999px;
+  border-radius: 5px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-2);
@@ -504,7 +550,8 @@ body.workspace-is-resizing .pid-right-resizer {
 }
 
 .pid-wb-pill.active {
-  background: var(--panel-soft);
+  background: var(--panel);
+  border-color: var(--border-strong);
   color: var(--text);
   font-weight: 500;
 }
@@ -563,6 +610,8 @@ body.workspace-is-resizing .pid-right-resizer {
 }
 
 .pid-wb-diff-path {
+  font-family: var(--code-font);
+  font-size: 11.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -570,8 +619,10 @@ body.workspace-is-resizing .pid-right-resizer {
 
 .pid-wb-diff-counts {
   display: inline-flex;
-  gap: 4px;
+  gap: 5px;
+  font-family: var(--code-font);
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 
@@ -733,9 +784,11 @@ body.workspace-is-resizing .pid-right-resizer {
 }
 
 .pid-wb-badge {
-  font-size: 11px;
+  font-family: var(--code-font);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--panel-soft);
   color: var(--text-2);
 }
@@ -819,9 +872,10 @@ body.workspace-is-resizing .pid-right-resizer {
 
 .pid-wb-status-pill {
   margin-left: auto;
-  font-size: 11px;
+  font-family: var(--code-font);
+  font-size: 10.5px;
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--panel-soft);
   color: var(--text-2);
 }
@@ -917,16 +971,27 @@ body.workspace-is-resizing .pid-right-resizer {
 }
 
 .pid-bottom-resizer {
+  position: relative;
   height: 5px;
   flex-shrink: 0;
   cursor: row-resize;
+}
+
+.pid-bottom-resizer::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 1px;
+  background: transparent;
   transition: background-color 120ms ease;
 }
 
-.pid-bottom-resizer:hover,
-.pid-bottom-resizer:focus-visible,
-body.bottom-panel-is-resizing .pid-bottom-resizer {
-  background: color-mix(in srgb, var(--accent) 42%, transparent);
+.pid-bottom-resizer:hover::after,
+.pid-bottom-resizer:focus-visible::after,
+body.bottom-panel-is-resizing .pid-bottom-resizer::after {
+  background: var(--accent);
 }
 
 .pid-bottom-body {

@@ -122,9 +122,10 @@ describe("anthropic adapter", () => {
   it("treats a stream cut before message_stop as a retryable network error", async () => {
     const { ctx, server } = await setup();
     const cut = fixture("text.sse").split("event: message_stop")[0];
-    server.reply({ sse: cut }, { sse: cut }, { sse: cut });
+    server.reply({ sse: cut }, { sse: cut }, { sse: cut }, { sse: cut }, { sse: cut });
     const result = await assemble(ctx.llm.stream(request));
     expect(result.error).toMatchObject({ kind: "network", retryable: true });
+    expect(server.requests).toHaveLength(5);
   });
 
   it("lists models with display names", async () => {

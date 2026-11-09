@@ -37,6 +37,7 @@ export interface ProviderDraft {
   apiKey?: string;
   keepExistingApiKey?: boolean;
   headers?: Record<string, string>;
+  reasoningEffort?: boolean;
   models?: ModelInfo[];
 }
 
@@ -87,12 +88,14 @@ export function apply(ctx: Context, config: Config): void {
 
   /** The entry a draft describes, with its key resolved; `previous` supplies a kept key. */
   const entryOf = (draft: ProviderDraft, previous: ProviderEntry | undefined): { entry: ProviderEntry; secret?: string } => {
+    const reasoningEffort = draft.reasoningEffort ?? previous?.reasoningEffort;
     const entry: ProviderEntry = {
       api: draft.api,
       id: draft.id.trim(),
       ...(draft.name?.trim() ? { name: draft.name.trim() } : {}),
       ...(draft.baseUrl?.trim() ? { baseUrl: draft.baseUrl.trim() } : {}),
       ...(draft.headers !== undefined && Object.keys(draft.headers).length > 0 ? { headers: draft.headers } : {}),
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       ...(draft.models !== undefined && draft.models.length > 0 ? { models: draft.models } : {}),
     };
     const typed = draft.apiKey?.trim() ?? "";
@@ -189,6 +192,28 @@ export function apply(ctx: Context, config: Config): void {
         id: entry.id,
         ...(entry.baseUrl === undefined ? {} : { baseUrl: entry.baseUrl }),
         ...(apiKey === undefined ? {} : { apiKey }),
+        ...(entry.headers === undefined ? {} : { headers: entry.headers }),
+      });
+      try {
+        return { models: typeof adapter.listModels === "function" ? await adapter.listModels(signal) : [] };
+      } catch (error) {
+        if (error instanceof LlmError) throw new RpcError(ErrorCode.ProviderError, error.message, error.toInfo());
+        throw error;
+      }
+    },
+
+    /** Live connectivity check against the provider's remote `/models` endpoint without configured-model fallback. */
+    "provider.check": async (params, signal): Promise<{ models: ModelInfo[] }> => {
+      const id = params.id;
+      if (typeof id !== "string" || id.trim() === "") invalid("provider.check needs { id }");
+      const entry = (readFile(config.file).providers as ProviderEntry[]).find((item) => item?.id === id);
+      if (entry === undefined) invalid(`No provider named ${id}`);
+      const spec = resolveActiveProtocolMap(ctx, true).get(entry.api);
+      if (spec === undefined) invalid(`Unsupported protocol: ${entry.api}`);
+      const adapter = spec.createAdapter(ctx, {
+        id: entry.id,
+        ...(entry.baseUrl === undefined ? {} : { baseUrl: entry.baseUrl }),
+        ...(entry.apiKey === undefined ? {} : { apiKey: entry.apiKey }),
         ...(entry.headers === undefined ? {} : { headers: entry.headers }),
       });
       try {

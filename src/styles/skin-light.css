@@ -1,24 +1,22 @@
 /*
- * Claude Code Desktop skin (`dsh-claude-style` port): light-mode refinements.
- *
- * Keeps light surfaces on warm ivory (`#fcfcfb` / `#fbfbf9` / `#e8e6dc`) with
- * zero cool-purple halos or shadows, matching `dsh-claude-style`'s strict rule:
- * "Never pure white, never pure black, never cool grays."
+ * Pi Desktop — Meta AI Muse Light-Mode Refinements (`skin-light.css`)
  */
 
-:root[data-theme="light"] .codex-shot .stage-canvas {
+:root[data-theme="light"] .codex-shot .work-surface {
+  border-color: transparent;
   box-shadow: none;
-}
-
-:root[data-theme="light"] .codex-shot .stage-canvas::before {
-  display: none;
 }
 
 :root[data-theme="light"] .codex-shot .nav-item.active,
 :root[data-theme="light"] .codex-shot .thread-row.active,
-:root[data-theme="light"] .codex-shot .thread-row-shell.active .thread-row,
-:root[data-theme="light"] .settings-nav-scroll button.active {
-  background: var(--dsh-claude-hover-bg, rgba(0, 0, 0, 0.06));
+:root[data-theme="light"] .codex-shot .thread-row-shell.active .thread-row {
+  background: var(--muse-soft-fill);
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text);
+}
+
+:root[data-theme="light"] .codex-shot .settings-nav-scroll button.active {
   color: var(--text);
 }
 
@@ -26,31 +24,10 @@
   color: var(--text-3);
 }
 
-/* Composer: crisp ivory-white card with warm espresso drop shadow */
-:root[data-theme="light"] .codex-shot .composer-card,
-:root[data-theme="light"] .codex-shot .task-start-composer .composer-card.with-chips {
-  box-shadow:
-    0 4px 12px rgba(20, 20, 19, 0.04),
-    0 1px 3px rgba(20, 20, 19, 0.02);
-}
-
-:root[data-theme="light"] .codex-shot .composer-card:focus-within {
-  border-color: rgba(20, 20, 19, 0.18);
-  box-shadow:
-    0 0 0 1px rgba(20, 20, 19, 0.067),
-    0 6px 18px rgba(20, 20, 19, 0.03),
-    0 2px 6px rgba(20, 20, 19, 0.016);
-}
-
 :root[data-theme="light"] .codex-shot .live-plan,
+:root[data-theme="light"] .codex-shot .active-goal-card,
 :root[data-theme="light"] .codex-shot .conversation-change-card {
-  box-shadow:
-    0 4px 18px rgba(20, 20, 19, 0.06),
-    0 1px 3px rgba(20, 20, 19, 0.03);
-}
-
-:root[data-theme="light"] .codex-shot .markdown-code {
-  box-shadow: none;
+  box-shadow: var(--muse-elevation-pill);
 }
 
 :root[data-theme="light"] ::-webkit-scrollbar-thumb {

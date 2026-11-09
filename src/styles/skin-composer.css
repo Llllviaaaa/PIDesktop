@@ -1,286 +1,175 @@
 /*
- * DSH + Claude Style port: new-session home, usage dashboard,
- * 16-bit pixel pet art, permission segments, and DSH-native InputBar card
- * (with zero gradient masks over the composer or transcript).
+ * Pi Desktop — Cool-Gray Minimalist Home & Composer (`skin-composer.css`)
+ *
+ * Features:
+ * - Pure, generous Home canvas with centered greeting and zero background noise.
+ * - Single-surface rounded input card (`16px` radius) with borderless ghost toolbar controls.
+ * - Quiet workspace context strip resting unobtrusively beneath the hero input card.
  */
 
-/* ── Home page layout (`dsh-claude-home`) ───────────────────────────── */
+/* ── Minimalist Home Canvas ────────────────────────────────────────── */
 
 .codex-shot .new-task-screen.dsh-claude-home {
   position: relative;
-  isolation: isolate;
   box-sizing: border-box;
   width: 100%;
-  /* 748px at the 760px reading floor; widens with the chat column. */
-  max-width: calc(var(--chat-reading-width, 760px) - 12px);
+  max-width: none;
   min-height: 100%;
-  margin: 0 auto;
-  padding: 20px 16px 18px;
+  margin: 0;
+  padding: 28px 32px 44px;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  align-items: stretch;
-  gap: 14px;
+  justify-content: center;
+  align-items: center;
+  background-image: none;
 }
 
-/* Headline. Its auto top margin and the composer's split the free height, so
-   the headline and the usage card sit centred above the composer, as in DSH and Codex. */
-.codex-shot .dsh-claude-hero-headline {
+.codex-shot .new-task-screen.dsh-claude-home::before {
+  content: none;
+  display: none;
+}
+
+@keyframes pi-home-core-enter {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+.codex-shot .minimal-home-core {
+  position: relative;
+  z-index: 2;
+  width: min(700px, 100%);
+  margin: auto;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  width: 100%;
-  margin: auto 0 8px;
-  padding: 8px 0 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20px;
+  padding-bottom: 4vh;
+  animation: pi-home-core-enter 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .codex-shot .dsh-claude-home .new-task-heading {
   margin: 0;
+  max-width: none;
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 20px;
-  font-weight: 500;
-  line-height: 26px;
-  letter-spacing: 0;
+  font-size: 26px;
+  font-weight: 580;
+  line-height: 1.3;
+  letter-spacing: -0.022em;
   text-align: center;
+}
+
+.codex-shot .dsh-home-starters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: -4px;
+}
+
+.codex-shot .dsh-home-starter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--muse-soft-fill);
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 490;
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    background-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.codex-shot .dsh-home-starter-pill svg {
+  color: var(--text-2);
+  opacity: 0.9;
+}
+
+.codex-shot .dsh-home-starter-pill:hover {
+  background: var(--muse-soft-fill-hover);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.codex-shot .dsh-home-starter-pill:hover svg {
+  color: var(--accent);
+}
+
+.codex-shot .dsh-home-starter-pill:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.codex-shot .dsh-claude-home .new-task-error {
+  margin: -8px 0 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--red) 32%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--red) 6%, var(--panel));
+  color: var(--red);
+  font-size: 12.5px;
+  text-align: center;
+  max-width: none;
 }
 
 .codex-shot .dsh-claude-home-composer-wrap {
   position: relative;
-  z-index: 30;
+  z-index: 45;
   width: 100%;
-  margin-top: auto;
+  margin: 0;
 }
 
-/* The home column sets the width; drop the legacy 720px composer cap. */
 .codex-shot .dsh-claude-home-composer-wrap > .composer-area.codex-composer.task-start-composer {
   width: 100%;
   max-width: none;
-}
-
-/* ── Studio Usage Dashboard (`.dsh-claude-home-panel`) ─────────────── */
-
-.codex-shot .dsh-claude-home-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  box-sizing: border-box;
-  width: min(480px, 100%);
-  margin: 0 auto;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: transparent;
+  gap: 0;
 }
 
-.codex-shot .dsh-claude-home-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
+/* ── Permission & Mode Chips (`.chip-permission`, `.chip-agent-mode`) ─ */
 
-.codex-shot .dsh-claude-home-panel-title {
-  color: var(--text-2);
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
-}
-
-.codex-shot .dsh-claude-home-panel-note,
-.codex-shot .dsh-claude-home-foot {
-  color: var(--text-3);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.codex-shot .dsh-claude-home-foot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 2px 12px;
-}
-
-/* Settings → 显示建议提示词: starting points under the usage card. */
-.codex-shot .home-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  width: min(480px, 100%);
-  margin: 0 auto;
-}
-
-.codex-shot .home-suggestion {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 11px;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-2);
-  font: 12.5px/1 var(--font-ui);
-  cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-
-.codex-shot .home-suggestion:hover {
-  border-color: var(--dsh-claude-border-l2, var(--border-strong));
-  background: var(--dsh-claude-hover-bg, var(--hover));
-  color: var(--text);
-}
-
-.codex-shot .home-suggestion > svg {
-  flex: none;
-  color: var(--text-3);
-}
-
-.codex-shot .dsh-claude-home-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.codex-shot .dsh-claude-home-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  box-sizing: border-box;
-  min-width: 0;
-  padding: 5px 8px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--text) 4%, transparent);
-}
-
-.codex-shot .dsh-claude-home-stat-label {
-  color: var(--text-3);
-  font-size: 12px;
-  line-height: 16px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.codex-shot .dsh-claude-home-stat-value {
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 18px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-variant-numeric: tabular-nums;
-}
-
-.codex-shot .dsh-claude-home-stat[data-stat="model"] .dsh-claude-home-stat-value {
-  font-weight: 400;
-}
-
-.codex-shot .dsh-claude-home-heat {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(7, 1fr);
-  grid-auto-columns: 1fr;
-  gap: 3px;
-  align-content: start;
-}
-
-.codex-shot .dsh-claude-home-heat-cell {
-  position: relative;
-  aspect-ratio: 1;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-}
-
-.codex-shot .dsh-claude-home-heat-cell[data-level="1"] {
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
-}
-
-.codex-shot .dsh-claude-home-heat-cell[data-level="2"] {
-  background: color-mix(in srgb, var(--accent) 45%, transparent);
-}
-
-.codex-shot .dsh-claude-home-heat-cell[data-level="3"] {
-  background: color-mix(in srgb, var(--accent) 70%, transparent);
-}
-
-.codex-shot .dsh-claude-home-heat-cell[data-level="4"] {
-  background: var(--accent);
-}
-
-.codex-shot .dsh-claude-home-heat-cell[data-tip]:hover::after {
-  content: attr(data-tip);
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  z-index: 20;
-  transform: translateX(-50%);
-  padding: 5px 10px;
-  border-radius: 8px;
-  background: var(--text);
-  color: var(--app);
-  font-size: 12.5px;
-  font-weight: 500;
-  line-height: 18px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-}
-
-.codex-shot .dsh-claude-home-heat-cell[data-tip][data-edge="start"]:hover::after {
-  left: 0;
-  transform: none;
-}
-
-.codex-shot .dsh-claude-home-heat-cell[data-tip][data-edge="end"]:hover::after {
-  left: auto;
-  right: 0;
-  transform: none;
-}
-
-/* ── 16-bit Pixel Pet art (desktop pet and settings preview) ───────── */
-
-.pixel-pet-svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-  image-rendering: pixelated;
-  shape-rendering: crispEdges;
-}
-
-/* ── Permission Chip & Menu (`.chip-permission` + `.permission-menu`) ─ */
-
-.codex-shot .chip-permission {
+.codex-shot .chip-permission,
+.codex-shot .chip-agent-mode {
   flex: none;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: var(--dsh-claude-chip);
-  border: 1px solid transparent;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: transparent;
+  border: 0;
   color: var(--text-2);
   font-family: var(--font-ui);
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 480;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .codex-shot .chip-permission:hover,
 .codex-shot .chip-permission.active {
   background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
-  border-color: var(--dsh-claude-border-l1, var(--border));
 }
 
 .codex-shot .chip-permission svg:first-child {
-  color: var(--accent, #d97757);
+  color: var(--text-3);
 }
 
 .codex-shot .chip-permission svg:last-child {
@@ -292,37 +181,51 @@
   transform: rotate(180deg);
 }
 
+.codex-shot .chip-agent-mode {
+  background: var(--active);
+  color: var(--text);
+  font-weight: 520;
+}
+
+.codex-shot .chip-agent-mode svg {
+  color: var(--text-2) !important;
+}
+
+.codex-shot .chip-agent-mode:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+}
+
 .codex-shot .permission-menu {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
-  z-index: 70;
-  width: 250px;
+  z-index: 80;
+  width: 252px;
   padding: 6px;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
+  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--dsh-claude-raised, var(--popover));
   color: var(--text);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--pi-shadow-deck);
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
 .codex-shot .permission-menu-heading {
+  font-family: var(--font-ui);
   font-size: 11px;
   color: var(--text-3);
-  font-weight: 600;
-  padding: 4px 8px 2px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-weight: 500;
+  padding: 4px 8px 3px;
 }
 
 .codex-shot .permission-menu > button {
   width: 100%;
-  min-height: 42px;
+  min-height: 40px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text);
   display: flex;
@@ -335,17 +238,13 @@
   transition: background-color 0.12s ease;
 }
 
-.codex-shot .permission-menu > button:hover {
-  background: var(--dsh-claude-hover-bg, var(--hover));
-}
-
+.codex-shot .permission-menu > button:hover,
 .codex-shot .permission-menu > button.active {
   background: var(--dsh-claude-hover-bg, var(--hover));
-  font-weight: 500;
 }
 
 .codex-shot .permission-menu > button.active > svg {
-  color: var(--accent, #d97757);
+  color: var(--text);
 }
 
 .codex-shot .permission-menu-copy {
@@ -357,8 +256,8 @@
 }
 
 .codex-shot .permission-menu-copy strong {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 540;
   color: var(--text);
 }
 
@@ -368,16 +267,15 @@
   line-height: 1.35;
 }
 
-/* ── DSH Native InputBar Card (`InputBar.module.css` `.uWtHQG_card`) ─ */
+/* ── Meta AI Muse Floating Frosted Pill Composer (`rounded-28`) ─────── */
 
-/* Zero mask / zero gradient over the composer dock */
 .codex-shot .composer-dock,
 :root[data-theme="light"] .codex-shot .composer-dock,
 :root[data-theme="dark"] .codex-shot .composer-dock {
   position: relative;
-  background: var(--dsh-claude-canvas, var(--app)) !important;
+  background: transparent !important;
   background-image: none !important;
-  padding: 6px 24px 12px !important;
+  padding: 4px 24px 18px !important;
   box-shadow: none !important;
 }
 
@@ -389,71 +287,137 @@
 
 .codex-shot .main-stage > .composer-dock > .composer-area.codex-composer {
   width: 100%;
-  max-width: calc(var(--chat-reading-width, 760px) + 20px);
+  max-width: min(748px, 100%);
   margin: 0 auto;
 }
 
-/* Unified DSH card for both home (`hero`) and conversation (`inline`) */
+/* Quiet Ghost Context Strip below the hero card */
+.codex-shot .composer-breadcrumb-trail {
+  order: 2;
+  position: relative;
+  z-index: 35;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 12px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.codex-shot .composer-breadcrumb-trail .chip {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 470;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  box-shadow: none;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.codex-shot .composer-breadcrumb-trail .chip:hover,
+.codex-shot .composer-breadcrumb-trail :is(.workspace-context-wrap, .environment-context-wrap):has(.workspace-context-menu) > .chip {
+  background: var(--muse-soft-fill);
+  color: var(--text);
+}
+
+.codex-shot .composer-breadcrumb-trail .chip svg {
+  color: var(--text-3);
+  transition: transform 0.14s ease, color 0.12s ease;
+}
+
+.codex-shot .composer-breadcrumb-trail :is(.workspace-context-wrap, .environment-context-wrap):has(.workspace-context-menu) > .chip svg:last-child {
+  transform: rotate(180deg);
+}
+
+.codex-shot .composer-breadcrumb-trail .chip-project span,
+.codex-shot .composer-breadcrumb-trail .chip-branch span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.codex-shot .composer-breadcrumb-trail .chip-branch,
+.codex-shot .composer-breadcrumb-trail .chip-branch:hover {
+  margin-left: auto;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--code-font);
+  font-size: 11px;
+  cursor: default;
+}
+
+/* Main Muse Frosted Pill Surface (`rounded-28`, ambient blur shadow, zero harsh border) */
 .codex-shot .composer-card,
 .codex-shot .composer-card.unified,
 .codex-shot .composer-card.follow-up,
+.codex-shot .composer-card.with-chips,
+.codex-shot .task-start-composer .composer-card.with-chips,
 .codex-shot .composer-card[data-composer-variant="hero"],
-.codex-shot .composer-card[data-composer-variant="inline"],
-.codex-shot .task-start-composer .composer-card.with-chips {
+.codex-shot .composer-card[data-composer-variant="inline"] {
+  order: 1;
   position: relative;
   z-index: 2;
   box-sizing: border-box;
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 0 8px !important;
-  border: 1px solid var(--dsh-claude-border-l2, var(--border)) !important;
-  border-radius: 20px !important;
-  background: var(--dsh-claude-input-major, var(--panel)) !important;
-  box-shadow:
-    0 2px 10px rgba(0, 0, 0, 0.22),
-    0 1px 2px rgba(0, 0, 0, 0.12) !important;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  gap: 6px;
+  padding: 14px 4px 10px !important;
+  border: 1px solid rgba(17, 17, 18, 0.03) !important;
+  border-radius: 28px !important;
+  background: var(--muse-blur-pill-bg) !important;
+  backdrop-filter: saturate(180%) blur(24px);
+  box-shadow: var(--muse-elevation-pill) !important;
+  transition:
+    box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 180ms ease,
+    background-color 180ms ease;
   overflow: visible;
 }
 
-:root[data-theme="light"] .codex-shot .composer-card,
-:root[data-theme="light"] .codex-shot .composer-card.unified,
-:root[data-theme="light"] .codex-shot .composer-card.follow-up,
-:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="hero"],
-:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="inline"],
-:root[data-theme="light"] .codex-shot .task-start-composer .composer-card.with-chips {
-  background: #ffffff !important;
-  border-color: var(--dsh-claude-border-l2, #dedcd2) !important;
-  box-shadow:
-    0 2px 10px rgba(20, 20, 19, 0.05),
-    0 1px 2px rgba(20, 20, 19, 0.03) !important;
+:root[data-theme="dark"] .codex-shot .composer-card {
+  border-color: rgba(255, 255, 255, 0.065) !important;
+  box-shadow: var(--muse-elevation-pill) !important;
 }
 
-:root[data-theme="light"] .codex-shot .composer-card:focus-within,
-:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="hero"]:focus-within,
-:root[data-theme="light"] .codex-shot .composer-card[data-composer-variant="inline"]:focus-within {
-  border-color: rgba(20, 20, 19, 0.28) !important;
+.codex-shot .composer-card:focus-within,
+.codex-shot .composer-card[data-composer-variant="hero"]:focus-within,
+.codex-shot .composer-card[data-composer-variant="inline"]:focus-within {
+  background: var(--panel) !important;
+  border-color: rgba(17, 17, 18, 0.07) !important;
   box-shadow:
-    0 4px 16px rgba(20, 20, 19, 0.07),
-    0 1px 3px rgba(20, 20, 19, 0.04) !important;
+    0 4px 16px rgba(17, 17, 18, 0.1),
+    0 8px 32px rgba(17, 17, 18, 0.06) !important;
 }
 
-:root[data-theme="dark"] .codex-shot .composer-card:focus-within,
-:root[data-theme="dark"] .codex-shot .composer-card[data-composer-variant="hero"]:focus-within,
-:root[data-theme="dark"] .codex-shot .composer-card[data-composer-variant="inline"]:focus-within {
-  border-color: rgba(250, 249, 245, 0.26) !important;
+:root[data-theme="dark"] .codex-shot .composer-card:focus-within {
+  background: #27282b !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
   box-shadow:
-    0 4px 18px rgba(0, 0, 0, 0.32),
-    0 1px 4px rgba(0, 0, 0, 0.18) !important;
+    0 6px 22px rgba(0, 0, 0, 0.44),
+    0 12px 36px rgba(0, 0, 0, 0.34) !important;
 }
 
-/* Inner input area (`.uWtHQG_input`) */
+/* Inner input area */
 .codex-shot .dsh-claude-input-box {
   width: 100%;
   box-sizing: border-box;
-  padding: 2px 16px 0;
+  padding: 0 18px 2px;
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
@@ -462,7 +426,7 @@
 
 .codex-shot .composer-input {
   width: 100%;
-  min-height: 36px;
+  min-height: 28px;
   max-height: 220px;
   padding: 0;
   margin: 0;
@@ -470,21 +434,21 @@
   outline: none;
   background: transparent;
   color: var(--text);
-  caret-color: var(--accent, #d97757);
+  caret-color: var(--accent);
   font-family: var(--font-ui);
-  font-size: 14.5px;
+  font-size: 15px;
   line-height: 24px;
 }
 
 .codex-shot .composer-card[data-composer-variant="hero"] .composer-input {
-  min-height: 54px;
+  min-height: 48px;
 }
 
 .codex-shot .composer-input::placeholder {
-  color: var(--dsh-claude-caption, var(--text-3));
+  color: var(--text-3);
 }
 
-/* Bottom control bar inside the card (`.uWtHQG_row`) */
+/* Borderless ghost control bar */
 .codex-shot .composer-toolbar,
 .codex-shot .composer-card[data-composer-variant="inline"] .composer-toolbar,
 .codex-shot .task-start-composer .composer-toolbar {
@@ -492,86 +456,82 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   min-height: 34px;
   height: auto;
   margin: 0;
-  padding: 2px 10px 0 12px;
+  padding: 0 10px;
+  border-top: 0;
   background: transparent;
-  border: 0;
 }
 
 .codex-shot .composer-toolbar-left,
 .codex-shot .composer-toolbar-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
-/* DSH round `+` button (`.uWtHQG_add`: 28x28 pill) */
+/* Circular `+` button (Muse style) */
 .codex-shot .dsh-input-add-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px !important;
-  background: var(--dsh-claude-chip) !important;
-  color: var(--text) !important;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--text-2) !important;
   display: inline-grid;
   place-items: center;
   padding: 0;
-  border: 0;
   cursor: pointer;
-  transition: background-color 0.12s ease;
+  transition: background-color 0.14s ease, color 0.14s ease, transform 0.12s ease;
 }
 
 .codex-shot .dsh-input-add-btn:hover:not(:disabled) {
-  background: var(--panel-strong) !important;
+  background: var(--muse-soft-fill) !important;
+  color: var(--text) !important;
 }
 
-/* DSH round 34x34 primary send/stop button (`.uWtHQG_primary`) */
+/* Minimalist Monochrome Send & Stop Circle (Muse `--hatch-primary-action-background`) */
 .codex-shot .send-button.dsh-primary-send,
 .codex-shot .stop-button.dsh-primary-send {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  border-radius: 999px !important;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 9999px !important;
   border: 0 !important;
+  box-shadow: none !important;
   display: inline-grid;
   place-items: center;
   padding: 0;
   cursor: pointer;
-  transition: background-color 0.12s ease, opacity 0.12s ease, transform 0.12s ease;
+  transition: background-color 0.14s ease, opacity 0.14s ease, transform 0.12s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.codex-shot .send-button.dsh-primary-send {
-  background: var(--accent, #d97757) !important;
-  color: #ffffff !important;
+.codex-shot .send-button.dsh-primary-send,
+.codex-shot .stop-button.dsh-primary-send {
+  background: var(--muse-primary-pill-bg) !important;
+  color: var(--muse-primary-pill-fg) !important;
 }
 
-.codex-shot .send-button.dsh-primary-send:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--accent, #d97757) 86%, #141413) !important;
+.codex-shot .send-button.dsh-primary-send:hover:not(:disabled),
+.codex-shot .stop-button.dsh-primary-send:hover {
+  opacity: 0.86;
+  transform: scale(1.03);
 }
 
-:root[data-theme="dark"] .codex-shot .send-button.dsh-primary-send:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--accent, #d97757) 85%, #faf9f5) !important;
+.codex-shot .send-button.dsh-primary-send:active:not(:disabled) {
+  transform: scale(0.95);
 }
 
 .codex-shot .send-button.dsh-primary-send:disabled {
-  background: var(--dsh-claude-chip, var(--panel-strong)) !important;
+  background: var(--muse-soft-fill) !important;
   color: var(--text-3) !important;
-  opacity: 0.7 !important;
+  opacity: 0.72 !important;
   cursor: default;
 }
 
-.codex-shot .stop-button.dsh-primary-send {
-  background: var(--text) !important;
-  color: var(--app) !important;
-}
-
-.codex-shot .stop-button.dsh-primary-send:hover {
-  opacity: 0.88;
-}
-
-/* DSH Hero workspace row below the card (`.ank0OG_heroWorkspaceRow`) */
+/* Context tray & menu positioning */
 .codex-shot .composer-context-tray,
 .codex-shot .composer-context-tray.dsh-claude-hero-tray {
   position: relative;
@@ -597,12 +557,6 @@
   z-index: 60 !important;
 }
 
-.codex-shot .composer-context-tray.dsh-claude-hero-tray .composer-chips {
-  padding: 0;
-  gap: 6px;
-  overflow: visible !important;
-}
-
 .codex-shot .workspace-context-wrap,
 .codex-shot .environment-context-wrap {
   position: relative;
@@ -613,7 +567,8 @@
   z-index: 120 !important;
   left: 0 !important;
   transform: none !important;
-  bottom: calc(100% + 8px) !important;
+  top: calc(100% + 6px) !important;
+  bottom: auto !important;
 }
 
 .codex-shot .environment-context-menu {
@@ -622,97 +577,36 @@
   min-width: 180px;
 }
 
-/* ── Context row above the card: quiet ghost selectors, like `.model-combo` ── */
-
-.codex-shot .composer-breadcrumb-trail {
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 2px;
-  width: 100%;
-  min-width: 0;
-  margin: 0 0 6px;
-  /* 8px here + the chip's own 8px lines the first icon up with the card's text. */
-  padding: 0 8px;
+/* On the center-stage Home Composer, open menus downward so they never clip at the top */
+.codex-shot .task-start-composer .permission-menu,
+.codex-shot .task-start-composer .composer-actions-menu,
+.codex-shot .task-start-composer .model-picker-menu,
+.codex-shot .task-start-composer .command-menu {
+  top: calc(100% + 8px) !important;
+  bottom: auto !important;
 }
 
-.codex-shot .composer-breadcrumb-trail .chip {
-  height: 26px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-2);
-  font-family: var(--font-ui);
-  font-size: 12.5px;
-  font-weight: 500;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  box-shadow: none;
-  transition: background-color 0.12s ease, color 0.12s ease;
-}
-
-.codex-shot .composer-breadcrumb-trail .chip:hover,
-.codex-shot .composer-breadcrumb-trail :is(.workspace-context-wrap, .environment-context-wrap):has(.workspace-context-menu) > .chip {
-  background: var(--dsh-claude-hover-bg, var(--hover));
-  color: var(--text);
-}
-
-.codex-shot .composer-breadcrumb-trail .chip svg:last-child {
-  transition: transform 0.14s ease;
-}
-
-.codex-shot .composer-breadcrumb-trail :is(.workspace-context-wrap, .environment-context-wrap):has(.workspace-context-menu) > .chip svg:last-child {
-  transform: rotate(180deg);
-}
-
-.codex-shot .composer-breadcrumb-trail .chip-project span,
-.codex-shot .composer-breadcrumb-trail .chip-branch span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 160px;
-}
-
-/* The branch is a read-only label, so it stays flat and a step quieter. */
-.codex-shot .composer-breadcrumb-trail .chip-branch,
-.codex-shot .composer-breadcrumb-trail .chip-branch:hover {
-  background: transparent;
-  color: var(--text-3);
-  cursor: default;
-}
-
-.codex-shot .composer-breadcrumb-trail .chip-branch:hover svg {
-  color: var(--text-3);
-}
-
-/* Integrated Workspace & Toolbar Chips */
-.codex-shot .chip,
+/* Integrated Toolbar Ghost Chips & Model Combo */
 .codex-shot .composer-toolbar .chip {
   height: 28px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: var(--dsh-claude-chip);
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   color: var(--text-2);
   font-family: var(--font-ui);
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 480;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  transition: all 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
-.codex-shot .chip:hover,
 .codex-shot .composer-toolbar .chip:hover {
   background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
-  border-color: var(--dsh-claude-border-l1, var(--border));
 }
 
 .codex-shot .chip svg {
@@ -721,7 +615,7 @@
 }
 
 .codex-shot .chip:hover svg {
-  color: var(--text);
+  color: var(--text-2);
 }
 
 .codex-shot .chip-project span,
@@ -735,11 +629,22 @@
 .codex-shot .composer-icon-button,
 .codex-shot .model-combo,
 .codex-shot .compact-select {
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text-2);
   background: transparent;
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: 12.5px;
+}
+
+.codex-shot .model-combo {
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 480;
+  gap: 5px;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .codex-shot .composer-icon-button:hover,
@@ -749,9 +654,25 @@
   color: var(--text);
 }
 
-.codex-shot .model-combo {
+.codex-shot .model-combo-level {
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--panel-soft);
   color: var(--text-2);
+  font-family: var(--code-font);
+  font-size: 10.5px;
   font-weight: 500;
+}
+
+.codex-shot .composer-session-cost {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: transparent;
+  border: 0;
+  color: var(--text-3);
+  font-family: var(--code-font);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .codex-shot .composer-context-usage,
@@ -760,17 +681,18 @@
 }
 
 .codex-shot .attachment-strip {
-  padding: 2px 14px 0;
+  padding: 2px 16px 0;
 }
 
 .codex-shot .attachment-chip {
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   background: var(--panel-soft);
   color: var(--text-2);
+  font-size: 12px;
 }
 
-/* ── Composer popovers (`dsh-claude-popover-card` recipe) ──────────── */
+/* ── Composer Popovers (Meta AI Muse 18px Floating Menus) ──────────── */
 
 .codex-shot .command-menu,
 .codex-shot .composer-actions-menu,
@@ -778,24 +700,11 @@
 .codex-shot .model-picker-menu,
 .codex-shot .workspace-context-menu {
   padding: 6px;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 12px;
-  background: var(--dsh-claude-raised, var(--popover));
+  border: 0;
+  border-radius: 18px;
+  background: var(--panel);
   color: var(--text);
-  box-shadow:
-    0 8px 30px rgba(20, 20, 19, 0.12),
-    0 2px 8px rgba(20, 20, 19, 0.06);
-}
-
-:root[data-theme="dark"] .codex-shot .command-menu,
-:root[data-theme="dark"] .codex-shot .composer-actions-menu,
-:root[data-theme="dark"] .codex-shot .permission-menu,
-:root[data-theme="dark"] .codex-shot .model-picker-menu,
-:root[data-theme="dark"] .codex-shot .workspace-context-menu {
-  border-color: var(--dsh-claude-border-l2, var(--border-strong));
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.5),
-    0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--muse-elevation-popover);
 }
 
 .codex-shot .composer-actions-menu button,
@@ -806,8 +715,8 @@
 .codex-shot .workspace-context-list button,
 .codex-shot .workspace-context-new,
 .codex-shot .command-menu button {
-  min-height: 32px;
-  border-radius: 6px;
+  min-height: 34px;
+  border-radius: 11px;
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 13px;
@@ -830,16 +739,14 @@
   background: var(--dsh-claude-hover-bg, var(--hover));
 }
 
-/* A file dragged over the composer: accent ring. The card's theme rules above
-   use !important and :focus-within, so this matches at least as specifically. */
 :root .codex-shot .composer-card.unified[data-composer-card][data-drag-over="true"] {
-  border-color: var(--accent, #d97757) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #d97757) 20%, transparent) !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent) !important;
 }
 
-/* `+` menu rows: icon, then the label over a one-line hint, then the check. */
+/* `+` menu rows */
 .codex-shot .composer-actions-menu {
-  min-width: 240px;
+  min-width: 244px;
 }
 
 .codex-shot .composer-actions-menu button {
@@ -881,23 +788,23 @@
   grid-area: check;
   grid-column: auto;
   margin: 0;
-  color: var(--accent, #d97757);
+  color: var(--text);
 }
 
 .codex-shot .composer-actions-heading {
   padding: 4px 9px 2px;
+  font-family: var(--font-ui);
   font-size: 11px;
   font-weight: 500;
 }
 
-/* ── Slash Command Menu Enhanced Layout ───────────────────────────── */
-
+/* Slash Command & Mention Menus */
 .codex-shot .command-menu {
   position: absolute;
-  left: 8px;
-  right: 8px;
+  left: 6px;
+  right: 6px;
   bottom: calc(100% + 8px);
-  z-index: 70;
+  z-index: 80;
   max-height: 280px;
   overflow-y: auto;
   display: flex;
@@ -908,7 +815,7 @@
 .codex-shot .command-menu-item {
   width: 100%;
   display: grid !important;
-  grid-template-columns: minmax(90px, auto) 1fr auto !important;
+  grid-template-columns: minmax(92px, auto) 1fr auto !important;
   align-items: center !important;
   gap: 10px !important;
   padding: 6px 10px !important;
@@ -917,13 +824,12 @@
 
 .codex-shot .command-item-name {
   font-family: var(--code-font);
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--accent, #d97757);
-  background: color-mix(in srgb, var(--accent, #d97757) 14%, transparent);
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text);
+  background: var(--panel-soft);
   padding: 1px 6px;
   border-radius: 5px;
-  letter-spacing: -0.02em;
 }
 
 .codex-shot .command-item-desc {
@@ -936,20 +842,17 @@
 
 .codex-shot .command-item-source {
   font-style: normal;
-  font-size: 10.5px;
+  font-size: 11px;
   padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--dsh-claude-chip);
+  border-radius: 5px;
+  background: var(--panel-soft);
   color: var(--text-3);
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
 }
 
-/* `@` mention rows: icon, name, the folder it lives in, and Tab for folders. */
 .codex-shot .mention-menu-heading,
 .codex-shot .mention-menu-status {
   padding: 4px 10px 2px;
   color: var(--text-3);
-  font-family: var(--font-ui);
   font-size: 11px;
   font-weight: 500;
   line-height: 18px;
@@ -984,7 +887,7 @@
 
 .codex-shot .mention-item-name {
   overflow: hidden;
-  font: 13px/18px var(--font-ui);
+  font: 12.5px/18px var(--code-font);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -992,7 +895,8 @@
 .codex-shot .mention-item-path {
   overflow: hidden;
   color: var(--text-3);
-  font-size: 11.5px;
+  font-family: var(--code-font);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
   direction: rtl;
@@ -1001,10 +905,10 @@
 
 .codex-shot .mention-item-hint {
   padding: 0 5px;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
+  border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-3);
-  font: 10.5px/16px var(--font-ui);
+  font: 10px/16px var(--code-font);
   visibility: hidden;
 }
 
@@ -1030,22 +934,21 @@
 .codex-shot .model-picker-list button.active > svg:last-child,
 .codex-shot .model-picker-levels > button.active > svg:last-child,
 .codex-shot .workspace-context-list button > svg:last-child {
-  color: var(--accent, #d97757);
+  color: var(--text);
 }
 
 .codex-shot .model-picker-provider {
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  margin: 4px 7px 2px;
-  padding: 1px 7px;
-  border-radius: 6px;
-  background: var(--dsh-claude-inverse-fill);
-  color: var(--dsh-claude-inverse-ink);
+  margin: 4px 8px 2px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--panel-soft);
+  color: var(--text-2);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 16px;
-  letter-spacing: 0.02em;
 }
 
 .codex-shot .composer-actions-heading,
@@ -1062,19 +965,17 @@
 }
 
 .codex-shot .model-picker-levels {
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: var(--dsh-claude-raised, var(--popover));
-  box-shadow:
-    0 8px 30px rgba(20, 20, 19, 0.12),
-    0 2px 8px rgba(20, 20, 19, 0.06);
+  box-shadow: var(--pi-shadow-deck);
 }
 
 .codex-shot .model-picker-separator,
 .codex-shot .composer-actions-separator {
   height: 1px;
-  margin: 2px 4px;
-  background: var(--dsh-claude-border-l1, var(--border));
+  margin: 4px 4px;
+  background: var(--border);
 }
 
 .codex-shot .model-picker-search {
@@ -1091,7 +992,8 @@
 }
 
 .codex-shot .composer-queue {
-  border-color: var(--dsh-claude-border-l1, var(--border));
-  background: var(--dsh-claude-card, var(--panel));
+  border-color: var(--border);
+  border-radius: 10px;
+  background: var(--panel);
   color: var(--text-2);
 }

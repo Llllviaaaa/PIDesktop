@@ -66,6 +66,15 @@ export class BlockAssembler {
           if (typeof value === "number") this.usage[key] = value;
         }
         break;
+      case "retry":
+        this.blocks.clear();
+        this.usage.inputTokens = 0;
+        this.usage.outputTokens = 0;
+        this.usage.cacheReadTokens = 0;
+        this.usage.cacheWriteTokens = 0;
+        delete this.usage.reasoningTokens;
+        this.finish = undefined;
+        break;
       case "finish":
         this.finish = chunk.error === undefined ? { reason: chunk.reason } : { reason: chunk.reason, error: chunk.error };
         break;

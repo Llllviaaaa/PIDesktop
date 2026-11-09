@@ -13,16 +13,18 @@
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "./tokens.css" layer(base);
 @import "../styles.css" layer(legacy);
-@import "./models.css" layer(legacy);
 @import "./skin-shell.css" layer(skin);
 @import "./skin-composer.css" layer(skin);
 @import "./skin-messages.css" layer(skin);
 @import "./skin-settings.css" layer(skin);
+@import "./models.css" layer(skin);
 @import "./plugins.css" layer(skin);
 @import "./skin-panels.css" layer(skin);
 @import "./skin-light.css" layer(skin);
 @import "./skin-workspace.css" layer(skin);
 @import "./workbench.css" layer(components);
+@import "./intelligent-ui.css" layer(components);
+@import "./motion.css" layer(components);
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 

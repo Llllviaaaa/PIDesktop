@@ -1,5 +1,5 @@
 import type { UiMessage, UiToolCall, WorkStep } from "../types";
-import { foldThinking } from "./thinkingDisplay";
+import { extractInlineThinking, foldThinking } from "./thinkingDisplay";
 
 function mergeToolCalls(messages: UiMessage[]): UiToolCall[] | undefined {
   // A Map keeps first-insertion order even when a later update replaces the value,
@@ -12,6 +12,15 @@ function mergeToolCalls(messages: UiMessage[]): UiToolCall[] | undefined {
   }
   if (!byId.size) return undefined;
   return [...byId.values()];
+}
+
+function normalizedMessages(messages: UiMessage[]): UiMessage[] {
+  return messages.map((message) => {
+    if (message.role !== "assistant") return message;
+    const split = extractInlineThinking(message.content, message.thinking);
+    if (split.content === message.content && split.thinking === message.thinking) return message;
+    return { ...message, content: split.content, thinking: split.thinking };
+  });
 }
 
 function lastContent(messages: UiMessage[]): string {
@@ -32,9 +41,10 @@ function turnDurationMs(messages: UiMessage[]): number | undefined {
 }
 
 export function workStepsFromMessages(messages: UiMessage[], finalContent: string): WorkStep[] {
+  const normalized = normalizedMessages(messages);
   const final = finalContent.trim();
   const steps: WorkStep[] = [];
-  for (const message of messages) {
+  for (const message of normalized) {
     const thinking = foldThinking(message.thinking, finalContent);
     if (thinking) steps.push({ kind: "thinking", text: thinking });
     const note = message.content.trim();
@@ -45,22 +55,23 @@ export function workStepsFromMessages(messages: UiMessage[], finalContent: strin
 }
 
 export function mergeAssistantTurn(messages: UiMessage[]): UiMessage {
-  const last = messages[messages.length - 1];
-  const content = lastContent(messages);
-  const steps = workStepsFromMessages(messages, content);
+  const normalized = normalizedMessages(messages);
+  const last = normalized[normalized.length - 1];
+  const content = lastContent(normalized);
+  const steps = workStepsFromMessages(normalized, content);
   const thinking = steps.filter((step) => step.kind === "thinking").map((step) => step.text).join("\n\n") || undefined;
   return {
     ...last,
-    id: messages[0].id,
+    id: normalized[0].id,
     content,
     thinking,
     workSteps: steps,
-    toolCalls: mergeToolCalls(messages),
-    isStreaming: messages.some((message) => message.isStreaming),
-    isError: messages.some((message) => message.isError),
-    isAborted: messages.some((message) => message.isAborted),
-    durationMs: turnDurationMs(messages),
-    timestamp: last.timestamp || messages[0].timestamp,
+    toolCalls: mergeToolCalls(normalized),
+    isStreaming: normalized.some((message) => message.isStreaming),
+    isError: normalized.some((message) => message.isError),
+    isAborted: normalized.some((message) => message.isAborted),
+    durationMs: turnDurationMs(normalized),
+    timestamp: last.timestamp || normalized[0].timestamp,
   };
 }
 

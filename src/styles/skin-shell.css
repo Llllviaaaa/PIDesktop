@@ -1,21 +1,17 @@
 /*
- * Claude Code Desktop skin (`dsh-claude-style` port): window frame, top bar and primary sidebar.
+ * Pi Desktop — Cool-Gray Minimalist Shell (`skin-shell.css`)
  *
- * Recreates `dsh-claude-style` exact rules from `claude-style-clean.css`:
- * - Windows titlebar & frame: unified sidebar (`--dsh-claude-sidebar-canvas`) and conversation (`--dsh-claude-canvas`), 1px `--dsh-claude-border-l1` hairline, no rounded corner on stage canvas.
- * - Top bar: 24px bottom fade band, centered `[data-dsh-view-tabs]` segmented control.
- * - Sidebar brand row (`[data-dsh-claude-search-row]`): Pi mark + wordmark on the left, search (Ctrl+K) and notification icon buttons on the right.
- * - New session button (`.dsh-claude-new-session`): 20px circle plus badge that rotates 90deg on hover + keycaps for the configured new chat shortcut.
- * - Workspace header (`.sidebar-projects-header`): "工作区"/"最近" label plus 筛选与分组 and 打开项目 buttons; the archived view is a flat list (`.dsh-claude-archive-list`).
- * - Project & session rows: 28px height, 6px radius, project chevron on the right of the project name, 5px hollow circle dot on session rows, Win11 spinner on running rows.
- * - Settings footer (`.dsh-claude-account-btn`): 1px top hairline, gear icon, opens a menu of settings pages and docs.
+ * Spatial architecture:
+ * - De-bordered, flush split between the cool-gray sidebar (`--sidebar-bg`) and pure main canvas (`--app`).
+ * - Borderless Home topbar (`topbar-home`) for a calm, uninterrupted canvas.
+ * - Quiet flat navigation pills, borderless session list, and direct single-click Settings footer.
  */
 
-/* ── Frame & Scrollbars ────────────────────────────────────────────── */
+/* ── Shell Frame & Scrollbars ──────────────────────────────────────── */
 
 .app-shell.codex-shot,
 .codex-shot .workspace-shell {
-  background: var(--dsh-claude-canvas, var(--app));
+  background: var(--dsh-claude-sidebar-canvas, var(--sidebar-bg));
   color: var(--text);
   font-family: var(--font-ui);
 }
@@ -26,8 +22,8 @@
 }
 
 .codex-shot ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 .codex-shot ::-webkit-scrollbar-track {
@@ -43,15 +39,59 @@
   background: var(--dsh-claude-scrollbar-hover);
 }
 
+/* Meta AI Muse Seamless Canvas (Flush split, zero outer box frame) */
+.codex-shot .work-surface {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--dsh-claude-canvas, var(--app));
+  box-shadow: none;
+  overflow: hidden;
+  transition: background-color 180ms ease;
+}
+
+:root[data-theme="dark"] .codex-shot .work-surface {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.codex-shot [data-sidebar-panel-state="closed"] ~ .work-surface,
+.codex-shot [data-sidebar-panel-state="preview"] ~ .work-surface {
+  margin-left: 0;
+}
+
+@media (max-width: 720px) {
+  .codex-shot .work-surface {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+}
+
 .codex-shot .stage-canvas {
+  position: relative;
   background: var(--dsh-claude-canvas, var(--app));
   border-radius: 0 !important;
   box-shadow: none !important;
 }
 
 .codex-shot .primary-sidebar-panel {
-  border-right: 1px solid var(--dsh-claude-border-l1, var(--border));
-  background: var(--dsh-claude-sidebar-canvas, var(--sidebar-bg));
+  border-right: 1px solid var(--muse-divider);
+  background: var(--sidebar-bg);
+}
+
+.codex-shot .primary-sidebar-panel[data-sidebar-panel-state="closed"],
+.codex-shot .primary-sidebar-panel[data-sidebar-panel-state="preview"] {
+  border-right-color: transparent;
+}
+
+.codex-shot .primary-sidebar-panel.hover-preview > .sidebar.codex-sidebar {
+  margin: 8px 0 12px 10px;
+  height: calc(100% - 20px);
+  border: 0;
+  border-radius: 20px;
+  background: var(--muse-dialog-bg, var(--panel));
+  box-shadow: var(--muse-elevation-popover);
 }
 
 .codex-shot .work-body,
@@ -62,15 +102,38 @@
 
 .codex-shot .sidebar-resizer {
   background: transparent;
+  width: 6px;
+  margin-left: -3px;
+  margin-right: -3px;
+  z-index: 55;
 }
 
-/* ── Window menu bar (blended quietly into the top edge) ───────────── */
+.codex-shot .sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 50%;
+  width: 2px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--accent) 65%, var(--border-strong));
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+
+.codex-shot .sidebar-resizer:hover::after,
+body.sidebar-is-resizing .codex-shot .sidebar-resizer::after {
+  opacity: 1;
+}
+
+/* ── Window menu bar (Seamless Chassis Header) ─────────────────────── */
 
 .codex-shot .window-menubar {
-  height: 32px;
-  min-height: 32px;
+  height: 34px;
+  min-height: 34px;
   background: var(--dsh-claude-sidebar-canvas, var(--sidebar-bg));
-  border-bottom: 1px solid var(--dsh-claude-border-l1, var(--border));
+  border-bottom: 0;
   color: var(--text-2);
 }
 
@@ -79,12 +142,14 @@
 .codex-shot .window-menubar .window-control {
   color: var(--text-2);
   border-radius: 6px;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .codex-shot .app-menu-trigger {
   height: 24px;
   padding: 0 8px;
-  font-size: 12.5px;
+  font-size: 12px;
+  font-weight: 480;
 }
 
 .codex-shot .window-nav-button:hover:not(:disabled),
@@ -100,58 +165,46 @@
 }
 
 .codex-shot .window-menubar .window-control.close:hover {
-  background: #c42b1c;
-  color: #fff;
+  background: #cf3d40;
+  color: #ffffff;
 }
 
 .codex-shot .window-nav-button:disabled {
   color: var(--text-3);
-  opacity: 0.45;
+  opacity: 0.36;
 }
 
-/* ── Shared popover surface (`dsh-claude-popover-card` baseline) ──── */
+/* ── Shared popover surface (Meta AI Muse 20px Floating Menu) ──────── */
 
 .codex-shot .app-menu-dropdown,
 .codex-shot .topbar-menu,
 .codex-shot .sidebar-popover,
 .codex-shot .thread-hover-card {
   padding: 6px;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 12px;
-  background: var(--dsh-claude-raised, var(--popover));
+  border: 0;
+  border-radius: 18px;
+  background: var(--panel);
   color: var(--text);
-  box-shadow:
-    0 8px 30px rgba(20, 20, 19, 0.12),
-    0 2px 8px rgba(20, 20, 19, 0.06);
-}
-
-:root[data-theme="dark"] .codex-shot .app-menu-dropdown,
-:root[data-theme="dark"] .codex-shot .topbar-menu,
-:root[data-theme="dark"] .codex-shot .sidebar-popover,
-:root[data-theme="dark"] .codex-shot .thread-hover-card {
-  border-color: var(--dsh-claude-border-l2, var(--border-strong));
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.5),
-    0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--muse-elevation-popover);
 }
 
 .codex-shot .app-menu-dropdown button,
 .codex-shot .topbar-menu button,
 .codex-shot .sidebar-popover button {
-  min-height: 32px;
-  padding: 2px 7px;
-  border-radius: 6px;
+  min-height: 34px;
+  padding: 4px 11px;
+  border-radius: 12px;
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 13px;
   line-height: 20px;
-  transition: background-color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
 .codex-shot .app-menu-dropdown button:hover:not(:disabled),
 .codex-shot .topbar-menu button:hover:not(:disabled),
 .codex-shot .sidebar-popover button:hover:not(:disabled) {
-  background: var(--dsh-claude-hover-bg, var(--hover));
+  background: var(--muse-soft-fill);
   color: var(--text);
 }
 
@@ -166,28 +219,36 @@
 .codex-shot .sidebar-popover-separator,
 .codex-shot .workspace-tools-separator {
   height: 1px;
-  margin: 2px 4px;
-  background: var(--dsh-claude-border-l1, var(--border));
+  margin: 5px 8px;
+  background: var(--muse-divider);
 }
 
-/* ── Conversation top bar (clean border, no gradient mask) ─────────── */
+/* ── Stage Topbar (Meta AI Muse Floating Blur Pills) ───────────────── */
 
 .codex-shot .topbar {
   position: relative;
-  z-index: 5;
+  z-index: 12;
+  height: 52px;
+  flex: 0 0 52px;
+  padding: 0 18px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  background: var(--dsh-claude-canvas, var(--app));
-  border-bottom: 0.5px solid var(--dsh-claude-border-l1, var(--border));
+  background: transparent;
+  border-bottom: 0;
 }
 
-/* Pin the side slots to their columns: the center slot is optional, and
-   without it `.topbar-right` would auto-place into the middle column. */
+.codex-shot .topbar.topbar-home {
+  border-bottom-color: transparent;
+}
+
 .codex-shot .topbar-left {
   grid-column: 1;
   justify-self: start;
   min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .codex-shot .dsh-claude-topbar-center {
@@ -199,6 +260,7 @@
 .codex-shot .topbar-right {
   grid-column: 3;
   justify-self: end;
+  padding-right: 0;
 }
 
 .codex-shot .topbar::after {
@@ -206,68 +268,51 @@
   display: none;
 }
 
-/* `[data-dsh-view-tabs]` segmented control from `claude-style-clean.css` L135-145 */
-.codex-shot .dsh-claude-view-tabs {
+.codex-shot .thread-title-cluster {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
-  border-radius: 7px;
-  background: var(--dsh-claude-hover-bg, rgba(0, 0, 0, 0.06));
-  opacity: 0;
-  transition: opacity 0.16s ease;
+  height: 36px;
+  padding: 0 6px 0 4px;
+  border-radius: 9999px;
+  background: var(--muse-blur-pill-bg);
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: var(--muse-elevation-pill);
 }
 
-.codex-shot .dsh-claude-view-tabs.is-always-visible,
-.codex-shot .stage-canvas:hover .dsh-claude-view-tabs,
-.codex-shot .dsh-claude-view-tabs:focus-within {
-  opacity: 1;
+.codex-shot .panel-toggles.codex-layout-chrome {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-:root[data-theme="dark"] .codex-shot .dsh-claude-view-tabs {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.codex-shot .dsh-claude-view-tab {
-  appearance: none;
-  border: 0 !important;
-  background: transparent;
-  color: var(--text-3);
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
-  height: 22px;
-  padding: 0 10px;
-  border-radius: 5px;
-  cursor: pointer;
-  user-select: none;
-  transition: color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
-}
-
-.codex-shot .dsh-claude-view-tab:hover {
-  color: var(--text);
-}
-
-.codex-shot .dsh-claude-view-tab.active,
-.codex-shot .dsh-claude-view-tab[aria-selected="true"] {
-  background: #ffffff;
-  color: var(--text);
-  box-shadow: 0 1px 2px rgba(20, 20, 19, 0.1);
-}
-
-:root[data-theme="dark"] .codex-shot .dsh-claude-view-tab.active,
-:root[data-theme="dark"] .codex-shot .dsh-claude-view-tab[aria-selected="true"] {
-  background: rgba(255, 255, 255, 0.14);
-  color: var(--dsh-claude-ink-strong, var(--text));
-  box-shadow: none;
+.codex-shot .panel-toggles .main-pane-controls:not(:empty),
+.codex-shot .panel-toggles .workspace-pane-controls:not(:empty) {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 36px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  background: var(--muse-blur-pill-bg);
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: var(--muse-elevation-pill);
 }
 
 .codex-shot .chat-title {
-  border-radius: 6px;
+  height: 28px;
+  padding: 0 10px;
+  gap: 6px;
+  border-radius: 9999px;
   color: var(--text);
   font-family: var(--font-ui);
-  font-weight: 500;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+}
+
+.codex-shot .chat-title .title-doc-icon {
+  color: var(--text-2);
+  flex-shrink: 0;
 }
 
 .codex-shot .chat-title span {
@@ -278,7 +323,7 @@
 .codex-shot .topbar .icon-button:hover,
 .codex-shot .panel-toggle:hover,
 .codex-shot .topbar-branch-control:hover {
-  background: var(--dsh-claude-hover-bg, var(--hover));
+  background: var(--muse-soft-fill);
   color: var(--text);
 }
 
@@ -286,47 +331,44 @@
 .codex-shot .panel-toggle,
 .codex-shot .topbar-branch-control {
   color: var(--text-2);
-  border-radius: 6px;
+  border-radius: 9999px;
 }
 
 .codex-shot .panel-toggle.active {
-  background: var(--dsh-claude-hover-bg, var(--active));
+  background: var(--active);
   color: var(--text);
 }
 
 .codex-shot .topbar-live {
   color: var(--text-3);
+  font-family: var(--code-font);
 }
 
 .codex-shot .title-input {
-  border: 1px solid var(--dsh-claude-border-l2, var(--border-strong));
-  border-radius: 6px;
-  background: var(--dsh-claude-input-major, var(--panel));
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--panel);
   color: var(--text);
+  font-size: 13px;
 }
 
-/* ── Primary sidebar (`dsh-claude-style` exact layout) ─────────────── */
+/* ── Primary Sidebar ───────────────────────────────────────────────── */
 
 .codex-shot .sidebar.codex-sidebar {
-  background: var(--dsh-claude-sidebar-canvas, var(--sidebar-bg));
+  background: transparent;
   border-right: 0;
   color: var(--text);
-  padding: 8px 12px 6px;
+  padding: 10px 10px 8px;
 }
 
-/*
- * Brand row (`[data-dsh-claude-search-row]` L428-448): the mark and wordmark stay put and lead back
- * to a new session; search and notifications sit on the right as icon buttons. The upstream row
- * cross-faded the brand into a search box on sidebar hover, which put the search box under the
- * pointer whenever someone reached for the logo.
- */
+/* Brand lockup + quick search/bell actions */
 .codex-shot .sidebar-brand-row[data-dsh-claude-search-row] {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  height: 28px;
-  padding: 0;
-  margin: 0 0 6px;
+  height: 30px;
+  padding: 0 2px;
+  margin: 0 0 10px;
   gap: 6px;
 }
 
@@ -336,9 +378,9 @@
   align-items: center;
   gap: 8px;
   height: 28px;
-  padding: 0 6px 0 4px;
+  padding: 0 7px 0 4px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text);
   cursor: pointer;
@@ -360,39 +402,17 @@
 
 .codex-shot .codex-brand-name {
   font-family: var(--font-ui);
-  font-size: 14.5px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: 13.5px;
+  font-weight: 560;
+  letter-spacing: -0.015em;
   color: var(--text);
 }
 
-.codex-shot .dsh-claude-new-session-shortcut kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  box-sizing: border-box;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-2);
-  font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1;
-}
-
-:root[data-theme="dark"] .codex-shot .dsh-claude-new-session-shortcut kbd {
-  border-color: var(--dsh-claude-border-l3);
-}
-
 .codex-shot .sidebar .icon-button {
-  width: 28px;
-  height: 28px;
+  width: 27px;
+  height: 27px;
   color: var(--text-2);
-  border-radius: 6px;
+  border-radius: 7px;
 }
 
 .codex-shot .sidebar .icon-button:hover,
@@ -401,81 +421,69 @@
   color: var(--text);
 }
 
-/* Sidebar navigation (`newSession` + `panelList` L312-332) */
+/* Sidebar primary navigation (Muse 12px rounded rows) */
 .codex-shot .sidebar-main-nav {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 3px;
   padding: 0;
-  margin-bottom: 4px;
+  margin-bottom: 14px;
 }
 
-.codex-shot .nav-item {
-  height: 28px;
-  min-height: 28px;
-  gap: 6px;
-  padding: 0 8px;
-  margin: 0 0 4px;
-  border-radius: 6px;
-  color: var(--text);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 28px;
-  transition: background-color 0.12s ease;
-}
-
-:root[data-theme="dark"] .codex-shot .nav-item {
-  color: var(--dsh-claude-ink-strong, var(--text));
-}
-
-.codex-shot .nav-item svg {
-  width: 13px;
-  height: 13px;
-  margin: 0 3.5px;
-  flex: none;
-  color: var(--text-2);
-  transition: transform 0.25s ease;
-  transform-origin: center;
-}
-
-.codex-shot .nav-item:not(.dsh-claude-new-session):hover svg {
-  transform: rotate(90deg);
-}
-
-/* dsh-claude-style New Session row with 20px circle plus badge */
+.codex-shot .nav-item,
 .codex-shot .dsh-claude-new-session {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-
-.codex-shot .dsh-claude-new-session-circle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  flex: none;
-  border-radius: 50%;
-  background-color: rgba(0, 0, 0, 0.1);
-  color: var(--text);
-  transition: transform 0.25s ease;
-}
-
-:root[data-theme="dark"] .codex-shot .dsh-claude-new-session-circle {
-  background-color: rgba(255, 255, 255, 0.14);
-}
-
-.codex-shot .dsh-claude-new-session-circle svg {
-  width: 12px;
-  height: 12px;
+  height: 35px;
+  min-height: 35px;
+  gap: 9px;
+  padding: 0 10px;
   margin: 0;
-  color: inherit;
+  border-radius: 12px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  font-weight: 460;
+  line-height: 20px;
+  transition: background-color 0.14s ease, color 0.14s ease;
 }
 
-.codex-shot .dsh-claude-new-session:hover .dsh-claude-new-session-circle {
-  transform: rotate(90deg);
+.codex-shot .nav-item svg,
+.codex-shot .dsh-claude-new-session svg {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: none;
+  color: var(--text-2);
+  transition: color 0.14s ease;
+}
+
+.codex-shot .nav-item:hover,
+.codex-shot .dsh-claude-new-session:hover {
+  background: var(--muse-soft-fill);
+  color: var(--text);
+}
+
+.codex-shot .nav-item:hover svg,
+.codex-shot .dsh-claude-new-session:hover svg {
+  color: var(--text);
+}
+
+.codex-shot .nav-item.active,
+.codex-shot .dsh-claude-new-session.active {
+  background: var(--muse-soft-fill);
+  color: var(--text);
+  font-weight: 560;
+  box-shadow: none;
+}
+
+.codex-shot .nav-item.active > svg,
+.codex-shot .dsh-claude-new-session.active > svg {
+  color: var(--text);
 }
 
 .codex-shot .dsh-claude-new-session-label {
@@ -487,36 +495,25 @@
 }
 
 .codex-shot .dsh-claude-new-session-shortcut {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
+  margin-left: auto;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 450;
   opacity: 0;
   transition: opacity 0.14s ease;
 }
 
 .codex-shot .dsh-claude-new-session:hover .dsh-claude-new-session-shortcut {
-  opacity: 1;
+  opacity: 0.8;
 }
 
-.codex-shot .nav-item:hover {
-  background: var(--dsh-claude-hover-bg, var(--hover));
-}
-
-.codex-shot .nav-item.active {
-  background: var(--dsh-claude-hover-bg, var(--hover));
-  color: var(--text);
-}
-
-.codex-shot .nav-item.active > svg {
-  color: var(--accent, #d97757);
-}
-
-/* Workspace section header: label on the left, 筛选与分组 + 打开项目 on the right. */
+/* Workspace section header */
 .codex-shot .sidebar-projects-header {
   position: relative;
   display: flex;
   align-items: center;
-  height: 26px;
+  height: 24px;
   margin: 2px 8px 4px;
 }
 
@@ -524,7 +521,7 @@
   padding: 0;
   color: var(--text-3);
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 500;
   line-height: 16px;
   user-select: none;
@@ -533,12 +530,12 @@
 .codex-shot .sidebar-projects-back {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
   height: 22px;
   margin-left: -4px;
   padding: 0 6px 0 2px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-2);
   font-family: var(--font-ui);
@@ -566,7 +563,7 @@
   height: 22px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-3);
   cursor: pointer;
@@ -588,15 +585,15 @@
 }
 
 .codex-shot .sidebar-popover-caption {
-  padding: 4px 7px 2px;
+  padding: 4px 8px 2px;
   color: var(--text-3);
+  font-family: var(--font-ui);
   font-size: 11px;
   font-weight: 500;
   line-height: 16px;
 }
 
-.codex-shot .sidebar-filter-menu button,
-.codex-shot .sidebar-footer-menu button {
+.codex-shot .sidebar-filter-menu button {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -607,16 +604,15 @@
   cursor: pointer;
 }
 
-.codex-shot .sidebar-filter-menu button > span,
-.codex-shot .sidebar-footer-menu button > span {
+.codex-shot .sidebar-filter-menu button > span {
   flex: 1 1 auto;
 }
 
 .codex-shot .sidebar-filter-menu button > svg {
-  color: var(--accent, #d97757);
+  color: var(--text);
 }
 
-/* Archived flat list (`.dsh-claude-archive-list` L412-427) */
+/* Archived flat list */
 .codex-shot .dsh-claude-archive-list {
   display: flex;
   flex-direction: column;
@@ -627,32 +623,21 @@
 .codex-shot .dsh-claude-archive-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding: 0 6px;
-  border-radius: 6px;
+  gap: 6px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 8px;
   cursor: pointer;
-  color: var(--dsh-claude-session-ink, var(--text-2));
+  color: var(--text-2);
   font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 400;
+  font-size: 12.5px;
+  font-weight: 450;
   transition: background-color 0.12s ease, color 0.12s ease;
-}
-
-.codex-shot .dsh-claude-archive-row::before {
-  content: "";
-  flex: none;
-  width: 5px;
-  height: 5px;
-  margin: 0 4.5px;
-  border-radius: 50%;
-  border: 1.2px solid var(--dsh-claude-caption, var(--text-3));
-  box-sizing: border-box;
 }
 
 .codex-shot .dsh-claude-archive-row:hover {
   background: var(--dsh-claude-hover-bg, var(--hover));
-  color: var(--dsh-claude-ink-strong, var(--text));
+  color: var(--text);
 }
 
 .codex-shot .dsh-claude-archive-title {
@@ -665,7 +650,7 @@
 
 .codex-shot .dsh-claude-archive-time {
   flex: none;
-  color: var(--dsh-claude-caption, var(--text-3));
+  color: var(--text-3);
   font-size: 11px;
 }
 
@@ -691,9 +676,9 @@
   height: 22px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--dsh-claude-caption, var(--text-3));
+  color: var(--text-3);
   cursor: pointer;
   transition: background-color 0.12s ease, color 0.12s ease;
 }
@@ -704,50 +689,50 @@
 }
 
 .codex-shot .dsh-claude-archive-delete:hover {
-  background: rgba(192, 57, 43, 0.12);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
   color: var(--red);
 }
 
 .codex-shot .dsh-claude-archive-status {
   padding: 8px;
-  color: var(--dsh-claude-caption, var(--text-3));
+  color: var(--text-3);
   font-size: 12px;
 }
 
-/* Active project & session tree (L333-375) */
+/* Active project & session tree */
 .codex-shot .sidebar-scroll {
   padding: 0 0 8px;
 }
 
 .codex-shot .project-block + .project-block {
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .codex-shot .project-header-row {
   display: flex;
   align-items: center;
-  height: 28px;
-  min-height: 28px;
-  padding: 0 6px;
-  gap: 2px;
-  border-radius: 6px;
+  height: 27px;
+  min-height: 27px;
+  padding: 0 8px;
+  gap: 3px;
+  border-radius: 7px;
 }
 
 .codex-shot .project-header,
 .codex-shot .project-block.is-current .project-header {
-  height: 28px;
-  min-height: 28px;
+  height: 27px;
+  min-height: 27px;
   margin: 0;
   width: auto;
   flex: 0 1 auto;
-  gap: 4px;
+  gap: 5px;
   padding: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-2);
   font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 540;
   line-height: 18px;
 }
 
@@ -756,8 +741,8 @@
 }
 
 .codex-shot .project-name {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 540;
   color: var(--text-2);
   transition: color 0.12s ease;
 }
@@ -773,7 +758,7 @@
   height: 14px;
   padding: 0;
   border-radius: 4px;
-  color: var(--text-2);
+  color: var(--text-3);
 }
 
 .codex-shot .project-block:hover .project-collapse-toggle {
@@ -786,16 +771,23 @@
 
 .codex-shot .project-actions {
   margin-left: auto;
-  gap: 4px;
+  gap: 2px;
 }
 
 .codex-shot .thread-list {
+  position: relative;
   gap: 1px;
-  padding: 1px 0 4px 2px;
+  padding: 1px 0 4px;
+  margin-left: 0;
+  border-left: 0;
+}
+
+.codex-shot .thread-list:empty {
+  display: none;
 }
 
 .codex-shot .thread-row-shell {
-  border-radius: 6px;
+  border-radius: 12px;
 }
 
 .codex-shot .thread-search-snippet {
@@ -803,7 +795,7 @@
   width: 100%;
   border: 0;
   background: transparent;
-  padding: 0 10px 5px 23px;
+  padding: 0 10px 5px 12px;
   color: var(--text-3);
   font-family: var(--font-ui);
   font-size: 11px;
@@ -820,79 +812,79 @@
 }
 
 .codex-shot .thread-row {
-  height: 28px;
-  min-height: 28px;
-  gap: 4px;
-  padding: 0 6px;
-  border-radius: 6px;
-  color: var(--dsh-claude-session-ink, var(--text-2));
+  height: 34px;
+  min-height: 34px;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 0;
+  box-shadow: none;
+  color: var(--text);
   font-family: var(--font-ui);
   font-size: 13px;
-  font-weight: 400;
-  line-height: 18px;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  font-weight: 450;
+  line-height: 20px;
+  transition: background-color 0.14s ease, color 0.14s ease;
 }
 
 .codex-shot .thread-row:hover,
-.codex-shot .thread-row-shell:hover .thread-row,
-.codex-shot .thread-row.active,
-.codex-shot .thread-row-shell.active .thread-row {
-  background: var(--dsh-claude-hover-bg, var(--hover));
-  color: var(--dsh-claude-ink-strong, var(--text));
+.codex-shot .thread-row-shell:hover .thread-row {
+  background: var(--muse-soft-fill);
+  color: var(--text);
 }
 
 .codex-shot .thread-row.active,
 .codex-shot .thread-row-shell.active .thread-row {
-  font-weight: 500;
+  background: var(--muse-soft-fill);
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-weight: 550;
 }
 
-/* Leading status mark: a hollow bullet at rest, the accent when open, a spinner while
-   running and a filled amber dot while the session waits for approval. */
+/* Minimalist status indicator: hidden when idle/active, shown only when running or awaiting approval */
 .codex-shot .thread-status {
   flex: 0 0 auto;
-  display: grid;
+  display: none;
   place-items: center;
   width: 10px;
   height: 10px;
-  margin: 0 3px 0 0;
+  margin: 0;
 }
 
-.codex-shot .thread-status::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  border: 1.2px solid var(--dsh-claude-caption, var(--text-3));
-  box-sizing: border-box;
-}
-
-.codex-shot .thread-status[data-status="active"]::before {
-  border-color: var(--accent, #d97757);
-  background: var(--accent, #d97757);
+.codex-shot .thread-status[data-status="approval"],
+.codex-shot .thread-status[data-status="running"] {
+  display: grid;
 }
 
 .codex-shot .thread-status[data-status="approval"]::before {
-  width: 7px;
-  height: 7px;
-  border: 0;
-  background: var(--yellow, #e5a50a);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--yellow, #e5a50a) 22%, transparent);
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--yellow);
 }
 
 .codex-shot .thread-status[data-status="running"]::before {
-  width: 10px;
-  height: 10px;
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: transparent;
   border: 1.5px solid color-mix(in srgb, var(--text) 18%, transparent);
-  border-top-color: var(--accent, #d97757);
-  animation: dsh-claude-win11-spin 0.85s linear infinite;
+  border-top-color: var(--accent);
+  animation: dsh-claude-win11-spin 0.8s linear infinite;
 }
 
 .codex-shot .thread-row-time.thread-row-badge {
-  color: var(--yellow, #e5a50a);
-  font-weight: 500;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--yellow) 15%, transparent);
+  color: var(--yellow);
+  font-size: 10.5px;
+  font-weight: 540;
 }
 
-/* A collapsed project keeps its session count and any running/approval state in view. */
 .codex-shot .project-header .project-status {
   margin: 0 0 0 4px;
 }
@@ -900,15 +892,19 @@
 .codex-shot .project-count {
   flex: 0 0 auto;
   margin-left: 4px;
-  color: var(--dsh-claude-caption, var(--text-3));
-  font-size: 11px;
-  font-weight: 400;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
 
 .codex-shot .thread-row-time {
   flex: 0 0 auto;
-  color: var(--dsh-claude-caption, var(--text-3));
+  color: var(--text-3);
   font-size: 11px;
   line-height: 16px;
   font-variant-numeric: tabular-nums;
@@ -921,7 +917,7 @@
 
 .codex-shot .thread-row-actions button {
   color: var(--text-3);
-  border-radius: 5px;
+  border-radius: 6px;
 }
 
 .codex-shot .thread-row-actions button:hover,
@@ -939,7 +935,7 @@
 .codex-shot .sidebar-empty,
 .codex-shot .text-link {
   color: var(--text-3);
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .codex-shot .expand-threads:hover,
@@ -948,18 +944,20 @@
 }
 
 .codex-shot .session-search {
-  height: 28px;
-  margin: 0 0 6px;
-  padding: 0 10px;
-  border: 1px solid var(--dsh-claude-border-l1, var(--border));
-  border-radius: 8px;
-  background: var(--dsh-claude-canvas, var(--app));
-  color: var(--text-3);
+  height: 34px;
+  margin: 0 0 10px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--muse-soft-fill);
+  color: var(--text-2);
+  box-shadow: none;
+  transition: background-color 140ms ease, box-shadow 140ms ease;
 }
 
-:root[data-theme="dark"] .codex-shot .session-search {
-  border-color: var(--dsh-claude-border-l2, var(--border-strong));
-  background: var(--dsh-claude-raised);
+.codex-shot .session-search:focus-within {
+  background: var(--panel);
+  box-shadow: 0 0 0 1.5px var(--accent);
 }
 
 .codex-shot .session-search input {
@@ -967,96 +965,69 @@
   font-size: 13px;
 }
 
-/* Account footer & popover (L668-725) */
+/* Direct Minimalist Settings Footer */
 .codex-shot .sidebar-footer.codex-footer {
   position: relative;
-  margin: 0 -12px -6px;
-  padding: 8px 12px 6px;
-  border-top: 1px solid var(--dsh-claude-border-l1, var(--border));
+  margin: 0 -10px -8px;
+  padding: 6px 10px 10px;
+  border-top: 0;
   background: transparent;
-}
-
-:root[data-theme="dark"] .codex-shot .sidebar-footer.codex-footer {
-  border-top-color: var(--dsh-claude-border-l2, var(--border-strong));
 }
 
 .codex-shot .dsh-claude-account-btn {
   display: flex;
   align-items: center;
+  gap: 9px;
   width: 100%;
-  height: 32px;
+  height: 35px;
   box-sizing: border-box;
-  padding: 0 8px;
+  padding: 0 10px;
   margin: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 12px;
   background: transparent;
   color: var(--text);
   cursor: pointer;
   user-select: none;
-  transition: background-color 0.12s ease;
+  transition: background-color 0.14s ease, color 0.14s ease;
 }
 
-.codex-shot .dsh-claude-account-btn:hover,
-.codex-shot .dsh-claude-account-btn[data-open="true"] {
-  background: var(--dsh-claude-hover-bg, var(--hover));
-}
-
-.codex-shot .dsh-claude-account-avatar {
+.codex-shot .dsh-claude-account-btn svg {
   flex: none;
-  width: 18px;
-  height: 18px;
-  margin-right: 8px;
-  display: inline-grid;
-  place-items: center;
-  color: var(--text-2);
+  color: var(--text-3);
+  transition: color 0.12s ease;
 }
 
-.codex-shot .dsh-claude-account-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-ui);
-  font-size: 13px;
-  line-height: 18px;
-  text-align: left;
-}
-
-.codex-shot .dsh-claude-account-user {
-  font-weight: 500;
+.codex-shot .dsh-claude-account-btn:hover {
+  background: var(--dsh-claude-hover-bg, var(--hover));
   color: var(--text);
 }
 
-.codex-shot .dsh-claude-account-chevron {
-  flex: none;
-  color: var(--text-3);
-  transition: transform 0.12s ease;
-}
-
-.codex-shot .dsh-claude-account-btn:not([data-open="true"]) .dsh-claude-account-chevron {
-  transform: rotate(180deg);
-}
-
-.codex-shot .sidebar-popover.sidebar-footer-menu {
-  top: auto;
-  bottom: calc(100% + 4px);
-  left: 12px;
-  right: 12px;
-  padding: 4px;
-}
-
-.codex-shot .sidebar-footer-menu button > svg {
-  flex: none;
+.codex-shot .dsh-claude-account-btn:hover svg {
   color: var(--text-2);
 }
 
-.codex-shot .sidebar-footer-menu kbd,
-.codex-shot .sidebar-footer-menu .sidebar-footer-menu-trail {
+.codex-shot .dsh-claude-account-user {
+  flex: 1 1 auto;
+  text-align: left;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 480;
+  color: inherit;
+}
+
+.codex-shot .sidebar-footer-shortcut {
+  flex: none;
   color: var(--text-3);
   font-family: var(--font-ui);
   font-size: 11px;
+  font-weight: 450;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+
+.codex-shot .dsh-claude-account-btn:hover .sidebar-footer-shortcut {
+  opacity: 0.8;
 }
 
 .codex-shot .thread-hover-card {

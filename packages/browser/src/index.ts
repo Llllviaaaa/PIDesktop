@@ -111,7 +111,13 @@ export function browserTools(ctx: Context, config: Config, create: BrowserFactor
   };
 
   const tabId = { type: "string" };
-  const tool = <A extends Record<string, unknown>>(definition: ToolDefinition<A>): ToolDefinition => definition as unknown as ToolDefinition;
+  const BROWSER_GROUP_DESC = "Web browser automation (navigate, inspect DOM, click, type, screenshot, tabs, upload)";
+  const tool = <A extends Record<string, unknown>>(definition: ToolDefinition<A>): ToolDefinition => ({
+    group: "browser",
+    groupDescription: BROWSER_GROUP_DESC,
+    deferred: true,
+    ...(definition as unknown as ToolDefinition),
+  });
 
   const tools: ToolDefinition[] = [
     tool<{ url: string; tabId?: string }>({

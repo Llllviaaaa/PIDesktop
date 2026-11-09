@@ -12,6 +12,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "./lib/queries";
 import { usePanelResize } from "./hooks/usePanelResize";
 import {
+  applyUiScale,
+  resolveUiScale,
   SIDEBAR_BOUNDS,
   SIDEBAR_KEYS,
   SIDEBAR_WIDTH_KEY,
@@ -25,33 +27,34 @@ import { loadAttachmentFiles, mergeAttachments } from "./lib/attachments";
 import { findMentionCandidates } from "./lib/workspaceSearch";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { type UnlistenFn } from "@tauri-apps/api/event";
 import { scheduleClient } from "./lib/scheduleClient";
-import { getAllWindows, getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowLeft,
   ArrowRight,
+  Code2,
   Folder,
+  GitCompare,
   Globe2,
   Menu,
   Minus,
   MoreHorizontal,
   PanelLeft,
+  Sparkles,
   Square,
   X,
 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { agent } from "./lib/agent";
 import {
-  BUILTIN_APPEARANCE_CATALOG,
-  createCustomAppearanceTheme,
-  loadAppearanceCatalog,
-  resolveAppearancePet,
+  mergeAppearanceCatalog,
   resolveAppearanceTheme,
-  type PetAnimationState,
 } from "./lib/appearanceCatalog";
-import { useClientContributions } from "./lib/clientContributions";
+import { clientContributions, useClientContributions } from "./lib/clientContributions";
 import { ensureClientPluginRuntime } from "./lib/clientPluginBootstrap";
+import { rewindController } from "./lib/rewindController";
 import { aggregateDiffStats, perFileDiffStats } from "./lib/gitDiffStats";
 import { changesEditedBy, sessionEditedPaths } from "./lib/sessionEdits";
 import {
@@ -64,28 +67,17 @@ import { activeSessionTitle } from "./lib/sessionTitle";
 import { navigationKey, withoutArchivedSessions, type NavigationTarget as BaseNavigationTarget } from "./lib/navigationHistory";
 import { sameLocalPath } from "./lib/pathIdentity";
 import { filterHiddenModels } from "./lib/modelProviders";
-import { buildPetActivities, petStatusToAnimation, type PetActivityItem, type PetActivityStatus } from "./lib/petActivity";
 import { ACTIVE_RUNTIME_KEY, LAST_TASK_KEY, readPersistedTask, useRuntimeBootstrap } from "./hooks/useRuntimeBootstrap";
 import { useAppStore } from "./store";
+import { useIntelligentUiStore } from "./stores/intelligentUiStore";
 import { useSlices } from "./store/selectors";
 import { bindWorkbenchNotifications, useWorkbenchStore } from "./stores/workbenchStore";
 import { Sidebar } from "./components/Sidebar";
 import { Composer } from "./components/Composer";
 import type { SettingsPage } from "./components/SettingsModal";
-import { PetCompanion } from "./components/PetCompanion";
-import {
-  DESKTOP_PET_EVENT,
-  DESKTOP_PET_DISABLE_EVENT,
-  DESKTOP_PET_NAVIGATE_EVENT,
-  DESKTOP_PET_STATE_KEY,
-  type DesktopPetNavigationRequest,
-  type DesktopPetWindowState,
-} from "./components/DesktopPetWindow";
-import { ExtensionDialog, extensionRequestHeadline } from "./components/ExtensionDialog";
+import { ExtensionDialog } from "./components/ExtensionDialog";
 import { ConversationMessages } from "./components/ConversationMessages";
 import { SessionChangeCard } from "./components/SessionChangeCard";
-import { HomeSuggestions } from "./components/HomeSuggestions";
-import { ClaudeHomeDashboard } from "./components/ClaudeHomeDashboard";
 import { ActiveGoalBar } from "./components/ActiveGoalBar";
 import { LivePlanBar } from "./components/LivePlanBar";
 import { WorkspaceFileOpenContext } from "./components/Markdown";
@@ -96,15 +88,14 @@ import { RightWorkbench, WorkbenchTopbarControls } from "./components/workbench/
 import { CommitDialog, type CommitOutcome } from "./components/CommitDialog";
 import { preferredEditorFor, rememberProjectEditor } from "./lib/workspaceEditors";
 import type { CodeReviewScope } from "./lib/codeReview";
-import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, PullRequestInfo, SessionInfo, TerminalAppInfo, UiMessage, WorkspaceEditorInfo } from "./types";
+import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, SessionInfo, TerminalAppInfo, UiMessage, WorkspaceEditorInfo } from "./types";
 import { HostStatusBanner } from "./components/HostStatusBanner";
 import { WorkspaceTrustBanner } from "./components/WorkspaceTrustBanner";
 
 const SettingsModal = lazy(() => import("./components/SettingsModal").then((module) => ({ default: module.SettingsModal })));
-const PullRequestsPage = lazy(() => import("./components/PullRequestsPage").then((module) => ({ default: module.PullRequestsPage })));
 const ScheduledTasksPage = lazy(() => import("./components/ScheduledTasksPage").then((module) => ({ default: module.ScheduledTasksPage })));
 
-type HubView = "pull-requests" | "sites" | "scheduled" | `plugin:${string}`;
+type HubView = "sites" | "scheduled" | `plugin:${string}`;
 type AppMenu = "file" | "edit" | "view" | "help";
 type NavigationTarget = BaseNavigationTarget<HubView>;
 
@@ -202,13 +193,23 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("general");
   const [hubView, setHubView] = useState<HubView | null>(null);
-  const [createPrRequested, setCreatePrRequested] = useState(false);
   const [commitDialog, setCommitDialog] = useState<{ push: boolean } | null>(null);
   const [gitPushing, setGitPushing] = useState(false);
   const [editorChoiceOverride, setEditorChoiceOverride] = useState<{ workspace: string; id: string } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [appMenu, setAppMenu] = useState<AppMenu | null>(null);
   const [attachments, setAttachments] = useState<AttachmentPayload[]>([]);
+  const attachmentsRef = useRef(attachments);
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+  useEffect(() => rewindController.bindAttachmentBridge({
+    getAttachments: () => attachmentsRef.current,
+    setAttachments: (nextAttachments) => {
+      attachmentsRef.current = nextAttachments;
+      setAttachments(nextAttachments);
+    },
+  }), []);
   const [titleDraft, setTitleDraft] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   // Codex home defaults to Local; Worktree only when settings or user toggle says so.
@@ -224,7 +225,6 @@ export default function App() {
   const draftBranch = draftGit?.isRepository ? draftGit.branch || "" : "";
   const [registeredProjects, setRegisteredProjects] = useState<ProjectConfig[]>([]);
   const [quickChat, setQuickChat] = useState(false);
-  const [goalEditPrefill, setGoalEditPrefill] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ messageId: string } | null>(null);
 
   const conversationScrollRef = useRef<HTMLDivElement>(null);
@@ -242,7 +242,7 @@ export default function App() {
   const navigationForwardRef = useRef<NavigationTarget[]>([]);
   const sidebarHoverCloseTimerRef = useRef<number | null>(null);
   const [navigationAvailability, setNavigationAvailability] = useState({ back: false, forward: false });
-  const layoutScale = Math.min(150, Math.max(75, settings?.uiScale ?? 100)) / 100;
+  const layoutScale = resolveUiScale(settings?.uiScale);
 
   const sidebarResize = usePanelResize({
     storageKey: SIDEBAR_WIDTH_KEY,
@@ -273,71 +273,12 @@ export default function App() {
   });
   const workspacePanelWidth = workspaceResize.size;
 
-  const petFixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("pet") : null;
-  const petActivityFixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("pet-activity") : null;
   const contributions = useClientContributions();
-  const appearanceQuery = useQuery({
-    queryKey: queryKeys.appearance(cwd),
-    queryFn: () => loadAppearanceCatalog(cwd),
-    enabled: isTauri,
-  });
-  // A catalog that fails to load falls back to the built-in themes and pets, merged with dynamic client plugin contributions.
-  const baseAppearanceCatalog = (!appearanceQuery.isError && appearanceQuery.data) || BUILTIN_APPEARANCE_CATALOG;
-  const appearanceCatalog = useMemo(() => {
-    if (contributions.themes.length === 0 && contributions.pets.length === 0) return baseAppearanceCatalog;
-    const extraThemes = contributions.themes.filter((theme) => !baseAppearanceCatalog.themes.some((item) => item.id === theme.id));
-    const extraPets = contributions.pets.filter((pet) => !baseAppearanceCatalog.pets.some((item) => item.id === pet.id));
-    return {
-      ...baseAppearanceCatalog,
-      themes: [...baseAppearanceCatalog.themes, ...extraThemes],
-      pets: [...baseAppearanceCatalog.pets, ...extraPets],
-    };
-  }, [baseAppearanceCatalog, contributions.pets, contributions.themes]);
-  const previewPet = petFixture && appearanceCatalog.pets.some((pet) => pet.id === petFixture) ? petFixture : null;
-  const activePet = useMemo(
-    () => resolveAppearancePet(appearanceCatalog, previewPet ?? settings?.petCharacter ?? "cat"),
-    [appearanceCatalog, previewPet, settings?.petCharacter],
+  const appearanceCatalog = useMemo(
+    () => mergeAppearanceCatalog(contributions.themes),
+    [contributions.themes],
   );
-  const currentRuntime = runtimeId ? runtimes[runtimeId] : undefined;
-  const currentPetBusy = isStreaming || isCompacting || connection === "starting";
-  const extensionRequestTitle = extensionRequest ? extensionRequestHeadline(extensionRequest) : undefined;
-  const currentPetStatus: PetActivityStatus | null = extensionRequest
-    ? "needs-input"
-    : connection === "exited" || Boolean(retryStatus)
-      ? "blocked"
-      : currentPetBusy
-        ? "running"
-        : null;
-  const currentPetActivity = useMemo<PetActivityItem | null>(() => currentPetStatus ? {
-    id: `current:${runtimeId || sessionFile || cwd || "task"}`,
-    status: currentPetStatus,
-    title: resolvedThreadTitle || "当前任务",
-    body: currentPetStatus === "needs-input"
-      ? extensionRequestTitle || "正在等待你的决定"
-      : currentPetStatus === "blocked"
-        ? retryStatus || "任务已停止"
-        : isCompacting ? "正在压缩上下文" : connection === "starting" ? "正在启动" : "正在工作",
-    cwd,
-    sessionFile,
-    updatedAt: currentRuntime?.updatedAt ?? 0,
-  } : null, [connection, currentPetStatus, currentRuntime?.updatedAt, cwd, extensionRequestTitle, isCompacting, resolvedThreadTitle, retryStatus, runtimeId, sessionFile]);
-  const petActivities = useMemo(() => buildPetActivities({
-    runtimes,
-    notifications,
-    sessions,
-    current: currentPetActivity,
-  }), [currentPetActivity, notifications, runtimes, sessions]);
-  const displayedPetActivities = useMemo<PetActivityItem[]>(() => petActivityFixture === "1" ? [
-    { id: "fixture-input", status: "needs-input", title: "等待权限确认", body: "需要批准命令", cwd: cwd || "D:\\Workspace", sessionFile: null, updatedAt: 4 },
-    { id: "fixture-blocked", status: "blocked", title: "构建桌面应用", body: "构建进程已退出", cwd: cwd || "D:\\Workspace", sessionFile: null, updatedAt: 3 },
-    { id: "fixture-ready", status: "ready", title: "审查设置页面", body: "任务已完成", cwd: cwd || "D:\\Workspace", sessionFile: null, updatedAt: 2 },
-    { id: "fixture-running", status: "running", title: "运行界面测试", body: "正在工作", cwd: cwd || "D:\\Workspace", sessionFile: null, updatedAt: 1 },
-  ] : petActivities, [cwd, petActivities, petActivityFixture]);
   const workspaceCwd = newTask ? draftWorkspace : cwd;
-  const petActivity: PetAnimationState = displayedPetActivities[0]
-    ? petStatusToAnimation(displayedPetActivities[0].status)
-    : "idle";
-  const petBusy = petActivity === "running";
   const { runtimeRecoveryDone, startupAutoConnectRef } = useRuntimeBootstrap({
     isTauri,
     connection,
@@ -357,47 +298,6 @@ export default function App() {
     if (isTauri) return;
     void useAppStore.getState().loadSettings();
   }, [isTauri]);
-
-  const reloadAppearanceCatalog = useCallback(async () => {
-    if (!isTauri) return;
-    await queryClient.invalidateQueries({ queryKey: queryKeys.appearance(cwd) });
-    const failure = queryClient.getQueryState(queryKeys.appearance(cwd))?.error;
-    if (failure) throw failure;
-  }, [cwd, isTauri, queryClient]);
-  // Opening or closing Settings picks up themes and pets installed meanwhile.
-  const settingsOpenSeenRef = useRef(settingsOpen);
-  useEffect(() => {
-    if (settingsOpenSeenRef.current === settingsOpen) return;
-    settingsOpenSeenRef.current = settingsOpen;
-    void reloadAppearanceCatalog().catch(() => undefined);
-  }, [reloadAppearanceCatalog, settingsOpen]);
-
-  useEffect(() => {
-    if (!isTauri || !settings) return;
-    let cancelled = false;
-    const payload: DesktopPetWindowState = {
-      enabled: settings.petEnabled,
-      pet: activePet,
-      petSize: settings.petSize,
-      busy: petBusy,
-      activity: petActivity,
-      activities: displayedPetActivities,
-    };
-    window.localStorage.setItem(DESKTOP_PET_STATE_KEY, JSON.stringify(payload));
-    void getAllWindows()
-      .then(async (windows) => {
-        const petWindow = windows.find((windowHandle) => windowHandle.label === "desktop-pet");
-        if (!petWindow || cancelled) return;
-        await emitTo("desktop-pet", DESKTOP_PET_EVENT, payload);
-        if (cancelled) return;
-        if (payload.enabled) await petWindow.show();
-        else await petWindow.hide();
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [activePet, displayedPetActivities, isTauri, petActivity, petBusy, settings]);
 
   const showErrorToast = useCallback((message: string) => {
     useAppStore.getState().showToast(message, "error");
@@ -615,13 +515,7 @@ export default function App() {
       const requestedTheme = fixtureTheme && appearanceCatalog.themes.some((theme) => theme.id === fixtureTheme)
         ? fixtureTheme
         : settings?.theme ?? "system";
-      const theme = requestedTheme === "custom"
-        ? createCustomAppearanceTheme(
-            settings?.backgroundColor ?? "#fcfcfb",
-            settings?.foregroundColor ?? "#141413",
-            settings?.accentColor ?? "#d97757",
-          )
-        : resolveAppearanceTheme(appearanceCatalog, requestedTheme, systemTheme?.matches ?? false);
+      const theme = resolveAppearanceTheme(appearanceCatalog, requestedTheme, systemTheme?.matches ?? false);
       const palette = theme.palette;
       if (!palette) return;
       root.dataset.theme = theme.mode;
@@ -657,13 +551,7 @@ export default function App() {
       root.style.fontFamily = settings?.uiFont || 'var(--font-ui)';
       root.style.color = palette.text;
       root.style.background = palette.app;
-      const appRoot = document.getElementById("root");
-      if (appRoot) {
-        const scale = Math.min(150, Math.max(75, settings?.uiScale ?? 100)) / 100;
-        appRoot.style.zoom = String(scale);
-        appRoot.style.width = `${100 / scale}%`;
-        appRoot.style.height = `${100 / scale}%`;
-      }
+      applyUiScale(root, document.getElementById("root"), settings?.uiScale);
     };
     applyTheme();
     systemTheme?.addEventListener("change", applyTheme);
@@ -1004,6 +892,11 @@ export default function App() {
     return sent;
   }, [attachments, draftWorkspace, newTask, quickChat, selectWorkspace, taskEnvironment]);
 
+  useEffect(() => {
+    useIntelligentUiStore.getState().setPromptDispatcher((prompt) => sendFromComposer(prompt, "followUp"));
+    return () => useIntelligentUiStore.getState().setPromptDispatcher(null);
+  }, [sendFromComposer]);
+
   const startNewTask = useCallback((asQuickChat = false) => {
     const current = useAppStore.getState();
     if (current.cwd && !current.cwd.toLowerCase().endsWith("quick-chat")) setDraftWorkspace(current.cwd);
@@ -1121,38 +1014,6 @@ export default function App() {
     syncNavigationAvailability();
     void applyNavigationTarget(target);
   }, [applyNavigationTarget, currentNavigationTarget, syncNavigationAvailability]);
-
-  const openPetActivity = useCallback((activity: DesktopPetNavigationRequest) => {
-    if (activity.notificationId) useAppStore.getState().markNotificationRead(activity.notificationId);
-    if (activity.sessionFile) {
-      navigateTo({ kind: "session", cwd: activity.cwd, file: activity.sessionFile });
-    } else if (activity.cwd) {
-      navigateTo({ kind: "home", workspace: activity.cwd });
-    }
-  }, [navigateTo]);
-
-  useEffect(() => {
-    if (!isTauri) return;
-    let disposed = false;
-    const stops: UnlistenFn[] = [];
-    void Promise.all([
-      listen<DesktopPetNavigationRequest>(DESKTOP_PET_NAVIGATE_EVENT, (event) => openPetActivity(event.payload)),
-      listen(DESKTOP_PET_DISABLE_EVENT, () => {
-        const current = useAppStore.getState();
-        if (!current.settings?.petEnabled) return;
-        void current.saveSettings({ ...current.settings, petEnabled: false }).catch((error) => {
-          current.showToast(`关闭宠物失败：${describeError(error)}`, "error");
-        });
-      }),
-    ]).then((unlisteners) => {
-      if (disposed) unlisteners.forEach((stop) => stop());
-      else stops.push(...unlisteners);
-    });
-    return () => {
-      disposed = true;
-      stops.forEach((stop) => stop());
-    };
-  }, [isTauri, openPetActivity]);
 
   const navigateBack = useCallback(() => {
     const target = navigationBackRef.current.pop();
@@ -1306,7 +1167,6 @@ export default function App() {
     }
   }, []);
   const consumeComposerPrefill = useCallback(() => {
-    setGoalEditPrefill(null);
     useAppStore.getState().clearComposerPrefill();
   }, []);
 
@@ -1349,19 +1209,32 @@ export default function App() {
       current.showToast("请等待当前回复完成后再回退消息", "warning");
       return false;
     }
-    const point = await current.resolveMessageForkPoint(message.id);
-    if (!point) {
+    if (clientContributions.hasRewindHandler()) {
+      const handled = await clientContributions.tryHandleRewind(message);
+      if (handled) setEditingMessage(null);
+      return handled;
+    }
+    const inspected = await rewindController.inspectMessage(message.id);
+    if (!inspected) {
       current.showToast("无法定位这条消息的会话检查点", "warning");
       return false;
     }
+    const detail = inspected.changed
+      ? `将回退此消息之后的对话，并将 ${inspected.files.length || 1} 个文件恢复到该消息发送前的快照状态。原消息会自动放回输入框供你修改重发。`
+      : "将回退此消息之后的对话，并将原消息放回输入框供你重新编辑发送。已有对话分支仍可从会话树切回。";
     const accepted = await confirm(
-      "将回退此消息之后的对话，并恢复到该消息发送时的工作区状态。已有对话分支仍可从会话树切回。",
-      { title: "回退消息和改动？", kind: "warning", okLabel: "回退", cancelLabel: "取消" },
+      detail,
+      { title: "回退消息并重新编辑？", kind: "warning", okLabel: "回退并编辑", cancelLabel: "取消" },
     );
     if (!accepted) return false;
-    const rewound = await current.rewindMessage(point.entryId);
-    if (rewound) setEditingMessage(null);
-    return rewound;
+    const outcome = await rewindController.performRewind({
+      message,
+      entryId: inspected.entryId,
+      mode: "both",
+      protectDraft: false,
+    });
+    if (outcome) setEditingMessage(null);
+    return Boolean(outcome);
   }, []);
 
   const cancelMessageEdit = useCallback(() => {
@@ -1450,18 +1323,8 @@ export default function App() {
   }, []);
 
   const renderComposer = (variant: "task-start" | "follow-up") => (
-    <>
-      {contributions.composerToolbar.length > 0 && (
-        <div className="pid-composer-plugin-toolbar">
-          {contributions.composerToolbar.map((action) => (
-            <span key={action.id} className="pid-wb-plugin-action">
-              {action.render({ cwd: workspaceCwd || cwd, sessionFile })}
-            </span>
-          ))}
-        </div>
-      )}
-      <Composer
-        variant={variant}
+    <Composer
+      variant={variant}
         isStreaming={isStreaming}
         isSwitchingModel={isSwitchingModel}
         disabled={false}
@@ -1471,7 +1334,7 @@ export default function App() {
         model={model}
         thinkingLevel={thinkingLevel}
         thinkingLevels={availableThinkingLevels}
-        prefill={goalEditPrefill ?? composerPrefill}
+        prefill={composerPrefill}
         pendingCount={store.steeringQueue.length + store.followUpQueue.length + store.managedFollowUpQueue.length}
         queuedMessages={store.managedFollowUpQueue}
         requireCtrlEnter={settings?.requireCtrlEnter}
@@ -1509,7 +1372,6 @@ export default function App() {
         onMoveQueuedMessage={store.moveManagedFollowUp}
         onSteerQueuedMessage={store.steerManagedFollowUp}
       />
-    </>
   );
 
 
@@ -1623,9 +1485,8 @@ export default function App() {
                 notifications={notifications}
                 cwd={newTask ? draftWorkspace : cwd}
                 newTaskActive={newTask && hubView === null}
-                activeHub={hubView === "pull-requests" || hubView === "scheduled" ? hubView : null}
+                activeHub={hubView === "scheduled" ? "scheduled" : null}
                 onNewSession={() => navigateTo({ kind: "home", workspace: draftWorkspace || cwd })}
-                onOpenPullRequests={() => navigateTo({ kind: "hub", view: "pull-requests" })}
                 onOpenScheduled={() => navigateTo({ kind: "hub", view: "scheduled" })}
                 onOpenSession={(session) => navigateTo({ kind: "session", cwd: session.cwd, file: session.file })}
                 onOpenNotification={(notification) => {
@@ -1665,7 +1526,6 @@ export default function App() {
                   `已归档 ${projectSessions.length} 个对话`,
                 )}
                 onOpenSettings={openSettingsPage}
-                onOpenDocs={() => void openUrl("https://pi.dev")}
                 settingsShortcut={settings?.shortcutSettings ?? "Ctrl+,"}
                 onPickFolder={() => void pickFolder()}
                 newChatShortcut={settings?.shortcutNewChat ?? "Ctrl+Shift+N"}
@@ -1726,7 +1586,7 @@ export default function App() {
         >
         <div className="work-surface">
         <div className="stage-canvas">
-        <header className="topbar" data-tauri-drag-region>
+        <header className={`topbar ${newTask && !hubView ? "topbar-home" : ""}`} data-tauri-drag-region>
           <div className="topbar-left" data-tauri-drag-region>
             {!sidebarVisible && (
               <button
@@ -1824,10 +1684,6 @@ export default function App() {
                       pushing={gitPushing}
                       onCommit={openCommitDialog}
                       onPush={() => void pushCurrentBranch()}
-                      onCreatePr={() => {
-                        setCreatePrRequested(true);
-                        setHubView("pull-requests");
-                      }}
                     />
                   )}
                   {canOpenWorkspace && (
@@ -1863,33 +1719,7 @@ export default function App() {
             onOpenPluginsSettings={() => openSettingsPage("plugins")}
           />
           <Suspense fallback={<div className="page-loading">正在加载…</div>}>
-          {hubView === "pull-requests" ? (
-            <PullRequestsPage
-              cwd={draftWorkspace || cwd}
-              workspaceOptions={workspaceOptions}
-              initialCreateOpen={createPrRequested}
-              onClearInitialCreate={() => setCreatePrRequested(false)}
-              onOpenUrl={(url) => void openUrl(url)}
-              onCheckout={async (pullRequest, repositoryRoot) => {
-                try {
-                  await agent.checkoutPullRequest(repositoryRoot, pullRequest.number);
-                  navigateTo({ kind: "home", workspace: repositoryRoot });
-                  store.showToast(`已检出 PR #${pullRequest.number}`, "info");
-                } catch (error) {
-                  store.showToast(`检出失败：${describeError(error)}`, "error");
-                  throw error;
-                }
-              }}
-              onReview={(pullRequest: PullRequestInfo, repositoryRoot) => {
-                setGoalEditPrefill(`审查 GitHub 拉取请求 #${pullRequest.number}：${pullRequest.title}\n${pullRequest.url}\n检查正确性、回归风险、安全问题和缺失测试，并按严重程度给出文件引用。`);
-                navigateTo({ kind: "home", workspace: repositoryRoot });
-              }}
-              onSendToChat={(prompt, repositoryRoot) => {
-                setGoalEditPrefill(prompt);
-                navigateTo({ kind: "home", workspace: repositoryRoot });
-              }}
-            />
-          ) : hubView === "scheduled" ? (
+          {hubView === "scheduled" ? (
             <ScheduledTasksPage
               workspaces={workspaceOptions}
               onTasksChanged={() => void store.refreshSessions()}
@@ -1920,25 +1750,40 @@ export default function App() {
             <div className={`conversation ${newTask ? "new-task-conversation" : ""} ${!newTask ? `density-${transcriptDensity}` : ""}`}>
               {newTask ? (
                 <div className="new-task-screen codex-home vetta-home dsh-claude-home">
-                  <div className="vetta-home-intro dsh-claude-hero-headline">
+                  <div className="minimal-home-core">
                     <h1 className="new-task-heading">
                       {homeHeadline}
                     </h1>
-                  </div>
-                  {store.lastError && <p className="new-task-error">{store.lastError}</p>}
-
-                  <ClaudeHomeDashboard
-                    sessions={sessions}
-                    currentModelId={model?.id}
-                  />
-
-                  {/* Project-specific starting points; without a project there is nothing to point them at. */}
-                  {settings?.suggestedPrompts !== false && !quickChat && taskWorkspaceName && (
-                    <HomeSuggestions onPick={(prompt) => useAppStore.setState({ composerPrefill: prompt })} />
-                  )}
-
-                  <div className="dsh-claude-home-composer-wrap">
-                    {renderComposer("task-start")}
+                    {store.lastError && <p className="new-task-error">{store.lastError}</p>}
+                    <div className="dsh-claude-home-composer-wrap">
+                      {renderComposer("task-start")}
+                    </div>
+                    <div className="dsh-home-starters" aria-label="快捷指令建议">
+                      <button
+                        type="button"
+                        className="dsh-home-starter-pill"
+                        onClick={() => useAppStore.setState({ composerPrefill: "梳理当前项目的核心目录架构，指出值得优先优化的模块。" })}
+                      >
+                        <Code2 size={13} strokeWidth={1.8} />
+                        <span>梳理项目架构</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="dsh-home-starter-pill"
+                        onClick={() => useAppStore.setState({ composerPrefill: "使用 render_ui 为我构建一个可交互的项目指标计算与对比看板：" })}
+                      >
+                        <Sparkles size={13} strokeWidth={1.8} />
+                        <span>生成交互式组件</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="dsh-home-starter-pill"
+                        onClick={() => useAppStore.setState({ composerPrefill: "检查当前工作区的 Git 未提交变更，总结风险点并给出改进建议。" })}
+                      >
+                        <GitCompare size={13} strokeWidth={1.8} />
+                        <span>审查未提交变更</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -2029,29 +1874,46 @@ export default function App() {
           onDone={finishCommit}
         />
       )}
-      {settingsOpen && <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}><SettingsModal initialPage={settingsPage} settings={settings} cwd={workspaceCwd || cwd} appearanceCatalog={appearanceCatalog} onReloadAppearance={reloadAppearanceCatalog} onSave={store.saveSettings} onClose={() => setSettingsOpen(false)} /></Suspense>}
+      <AnimatePresence>
+        {settingsOpen && (
+          <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}>
+            <SettingsModal
+              initialPage={settingsPage}
+              settings={settings}
+              cwd={workspaceCwd || cwd}
+              appearanceCatalog={appearanceCatalog}
+              onSave={store.saveSettings}
+              onClose={() => setSettingsOpen(false)}
+            />
+          </Suspense>
+        )}
+      </AnimatePresence>
 
-      {!isTauri && (settings?.petEnabled || previewPet) && !settingsOpen && (
-        <PetCompanion
-          pet={activePet}
-          busy={petBusy}
-          activity={petActivity}
-          size={settings?.petSize ?? 96}
-          activities={displayedPetActivities}
-          onOpenActivity={openPetActivity}
-          onHide={() => {
-            const current = useAppStore.getState();
-            if (current.settings) void current.saveSettings({ ...current.settings, petEnabled: false });
-          }}
-        />
-      )}
+      {contributions.overlays.map((overlay) => (
+        <div key={overlay.id} className="client-plugin-overlay-slot">
+          {overlay.render({ cwd: workspaceCwd || cwd, sessionFile })}
+        </div>
+      ))}
 
       <HostStatusBanner />
 
       <div className="toast-stack">
-        {toasts.map((toast) => (
-          <button key={toast.id} className={`toast ${toast.kind}`} onClick={() => store.dismissToast(toast.id)}>{toast.message}</button>
-        ))}
+        <AnimatePresence initial={false}>
+          {toasts.map((toast) => (
+            <motion.button
+              layout
+              key={toast.id}
+              className={`toast ${toast.kind}`}
+              initial={{ opacity: 0, y: 10, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 6, scale: 0.96 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              onClick={() => store.dismissToast(toast.id)}
+            >
+              {toast.message}
+            </motion.button>
+          ))}
+        </AnimatePresence>
       </div>
     </div>
   );
