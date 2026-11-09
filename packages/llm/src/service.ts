@@ -1,7 +1,7 @@
 import { Context, Service } from "@deepseek-ai/cordis";
 import type { SecretRef } from "./credentials.ts";
-import { toLlmError, type LlmError } from "./errors.ts";
-import type { FinishReason, LlmErrorInfo, LlmRequest, ModelInfo, ProviderInfo, StreamChunk, Usage } from "./types.ts";
+import { LlmError, toLlmError } from "./errors.ts";
+import type { Effort, FinishReason, LlmErrorInfo, LlmRequest, ModelInfo, ProviderInfo, StreamChunk, Usage } from "./types.ts";
 
 declare module "@deepseek-ai/cordis" {
   interface Context {
@@ -59,13 +59,33 @@ export interface LlmResponseInfo {
 }
 
 export interface LlmServiceConfig {
-  /** Total tries for a call that fails before producing any content. */
+  /** Total tries for a call when retryable errors occur (default 5). */
   maxAttempts?: number;
   /** First retry delay; doubles per retry. A provider's Retry-After wins. */
   baseDelayMs?: number;
+  /** Skip automatic retries when a pre-TTFB attempt hung with zero output for at least this long (default 45_000 ms). */
+  maxRetryableAttemptMs?: number;
+  /** Step down reasoning `effort` on retry when an active stream ran at least this long before dropping (default 60_000 ms). */
+  longStreamStepDownMs?: number;
 }
 
 const MAX_RETRY_DELAY_MS = 60_000;
+const DEFAULT_MAX_RETRYABLE_ATTEMPT_MS = 45_000;
+const DEFAULT_LONG_STREAM_STEP_DOWN_MS = 60_000;
+
+function stepDownEffort(effort: Effort | undefined): Effort | undefined {
+  if (effort === "high") return "medium";
+  if (effort === "medium") return "low";
+  return undefined;
+}
+
+function resetUsage(usage: Usage): void {
+  usage.inputTokens = 0;
+  usage.outputTokens = 0;
+  usage.cacheReadTokens = 0;
+  usage.cacheWriteTokens = 0;
+  delete usage.reasoningTokens;
+}
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -88,11 +108,15 @@ export class LlmService extends Service {
   private readonly protocols = new Map<string, LlmProtocolSpec>();
   private readonly maxAttempts: number;
   private readonly baseDelayMs: number;
+  private readonly maxRetryableAttemptMs: number;
+  private readonly longStreamStepDownMs: number;
 
   constructor(ctx: Context, config: LlmServiceConfig = {}) {
     super(ctx, "llm");
-    this.maxAttempts = Math.max(1, config.maxAttempts ?? 3);
+    this.maxAttempts = Math.max(1, config.maxAttempts ?? 5);
     this.baseDelayMs = Math.max(0, config.baseDelayMs ?? 1_000);
+    this.maxRetryableAttemptMs = Math.max(1_000, config.maxRetryableAttemptMs ?? DEFAULT_MAX_RETRYABLE_ATTEMPT_MS);
+    this.longStreamStepDownMs = Math.max(1_000, config.longStreamStepDownMs ?? DEFAULT_LONG_STREAM_STEP_DOWN_MS);
   }
 
   /** Register a wire-protocol factory (e.g. `"openai-compat"`, `"anthropic"`, or a custom protocol plugin). */
@@ -159,14 +183,16 @@ export class LlmService extends Service {
   }
 
   /**
-   * Stream one model call. Failures that happen before any content arrives
-   * are retried when the error is retryable; the stream always ends with
-   * exactly one `finish` chunk and never throws.
+   * Stream one model call. Retryable failures (including mid-stream socket
+   * resets or truncated SSE streams) emit a `retry` chunk so downstream
+   * assemblers/UI discard partial blocks before the next attempt; the stream
+   * always ends with exactly one `finish` chunk and never throws.
    */
   async *stream(request: LlmRequest, signal: AbortSignal = new AbortController().signal): AsyncGenerator<StreamChunk> {
     const started = Date.now();
     const usage: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
     let attempts = 0;
+    let currentEffort: Effort | undefined = request.effort;
     let finish: Extract<StreamChunk, { type: "finish" }> | undefined;
 
     const entry = this.adapters.get(request.provider);
@@ -176,7 +202,12 @@ export class LlmService extends Service {
 
     while (finish === undefined && entry !== undefined) {
       attempts += 1;
-      const attemptRequest: LlmRequest = { ...request, messages: [...request.messages] };
+      const attemptStarted = Date.now();
+      const attemptRequest: LlmRequest = {
+        ...request,
+        messages: [...request.messages],
+        ...(currentEffort === undefined ? {} : { effort: currentEffort }),
+      };
       let producedContent = false;
       let failure: LlmError | undefined;
       try {
@@ -191,13 +222,17 @@ export class LlmService extends Service {
               const value = chunk.usage[key];
               if (typeof value === "number") usage[key] = value;
             }
-          } else {
+          } else if (chunk.type !== "retry") {
             producedContent = true;
           }
           yield chunk;
         }
         if (finish === undefined && !signal.aborted) {
-          failure = toLlmError(new Error(`${request.provider} ended the stream without finishing`));
+          failure = new LlmError({
+            kind: "network",
+            message: `${request.provider} ended the stream before completion`,
+            retryable: true,
+          });
         }
       } catch (error) {
         failure = toLlmError(error, signal);
@@ -209,15 +244,47 @@ export class LlmService extends Service {
       }
       const errorInfo = failure?.toInfo() ?? (finish?.reason === "error" ? finish.error : undefined);
       if (errorInfo === undefined) break;
-      if (!errorInfo.retryable || producedContent || attempts >= this.maxAttempts) {
+      const attemptElapsedMs = Date.now() - attemptStarted;
+      if (
+        !errorInfo.retryable
+        || attempts >= this.maxAttempts
+        || (!producedContent && attemptElapsedMs >= this.maxRetryableAttemptMs)
+      ) {
         finish = { type: "finish", reason: "error", error: errorInfo };
         break;
       }
+      let steppedEffort: Effort | undefined;
+      if (producedContent && attemptElapsedMs >= this.longStreamStepDownMs) {
+        const lowered = stepDownEffort(currentEffort);
+        if (lowered !== undefined) {
+          currentEffort = lowered;
+          steppedEffort = lowered;
+        }
+      }
+      resetUsage(usage);
       const retryAfter = failure?.retryAfter;
-      const delay = retryAfter !== undefined ? retryAfter * 1000 : this.baseDelayMs * 2 ** (attempts - 1);
-      this.ctx.logger("llm").warn("%s/%s attempt %d failed (%s); retrying in %d ms", request.provider, request.model, attempts, errorInfo.message, delay);
+      const rawDelay = retryAfter !== undefined ? retryAfter * 1000 : this.baseDelayMs * 2 ** (attempts - 1);
+      const delay = Math.min(rawDelay, MAX_RETRY_DELAY_MS);
+      this.ctx.logger("llm").warn(
+        "%s/%s attempt %d failed after %dms (%s); retrying in %d ms%s",
+        request.provider,
+        request.model,
+        attempts,
+        attemptElapsedMs,
+        errorInfo.message,
+        delay,
+        steppedEffort === undefined ? "" : ` with effort=${steppedEffort}`,
+      );
       finish = undefined;
-      await sleep(Math.min(delay, MAX_RETRY_DELAY_MS), signal);
+      yield {
+        type: "retry",
+        attempt: attempts,
+        maxAttempts: this.maxAttempts,
+        delayMs: delay,
+        error: errorInfo,
+        ...(steppedEffort === undefined ? {} : { effort: steppedEffort }),
+      };
+      await sleep(delay, signal);
       if (signal.aborted) finish = { type: "finish", reason: "aborted" };
     }
 

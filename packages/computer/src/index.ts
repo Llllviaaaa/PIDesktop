@@ -170,6 +170,7 @@ export function computerTools(ctx: Context, config: Config, run: HelperRunner = 
     const session = await ctx.sessions.get(env.sessionId);
     return session === undefined || permissions === undefined ? "ask" : permissions.modes(session).effective;
   };
+  const COMPUTER_GROUP_DESC = "Windows desktop screen/window observation, screenshot, and mouse/keyboard control";
   const tool = <A extends Record<string, unknown>>(
     toolName: string,
     description: string,
@@ -179,6 +180,9 @@ export function computerTools(ctx: Context, config: Config, run: HelperRunner = 
   ): ToolDefinition => ({
     name: toolName,
     description,
+    group: "computer",
+    groupDescription: COMPUTER_GROUP_DESC,
+    deferred: true,
     parameters: { type: "object", properties, ...(required.length > 0 ? { required } : {}) },
     execute: (args, env) => execute(args as A, env, stateOf(env.sessionId)),
   });

@@ -31,8 +31,20 @@ function retryAfterSeconds(value: string | null): number | undefined {
   return Number.isNaN(date) ? undefined : Math.max(0, (date - Date.now()) / 1000);
 }
 
-/** Pull a readable message out of a provider's JSON error body, or fall back to the raw text. */
-function messageFromBody(body: string): string {
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Pull a readable message out of a provider's JSON or HTML error body, or fall back to raw text. */
+export function messageFromBody(body: string): string {
   try {
     const parsed = JSON.parse(body) as { error?: { message?: unknown } | string; message?: unknown };
     if (typeof parsed.error === "string") return parsed.error;
@@ -41,7 +53,23 @@ function messageFromBody(body: string): string {
   } catch {
     // not JSON
   }
-  return body.trim().slice(0, 500);
+  const trimmed = body.trim();
+  if (/^(?:<!doctype\s+html|<html\b|<head\b|<!--)/i.test(trimmed) || /<title[^>]*>[\s\S]*?<\/title>/i.test(trimmed)) {
+    const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(trimmed);
+    const title = titleMatch?.[1] ? decodeHtmlEntities(titleMatch[1].replace(/<[^>]+>/g, " ")) : "";
+    if (title !== "") return title.slice(0, 240);
+    const h1Match = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(trimmed);
+    const heading = h1Match?.[1] ? decodeHtmlEntities(h1Match[1].replace(/<[^>]+>/g, " ")) : "";
+    if (heading !== "") return heading.slice(0, 240);
+    const stripped = decodeHtmlEntities(
+      trimmed
+        .replace(/<!--[\s\S]*?-->/g, " ")
+        .replace(/<(?:script|style)[^>]*>[\s\S]*?<\/(?:script|style)>/gi, " ")
+        .replace(/<[^>]+>/g, " "),
+    );
+    return stripped.slice(0, 240);
+  }
+  return trimmed.slice(0, 500);
 }
 
 /** Classify a non-2xx HTTP response the way every adapter should. */
@@ -57,9 +85,49 @@ export async function errorFromResponse(response: Response, provider: string): P
   if (status === 413 || /context.{0,20}(length|window)|too many tokens|prompt is too long/i.test(detail)) {
     return new LlmError({ kind: "context-length", message, status, retryable: false });
   }
+  // HTTP 524 is Cloudflare's Origin Timeout (~100-125s wait for TTFB); blindly retrying multiplies into an 8-minute freeze.
+  if (status === 524) return new LlmError({ kind: "server", message, status, retryable: false });
   if (status >= 500) return new LlmError({ kind: "server", message, status, retryable: true, retryAfter });
   if (status >= 400) return new LlmError({ kind: "invalid-request", message, status, retryable: false });
   return new LlmError({ kind: "unknown", message, status, retryable: false });
+}
+
+const NETWORK_ERROR_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ECONNABORTED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "EAI_AGAIN",
+  "UND_ERR_SOCKET",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "SocketClosed",
+  "ConnectionRefused",
+]);
+
+const NETWORK_MESSAGE_RE =
+  /\b(?:ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|EPIPE|UND_ERR_SOCKET)\b|socket connection was closed|ended the stream|stream ended before|premature close|other side closed|fetch failed|network error|terminated/i;
+
+function cleanFetchMessage(raw: string): string {
+  return raw
+    .replace(/\s*For more information,\s*pass\s*`?verbose:\s*true`?\s*in the second argument to fetch\(\)\.?/gi, "")
+    .trim();
+}
+
+function errorCodeOf(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const direct = (error as { code?: unknown }).code;
+  if (typeof direct === "string" && direct !== "") return direct;
+  const cause = (error as { cause?: unknown }).cause;
+  if (typeof cause === "object" && cause !== null) {
+    const nested = (cause as { code?: unknown }).code;
+    if (typeof nested === "string" && nested !== "") return nested;
+  }
+  return undefined;
 }
 
 /** Turn anything thrown while calling a provider into an LlmError. */
@@ -68,8 +136,16 @@ export function toLlmError(error: unknown, signal?: AbortSignal): LlmError {
   if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
     return new LlmError({ kind: "aborted", message: "Request aborted", retryable: false });
   }
-  const message = error instanceof Error ? error.message : String(error);
-  // fetch rejects with a TypeError for connection failures.
-  if (error instanceof TypeError) return new LlmError({ kind: "network", message, retryable: true });
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const message = cleanFetchMessage(rawMessage) || rawMessage;
+  const code = errorCodeOf(error);
+  // fetch rejects with a TypeError in Node/Bun, or an Error carrying a socket/transport code or stream-drop message.
+  if (
+    error instanceof TypeError
+    || (code !== undefined && NETWORK_ERROR_CODES.has(code))
+    || NETWORK_MESSAGE_RE.test(rawMessage)
+  ) {
+    return new LlmError({ kind: "network", message, retryable: true });
+  }
   return new LlmError({ kind: "unknown", message, retryable: false });
 }

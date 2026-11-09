@@ -2,6 +2,7 @@
 import { describeError } from "../lib/errors";
 import { agent } from "../lib/agent";
 import { harnessRuntimes } from "../lib/harnessRuntime";
+import { effortForLevel } from "../lib/hostSessions";
 import { redactSensitiveText } from "../lib/redact";
 import { readStoredModelCatalog } from "../lib/modelCatalogCache";
 import { agentBrowserFromMessages, computerFromMessages } from "../lib/toolPanels";
@@ -25,6 +26,13 @@ function readWebSettings(): AppSettings | null {
 }
 
 const cachedModelCatalog = readStoredModelCatalog();
+
+function resolveSupportedThinkingLevel(raw: string | null | undefined, available: readonly string[]): string | null {
+  if (!raw) return null;
+  if (available.includes(raw)) return raw;
+  const mapped = effortForLevel(raw);
+  return available.includes(mapped) ? mapped : null;
+}
 
 export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreContext): RuntimeSlice {
   return {
@@ -145,10 +153,11 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
             }
           }
           if (connectVersion !== ctx.connectionVersion) return;
-          // Pi clamps to what the model supports; only apply a level it actually offers.
-          if (queuedLevel && queuedLevel !== get().thinkingLevel && get().availableThinkingLevels.includes(queuedLevel)) {
+          // Pi clamps to what the model supports; normalize legacy aliases (e.g. "max" -> "high") before checking.
+          const effectiveLevel = resolveSupportedThinkingLevel(queuedLevel, get().availableThinkingLevels);
+          if (effectiveLevel && effectiveLevel !== get().thinkingLevel) {
             try {
-              await get().setThinkingLevel(queuedLevel);
+              await get().setThinkingLevel(effectiveLevel);
             } catch {
               // The composer keeps showing Pi's reported level; a failed preset is not fatal.
             }
@@ -381,7 +390,12 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
       // While connect() is still attaching a runtime there is nothing to send the pick to.
       if (!runtimeId || get().connection === "starting") {
         ctx.queuedModelSelection = model;
-        set({ model });
+        if (model.thinkingLevel) {
+          ctx.queuedThinkingLevel = model.thinkingLevel;
+          set({ model, thinkingLevel: model.thinkingLevel });
+        } else {
+          set({ model });
+        }
         ctx.persistCurrentModelCatalog();
         return;
       }
@@ -393,12 +407,19 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
         if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新选择模型");
         const confirmed = await harnessRuntimes.setModel(runtimeId, model.provider, model.id);
         if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新选择模型");
+        const syncedLevel = confirmed.thinkingLevel ?? model.thinkingLevel;
         set({
           model: confirmed,
           availableThinkingLevels: harnessRuntimes.thinkingLevels(),
+          ...(syncedLevel ? { thinkingLevel: syncedLevel } : {}),
         });
+        if (syncedLevel) {
+          await harnessRuntimes.setThinkingLevel(runtimeId, syncedLevel).catch(() => undefined);
+          ctx.rememberForNewTasks({ provider: confirmed.provider, model: confirmed.id, thinkingLevel: syncedLevel });
+        } else {
+          ctx.rememberForNewTasks({ provider: confirmed.provider, model: confirmed.id });
+        }
         ctx.persistCurrentModelCatalog();
-        ctx.rememberForNewTasks({ provider: confirmed.provider, model: confirmed.id });
       });
 
       ctx.pendingModelChange = { runtimeId, promise: change };
@@ -476,13 +497,24 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
     },
 
     loadSettings: async () => {
+      const applyLoadedSettings = (settings: AppSettings | null) => {
+        if (!settings) return;
+        set({ settings });
+        if (!ctx.taskNotStarted() || ctx.queuedThinkingLevel || !settings.thinkingLevel) return;
+        const available = get().availableThinkingLevels;
+        const normalized = available.length > 0
+          ? resolveSupportedThinkingLevel(settings.thinkingLevel, available)
+          : effortForLevel(settings.thinkingLevel);
+        if (normalized && normalized !== get().thinkingLevel) {
+          void get().setThinkingLevel(normalized).catch(() => undefined);
+        }
+      };
       if (!isTauriRuntime()) {
-        const settings = readWebSettings();
-        if (settings) set({ settings });
+        applyLoadedSettings(readWebSettings());
         return;
       }
       try {
-        set({ settings: await agent.getSettings() });
+        applyLoadedSettings(await agent.getSettings());
       } catch (error) {
         ctx.toast(`加载设置失败：${describeError(error)}`, "error");
       }

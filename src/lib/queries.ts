@@ -16,9 +16,7 @@ export const queryKeys = {
   reviewSources: (cwd: string) => ["workspace", cwd, "review-sources"] as const,
   resources: (cwd: string) => ["workspace", cwd, "resources"] as const,
   worktrees: (cwd: string) => ["workspace", cwd, "worktrees"] as const,
-  appearance: (cwd: string) => ["workspace", cwd, "appearance"] as const,
   plugins: (cwd: string) => ["workspace", cwd, "plugins"] as const,
-  skills: (cwd: string) => ["workspace", cwd, "skills"] as const,
   workspaceTrust: (cwd: string) => ["workspace", cwd, "trust"] as const,
 
   /** Editors and terminal apps installed on this machine (detected once per launch). */
@@ -30,15 +28,9 @@ export const queryKeys = {
   mcpResources: (serverId: string) => ["mcp", "resources", serverId] as const,
   mcpPrompts: (serverId: string) => ["mcp", "prompts", serverId] as const,
   usage: () => ["usage"] as const,
-  localMemory: () => ["local-memory"] as const,
-  memory: (scope: "user" | "project", cwd: string) => ["memory", scope, scope === "project" ? cwd : "global"] as const,
   projects: () => ["projects"] as const,
   scheduled: () => ["scheduled"] as const,
   modelProviders: () => ["models", "providers"] as const,
   modelConfigs: () => ["models", "configs"] as const,
-  pullRequests: (requested: string, candidates: readonly string[], touched: boolean) =>
-    ["pull-requests", requested, candidates, touched] as const,
-  pullRequestDetail: (repositoryRoot: string, number: number) =>
-    ["pull-requests", "detail", repositoryRoot, number] as const,
   diagram: (kind: string, dark: boolean, source: string) => ["diagram", kind, dark, source] as const,
 };

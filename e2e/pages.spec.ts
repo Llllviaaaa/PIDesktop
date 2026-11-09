@@ -4,6 +4,7 @@ import { E2E_MODEL } from "../packages/host/test/e2e-host.ts";
 import { expect, test, textReply } from "./fixtures.ts";
 
 test("run a scheduled task now", async ({ app, harness }) => {
+  await expect(app.getByRole("button", { name: "拉取请求" })).toHaveCount(0);
   harness.host.host.ctx.schedule.save({
     name: "Nightly notes",
     prompt: "Summarize notes.txt",
@@ -23,10 +24,12 @@ test("run a scheduled task now", async ({ app, harness }) => {
   expect(harness.provider.requests).toHaveLength(1);
 });
 
-test("save a custom provider", async ({ app, harness }) => {
-  await app.getByTitle("设置与帮助").click();
-  await app.getByRole("menuitem", { name: "模型与连接" }).click();
-  await app.getByRole("button", { name: /模型与连接/ }).click();
+test("save a custom provider in minimalist 4-module settings", async ({ app, harness }) => {
+  await app.getByRole("button", { name: "设置" }).click();
+  const nav = app.locator(".settings-nav-scroll");
+  await expect(nav.locator("button")).toHaveText(["通用", "外观", "模型", "插件"]);
+  await nav.getByRole("button", { name: "模型" }).click();
+
   await app.getByRole("button", { name: "添加自定义提供商" }).click();
   const editor = app.getByRole("dialog", { name: "添加自定义提供商" });
   await editor.getByPlaceholder("例如 公司网关 或 本地 Ollama").fill("Local Gateway");

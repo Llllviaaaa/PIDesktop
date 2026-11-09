@@ -109,6 +109,9 @@ export function buildRequestBody(request: LlmRequest, model?: ModelInfo): Record
   if (request.system && request.system.trim() !== "") {
     body.instructions = request.system;
   }
+  if (request.sessionId && request.sessionId.trim() !== "") {
+    body.prompt_cache_key = request.sessionId;
+  }
   if (request.tools !== undefined && request.tools.length > 0) {
     body.tools = request.tools.map((tool) => ({
       type: "function",
@@ -185,9 +188,14 @@ export async function* translateStream(
   const toolByOutputIndex = new Map<number, { blockIndex: number; streamedArgs: boolean }>();
   const toolByItemId = new Map<string, { blockIndex: number; streamedArgs: boolean }>();
   let reason: FinishReason | undefined;
+  let sawDone = false;
 
   for await (const sse of events) {
-    if (sse.data === "[DONE]" || sse.data.trim() === "") continue;
+    if (sse.data === "[DONE]") {
+      sawDone = true;
+      continue;
+    }
+    if (sse.data.trim() === "") continue;
     let payload: ResponsesWireEvent;
     try {
       payload = JSON.parse(sse.data) as ResponsesWireEvent;
@@ -305,6 +313,13 @@ export async function* translateStream(
     }
   }
 
+  if (!sawDone && reason === undefined) {
+    throw new LlmError({
+      kind: "network",
+      message: `${providerId}: upstream stream ended before completion`,
+      retryable: true,
+    });
+  }
   const hasToolCalls = toolByOutputIndex.size > 0 || toolByItemId.size > 0;
   yield { type: "finish", reason: hasToolCalls ? "tool-use" : (reason ?? "stop") };
 }
@@ -316,10 +331,11 @@ export class OpenAiResponsesAdapter implements LlmAdapter {
     this.baseUrl = normalizeResponsesBaseUrl(provider.baseUrl);
   }
 
-  private async headers(): Promise<Record<string, string>> {
+  private async headers(request?: LlmRequest): Promise<Record<string, string>> {
     const key = await this.ctx.credentials.resolve(this.provider.apiKey);
     return {
       ...(key === undefined ? {} : { authorization: `Bearer ${key}` }),
+      ...(request?.sessionId ? { session_id: request.sessionId } : {}),
       ...this.provider.headers,
     };
   }
@@ -328,7 +344,7 @@ export class OpenAiResponsesAdapter implements LlmAdapter {
     const model = this.provider.models?.find((candidate) => candidate.id === request.model);
     const events = postSse(
       joinUrl(this.baseUrl, "responses"),
-      await this.headers(),
+      await this.headers(request),
       buildRequestBody(request, model),
       signal,
       this.provider.id,
@@ -341,9 +357,18 @@ export class OpenAiResponsesAdapter implements LlmAdapter {
     let discovered: ModelInfo[] = [];
     try {
       const body = (await getJson(joinUrl(this.baseUrl, "models"), await this.headers(), this.provider.id, signal)) as {
-        data?: Array<{ id?: unknown }>;
+        data?: Array<Record<string, unknown>>;
       };
-      discovered = (body.data ?? []).flatMap((model) => (typeof model.id === "string" ? [{ id: model.id }] : []));
+      discovered = (body.data ?? []).flatMap((model): ModelInfo[] => {
+        if (typeof model?.id !== "string" || model.id === "") return [];
+        const info: ModelInfo = { id: model.id };
+        if (typeof model.context_window === "number" && model.context_window > 0) info.contextWindow = model.context_window;
+        else if (typeof model.context_length === "number" && model.context_length > 0) info.contextWindow = model.context_length;
+        if (typeof model.max_output_tokens === "number" && model.max_output_tokens > 0) info.maxOutputTokens = model.max_output_tokens;
+        if (model.reasoning === true) info.reasoning = true;
+        if (model.vision === true) info.input = ["text", "image"];
+        return [info];
+      });
     } catch (error) {
       if (configured.length === 0) throw error;
     }

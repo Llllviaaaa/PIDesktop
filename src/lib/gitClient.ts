@@ -7,10 +7,6 @@ import type {
   GitCommitResult,
   GitPushResult,
   GitSnapshot,
-  PullRequestCreated,
-  PullRequestDetail,
-  PullRequestDraftContext,
-  PullRequestDraftResult,
 } from "../types";
 
 const gitSnapshotRequests = new Map<string, Promise<GitSnapshot>>();
@@ -20,42 +16,6 @@ export function cleanCommitMessage(output: string): string {
   const message = output.trim().split(/\r?\n/).filter((line) => !line.trimStart().startsWith("```")).join("\n").trim();
   const quoted = /^"([^"]*)"$/.exec(message);
   return (quoted?.[1] ?? message).trim();
-}
-
-export function parsePullRequestDraft(output: string, fallbackTitle: string): { title: string; body: string } {
-  const stripped = output
-    .trim()
-    .replace(/^```(?:json|markdown|md)?\s*\r?\n/i, "")
-    .replace(/\r?\n```\s*$/, "")
-    .trim();
-  const tryJson = (candidate: string): { title: string; body: string } | null => {
-    try {
-      const parsed = JSON.parse(candidate) as Record<string, unknown>;
-      if (typeof parsed.title === "string" && parsed.title.trim() !== "") {
-        return {
-          title: parsed.title.trim(),
-          body: typeof parsed.body === "string" ? parsed.body.trim() : "",
-        };
-      }
-    } catch {
-      // Not JSON; fall through to Markdown parsing.
-    }
-    return null;
-  };
-  const direct = tryJson(stripped);
-  if (direct) return direct;
-  const braceStart = stripped.indexOf("{");
-  const braceEnd = stripped.lastIndexOf("}");
-  if (braceStart >= 0 && braceEnd > braceStart) {
-    const extracted = tryJson(stripped.slice(braceStart, braceEnd + 1));
-    if (extracted) return extracted;
-  }
-  const lines = stripped.split(/\r?\n/);
-  const firstNonEmpty = lines.findIndex((line) => line.trim() !== "");
-  if (firstNonEmpty < 0) return { title: fallbackTitle, body: "" };
-  const rawTitle = (lines[firstNonEmpty] ?? "").replace(/^#+\s*/, "").trim();
-  const body = lines.slice(firstNonEmpty + 1).join("\n").trim();
-  return { title: rawTitle || fallbackTitle, body };
 }
 
 export const gitClient = {
@@ -96,39 +56,4 @@ export const gitClient = {
     invoke<void>("git_apply_patch", { cwd, patch, cached: options.cached, reverse: options.reverse }),
   lastTurnSnapshot: (cwd: string) =>
     invoke<(GitSnapshot & { startedAt: number }) | null>("git_last_turn_snapshot", { cwd }),
-  generatePullRequestDraft: async (
-    cwd: string,
-    options: { base?: string; provider?: string; model?: string } = {},
-  ): Promise<PullRequestDraftResult> => {
-    const context = await invoke<PullRequestDraftContext>("pull_request_draft_prompt", {
-      cwd,
-      base: options.base ?? null,
-    });
-    const model = options.provider && options.model ? { provider: options.provider, model: options.model } : {};
-    const { text } = await harnessRuntimes.call<LlmCompleteResult>("llm.complete", {
-      prompt: context.prompt,
-      ...model,
-    });
-    const parsed = parsePullRequestDraft(text, context.headBranch);
-    return {
-      title: parsed.title,
-      body: parsed.body,
-      headBranch: context.headBranch,
-      baseBranch: context.baseBranch,
-      commitCount: context.commitCount,
-    };
-  },
-  createPullRequest: (
-    cwd: string,
-    options: { title: string; body: string; base?: string; draft?: boolean },
-  ) =>
-    invoke<PullRequestCreated>("create_pull_request", {
-      cwd,
-      title: options.title,
-      body: options.body,
-      base: options.base ?? null,
-      draft: Boolean(options.draft),
-    }),
-  getPullRequestDetail: (cwd: string, number: number) =>
-    invoke<PullRequestDetail>("get_pull_request_detail", { cwd, number }),
 };

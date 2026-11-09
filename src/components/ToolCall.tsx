@@ -80,6 +80,11 @@ export function toolRowCopy(presented: ToolPresentation, call: UiToolCall): { ti
         title: "更新计划",
         summary: presented.plan ? `${presented.plan.completed}/${presented.plan.steps.length} 已完成` : "",
       };
+    case "ui":
+      return {
+        title: name === "update_ui" ? "更新交互组件" : "渲染交互组件",
+        summary: detail ?? "",
+      };
     case "browser":
     case "computer":
       return { title: headingLabel(presented.heading), summary: detail ?? "" };

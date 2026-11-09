@@ -27,6 +27,8 @@ import type { TranscriptDensity } from "../lib/transcriptDensity";
 import { ModelPicker } from "./ModelPicker";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { imageAttachmentFromBlob } from "../lib/attachments";
+import { useClientContributions } from "../lib/clientContributions";
+import { rewindController } from "../lib/rewindController";
 
 const PERMISSION_OPTIONS: Array<{
   value: AppSettings["permissionMode"];
@@ -161,6 +163,7 @@ export const Composer = memo(function Composer({
   onSteerQueuedMessage,
 }: ComposerProps) {
   const [text, setText] = useState("");
+  const contributions = useClientContributions();
   const [streamingBehavior, setStreamingBehavior] = useState<"steer" | "followUp">(defaultFollowUpBehavior);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [environmentOpen, setEnvironmentOpen] = useState(false);
@@ -196,10 +199,42 @@ export const Composer = memo(function Composer({
   const contextWindowThousands = contextWindow === null ? null : Math.round(contextWindow / 1_000);
   const remainingContextPercent = normalizedContextPercent === null ? null : Math.max(0, 100 - normalizedContextPercent);
 
+  const textRef = useRef(text);
+  useEffect(() => {
+    textRef.current = text;
+  }, [text]);
+
+  useEffect(() => {
+    if (disabled) return undefined;
+    return rewindController.bindTextBridge({
+      getText: () => textRef.current,
+      setText: (nextText, focus) => {
+        textRef.current = nextText;
+        setText(nextText);
+        setCaret(nextText.length);
+        if (focus) {
+          window.requestAnimationFrame(() => {
+            const el = textareaRef.current;
+            if (!el) return;
+            el.focus();
+            el.setSelectionRange(nextText.length, nextText.length);
+          });
+        }
+      },
+    });
+  }, [disabled]);
+
   useEffect(() => {
     if (prefill === null || prefill === undefined) return;
+    textRef.current = prefill;
     setText(prefill);
-    textareaRef.current?.focus();
+    setCaret(prefill.length);
+    window.requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(prefill.length, prefill.length);
+    });
     onPrefillConsumed?.();
   }, [prefill, onPrefillConsumed]);
 
@@ -223,7 +258,7 @@ export const Composer = memo(function Composer({
         setWorkspaceQuery("");
       }
       if (environmentOpen && !target.closest(".environment-context-wrap")) setEnvironmentOpen(false);
-      if (actionsOpen && !target.closest(".composer-actions-menu, .composer-add-trigger")) setActionsOpen(false);
+      if (actionsOpen && !target.closest(".composer-actions-menu, .composer-add-trigger, .chip-agent-mode")) setActionsOpen(false);
       if (permissionOpen && !target.closest(".permission-context-wrap")) setPermissionOpen(false);
       if (modelMenuOpen && !target.closest(".model-picker-wrap")) setModelMenuOpen(false);
       if (streamingMenuOpen && !target.closest(".streaming-behavior-wrap")) setStreamingMenuOpen(false);
@@ -420,7 +455,9 @@ export const Composer = memo(function Composer({
     setText("");
     textareaRef.current?.focus();
     const sent = await onSend(submittedText, isStreaming ? streamingBehavior : undefined);
-    if (sent !== true) {
+    if (sent === true) {
+      rewindController.notifyDraftSent();
+    } else {
       setText(submittedText);
       textareaRef.current?.focus();
     }
@@ -623,6 +660,12 @@ export const Composer = memo(function Composer({
           </div>
         )}
 
+        {!disabled && contributions.composerBanners.map((banner) => (
+          <div key={banner.id} className="composer-plugin-banner">
+            {banner.render({ cwd: workspace, sessionFile: null })}
+          </div>
+        ))}
+
         {attachments.length > 0 && (
           <div className="attachment-strip">
             {attachments.map((attachment) => (
@@ -707,6 +750,24 @@ export const Composer = memo(function Composer({
               <Plus size={16} strokeWidth={1.9} />
             </button>
 
+            {agentMode !== "agent" && (
+              <button
+                type="button"
+                className="chip chip-agent-mode"
+                disabled={disabled}
+                onClick={() => {
+                  setWorkspaceOpen(false);
+                  setEnvironmentOpen(false);
+                  setPermissionOpen(false);
+                  setActionsOpen((v) => !v);
+                }}
+                title={`当前工作模式：${agentMode === "plan" ? "计划（只读梳理方案）" : "问答（只读回答问题）"}`}
+              >
+                {agentMode === "plan" ? <ListChecks size={13} strokeWidth={1.8} /> : <MessageCircleQuestion size={13} strokeWidth={1.8} />}
+                <span>{agentMode === "plan" ? "计划模式" : "问答模式"}</span>
+              </button>
+            )}
+
             <div className="permission-context-wrap">
               <button
                 type="button"
@@ -752,6 +813,11 @@ export const Composer = memo(function Composer({
                 </div>
               )}
             </div>
+            {!disabled && contributions.composerToolbar.map((action) => (
+              <span key={action.id} className="composer-plugin-action">
+                {action.render({ cwd: workspace, sessionFile: null })}
+              </span>
+            ))}
             {actionsOpen && (
               <div className="composer-actions-menu" role="menu">
                 <div className="composer-actions-heading">添加</div>

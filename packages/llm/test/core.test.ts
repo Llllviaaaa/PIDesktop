@@ -74,6 +74,21 @@ describe("BlockAssembler", () => {
     expect(result.reason).toBe("error");
     expect(result.error?.retryable).toBe(true);
   });
+
+  it("discards partial blocks and usage when a retry chunk arrives", () => {
+    const assembler = new BlockAssembler();
+    assembler.push({ type: "thinking-delta", index: 0, text: "half thought" });
+    assembler.push({ type: "usage", usage: { inputTokens: 99, reasoningTokens: 42 } });
+    assembler.push({ type: "retry", attempt: 1, maxAttempts: 5, delayMs: 1_000, error: { kind: "network", message: "reset", retryable: true } });
+    assembler.push({ type: "text-delta", index: 0, text: "fresh answer" });
+    assembler.push({ type: "usage", usage: { inputTokens: 12, outputTokens: 5 } });
+    assembler.push({ type: "finish", reason: "stop" });
+    expect(assembler.result()).toEqual({
+      message: { role: "assistant", content: [{ type: "text", text: "fresh answer" }] },
+      usage: { inputTokens: 12, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      reason: "stop",
+    });
+  });
 });
 
 describe("errors", () => {
@@ -89,10 +104,29 @@ describe("errors", () => {
     expect((await errorFromResponse(response(400, { error: "bad" }), "p")).retryable).toBe(false);
     const server = await errorFromResponse(response(502, { message: "upstream" }), "p");
     expect([server.kind, server.retryable, server.message]).toEqual(["server", true, "p returned HTTP 502: upstream"]);
+
+    const cf524Html = `<!DOCTYPE html><!--[if lt IE 7]> <html class="no-js ie6 oldie"> <![endif]-->
+      <html><head><title>lele-ai.top | 524: A timeout occurred</title></head><body><h1>Origin Time-out</h1></body></html>`;
+    const cf524 = await errorFromResponse(new Response(cf524Html, { status: 524, headers: { "content-type": "text/html" } }), "sub2api");
+    expect(cf524.kind).toBe("server");
+    expect(cf524.status).toBe(524);
+    expect(cf524.retryable).toBe(false);
+    expect(cf524.message).toBe("sub2api returned HTTP 524: lele-ai.top | 524: A timeout occurred");
   });
 
   it("classifies thrown errors", () => {
     expect(toLlmError(new TypeError("fetch failed")).kind).toBe("network");
+    const bunReset = new TypeError(
+      "ECONNRESET: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()",
+    );
+    const parsedReset = toLlmError(bunReset);
+    expect(parsedReset.kind).toBe("network");
+    expect(parsedReset.retryable).toBe(true);
+    expect(parsedReset.message).toBe("ECONNRESET: The socket connection was closed unexpectedly.");
+
+    const socketCodeErr = Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+    expect(toLlmError(socketCodeErr)).toMatchObject({ kind: "network", retryable: true });
+
     const aborted = new AbortController();
     aborted.abort();
     expect(toLlmError(new Error("x"), aborted.signal).kind).toBe("aborted");

@@ -10,7 +10,6 @@ import type {
   ExtensionUIRequest,
   ModelProviderInput,
   ProjectConfig,
-  PullRequestCollection,
   ResourceItem,
   UsageSummary,
   WorkspaceDirEntry,
@@ -23,7 +22,6 @@ import { gitClient } from "./gitClient";
 import { harnessProviders } from "./harnessProviders";
 import { harnessRuntimes, isRpcMethodNotFound, type HostStatus } from "./harnessRuntime";
 import { mcpClient } from "./mcpClient";
-import { memorySkillsClient } from "./memorySkillsClient";
 import { pluginClient } from "./pluginClient";
 import type { TranscriptEvent } from "./transcript";
 import { scheduleClient } from "./scheduleClient";
@@ -93,20 +91,6 @@ export const agent = {
   deleteSession: sessionClient.delete,
   getSettings: () => invoke<AppSettings>("get_settings"),
   setSettings: (settings: AppSettings) => invoke<void>("set_settings", { settings }),
-  getLocalMemory: () => memorySkillsClient.getMemory("user").then((result) => result.content),
-  setLocalMemory: (contents: string) => memorySkillsClient.setMemory(contents, "user").then(() => undefined),
-  exportLocalMemory: (destination: string) => memorySkillsClient.exportMemory(destination, "user"),
-  deleteLocalMemory: () => memorySkillsClient.deleteMemory("user"),
-  getMemory: memorySkillsClient.getMemory,
-  setMemory: memorySkillsClient.setMemory,
-  deleteMemory: memorySkillsClient.deleteMemory,
-  exportMemory: memorySkillsClient.exportMemory,
-  listSkills: memorySkillsClient.listSkills,
-  readSkill: memorySkillsClient.readSkill,
-  createSkill: memorySkillsClient.createSkill,
-  saveSkill: memorySkillsClient.saveSkill,
-  toggleSkill: memorySkillsClient.toggleSkill,
-  deleteSkill: memorySkillsClient.deleteSkill,
   // Providers live in the Host's providers.json (src/lib/harnessProviders.ts).
   listModelProviders: () => harnessProviders.configs(),
   discoverModelProviderModels: (provider: ModelProviderInput) => harnessProviders.discover(provider),
@@ -147,18 +131,9 @@ export const agent = {
   gitGenerateCommitMessage: gitClient.generateCommitMessage,
   gitApplyPatch: gitClient.applyPatch,
   gitLastTurnSnapshot: gitClient.lastTurnSnapshot,
-  listPullRequests: (cwd: string) => invoke<PullRequestCollection>("list_pull_requests", { cwd }),
-  checkoutPullRequest: (cwd: string, number: number) => invoke<void>("checkout_pull_request", { cwd, number }),
-  generatePullRequestDraft: gitClient.generatePullRequestDraft,
-  createPullRequest: gitClient.createPullRequest,
-  getPullRequestDetail: gitClient.getPullRequestDetail,
   generateSandboxConfig: (kind: SandboxConfigKind, cwd: string, overwrite = false) =>
     harnessRuntimes.call<SandboxGenerateConfigResult>("sandbox.generateConfig", { kind, cwd, overwrite }),
   listResources: (cwd: string) => invoke<ResourceItem[]>("list_resources", { cwd }),
-  openAppearanceDirectory: (cwd: string, kind: "theme" | "pet", scope: "user" | "project") =>
-    invoke<string>("open_appearance_directory", { cwd, kind, scope }),
-  installAppearanceExtension: (source: string, cwd: string, kind: "theme" | "pet", scope: "user" | "project") =>
-    invoke<string>("install_appearance_extension", { source, cwd, kind, scope }),
   listWorkspaceDir: (cwd: string, path?: string) =>
     invoke<WorkspaceDirEntry[]>("list_workspace_dir", { cwd, path }),
   searchWorkspaceFiles: (cwd: string, query: string, requestId: string) =>

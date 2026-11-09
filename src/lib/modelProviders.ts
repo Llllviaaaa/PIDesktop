@@ -1,5 +1,5 @@
 import type { ProviderModelSummary, ProviderSummary } from "./harnessProviders";
-import type { ModelInfo, ModelProviderModel } from "../types";
+import type { ModelInfo, ModelProviderModel, ModelThinkingLevel } from "../types";
 
 export type ProviderGroupId = "connected" | "disconnected";
 
@@ -220,13 +220,85 @@ export function matchCatalogModel(catalog: ModelCatalog, modelId: string): Catal
   return best;
 }
 
+export interface GuessedModelProfile {
+  reasoning: boolean;
+  image: boolean;
+  contextWindow: number | null;
+  maxTokens: number | null;
+  thinkingLevel: ModelThinkingLevel;
+}
+
+function detectExplicitEffortSuffix(normalizedId: string): ModelThinkingLevel | null {
+  if (/-(non-thinking|nothinking)$/.test(normalizedId)) return "off";
+  if (/-(minimal|low)$/.test(normalizedId)) return "low";
+  if (/-medium$/.test(normalizedId)) return "medium";
+  if (/-(high|xhigh)$/.test(normalizedId)) return "high";
+  if (/-max$/.test(normalizedId)) return "max";
+  return null;
+}
+
+/** Rich capability & limit heuristics for 2025–2026 mainstream models when catalog has no match. */
+export function guessModelProfile(modelId: string): GuessedModelProfile {
+  const id = normalizeModelId(modelId);
+  const suffixEffort = detectExplicitEffortSuffix(id);
+
+  let reasoning = /(^|-)(o[134]|r1|qwq|qvq|reasoner|reasoning|thinking|think)(-|$)/.test(id)
+    || /^(gpt-5|claude-(opus|sonnet|haiku)-4|claude-3-7|gemini-(2-5|[3-9])|grok-(3-mini|[4-9])|deepseek-(r|v3-[1-9])|qwen3|glm-4-[5-9]|glm-[5-9]|kimi-k2-thinking|kimi-thinking|minimax-m[1-9]|doubao-(seed|1-5-thinking))/.test(id);
+  if (suffixEffort === "off") reasoning = false;
+  else if (suffixEffort !== null) reasoning = true;
+
+  // Note: o3-mini / o1-mini are text-only, whereas o3 / o4-mini / gpt-5 / gpt-4.1 / gpt-4o / claude / gemini support vision.
+  const isTextOnlyOReasoning = /^o[13]-mini(-|$)/.test(id);
+  const image = !isTextOnlyOReasoning && (
+    /(^|-)(vision|vl|omni|4o|llava|pixtral|minicpm-v|gpt-4-1|gpt-5|qvq)(-|$)/.test(id)
+    || /^(o3|o4-mini|claude|gemini|grok-(2-vision|[4-9])|llama-4|qwen[\d-]*vl|glm-[\d-]*v|kimi-thinking|kimi-k2-thinking|doubao-seed)/.test(id)
+  );
+
+  let contextWindow: number | null = null;
+  let maxTokens: number | null = null;
+
+  if (/^gemini-(1-5|2|3)/.test(id)) {
+    contextWindow = 1_048_576;
+    maxTokens = /^gemini-(2-5|[3-9])/.test(id) ? 65_536 : 8_192;
+  } else if (/^gpt-4-1/.test(id)) {
+    contextWindow = 1_000_000;
+    maxTokens = 32_768;
+  } else if (/^minimax-m1/.test(id)) {
+    contextWindow = 1_000_000;
+    maxTokens = 32_768;
+  } else if (/^gpt-5/.test(id)) {
+    contextWindow = 400_000;
+    maxTokens = 32_768;
+  } else if (/^(kimi-k2|grok-4|doubao-(seed|1-5))/.test(id)) {
+    contextWindow = 256_000;
+    maxTokens = 32_768;
+  } else if (/^(claude-|o[134](-|$)|minimax-m2)/.test(id)) {
+    contextWindow = 200_000;
+    maxTokens = /^(o[134]|claude-(opus|sonnet)-4)/.test(id) ? 32_768 : 16_384;
+  } else if (/^(deepseek-(r1|reasoner|v3|chat)|qwen3|qwq|glm-4-[5-9]|glm-[5-9]|grok-3)/.test(id)) {
+    contextWindow = 128_000;
+    maxTokens = reasoning ? 16_384 : 8_192;
+  }
+
+  let thinkingLevel: ModelThinkingLevel = "off";
+  if (reasoning) {
+    if (suffixEffort && suffixEffort !== "off") {
+      thinkingLevel = suffixEffort;
+    } else if (/^(o3($|-pro)|claude-opus-4|gemini-(2-5-pro|3)|deepseek-(r1|reasoner)|grok-4|kimi.*thinking)/.test(id)) {
+      thinkingLevel = "high";
+    } else if (/^(claude-haiku-4|gemini-2-5-flash-lite)/.test(id)) {
+      thinkingLevel = "low";
+    } else {
+      thinkingLevel = "medium";
+    }
+  }
+
+  return { reasoning, image, contextWindow, maxTokens, thinkingLevel };
+}
+
 /** Name-based guesses in the spirit of other clients; only used when the catalog has no match. */
 export function guessCapabilities(modelId: string): { reasoning: boolean; image: boolean } {
-  const id = normalizeModelId(modelId);
-  const reasoning = /(^|-)(o[134]|r1|qwq|reasoner|reasoning|thinking|think)(-|$)/.test(id)
-    || /^(gpt-5|claude-(opus|sonnet)-4|claude-3-7|gemini-(2-5|[3-9])|grok-(3-mini|[4-9])|deepseek-(r|v3-[1-9])|qwen3|glm-4-[5-9]|glm-[5-9]|kimi-k2|minimax-m[1-9])/.test(id);
-  const image = /(^|-)(vision|vl|omni|4o|llava|pixtral|minicpm-v|gpt-4-1|gpt-5)(-|$)/.test(id)
-    || /^(claude|gemini|grok-(2-vision|4)|llama-4|qwen[\d-]*vl|glm-[\d-]*v)/.test(id);
+  const { reasoning, image } = guessModelProfile(modelId);
   return { reasoning, image };
 }
 
@@ -238,19 +310,49 @@ export function enrichModel(model: ModelProviderModel, catalog: ModelCatalog): E
   const hasImage = model.input.includes("image");
   const fromApi = Boolean(model.contextWindow || model.maxTokens || model.reasoning || hasImage);
   const match = matchCatalogModel(catalog, model.id);
+  const profile = guessModelProfile(model.id);
   // A catalog match is authoritative; name-based guesses only fill in when there is none.
   const known = match
-    ? { reasoning: match.model.reasoning, image: match.model.input.includes("image") }
-    : guessCapabilities(model.id);
-  const reasoning = model.reasoning || known.reasoning;
+    ? {
+        reasoning: match.model.reasoning,
+        image: match.model.input.includes("image"),
+        contextWindow: match.model.contextWindow,
+        maxTokens: match.model.maxTokens,
+        thinkingLevel: match.model.thinkingLevel ?? null,
+      }
+    : profile;
+  const suffixEffort = detectExplicitEffortSuffix(normalizeModelId(model.id));
+  const reasoning = suffixEffort === "off"
+    ? false
+    : (model.reasoning || known.reasoning || suffixEffort !== null);
   const image = hasImage || known.image;
-  const contextWindow = model.contextWindow || match?.model.contextWindow || DEFAULT_CONTEXT_WINDOW;
-  const maxTokens = model.maxTokens || match?.model.maxTokens || DEFAULT_MAX_TOKENS;
+  const contextWindow = model.contextWindow || known.contextWindow || DEFAULT_CONTEXT_WINDOW;
+  const maxTokens = model.maxTokens || known.maxTokens || DEFAULT_MAX_TOKENS;
+  const thinkingLevel: ModelThinkingLevel = !reasoning
+    ? "off"
+    : (model.thinkingLevel && model.thinkingLevel !== "off")
+      ? model.thinkingLevel
+      : (suffixEffort && suffixEffort !== "off")
+        ? suffixEffort
+        : (known.thinkingLevel && known.thinkingLevel !== "off")
+          ? known.thinkingLevel
+          : profile.thinkingLevel !== "off"
+            ? profile.thinkingLevel
+            : "medium";
+  const hasProfileGuess = Boolean(profile.reasoning || profile.image || profile.contextWindow);
   const source: CapabilitySource = fromApi && model.contextWindow ? "api"
     : match ? "catalog"
-      : known.reasoning || known.image ? "guess" : "default";
+      : hasProfileGuess ? "guess" : "default";
   return {
-    model: { ...model, reasoning, input: image ? ["text", "image"] : ["text"], contextWindow, maxTokens },
+    model: {
+      ...model,
+      reasoning,
+      thinkingLevel,
+      input: image ? ["text", "image"] : ["text"],
+      contextWindow,
+      maxTokens,
+      ...(model.cost ? { cost: model.cost } : match?.model.cost ? { cost: { ...match.model.cost } } : {}),
+    },
     source,
     match,
   };

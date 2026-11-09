@@ -19,12 +19,15 @@ export interface Usage {
   };
 }
 
+export type ModelThinkingLevel = "off" | "low" | "medium" | "high" | "max";
+
 export interface ModelInfo {
   id: string;
   name: string;
   provider: string;
   api?: string;
   reasoning?: boolean;
+  thinkingLevel?: ModelThinkingLevel;
   input?: string[];
   contextWindow?: number;
   maxTokens?: number;
@@ -35,6 +38,7 @@ export interface ModelProviderModel {
   id: string;
   name: string;
   reasoning: boolean;
+  thinkingLevel?: ModelThinkingLevel | null;
   input: string[];
   contextWindow?: number | null;
   maxTokens?: number | null;
@@ -152,9 +156,6 @@ export interface AppSettings {
   notifyOnApproval: boolean;
   notifyOnlyWhenUnfocused: boolean;
   theme: string;
-  petEnabled: boolean;
-  petCharacter: string;
-  petSize: number;
   accentColor: string;
   backgroundColor: string;
   foregroundColor: string;
@@ -189,7 +190,6 @@ export interface AppSettings {
   branchPrefix: string;
   allowForcePush: boolean;
   commitMessageInstructions: string;
-  pullRequestInstructions: string;
   logLevel: "error" | "warn" | "info" | "debug";
   shortcutNewChat: string;
   shortcutSettings: string;
@@ -404,79 +404,6 @@ export interface ScheduledRunResult {
   success: boolean;
   output: string;
   run: ScheduledRunRecord;
-}
-
-export interface PullRequestInfo {
-  number: number;
-  title: string;
-  state: string;
-  isDraft: boolean;
-  headRefName: string;
-  baseRefName: string;
-  updatedAt: string;
-  url: string;
-  author: string;
-  reviewDecision: string;
-}
-
-export interface PullRequestCollection {
-  repository: string;
-  remoteUrl: string;
-  items: PullRequestInfo[];
-}
-
-export interface PullRequestDraftContext {
-  headBranch: string;
-  baseBranch: string;
-  commitCount: number;
-  prompt: string;
-}
-
-export interface PullRequestDraftResult {
-  title: string;
-  body: string;
-  headBranch: string;
-  baseBranch: string;
-  commitCount: number;
-}
-
-export interface PullRequestCreated {
-  url: string;
-  number?: number | null;
-  headRefName: string;
-  baseRefName: string;
-  isDraft: boolean;
-}
-
-export interface PullRequestComment {
-  id: string;
-  author: string;
-  body: string;
-  createdAt: string;
-  kind: string;
-  reviewState?: string | null;
-}
-
-export interface PullRequestCheck {
-  name: string;
-  status: string;
-  conclusion: string;
-  detailsUrl: string;
-}
-
-export interface PullRequestDetail {
-  number: number;
-  title: string;
-  body: string;
-  url: string;
-  state: string;
-  isDraft: boolean;
-  baseRefName: string;
-  headRefName: string;
-  author: string;
-  reviewDecision: string;
-  comments: PullRequestComment[];
-  checks: PullRequestCheck[];
 }
 
 export interface WorkspaceDirEntry {

@@ -55,8 +55,8 @@ test("install a local full-stack plugin, hot-reload its TSX UI, configure it, an
       `,
     );
 
-    await app.getByTitle("设置与帮助").click();
-    await app.getByRole("menuitem", { name: "插件扩展" }).click();
+    await app.getByRole("button", { name: "设置" }).click();
+    await app.locator(".settings-nav-scroll").getByRole("button", { name: "插件" }).click();
 
     await app.getByRole("button", { name: "安装插件" }).click();
     const dialog = app.getByRole("dialog", { name: "安装插件" });

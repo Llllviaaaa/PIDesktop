@@ -50,11 +50,12 @@ test("rewind a message, then edit one and send it again", async ({ app, harness 
   await expect(answer(app, "Second answer.")).toBeVisible();
   await settled(app);
 
-  // Rewinding the second message takes it and its reply away.
+  // Rewinding the second message takes it and its reply away and restores the text into Composer.
   await userRow(app, "second question").hover();
   await userRow(app, "second question").getByRole("button", { name: "回退消息和改动" }).click();
   await expect(userBubble(app, "second question")).toHaveCount(0);
   await expect(answer(app, "Second answer.")).toHaveCount(0);
+  await expect(composer(app)).toHaveValue("second question");
 
   // Editing the first one resends it in its place.
   await userRow(app, "first question").hover();

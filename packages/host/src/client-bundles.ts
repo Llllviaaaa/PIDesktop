@@ -40,6 +40,11 @@ interface BunGlobalWithBuild {
     entrypoints: string[];
     format: "cjs";
     target: "browser";
+    define?: Record<string, string>;
+    jsx?: {
+      runtime?: "automatic" | "classic";
+      development?: boolean;
+    };
     external: string[];
   }): Promise<BunBuildResult>;
 }
@@ -129,6 +134,8 @@ async function bundleClientEntryToCjs(entryFile: string): Promise<string> {
       entrypoints: [entryFile],
       format: "cjs",
       target: "browser",
+      define: { "process.env.NODE_ENV": JSON.stringify("production") },
+      jsx: { runtime: "automatic", development: false },
       external: [...CLIENT_SHARED_EXTERNALS],
     });
     if (!result.success || result.outputs[0] === undefined) {

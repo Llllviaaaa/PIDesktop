@@ -1,484 +1,861 @@
 /*
- * Vetta skin: settings center.
+ * Pi Desktop — Meta AI Muse (Hatch Design System) Floating Settings Sheet (`skin-settings.css`)
  *
- * Mirrors Open Vetta's settings chrome: a 220px sidebar titled "设置" with a
- * flat tab list, a centered 680px content column, 20px page titles, 15px
- * section titles above rounded row groups, and 13px/12px setting rows.
- * Loaded in the `skin` layer; see skin-shell.css for the layering contract.
+ * Spatial architecture (modeled after live Muse `muse.ai` Settings & Connectors sheet):
+ * - Centered floating squircle dialog (`880×640`, `border-radius: 28px`) hovering over a soft frosted backdrop scrim so the live chat canvas stays softly visible behind it.
+ * - Borderless two-column layout (`204px` left rail + fluid right pane) with zero boxy wireframe borders.
+ * - Right top sticky bar featuring bold section heading + Muse's signature elevated `30×30` circular `×` close button (`aria-label="返回应用"`).
+ * - Borderless tonal cards (`--muse-soft-fill`, `border-radius: 16px`), pill segmented controls (`border-radius: 9999px`) with elevated white/charcoal thumbs, and Muse `#006ee4` / `#4b93ff` switches.
  */
 
-.settings-center {
-  grid-template-columns: 220px minmax(0, 1fr);
-  background: var(--app);
-  color: var(--text);
-  font-size: 13px;
+.settings-backdrop {
+  position: fixed !important;
+  top: 34px !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  z-index: 190 !important;
+  display: grid;
+  place-items: center;
+  padding: 20px 24px;
+  background: var(--muse-dialog-scrim, rgba(17, 17, 18, 0.22));
+  backdrop-filter: saturate(140%) blur(5px);
+  -webkit-backdrop-filter: saturate(140%) blur(5px);
 }
 
-/* ── Sidebar ───────────────────────────────────────────────────────── */
+.settings-center {
+  position: relative;
+  width: min(880px, calc(var(--ui-vw, 100vw) - 40px));
+  height: min(640px, calc(var(--ui-vh, 100vh) - 74px));
+  display: grid;
+  grid-template-columns: 204px minmax(0, 1fr);
+  border: 0;
+  border-radius: 28px;
+  background: var(--muse-dialog-bg, var(--app));
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  box-shadow: var(--muse-elevation-dialog);
+  overflow: hidden;
+}
+
+.settings-center.settings-loading {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 190;
+  display: grid;
+  grid-template-columns: 1fr;
+  place-items: center;
+  color: var(--text-2);
+}
+
+@media (max-width: 760px) {
+  .settings-backdrop {
+    padding: 10px;
+  }
+  .settings-center {
+    width: calc(var(--ui-vw, 100vw) - 20px);
+    height: calc(var(--ui-vh, 100vh) - 54px);
+    border-radius: 22px;
+    grid-template-columns: 164px minmax(0, 1fr);
+  }
+}
+
+/* ── Left Borderless Muse Navigation Rail ──────────────────────────── */
 
 .settings-navigation {
   width: auto;
   min-width: 0;
-  padding: 10px 10px 12px;
-  border-right: 0;
-  background: var(--sidebar-bg);
-  color: var(--text);
-}
-
-.settings-nav-title {
+  min-height: 0;
+  padding: 20px 14px 16px 16px;
   display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 40px;
-  padding: 0 4px 0 0;
-}
-
-.settings-nav-title h1 {
-  margin: 0;
-  color: var(--text);
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.settings-back {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-  align-self: center;
-  justify-content: center;
-  padding: 0;
-  border-radius: 8px;
-  color: var(--text-2);
-}
-
-.settings-back:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.settings-search {
-  height: 34px;
-  margin: 8px 0 12px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-  color: var(--text-3);
-}
-
-.settings-search:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.settings-search input {
-  color: var(--text);
+  flex-direction: column;
   background: transparent;
-  font-size: 13px;
+  color: var(--text);
+}
+
+.settings-modal-brand {
+  padding: 2px 12px 16px;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
 .settings-nav-scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.settings-nav-scroll > button {
+  position: relative;
+  width: 100%;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent !important;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: color 130ms ease, background-color 130ms ease;
+}
+
+.settings-nav-scroll > button:hover:not(.active) {
+  background: var(--muse-soft-fill) !important;
+  color: var(--text);
+}
+
+.settings-nav-scroll > button.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.settings-nav-scroll > button > svg,
+.settings-nav-scroll > button > span:not(.settings-nav-pill) {
+  position: relative;
+  z-index: 1;
+}
+
+.settings-nav-scroll > button > svg {
+  flex-shrink: 0;
+  opacity: 0.78;
+  transition: opacity 130ms ease, color 130ms ease;
+}
+
+.settings-nav-scroll > button.active > svg {
+  opacity: 1;
+  color: var(--text);
+}
+
+.settings-nav-pill {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: var(--muse-soft-fill-hover, rgba(17, 17, 18, 0.068));
+  border: 0;
+  box-shadow: none;
+  z-index: 0;
+}
+
+.settings-nav-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px 0;
+}
+
+.settings-nav-app {
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.settings-nav-footer kbd {
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--muse-soft-fill);
+  color: var(--text-3);
+  font-family: var(--code-font);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+/* ── Right Seamless Muse Stage & Sticky Header ─────────────────────── */
+
+.settings-content {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-stage-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 26px 12px 18px;
+}
+
+.settings-header-titles {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.settings-header-titles h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 17.5px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.28;
+}
+
+.settings-close-circle {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  color: var(--text-2);
+  box-shadow: var(--muse-elevation-pill);
+  cursor: pointer;
+  transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), color 130ms ease, background-color 130ms ease;
+}
+
+:root[data-theme="dark"] .settings-close-circle {
+  background: #2f3135;
+}
+
+.settings-close-circle:hover {
+  color: var(--text);
+  transform: scale(1.04);
+}
+
+.settings-close-circle:active {
+  transform: scale(0.96);
+}
+
+.settings-page-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 4px 26px 32px 18px;
+}
+
+@media (max-width: 760px) {
+  .settings-stage-header {
+    padding: 16px 16px 10px 12px;
+  }
+  .settings-page-scroll {
+    padding: 4px 16px 24px 12px;
+  }
+}
+
+.settings-page {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settings-header-sub {
+  margin: 0 0 2px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.48;
+}
+
+.settings-save-status {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+  transition: opacity 150ms ease, color 150ms ease;
+}
+
+.settings-save-status.idle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-save-status.saved {
+  color: var(--green);
+}
+
+.settings-save-status.error {
+  color: var(--red);
+}
+
+/* ── Muse Borderless Soft Grouped Cards (`rounded-16`) ─────────────── */
+
+.settings-layered-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-layered-section > h2 {
+  margin: 0;
+  padding-left: 2px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.settings-soft-card {
+  border-radius: 16px;
+  border: 0;
+  background: var(--muse-soft-fill);
+  overflow: visible;
+}
+
+.setting-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 18px;
+}
+
+.setting-row + .setting-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 18px;
+  right: 18px;
+  height: 1px;
+  background: var(--muse-divider);
+}
+
+.setting-row > span {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.settings-nav-scroll > button {
-  width: 100%;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
+.setting-row strong {
   color: var(--text);
   font-size: 13.5px;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color .15s, color .15s;
+  font-weight: 550;
+  line-height: 1.35;
 }
 
-.settings-nav-scroll > button svg {
-  flex: 0 0 auto;
+.setting-row small {
   color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 
-.settings-nav-scroll > button:hover {
-  background: var(--hover);
+.setting-row > div {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
-.settings-nav-scroll > button.active {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--text);
-  font-weight: 500;
+/* ── Custom Pill Popover Select ────────────────────────────────────── */
+
+.settings-custom-select {
+  position: relative;
 }
 
-.settings-nav-scroll > button.active svg {
-  color: var(--accent);
-}
-
-.settings-no-results {
-  padding: 32px 10px;
-  color: var(--text-3);
-  font-size: 12px;
-}
-
-/* ── Content column ────────────────────────────────────────────────── */
-
-.settings-content,
-.settings-page-scroll {
-  background: var(--app);
-}
-
-.settings-content-header {
-  height: 44px;
-  flex-basis: 44px;
-  border-bottom: 0;
-  background: transparent;
-}
-
-.settings-save-status {
-  color: var(--text-3);
-  font-size: 12px;
-}
-
-.settings-page {
-  width: min(680px, calc(100% - 64px));
-  padding: 8px 0 72px;
-}
-
-.settings-page.wide {
-  width: min(880px, calc(100% - 64px));
-}
-
-.settings-page-heading {
-  margin-bottom: 24px;
-}
-
-.settings-page-heading h1 {
-  margin: 0 0 6px;
-  color: var(--text);
-  font-family: var(--font-serif);
-  font-size: 22px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-}
-
-.settings-page-heading p,
-.settings-panel-description {
-  max-width: 620px;
-  margin: 0;
-  color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.settings-panel-description {
-  margin: 0 0 18px;
-}
-
-/* Stacked panels share the group heading; only their sections show. */
-.settings-stack-panel + .settings-stack-panel {
-  margin-top: 8px;
-}
-
-/* Sub-tabs: a pill segmented control, like Vetta's mode switcher. */
-.settings-subtabs {
+.settings-select-trigger {
+  height: 32px;
+  min-width: 180px;
+  max-width: 240px;
   display: inline-flex;
-  gap: 2px;
-  margin: -6px 0 18px;
-  padding: 3px;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 999px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 520;
+  cursor: pointer;
+  box-shadow: var(--muse-elevation-pill);
+  transition: transform 130ms ease, background-color 130ms ease;
+}
+
+:root[data-theme="dark"] .settings-select-trigger {
+  background: #323438;
+}
+
+.settings-select-trigger:hover {
   background: var(--panel);
 }
 
-.settings-subtabs button {
-  height: 28px;
-  padding: 0 14px;
+.settings-select-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-select-trigger > svg {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+
+.settings-select-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 212px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 5px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: var(--muse-elevation-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-select-popover > button {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-2);
-  font-size: 13px;
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
   cursor: pointer;
-  transition: background-color .15s, color .15s;
 }
 
-.settings-subtabs button:hover {
+.settings-select-popover > button:hover {
+  background: var(--muse-soft-fill);
   color: var(--text);
 }
 
-.settings-subtabs button.active {
-  background: var(--app);
-  color: var(--text);
-  font-weight: 500;
-  box-shadow: 0 1px 2px hsl(var(--shadow-color) / 0.12), 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
-}
-
-:root[data-theme="dark"] .settings-subtabs button.active {
-  background: var(--active);
-}
-
-/* ── Sections and rows ─────────────────────────────────────────────── */
-
-.settings-card {
-  margin: 0 0 24px;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.settings-card > h2 {
-  margin: 0 0 10px;
-  color: var(--text);
-  font-size: 15px;
+.settings-select-popover > button.selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
   font-weight: 600;
 }
 
-.settings-card > div,
-.settings-card > h2 + div {
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--panel);
-}
+/* ── Muse Pill Segmented Controls ──────────────────────────────────── */
 
-.setting-row {
-  min-height: 60px;
-  gap: 24px;
-  padding: 14px 20px;
-  background: transparent;
-}
-
-.setting-row + .setting-row,
-.stacked-setting + .setting-row,
-.setting-row + .stacked-setting {
-  border-top: 1px solid var(--border);
-}
-
-.setting-row > span {
-  gap: 3px;
-}
-
-.setting-row > span strong,
-.stacked-setting strong {
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.setting-row > span small,
-.stacked-setting small,
-.stacked-setting p,
-.card-description,
-.setting-value-muted {
-  color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.stacked-setting {
-  padding: 14px 20px;
-  background: transparent;
-}
-
-.stacked-setting > label,
-.stacked-setting > span:first-child,
-.stacked-setting > strong:first-child {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-/* ── Controls ──────────────────────────────────────────────────────── */
-
-.settings-page select,
-.settings-page input[type="text"],
-.settings-page input[type="number"],
-.settings-page input[type="url"],
-.settings-page input[type="password"],
-.settings-page input:not([type]),
-.settings-page textarea,
-.shortcut-input {
-  min-height: 34px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--app);
-  color: var(--text);
-  font-size: 13px;
-  transition: border-color .15s, box-shadow .15s;
-}
-
-.settings-page textarea {
-  padding: 10px 12px;
-  line-height: 1.6;
-}
-
-.settings-page select {
-  appearance: none;
-  -webkit-appearance: none;
-  padding: 0 32px 0 12px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a90a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 11px center;
-}
-
-.settings-page select:hover,
-.settings-page input:hover,
-.settings-page textarea:hover {
-  border-color: var(--border-strong);
-}
-
-.settings-page select:focus,
-.settings-page input:focus,
-.settings-page textarea:focus,
-.shortcut-input:focus {
-  outline: none;
-  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
-}
-
-.settings-page select option {
-  background: var(--panel);
-  color: var(--text);
-}
-
-/* Inputs nested in a search wrapper borrow the wrapper's frame. */
-.settings-page [class*="search"] input,
-.settings-page [class*="search"] input:hover,
-.settings-page [class*="search"] input:focus {
-  min-height: 0;
+.settings-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
   border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+  border-radius: 9999px;
+  background: var(--muse-soft-fill-hover);
 }
+
+.settings-segmented.compact {
+  padding: 3px;
+  border-radius: 9999px;
+}
+
+.settings-segmented > button {
+  position: relative;
+  height: 27px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: color 130ms ease;
+}
+
+.settings-segmented.compact > button {
+  height: 28px;
+  padding: 0 12px;
+}
+
+.settings-segmented > button:hover {
+  color: var(--text);
+}
+
+.settings-segmented > button.active {
+  color: var(--text);
+  font-weight: 560;
+}
+
+.settings-segmented > button > span:not(.settings-segmented-thumb),
+.settings-segmented > button > small {
+  position: relative;
+  z-index: 1;
+}
+
+.settings-segmented-thumb {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--panel);
+  box-shadow: var(--muse-elevation-pill);
+  z-index: 0;
+}
+
+:root[data-theme="dark"] .settings-segmented-thumb {
+  background: #36383d;
+}
+
+/* ── Muse Accent Switch ────────────────────────────────────────────── */
 
 .settings-switch {
+  position: relative;
   width: 38px;
   height: 22px;
-  background: color-mix(in srgb, var(--text-3) 45%, transparent);
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--muse-soft-fill-strong, rgba(17, 17, 18, 0.14));
+  cursor: pointer;
+  transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), opacity 130ms ease;
 }
 
-.settings-switch span {
-  width: 18px;
-  height: 18px;
-  background: #fff;
+.settings-switch > span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+  transition: transform 170ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .settings-switch.on {
   background: var(--accent);
 }
 
-.settings-switch.on span {
-  background: #fff;
+.settings-switch.on > span {
+  transform: translateX(16px);
 }
 
-.settings-page .primary-button,
-.settings-page .secondary-button {
-  min-height: 32px;
+.settings-switch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── Shared Pill Buttons Inside Settings ───────────────────────────── */
+
+.settings-center .primary-button,
+.settings-center .secondary-button,
+.settings-center .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
   padding: 0 14px;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 500;
+  border-radius: 9999px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 560;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 130ms ease, color 130ms ease, opacity 130ms ease, transform 120ms ease;
 }
 
-.settings-page .primary-button {
-  border: 1px solid transparent;
-  background: var(--accent);
-  color: var(--accent-text);
+.settings-center .primary-button {
+  border: 0;
+  background: var(--muse-primary-pill-bg);
+  color: var(--muse-primary-pill-fg);
 }
 
-.settings-page .primary-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 86%, var(--text));
+.settings-center .primary-button:hover:not(:disabled) {
+  opacity: 0.88;
 }
 
-.settings-page .secondary-button {
-  border: 1px solid var(--border);
-  background: var(--app);
+.settings-center .secondary-button {
+  border: 0;
+  background: var(--muse-soft-fill-hover);
   color: var(--text);
 }
 
-.settings-page .secondary-button:hover:not(:disabled) {
-  background: var(--hover);
+.settings-center .secondary-button:hover:not(:disabled) {
+  background: var(--muse-soft-fill-strong);
 }
 
-.settings-page .icon-button {
-  border-radius: 8px;
-  color: var(--text-2);
-}
-
-.settings-page .icon-button:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.settings-page .icon-button.danger:hover {
-  background: color-mix(in srgb, var(--red) 14%, transparent);
+.settings-center .secondary-button.danger {
   color: var(--red);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
 }
 
-.settings-info,
-.security-note {
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+.settings-center .secondary-button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+}
+
+.settings-center .icon-button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.settings-center .icon-button:hover:not(:disabled) {
+  background: var(--muse-soft-fill-hover);
+  color: var(--text);
+}
+
+.settings-center .primary-button:disabled,
+.settings-center .secondary-button:disabled,
+.settings-center .icon-button:disabled {
+  opacity: 0.44;
+  cursor: not-allowed;
+}
+
+/* ── Appearance 3-Up Muse Mini-Window Preview Cards ────────────────── */
+
+.theme-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 680px) {
+  .theme-mode-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.theme-mode-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1.5px solid transparent;
+  border-radius: 16px;
+  background: var(--muse-soft-fill);
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.theme-mode-card:hover:not(.active) {
+  background: var(--muse-soft-fill-hover);
+}
+
+.theme-mode-card.active {
+  border-color: var(--accent);
+  background: var(--panel);
+  box-shadow: var(--muse-elevation-pill);
+}
+
+:root[data-theme="dark"] .theme-mode-card.active {
+  background: #282a2e;
+}
+
+.theme-preview-window,
+.theme-preview-system-split {
+  position: relative;
+  width: 100%;
+  height: 78px;
+  border-radius: 11px;
+  overflow: hidden;
+  border: 1px solid var(--muse-divider);
+}
+
+.theme-preview-window {
+  display: grid;
+  grid-template-columns: 28% 72%;
+}
+
+.theme-preview-window.is-light {
+  background: #fcfcfc;
+}
+
+.theme-preview-window.is-light .tp-sidebar {
+  background: #fcfcfc;
+  border-right: 1px solid rgba(17, 17, 18, 0.06);
+}
+
+.theme-preview-window.is-light .tp-dot,
+.theme-preview-window.is-light .tp-line {
+  background: rgba(17, 17, 18, 0.12);
+}
+
+.theme-preview-window.is-light .tp-bubble-user {
+  background: #b8dbfe;
+}
+
+.theme-preview-window.is-light .tp-bubble-agent {
+  background: #e9eaeb;
+}
+
+.theme-preview-window.is-light .tp-composer {
+  background: #ffffff;
+  box-shadow: 0 1px 5px rgba(17, 17, 18, 0.1);
+}
+
+.theme-preview-window.is-dark {
+  background: #181819;
+}
+
+.theme-preview-window.is-dark .tp-sidebar {
+  background: #181819;
+  border-right: 1px solid rgba(255, 255, 255, 0.065);
+}
+
+.theme-preview-window.is-dark .tp-dot,
+.theme-preview-window.is-dark .tp-line {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.theme-preview-window.is-dark .tp-bubble-user {
+  background: #0074e8;
+}
+
+.theme-preview-window.is-dark .tp-bubble-agent {
+  background: #2b2d30;
+}
+
+.theme-preview-window.is-dark .tp-composer {
+  background: #26282b;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+}
+
+.tp-sidebar {
+  padding: 9px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.tp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  margin-bottom: 2px;
+}
+
+.tp-line {
+  height: 4px;
+  width: 82%;
+  border-radius: 999px;
+}
+
+.tp-stage {
+  padding: 9px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.tp-bubble-user {
+  align-self: flex-end;
+  width: 48%;
+  height: 11px;
+  border-radius: 999px 999px 3px 999px;
+}
+
+.tp-bubble-agent {
+  align-self: flex-start;
+  width: 64%;
+  height: 11px;
+  border-radius: 999px 999px 999px 3px;
+}
+
+.tp-composer {
+  width: 100%;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.theme-preview-system-split > .theme-preview-window {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+.theme-preview-system-split > .theme-preview-window.is-light {
+  clip-path: polygon(0 0, 56% 0, 44% 100%, 0 100%);
+}
+
+.theme-preview-system-split > .theme-preview-window.is-dark {
+  clip-path: polygon(56% 0, 100% 0, 100% 100%, 44% 100%);
+}
+
+.theme-mode-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.theme-mode-label-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-mode-icon {
+  display: inline-flex;
   color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.6;
 }
 
-.settings-info svg {
+.theme-mode-card.active .theme-mode-icon {
   color: var(--accent);
 }
 
-.settings-info code {
-  font-size: 12px;
-}
-
-.settings-empty {
-  border: 1px dashed var(--border);
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text-3);
-  font-size: 12px;
-}
-
-/* ── Appearance ────────────────────────────────────────────────────── */
-
-.theme-grid button {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--panel);
+.theme-mode-label {
+  font-size: 12.5px;
+  font-weight: 560;
   color: var(--text);
-  font-size: 13px;
 }
 
-.theme-grid button:hover {
-  border-color: var(--border-strong);
-}
-
-.theme-grid button.active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
-}
-
-/* An inset shadow sits under the preview's sidebar and top bar, so only its right and bottom
-   edges showed. An outline paints above them and frames all four sides. */
-.theme-preview {
-  border-radius: 8px;
-  box-shadow: none;
-  outline: 1px solid var(--border);
-  outline-offset: -3px;
-}
-
-.theme-grid > button:hover .theme-preview,
-.theme-grid > button.active .theme-preview {
-  outline-color: transparent;
+.theme-mode-check {
+  width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #ffffff;
 }

@@ -1,10 +1,11 @@
 /** The conversation: the Host's transcript events, sending, queued messages, aborting, compacting. */
 import { describeError } from "../lib/errors";
+import { clientContributions } from "../lib/clientContributions";
 import { buildPromptPayload, harnessRuntimes, parseLeadingSlashCommand } from "../lib/harnessRuntime";
 import { appendManagedQueue, insertManagedQueueItem, moveManagedQueueItem, removeManagedQueueItem } from "../lib/managedQueue";
 import { completionNotification, isSilentUiRequest, uiRequestNotification } from "../lib/eventNotifications";
 import { agentBrowserFromResult, computerFromResult, isGrokBrowserTool, isGrokComputerTool } from "../lib/toolPanels";
-import { completeAssistant, endToolCall, interruptTurn, replaceOrAppend, startAssistant, startToolCall } from "../lib/transcript";
+import { completeAssistant, endToolCall, interruptTurn, replaceOrAppend, resetStreamingAssistant, startAssistant, startToolCall } from "../lib/transcript";
 import type { ManagedQueuedMessage } from "../types";
 import type { GetState, SetState, StoreContext } from "./context";
 import type { TranscriptSlice } from "./types";
@@ -79,17 +80,26 @@ export function createTranscriptSlice(set: SetState, get: GetState, ctx: StoreCo
           return;
         }
         case "assistant-delta":
+          if (get().retryStatus !== null) set({ retryStatus: null });
           ctx.queueAssistantDelta(runtimeId, { text: event.text, thinking: event.thinking });
           return;
         case "assistant-tool-calls":
+          if (get().retryStatus !== null) set({ retryStatus: null });
           ctx.queueAssistantDelta(runtimeId, { toolCalls: event.calls });
           return;
         case "assistant": {
           ctx.clearPendingAssistantUpdate(runtimeId);
           const durationMs = ctx.activeTurnStartedAt === null ? undefined : Date.now() - ctx.activeTurnStartedAt;
-          set((state) => ({ messages: completeAssistant(state.messages, { ...event.message, durationMs }) }));
+          set((state) => ({ retryStatus: null, messages: completeAssistant(state.messages, { ...event.message, durationMs }) }));
           return;
         }
+        case "retry-status":
+          ctx.clearPendingAssistantUpdate(runtimeId);
+          set((state) => ({
+            retryStatus: event.text,
+            messages: resetStreamingAssistant(state.messages),
+          }));
+          return;
         case "tool-start":
           set((state) => ({ messages: startToolCall(state.messages, event.callId, event.name, event.args) }));
           return;
@@ -177,6 +187,12 @@ export function createTranscriptSlice(set: SetState, get: GetState, ctx: StoreCo
         const slash = parseLeadingSlashCommand(payload.message);
         if (slash !== null) {
           try {
+            const handledByClient = await clientContributions.tryHandleSlashCommand(
+              slash.name,
+              slash.rawArgs,
+              { cwd: get().cwd, sessionFile: get().sessionFile },
+            );
+            if (handledByClient) return true;
             const commandResult = await harnessRuntimes.runCommand(runtimeId, slash.name, slash.rawArgs);
             if (commandResult.handled) {
               if (commandResult.clientAction === "clear") {

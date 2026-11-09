@@ -45,6 +45,7 @@ export interface ModelSummary {
   contextWindow?: number;
   maxOutputTokens?: number;
   reasoning?: boolean;
+  thinkingLevel?: "off" | "low" | "medium" | "high" | "max";
   input?: Array<"text" | "image">;
   cost?: ModelPricingInfo;
 }

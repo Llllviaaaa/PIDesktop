@@ -180,6 +180,7 @@ export function apply(ctx: Context, config: Config): void {
   let adapterDisposers: Array<() => void> = [];
   let keys = new Map<string, SecretRef | undefined>();
   let customModels = new Map<string, Map<string, ModelPricing>>();
+  let configuredModels = new Map<string, ModelInfo[]>();
 
   const clearAdapters = () => {
     for (const dispose of adapterDisposers) dispose();
@@ -196,8 +197,12 @@ export function apply(ctx: Context, config: Config): void {
 
     keys = new Map(entries.map((entry) => [entry.id, entry.apiKey]));
     customModels = new Map<string, Map<string, ModelPricing>>();
+    configuredModels = new Map<string, ModelInfo[]>();
 
     for (const entry of entries) {
+      if (entry.models !== undefined && entry.models.length > 0) {
+        configuredModels.set(entry.id, entry.models.map((model) => ({ ...model })));
+      }
       const forProvider = new Map<string, ModelPricing>();
       for (const model of entry.models ?? []) {
         if (model.cost !== undefined) forProvider.set(model.id, model.cost);
@@ -249,7 +254,12 @@ export function apply(ctx: Context, config: Config): void {
         throw new RpcError(ErrorCode.InvalidParams, `Unknown provider ${provider}`);
       }
       try {
-        const rawModels = await innerCtx.llm.listModels(provider, call.signal);
+        // Strictly honor explicitly selected models in providers.json; only query remote `/models`
+        // when a provider entry has no configured `models` list.
+        const explicit = configuredModels.get(provider);
+        const rawModels = explicit !== undefined
+          ? explicit
+          : await innerCtx.llm.listModels(provider, call.signal);
         const pricing = innerCtx.get("pricing");
         const models = pricing === undefined
           ? rawModels

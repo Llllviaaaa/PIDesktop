@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { LayoutGroup, motion } from "motion/react";
 import {
   Activity,
   FileCode2,
@@ -140,6 +141,7 @@ export function RightWorkbench({
         aria-label="右侧工作台"
       >
         <header className="pid-wb-header">
+          <LayoutGroup id="pid-wb-header-tabs">
           <div className="pid-wb-tabs" role="tablist" aria-label="工作台视图">
             <button
               type="button"
@@ -149,6 +151,7 @@ export function RightWorkbench({
               onClick={() => openTab("files")}
               title="工作区文件"
             >
+              {activeTab === "files" && <motion.span layoutId="pid-wb-active-pill" className="pid-wb-tab-pill" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
               <FolderTree size={13} />
               <span>文件</span>
             </button>
@@ -160,6 +163,7 @@ export function RightWorkbench({
               onClick={() => openTab("editor")}
               title="代码编辑器"
             >
+              {activeTab === "editor" && <motion.span layoutId="pid-wb-active-pill" className="pid-wb-tab-pill" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
               <FileCode2 size={13} />
               <span>编辑器</span>
               {openFilesCount > 0 && <em className="pid-wb-tab-count">{openFilesCount}</em>}
@@ -172,6 +176,7 @@ export function RightWorkbench({
               onClick={() => openTab("review")}
               title="代码变更与审查"
             >
+              {activeTab === "review" && <motion.span layoutId="pid-wb-active-pill" className="pid-wb-tab-pill" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
               <GitCompare size={13} />
               <span>审查</span>
               {reviewCount > 0 && <em className="pid-wb-tab-count">{reviewCount}</em>}
@@ -184,9 +189,26 @@ export function RightWorkbench({
               onClick={() => openTab("preview")}
               title="Web 与浏览器预览 (Ctrl+T)"
             >
+              {activeTab === "preview" && <motion.span layoutId="pid-wb-active-pill" className="pid-wb-tab-pill" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
               <Globe size={13} />
               <span>预览</span>
             </button>
+            {contributions.rightWorkbenchTabs
+              .filter((tab) => (tab.order ?? 100) < 20)
+              .map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab.id}
+                  className={`pid-wb-tab-btn${activeTab === tab.id ? " active" : ""}`}
+                  onClick={() => openTab(tab.id)}
+                >
+                  {activeTab === tab.id && <motion.span layoutId="pid-wb-active-pill" className="pid-wb-tab-pill" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                </button>
+              ))}
             <button
               type="button"
               role="tab"
@@ -195,6 +217,7 @@ export function RightWorkbench({
               onClick={() => openTab("summary")}
               title="任务计划、子代理与诊断日志"
             >
+              {activeTab === "summary" && <motion.span layoutId="pid-wb-active-pill" className="pid-wb-tab-pill" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
               <Activity size={13} />
               <span>摘要</span>
             </button>
@@ -206,23 +229,28 @@ export function RightWorkbench({
               onClick={() => openTab("side-chat")}
               title="基于当前会话分叉的独立侧边对话"
             >
+              {activeTab === "side-chat" && <motion.span layoutId="pid-wb-active-pill" className="pid-wb-tab-pill" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
               <MessageSquare size={13} />
               <span>侧边对话(beta)</span>
             </button>
-            {contributions.rightWorkbenchTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === tab.id}
-                className={`pid-wb-tab-btn${activeTab === tab.id ? " active" : ""}`}
-                onClick={() => openTab(tab.id)}
-              >
-                {tab.icon}
-                <span>{tab.label}</span>
-              </button>
-            ))}
+            {contributions.rightWorkbenchTabs
+              .filter((tab) => (tab.order ?? 100) >= 20)
+              .map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab.id}
+                  className={`pid-wb-tab-btn${activeTab === tab.id ? " active" : ""}`}
+                  onClick={() => openTab(tab.id)}
+                >
+                  {activeTab === tab.id && <motion.span layoutId="pid-wb-active-pill" className="pid-wb-tab-pill" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                </button>
+              ))}
           </div>
+          </LayoutGroup>
 
           <div className="pid-wb-window-btns">
             <button

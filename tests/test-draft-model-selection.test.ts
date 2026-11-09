@@ -276,6 +276,13 @@ test("a new task applies the saved default to a runtime warmed with an older one
   assert.deepEqual(runtimeIn(WORKTREE).prompts, [
     { message: "hello", model: PICKED_MODEL.id, thinkingLevel: "high" },
   ]);
+
+  // Legacy "max" thinkingLevel in settings.json maps cleanly to "high" on new tasks instead of being dropped.
+  useAppStore.setState({ settings: defaults(DEFAULT_MODEL, "max"), thinkingLevel: "medium" });
+  store().prepareNewTask();
+  await store().connect(PROJECT);
+  assert.equal(runtimeIn(PROJECT).thinkingLevel, "high");
+  assert.equal(store().thinkingLevel, "high");
 });
 
 test("a saved default the catalog does not list is not forced onto new tasks", async () => {

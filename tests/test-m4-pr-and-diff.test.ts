@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { parsePullRequestDraft } from "../src/lib/gitClient";
 import {
   OVERSIZED_DIFF_THRESHOLD,
   diffStats,
@@ -8,36 +7,7 @@ import {
   unifiedSegments,
 } from "../src/lib/diffView";
 
-describe("M4 PR draft parser and review special file detection", () => {
-  it("parses raw JSON, fenced JSON, and Markdown fallbacks for PR drafts", () => {
-    expect(
-      parsePullRequestDraft(
-        '{"title": "feat: add PR creation dialog", "body": "## 改动摘要\\n- 支持 gh pr create"}',
-        "feat/pr",
-      ),
-    ).toEqual({
-      title: "feat: add PR creation dialog",
-      body: "## 改动摘要\n- 支持 gh pr create",
-    });
-
-    expect(
-      parsePullRequestDraft(
-        '```json\n{\n  "title": "fix: handle CI check failure",\n  "body": "Verified locally"\n}\n```',
-        "fix/ci",
-      ),
-    ).toEqual({
-      title: "fix: handle CI check failure",
-      body: "Verified locally",
-    });
-
-    expect(
-      parsePullRequestDraft("# chore: fallback markdown title\n\nBody paragraph 1\nBody paragraph 2", "chore/md"),
-    ).toEqual({
-      title: "chore: fallback markdown title",
-      body: "Body paragraph 1\nBody paragraph 2",
-    });
-  });
-
+describe("Review unified diff special file detection", () => {
   it("classifies binary, pure-rename, and oversized unified diff entries", () => {
     const addedLines = Array.from({ length: OVERSIZED_DIFF_THRESHOLD + 5 }, (_, idx) => `+line ${idx}`).join("\n");
     const sampleDiff = [

@@ -26,6 +26,6 @@
       "@pid/client": ["./src/lib/clientPluginBootstrap.ts"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "plugins/*/client.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

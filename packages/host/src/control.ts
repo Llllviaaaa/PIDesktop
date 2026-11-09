@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { harnessFromDesktop, type DesktopMessage } from "./desktop-settings.ts";
 import { HARNESS_TOGGLED_PLUGIN_IDS, pluginEnabledInHarness, readHarnessConfig } from "./harness-config.ts";
+import { installPlugin, managedPluginsRoot } from "./plugin-installer.ts";
 import { pluginsStorePath, updatePluginsStore } from "./plugin-store.ts";
 
 /** The fields a desktop scheduled task shares with the host's (`@pid/schedule`). */
@@ -120,6 +121,26 @@ export function applyDesktopMessage(dataDir: string, message: DesktopMessage): s
     const tasks = importDesktopTasks(desktopTasks);
     writeJson(schedulesFile, tasks);
     if (tasks.length > 0) notes.push(`imported ${tasks.length} scheduled task(s) from ${desktopFile}`);
+  }
+
+  // Seed official bundled plugins (such as `smart-rewind`) once on desktop launch.
+  const desktopExe = message.executable?.trim();
+  if (desktopExe) {
+    const bundledSmartRewind = join(dirname(desktopExe), "harness", "bundled-plugins", "smart-rewind");
+    const pluginsRoot = managedPluginsRoot(dataDir);
+    const seedMarker = join(pluginsRoot, ".seeded-smart-rewind-v1");
+    if (existsSync(join(bundledSmartRewind, "package.json")) && !existsSync(seedMarker)) {
+      mkdirSync(pluginsRoot, { recursive: true });
+      writeFileSync(seedMarker, `${new Date().toISOString()}\n`, "utf8");
+      if (!existsSync(join(pluginsRoot, "smart-rewind"))) {
+        try {
+          installPlugin(dataDir, { channel: "local", spec: bundledSmartRewind, link: false });
+          notes.push(`seeded bundled plugin smart-rewind from ${bundledSmartRewind}`);
+        } catch (error) {
+          notes.push(`failed to seed bundled plugin smart-rewind: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
   }
   return notes;
 }

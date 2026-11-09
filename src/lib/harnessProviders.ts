@@ -5,8 +5,14 @@
  * `anthropic`, and `gemini`).
  */
 import type { ModelListResult, ModelSummary } from "@pid/protocol";
-import type { ModelProviderCheckResult, ModelProviderConfig, ModelProviderInput, ModelProviderModel } from "../types";
-import { harnessRuntimes } from "./harnessRuntime";
+import type {
+  ModelProviderCheckResult,
+  ModelProviderConfig,
+  ModelProviderInput,
+  ModelProviderModel,
+  ModelThinkingLevel,
+} from "../types";
+import { harnessRuntimes, isRpcMethodNotFound } from "./harnessRuntime";
 
 type HostApi = "openai-compat" | "openai-responses" | "anthropic" | "gemini";
 
@@ -41,6 +47,7 @@ function modelFromHost(model: ModelSummary): ModelProviderModel {
     id: model.id,
     name: model.name ?? model.id,
     reasoning: model.reasoning === true,
+    ...(model.thinkingLevel ? { thinkingLevel: model.thinkingLevel } : {}),
     input: model.input ?? ["text"],
     contextWindow: model.contextWindow ?? null,
     maxTokens: model.maxOutputTokens ?? null,
@@ -56,6 +63,7 @@ function modelToHost(model: ModelProviderModel): ModelSummary {
     id: model.id,
     ...(model.name && model.name !== model.id ? { name: model.name } : {}),
     reasoning: model.reasoning,
+    ...(model.thinkingLevel ? { thinkingLevel: model.thinkingLevel } : {}),
     input: model.input.filter((kind): kind is "text" | "image" => kind === "text" || kind === "image"),
     ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
     ...(model.maxTokens ? { maxOutputTokens: model.maxTokens } : {}),
@@ -91,13 +99,16 @@ export function draftToHost(input: ModelProviderInput): Record<string, unknown> 
 
 export function summaryFromHost(provider: HostProviderConfig, models: ModelSummary[]): ProviderSummary {
   const byDiscovered = new Map(models.map((model) => [model.id, model]));
+  const explicitModels = provider.models ?? [];
   const configured = new Map(
-    (provider.models ?? []).map((model) => {
+    explicitModels.map((model) => {
       const remote = byDiscovered.get(model.id);
       return [model.id, model.cost === undefined && remote?.cost !== undefined ? { ...model, cost: remote.cost } : model];
     }),
   );
-  const all = [...configured.values(), ...models.filter((model) => !configured.has(model.id))];
+  // Strictly keep ONLY explicitly selected models when `provider.models` is configured;
+  // fall back to `models` only for unconfigured/auto-discovered entries.
+  const all = configured.size > 0 ? [...configured.values()] : models;
   return {
     id: provider.id,
     name: provider.name ?? provider.id,
@@ -108,6 +119,7 @@ export function summaryFromHost(provider: HostProviderConfig, models: ModelSumma
       id: model.id,
       name: model.name ?? model.id,
       reasoning: model.reasoning === true,
+      ...(model.thinkingLevel ? { thinkingLevel: model.thinkingLevel } : {}),
       input: model.input ?? ["text"],
       contextWindow: model.contextWindow ?? null,
       maxTokens: model.maxOutputTokens ?? null,
@@ -125,6 +137,7 @@ export interface ProviderModelSummary {
   id: string;
   name: string;
   reasoning: boolean;
+  thinkingLevel?: ModelThinkingLevel;
   input: string[];
   contextWindow: number | null;
   maxTokens: number | null;
@@ -170,8 +183,11 @@ export const harnessProviders = {
   },
   check: async (id: string): Promise<ModelProviderCheckResult> => {
     try {
-      const { models } = await harnessRuntimes.call<ModelListResult>("model.list", { provider: id });
-      return { ok: true, message: `连接正常，${models.length} 个模型` };
+      const { models } = await harnessRuntimes.call<ModelListResult>("provider.check", { id }).catch(async (err) => {
+        if (isRpcMethodNotFound(err)) return harnessRuntimes.call<ModelListResult>("model.list", { provider: id });
+        throw err;
+      });
+      return { ok: true, message: `连接正常，服务端响应 ${models.length} 个模型` };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) };
     }

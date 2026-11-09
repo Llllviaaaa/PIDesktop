@@ -102,6 +102,32 @@ describe("provider RPC methods", () => {
     expect(await call(started, "model.list", { provider: "deepseek" })).toEqual({ models: [{ id: "deepseek-chat" }] });
   });
 
+  it("returns strictly the user-selected models in model.list when providers.json defines models", async () => {
+    server = await startFakeProvider();
+    const started = await startWith({
+      providers: [
+        {
+          api: "openai-compat",
+          id: "relay",
+          name: "Relay",
+          baseUrl: `${server.baseUrl}/v1`,
+          apiKey: { value: "sk-relay" },
+          models: [
+            { id: "gemini-2.5-pro", contextWindow: 1_048_576, reasoning: true, thinkingLevel: "high", input: ["text", "image"] },
+          ],
+        },
+      ],
+    });
+    // Even if remote /v1/models has 50 extra models, model.list must NOT merge unselected ones back in.
+    server.reply({ status: 200, json: { data: [{ id: "gemini-2.5-pro" }, { id: "unselected-model-1" }, { id: "unselected-model-2" }] } });
+    expect(await call(started, "model.list", { provider: "relay" })).toEqual({
+      models: [
+        { id: "gemini-2.5-pro", contextWindow: 1_048_576, reasoning: true, thinkingLevel: "high", input: ["text", "image"] },
+      ],
+    });
+    expect(server.requests.length).toBe(0);
+  });
+
   it("answers bad params and provider failures with RPC errors", async () => {
     server = await startFakeProvider();
     const started = await startWith({ providers: [{ api: "openai-compat", id: "p", baseUrl: `${server.baseUrl}/v1` }] });

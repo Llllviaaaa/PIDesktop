@@ -76,7 +76,35 @@ function effortValue(effort: Effort | undefined): string | undefined {
   return effort === undefined || effort === "off" ? undefined : effort;
 }
 
-export function buildRequestBody(request: LlmRequest, provider: ProviderConfig): Record<string, unknown> {
+const KNOWN_REASONING_EFFORT_MODEL_RE = /^(?:o1|o3|o4|gpt-5|grok-(?:3-mini|4))(?:$|[-._/])/i;
+
+/**
+ * Whether `reasoning_effort` should be sent for `modelId`.
+ * Explicit `provider.reasoningEffort` (`true` / `false`) always wins; otherwise
+ * auto-enable for configured reasoning models and known OpenAI/xAI reasoning families
+ * while avoiding DeepSeek's native endpoint where `deepseek-reasoner` omits it.
+ */
+export function supportsReasoningEffort(
+  modelId: string,
+  provider: ProviderConfig,
+  unsupportedModels?: ReadonlySet<string>,
+): boolean {
+  if (provider.reasoningEffort === true) return true;
+  if (provider.reasoningEffort === false) return false;
+  if (unsupportedModels?.has(modelId)) return false;
+  if (/^deepseek-reasoner$/i.test(modelId) || /api\.deepseek\.com/i.test(provider.baseUrl)) return false;
+  const configured = provider.models?.find((item) => item.id === modelId);
+  if (configured?.reasoning === true || (configured?.thinkingLevel !== undefined && configured.thinkingLevel !== "off")) {
+    return true;
+  }
+  return KNOWN_REASONING_EFFORT_MODEL_RE.test(modelId);
+}
+
+export function buildRequestBody(
+  request: LlmRequest,
+  provider: ProviderConfig,
+  unsupportedReasoningModels?: ReadonlySet<string>,
+): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: request.model,
     messages: toWireMessages(request.system, request.messages),
@@ -92,7 +120,9 @@ export function buildRequestBody(request: LlmRequest, provider: ProviderConfig):
   if (request.maxTokens !== undefined) body.max_tokens = request.maxTokens;
   if (request.temperature !== undefined) body.temperature = request.temperature;
   const effort = effortValue(request.effort);
-  if (provider.reasoningEffort === true && effort !== undefined) body.reasoning_effort = effort;
+  if (effort !== undefined && supportsReasoningEffort(request.model, provider, unsupportedReasoningModels)) {
+    body.reasoning_effort = effort;
+  }
   return body;
 }
 
@@ -130,9 +160,13 @@ export async function* translateStream(events: AsyncIterable<{ data: string }>, 
   let textIndex: number | undefined;
   const toolIndex = new Map<number, number>();
   let reason: FinishReason | undefined;
+  let sawDone = false;
 
   for await (const event of events) {
-    if (event.data === "[DONE]") break;
+    if (event.data === "[DONE]") {
+      sawDone = true;
+      break;
+    }
     let chunk: WireChunk;
     try {
       chunk = JSON.parse(event.data) as WireChunk;
@@ -180,34 +214,163 @@ export async function* translateStream(events: AsyncIterable<{ data: string }>, 
       };
     }
   }
+  if (!sawDone && reason === undefined) {
+    throw new LlmError({
+      kind: "network",
+      message: `${providerId}: upstream stream ended before completion`,
+      retryable: true,
+    });
+  }
   yield { type: "finish", reason: reason ?? (toolIndex.size > 0 ? "tool-use" : "stop") };
 }
 
+function positiveInt(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : undefined;
+}
+
+function parsePerMillionPrice(perToken: unknown): number | undefined {
+  const num = typeof perToken === "number" ? perToken : typeof perToken === "string" ? Number(perToken) : NaN;
+  if (!Number.isFinite(num) || num < 0) return undefined;
+  return Math.round(num * 1_000_000 * 10_000) / 10_000;
+}
+
+function parseDiscoveredModel(raw: Record<string, unknown>): ModelInfo[] {
+  if (typeof raw.id !== "string" || raw.id.trim() === "") return [];
+  const id = raw.id;
+  const info: ModelInfo = { id };
+
+  const displayName = typeof raw.name === "string" ? raw.name.trim() : typeof raw.display_name === "string" ? raw.display_name.trim() : "";
+  if (displayName !== "" && displayName !== id) info.name = displayName;
+
+  const topProvider = typeof raw.top_provider === "object" && raw.top_provider !== null ? (raw.top_provider as Record<string, unknown>) : undefined;
+  const contextWindow =
+    positiveInt(raw.context_length)
+    ?? positiveInt(raw.context_window)
+    ?? positiveInt(raw.max_model_len)
+    ?? positiveInt(raw.max_input_tokens)
+    ?? positiveInt(topProvider?.context_length);
+  if (contextWindow !== undefined) info.contextWindow = contextWindow;
+
+  const maxOutputTokens =
+    positiveInt(raw.max_completion_tokens)
+    ?? positiveInt(raw.max_output_tokens)
+    ?? positiveInt(topProvider?.max_completion_tokens);
+  if (maxOutputTokens !== undefined) info.maxOutputTokens = maxOutputTokens;
+
+  const capabilities = typeof raw.capabilities === "object" && raw.capabilities !== null ? (raw.capabilities as Record<string, unknown>) : undefined;
+  const supportedParams = Array.isArray(raw.supported_parameters) ? raw.supported_parameters : undefined;
+  if (
+    raw.reasoning === true
+    || raw.thinking === true
+    || raw.supports_reasoning === true
+    || capabilities?.reasoning === true
+    || capabilities?.thinking === true
+    || (supportedParams !== undefined && supportedParams.some((p) => p === "reasoning" || p === "include_reasoning" || p === "reasoning_effort"))
+  ) {
+    info.reasoning = true;
+  }
+
+  const rawEffort = typeof raw.thinking_level === "string"
+    ? raw.thinking_level.toLowerCase()
+    : typeof raw.reasoning_effort === "string"
+      ? raw.reasoning_effort.toLowerCase()
+      : "";
+  if (rawEffort === "off" || rawEffort === "low" || rawEffort === "medium" || rawEffort === "high" || rawEffort === "max") {
+    info.thinkingLevel = rawEffort;
+    if (rawEffort !== "off") info.reasoning = true;
+  }
+
+  const arch = typeof raw.architecture === "object" && raw.architecture !== null ? (raw.architecture as Record<string, unknown>) : undefined;
+  const inputModalities = Array.isArray(arch?.input_modalities) ? arch.input_modalities : undefined;
+  const modality = typeof arch?.modality === "string" ? arch.modality : "";
+  if (
+    raw.vision === true
+    || raw.supports_vision === true
+    || raw.multimodal === true
+    || capabilities?.vision === true
+    || (inputModalities !== undefined && inputModalities.includes("image"))
+    || modality.includes("image")
+  ) {
+    info.input = ["text", "image"];
+  }
+
+  const pricing = typeof raw.pricing === "object" && raw.pricing !== null ? (raw.pricing as Record<string, unknown>) : undefined;
+  if (pricing !== undefined) {
+    const inputPrice = parsePerMillionPrice(pricing.prompt);
+    const outputPrice = parsePerMillionPrice(pricing.completion);
+    if (inputPrice !== undefined && outputPrice !== undefined && (inputPrice > 0 || outputPrice > 0)) {
+      info.cost = { input: inputPrice, output: outputPrice };
+    }
+  }
+
+  return [info];
+}
+
 export class OpenAiCompatAdapter implements LlmAdapter {
+  private readonly unsupportedReasoningModels = new Set<string>();
+
   constructor(private readonly ctx: Context, private readonly provider: ProviderConfig) {}
 
-  private async headers(): Promise<Record<string, string>> {
+  private async headers(request?: LlmRequest): Promise<Record<string, string>> {
     const key = await this.ctx.credentials.resolve(this.provider.apiKey);
-    return { ...(key === undefined ? {} : { authorization: `Bearer ${key}` }), ...this.provider.headers };
+    const sessionHeaders: Record<string, string> = {};
+    if (request?.sessionId) {
+      sessionHeaders["x-session-id"] = request.sessionId;
+      if (/grok/i.test(request.model)) {
+        sessionHeaders["x-grok-conv-id"] = request.sessionId;
+      }
+    }
+    return {
+      ...(key === undefined ? {} : { authorization: `Bearer ${key}` }),
+      ...sessionHeaders,
+      ...this.provider.headers,
+    };
   }
 
   async *stream(request: LlmRequest, signal: AbortSignal): AsyncGenerator<StreamChunk> {
-    const events = postSse(
-      joinUrl(this.provider.baseUrl, "chat/completions"),
-      await this.headers(),
-      buildRequestBody(request, this.provider),
-      signal,
-      this.provider.id,
-    );
-    yield* translateStream(events, this.provider.id);
+    const headers = await this.headers(request);
+    const body = buildRequestBody(request, this.provider, this.unsupportedReasoningModels);
+    try {
+      const events = postSse(
+        joinUrl(this.provider.baseUrl, "chat/completions"),
+        headers,
+        body,
+        signal,
+        this.provider.id,
+      );
+      yield* translateStream(events, this.provider.id);
+    } catch (error) {
+      // If an OpenAI-compat proxy rejects auto-inferred `reasoning_effort`, remember and retry once cleanly without it.
+      if (
+        this.provider.reasoningEffort === undefined
+        && "reasoning_effort" in body
+        && error instanceof LlmError
+        && error.status === 400
+        && /reasoning_effort/i.test(error.message)
+        && !signal.aborted
+      ) {
+        this.unsupportedReasoningModels.add(request.model);
+        const fallbackBody = buildRequestBody(request, this.provider, this.unsupportedReasoningModels);
+        const retryEvents = postSse(
+          joinUrl(this.provider.baseUrl, "chat/completions"),
+          headers,
+          fallbackBody,
+          signal,
+          this.provider.id,
+        );
+        yield* translateStream(retryEvents, this.provider.id);
+        return;
+      }
+      throw error;
+    }
   }
 
   async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
     const configured = this.provider.models ?? [];
     let discovered: ModelInfo[] = [];
     try {
-      const body = await getJson(joinUrl(this.provider.baseUrl, "models"), await this.headers(), this.provider.id, signal) as { data?: Array<{ id?: unknown }> };
-      discovered = (body.data ?? []).flatMap((model) => (typeof model.id === "string" ? [{ id: model.id }] : []));
+      const body = await getJson(joinUrl(this.provider.baseUrl, "models"), await this.headers(), this.provider.id, signal) as { data?: Array<Record<string, unknown>> };
+      discovered = (body.data ?? []).flatMap((model) => (typeof model === "object" && model !== null ? parseDiscoveredModel(model) : []));
     } catch (error) {
       if (configured.length === 0) throw error;
     }

@@ -20,24 +20,6 @@
         "minHeight": 600,
         "decorations": false,
         "center": true
-      },
-      {
-        "label": "desktop-pet",
-        "title": "Pi Desktop Pet",
-        "url": "index.html?desktop-pet=1",
-        "width": 132,
-        "height": 112,
-        "resizable": false,
-        "maximizable": false,
-        "minimizable": false,
-        "closable": false,
-        "decorations": false,
-        "transparent": true,
-        "shadow": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "focus": false,
-        "visible": false
       }
     ],
     "security": {

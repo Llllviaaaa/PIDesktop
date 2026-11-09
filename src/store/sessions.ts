@@ -18,7 +18,8 @@ export function createSessionsSlice(set: SetState, get: GetState, ctx: StoreCont
       const state = get();
       const messageIndex = state.messages.findIndex((message) => message.id === messageId);
       const target = state.messages[messageIndex];
-      if (messageIndex < 0 || target?.role !== "user" || !target.content.trim()) return null;
+      const hasImages = Boolean(target?.images && target.images.length > 0);
+      if (messageIndex < 0 || target?.role !== "user" || (!target.content.trim() && !hasImages)) return null;
       if (target.entryId) return { entryId: target.entryId, text: target.content };
       try {
         const points = await harnessRuntimes.forkPoints(ctx.activeRuntime());
@@ -49,6 +50,28 @@ export function createSessionsSlice(set: SetState, get: GetState, ctx: StoreCont
         ctx.toast(describeError(error), "error");
         return false;
       }
+    },
+
+    rewindMessageWithMode: async (entryId, mode = "both") => {
+      if (get().isStreaming) {
+        ctx.toast("请等待当前回复完成后再回退消息", "warning");
+        return null;
+      }
+      try {
+        const result = await harnessRuntimes.executeRewind(ctx.activeRuntime(), entryId, mode);
+        if (!result.ok) return null;
+        await ctx.syncSession();
+        await Promise.all([get().refreshSessions(), get().refreshGit()]);
+        return result;
+      } catch (error) {
+        ctx.toast(describeError(error), "error");
+        return null;
+      }
+    },
+
+    syncActiveSession: async () => {
+      await ctx.syncSession();
+      await Promise.all([get().refreshSessions(), get().refreshGit()]);
     },
 
     editAndResend: async (entryId, text, attachments = []) => {

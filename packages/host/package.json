@@ -17,6 +17,7 @@
     "@pid/commands": "*",
     "@pid/computer": "*",
     "@pid/hooks": "*",
+    "@pid/intelligent-ui": "*",
     "@pid/kernel": "*",
     "@pid/llm": "*",
     "@pid/llm-anthropic": "*",

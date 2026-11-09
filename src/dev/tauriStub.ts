@@ -13,10 +13,6 @@ import type {
   AppSettings,
   GitSnapshot,
   ProjectConfig,
-  PullRequestCollection,
-  PullRequestCreated,
-  PullRequestDetail,
-  PullRequestDraftContext,
 } from "../types";
 
 type Args = Record<string, unknown> | undefined;
@@ -26,10 +22,6 @@ interface E2eStubWindow {
   __E2E_OPEN_PATH__?: string;
   __E2E_GIT_SNAPSHOT__?: GitSnapshot;
   __E2E_GIT_REPO_ROOT__?: string | null;
-  __E2E_PR_COLLECTION__?: PullRequestCollection;
-  __E2E_PR_DETAIL__?: Record<number, PullRequestDetail> | PullRequestDetail;
-  __E2E_PR_DRAFT__?: PullRequestDraftContext;
-  __E2E_PR_CREATE__?: PullRequestCreated;
 }
 
 const e2eWin = window as unknown as E2eStubWindow;
@@ -69,31 +61,6 @@ const commands: Record<string, (args: Args) => unknown> = {
   git_list_branches: () => [],
   git_list_commits: () => [],
   git_default_branch: () => "main",
-  list_pull_requests: () =>
-    e2eWin.__E2E_PR_COLLECTION__ ?? { repository: "demo", remoteUrl: "https://github.com/example/demo", items: [] },
-  get_pull_request_detail: (args) => {
-    const store = e2eWin.__E2E_PR_DETAIL__;
-    if (store === undefined) return null;
-    if ("number" in store && typeof store.number === "number") return store;
-    const number = typeof args?.number === "number" ? args.number : 0;
-    return (store as Record<number, PullRequestDetail>)[number] ?? null;
-  },
-  pull_request_draft_prompt: (args) =>
-    e2eWin.__E2E_PR_DRAFT__ ?? {
-      headBranch: "feat/demo",
-      baseBranch: typeof args?.base === "string" && args.base !== "" ? args.base : "main",
-      commitCount: 1,
-      prompt: `Draft PR prompt for settings: ${settings.pullRequestInstructions}`,
-    },
-  create_pull_request: (args) =>
-    e2eWin.__E2E_PR_CREATE__ ?? {
-      url: "https://github.com/example/demo/pull/99",
-      number: 99,
-      headRefName: "feat/demo",
-      baseRefName: typeof args?.base === "string" && args.base !== "" ? args.base : "main",
-      isDraft: Boolean(args?.draft),
-    },
-  checkout_pull_request: () => null,
   list_worktrees: () => [],
   list_workspace_dir: (args) => {
     const prefix = typeof args?.path === "string" ? args.path.replace(/^\/+|\/+$/g, "") : "";

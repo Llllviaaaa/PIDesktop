@@ -244,6 +244,7 @@ export class AgentLoop extends Service implements Agents {
     const request: LlmRequest = {
       provider: model.provider,
       model: model.model,
+      sessionId: session.id,
       system,
       messages: state.messages,
       ...(tools.length === 0 ? {} : { tools }),
@@ -253,6 +254,7 @@ export class AgentLoop extends Service implements Agents {
     this.delta(session, { type: "llm-start", provider: model.provider, model: model.model });
     const assembler = new BlockAssembler();
     for await (const chunk of this.ctx.llm.stream(request, signal)) {
+      if (chunk.type === "retry") run.streaming = [];
       assembler.push(chunk);
       run.streaming.push(chunk);
       this.delta(session, { type: "llm-chunk", chunk });

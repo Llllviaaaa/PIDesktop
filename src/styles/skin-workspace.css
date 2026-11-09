@@ -97,7 +97,7 @@
 
 .codex-shot .open-in-popover {
   width: 240px;
-  max-height: min(70vh, 520px);
+  max-height: min(calc(var(--ui-vh, 100vh) * 0.7), 520px);
   overflow-y: auto;
 }
 
@@ -196,15 +196,20 @@
   height: 26px;
   padding: 0 8px;
   gap: 5px;
-  border-radius: 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-soft);
   color: var(--text-2);
-  font-size: 12px;
+  font-family: var(--code-font);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .codex-shot .topbar-diff-chip:hover,
 .codex-shot .topbar-diff-chip.active {
   border-color: var(--border-strong);
-  background: var(--active);
+  background: var(--panel);
+  color: var(--text);
 }
 
 .codex-shot .topbar-diff-chip em {
@@ -561,14 +566,14 @@
 
 /* The one outlined control in the topbar: the next Git step. */
 .codex-shot .git-action-control {
-  height: 28px;
+  height: 26px;
   display: inline-flex;
   align-items: stretch;
   overflow: hidden;
   border: 1px solid var(--border-strong, var(--border));
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--panel);
-  box-shadow: 0 1px 2px rgba(20, 20, 19, 0.04);
+  box-shadow: var(--pi-bevel-top), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .codex-shot .git-action-control button {
@@ -582,13 +587,14 @@
 
 .codex-shot .git-action-control button:hover:not(:disabled),
 .codex-shot .git-action-control.active .git-action-trigger {
-  background: var(--active);
+  background: var(--hover);
 }
 
 .codex-shot .git-action-main {
   gap: 6px;
-  padding: 0 8px 0 9px;
-  font-size: 12.5px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -599,13 +605,13 @@
 
 .codex-shot .git-action-main small {
   min-width: 16px;
-  height: 16px;
+  height: 15px;
   padding: 0 4px;
   display: inline-grid;
   place-items: center;
-  border-radius: 999px;
-  background: var(--active);
-  color: var(--text-2);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 15%, var(--panel-soft));
+  color: var(--accent);
   font: 600 10px/1 var(--code-font);
 }
 
@@ -671,7 +677,7 @@
 
 .codex-shot .commit-dialog {
   width: min(560px, 100%);
-  max-height: min(760px, calc(100vh - 48px));
+  max-height: min(760px, calc(var(--ui-vh, 100vh) - 48px));
   display: flex;
   flex-direction: column;
   overflow: hidden;

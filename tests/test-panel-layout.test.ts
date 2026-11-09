@@ -29,10 +29,12 @@ test("panel layout", async () => {
     SIDEBAR_KEYS,
     WORKSPACE_PANEL_BOUNDS,
     WORKSPACE_PANEL_KEYS,
+    applyUiScale,
     bottomPanelMaxHeight,
     clampSize,
     nextSizeFromKey,
     readStoredSize,
+    resolveUiScale,
     workspacePanelMaxWidth,
     writeStoredSize,
   } = await import("../src/lib/panelLayout");
@@ -125,4 +127,42 @@ test("panel layout", async () => {
   assert.equal(bottomPanelMaxHeight(700, 1), 700 - 240, "a mid-height window is limited by the available space");
   assert.equal(bottomPanelMaxHeight(400, 1), BOTTOM_PANEL_BOUNDS.min, "a short window pins the bottom panel at its minimum");
   assert.equal(bottomPanelMaxHeight(4000, 1), BOTTOM_PANEL_BOUNDS.max, "a tall window is capped by the static maximum");
+
+  // UI scale: zoom must not rewrite #root's 100% width/height into 100/scale%,
+  // which shrinks the shell to 80%x80% at 125% under standardized CSS zoom.
+  assert.equal(resolveUiScale(undefined), 1);
+  assert.equal(resolveUiScale(125), 1.25);
+  assert.equal(resolveUiScale(50), 0.75, "clamps below 75%");
+  assert.equal(resolveUiScale(200), 1.5, "clamps above 150%");
+
+  const makeStyleMock = () => {
+    const vars = new Map<string, string>();
+    return {
+      zoom: "",
+      width: "80%",
+      height: "80%",
+      setProperty(name: string, value: string) {
+        vars.set(name, value);
+      },
+      removeProperty(name: string) {
+        if (name === "width") this.width = "";
+        if (name === "height") this.height = "";
+        vars.delete(name);
+        return "";
+      },
+      vars,
+    };
+  };
+  const docRoot = { style: makeStyleMock() } as unknown as Pick<HTMLElement, "style"> & { style: ReturnType<typeof makeStyleMock> };
+  const appRoot = { style: makeStyleMock() } as unknown as Pick<HTMLElement, "style"> & { style: ReturnType<typeof makeStyleMock> };
+
+  assert.equal(applyUiScale(docRoot, appRoot, 125), 1.25);
+  assert.equal(docRoot.style.vars.get("--ui-scale"), "1.25");
+  assert.equal(appRoot.style.zoom, "1.25");
+  assert.equal(appRoot.style.width, "", "stale percentage width is cleared so #root fills 100%");
+  assert.equal(appRoot.style.height, "", "stale percentage height is cleared so #root fills 100%");
+
+  assert.equal(applyUiScale(docRoot, appRoot, 100), 1);
+  assert.equal(docRoot.style.vars.get("--ui-scale"), "1");
+  assert.equal(appRoot.style.zoom, "", "100% clears inline zoom");
 });

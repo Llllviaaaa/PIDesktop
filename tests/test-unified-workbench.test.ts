@@ -107,16 +107,10 @@ describe("Unified Client Contribution Registry & Cordis Service", () => {
             text: "#f5f5f5",
             text2: "#c0c0c0",
             text3: "#8a8a8a",
-            accent: "#e07a5f",
+            accent: "#6687a8",
             accentText: "#ffffff",
             sidebar: "#121212",
           },
-        }));
-        pluginCtx.effect(() => pluginCtx.contributions.registerPet({
-          id: "owl",
-          label: "Owl",
-          scope: "user",
-          assetDataUrl: "data:image/svg+xml;utf8,<svg></svg>",
         }));
       },
     });
@@ -128,7 +122,6 @@ describe("Unified Client Contribution Registry & Cordis Service", () => {
     expect(registry.getSnapshot().composerToolbar.map((a) => a.id)).toEqual(["prompt-chip"]);
     expect(registry.getSnapshot().leftSidebar.map((s) => s.id)).toEqual(["nav-card"]);
     expect(registry.getSnapshot().themes.map((t) => t.id)).toEqual(["solar-plugin"]);
-    expect(registry.getSnapshot().pets.map((p) => p.id)).toEqual(["owl"]);
 
     await pluginFiber.dispose();
     expect(registry.getSnapshot().rightWorkbenchTabs).toEqual([]);
@@ -137,7 +130,6 @@ describe("Unified Client Contribution Registry & Cordis Service", () => {
     expect(registry.getSnapshot().composerToolbar).toEqual([]);
     expect(registry.getSnapshot().leftSidebar).toEqual([]);
     expect(registry.getSnapshot().themes).toEqual([]);
-    expect(registry.getSnapshot().pets).toEqual([]);
 
     // Legacy `betterSidebar` compatibility shim maps tabs into unified right/bottom slots and auto-disposes.
     const compatFiber = ctx.plugin({

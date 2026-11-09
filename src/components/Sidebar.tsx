@@ -10,25 +10,17 @@ import {
   Archive,
   ArchiveRestore,
   Bell,
-  BookOpen,
-  Boxes,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
-  ChevronUp,
   Clock3,
-  Cpu,
-  ExternalLink,
   Folder,
   FolderOpen,
   FolderPlus,
   GitBranch,
-  GitPullRequest,
-  Keyboard,
   ListFilter,
   MoreHorizontal,
-  Palette,
   Pin,
   Plus,
   Search,
@@ -39,7 +31,6 @@ import {
   Trash2,
   MessageCircleQuestion,
   X,
-  type LucideIcon,
 } from "lucide-react";
 import type { SettingsPage } from "./SettingsModal";
 import { PI_BRAND_MARK_SVG } from "../lib/claudeCrabSheets";
@@ -57,7 +48,7 @@ import {
 } from "../lib/sidebarProjectOrder";
 import { sameLocalPath } from "../lib/pathIdentity";
 
-type SidebarHub = "pull-requests" | "scheduled" | null;
+type SidebarHub = "scheduled" | null;
 
 interface SidebarProps {
   sessions: SessionInfo[];
@@ -69,7 +60,6 @@ interface SidebarProps {
   newTaskActive: boolean;
   activeHub: SidebarHub;
   onNewSession: () => void;
-  onOpenPullRequests: () => void;
   onOpenScheduled: () => void;
   onOpenSession: (session: SessionInfo) => void;
   onOpenNotification: (notification: AppNotification) => void;
@@ -84,11 +74,10 @@ interface SidebarProps {
   onCreateWorktree: (workspace: string) => void | Promise<void>;
   onArchiveProject: (workspace: string, sessions: SessionInfo[]) => void | Promise<void>;
   onOpenSettings: (page: SettingsPage) => void;
-  onOpenDocs: () => void;
   onPickFolder: () => void;
-  /** Shown beside 设置 in the footer menu, e.g. "Ctrl+,". */
+  /** Shown beside 设置 in the footer, e.g. "Ctrl+,". */
   settingsShortcut?: string;
-  /** Shown as keycaps on the new session row, e.g. "Ctrl+Shift+N". */
+  /** Shown on the new session row, e.g. "Ctrl+Shift+N". */
   newChatShortcut?: string;
   /** Set by the Ctrl+K shortcut; the sidebar opens its search and then reports back. */
   searchRequested?: boolean;
@@ -184,15 +173,6 @@ const VISIBLE_RECENT_THREADS = 15;
 
 type SidebarGroupMode = "project" | "recent";
 
-/** The settings pages the footer menu jumps to directly. */
-const FOOTER_SETTINGS_PAGES: ReadonlyArray<readonly [SettingsPage, string, LucideIcon]> = [
-  ["general", "设置", Settings],
-  ["providers", "模型与连接", Cpu],
-  ["plugins", "插件扩展", Boxes],
-  ["appearance", "外观", Palette],
-  ["shortcuts", "快捷键", Keyboard],
-];
-
 const GROUP_MODE_KEY = "pid-desktop:sidebar-group-mode";
 
 function readGroupMode(): SidebarGroupMode {
@@ -217,7 +197,6 @@ export function Sidebar({
   newTaskActive,
   activeHub,
   onNewSession,
-  onOpenPullRequests,
   onOpenScheduled,
   onOpenSession,
   onOpenNotification,
@@ -231,7 +210,6 @@ export function Sidebar({
   onCreateWorktree,
   onArchiveProject,
   onOpenSettings,
-  onOpenDocs,
   onPickFolder,
   settingsShortcut,
   newChatShortcut,
@@ -259,7 +237,6 @@ export function Sidebar({
   }, [groupMode]);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
-  const [footerMenuOpen, setFooterMenuOpen] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [collapsedProjectPaths, setCollapsedProjectPaths] = useState(() => readStringList(COLLAPSED_PROJECTS_KEY));
   useEffect(() => {
@@ -408,7 +385,6 @@ export function Sidebar({
     setProjectMenu(null);
     setThreadPreview(null);
     setFilterMenuOpen(false);
-    setFooterMenuOpen(false);
   };
 
   const toggleStringSetting = (
@@ -504,7 +480,7 @@ export function Sidebar({
   };
 
   useEffect(() => {
-    const hasOpenPopover = notificationsOpen || searchOpen || projectMenu || editingProject || filterMenuOpen || footerMenuOpen;
+    const hasOpenPopover = notificationsOpen || searchOpen || projectMenu || editingProject || filterMenuOpen;
     if (!hasOpenPopover) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
       if (!sidebarRef.current?.contains(event.target as Node)) {
@@ -513,7 +489,7 @@ export function Sidebar({
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && (filterMenuOpen || footerMenuOpen || projectMenu)) closePopovers();
+      if (event.key === "Escape" && (filterMenuOpen || projectMenu)) closePopovers();
     };
     document.addEventListener("pointerdown", closeOnOutsidePointer);
     document.addEventListener("keydown", closeOnEscape);
@@ -521,7 +497,7 @@ export function Sidebar({
       document.removeEventListener("pointerdown", closeOnOutsidePointer);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [editingProject, filterMenuOpen, footerMenuOpen, notificationsOpen, projectMenu, searchOpen]);
+  }, [editingProject, filterMenuOpen, notificationsOpen, projectMenu, searchOpen]);
 
   useEffect(() => () => {
     if (previewCloseTimer.current !== null) window.clearTimeout(previewCloseTimer.current);
@@ -769,23 +745,17 @@ export function Sidebar({
           className={`nav-item dsh-claude-new-session ${newTaskActive ? "active" : ""}`}
           onClick={() => { closePopovers(); onNewSession(); }}
         >
-          <span className="dsh-claude-new-session-circle" aria-hidden="true">
-            <Plus size={12} strokeWidth={2.2} />
-          </span>
+          <Plus size={15} strokeWidth={1.85} aria-hidden="true" />
           <span className="dsh-claude-new-session-label">新会话</span>
           {newChatShortcut && (
             <span className="dsh-claude-new-session-shortcut" aria-hidden="true">
-              {newChatShortcut.split("+").filter(Boolean).map((key) => <kbd key={key}>{key}</kbd>)}
+              {newChatShortcut}
             </span>
           )}
         </button>
         <button type="button" className={`nav-item ${activeHub === "scheduled" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenScheduled(); }}>
-          <Clock3 size={14} strokeWidth={1.75} />
+          <Clock3 size={15} strokeWidth={1.75} />
           <span>定时任务</span>
-        </button>
-        <button type="button" className={`nav-item ${activeHub === "pull-requests" ? "active" : ""}`} onClick={() => { closePopovers(); onOpenPullRequests(); }}>
-          <GitPullRequest size={14} strokeWidth={1.75} />
-          <span>拉取请求</span>
         </button>
       </nav>
 
@@ -1064,49 +1034,19 @@ export function Sidebar({
       )}
 
       <div className="sidebar-footer codex-footer">
-        {footerMenuOpen && (
-          <div className="sidebar-popover sidebar-footer-menu" data-sidebar-popover role="menu">
-            {FOOTER_SETTINGS_PAGES.map(([page, label, Icon]) => (
-              <button
-                key={page}
-                type="button"
-                role="menuitem"
-                onClick={() => { closePopovers(); onOpenSettings(page); }}
-              >
-                <Icon size={15} strokeWidth={1.7} />
-                <span>{label}</span>
-                {page === "general" && settingsShortcut && <kbd>{settingsShortcut}</kbd>}
-              </button>
-            ))}
-            <div className="sidebar-popover-separator" />
-            <button type="button" role="menuitem" onClick={() => { closePopovers(); onOpenDocs(); }}>
-              <BookOpen size={15} strokeWidth={1.7} />
-              <span>Pi 文档</span>
-              <ExternalLink className="sidebar-footer-menu-trail" size={13} strokeWidth={1.7} />
-            </button>
-          </div>
-        )}
         <button
           type="button"
           className="footer-account dsh-claude-account-btn"
-          data-open={footerMenuOpen}
-          aria-haspopup="menu"
-          aria-expanded={footerMenuOpen}
-          onClick={(event) => {
-            event.stopPropagation();
-            const open = !footerMenuOpen;
+          onClick={() => {
             closePopovers();
-            setFooterMenuOpen(open);
+            onOpenSettings("general");
           }}
-          title="设置与帮助"
+          title={settingsShortcut ? `设置 (${settingsShortcut})` : "设置"}
+          aria-label="设置"
         >
-          <span className="dsh-claude-account-avatar" aria-hidden="true">
-            <Settings size={15} strokeWidth={1.7} />
-          </span>
-          <span className="dsh-claude-account-label">
-            <span className="dsh-claude-account-user">设置</span>
-          </span>
-          <ChevronUp className="dsh-claude-account-chevron" size={14} strokeWidth={1.8} aria-hidden="true" />
+          <Settings size={15} strokeWidth={1.7} aria-hidden="true" />
+          <span className="dsh-claude-account-user">设置</span>
+          {settingsShortcut && <span className="sidebar-footer-shortcut" aria-hidden="true">{settingsShortcut}</span>}
         </button>
       </div>
     </aside>

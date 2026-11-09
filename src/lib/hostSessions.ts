@@ -14,7 +14,7 @@ export const HARNESS_THINKING_LEVELS = ["off", "low", "medium", "high"];
 export function effortForLevel(level: string): "off" | "low" | "medium" | "high" {
   if (level === "off") return "off";
   if (level === "minimal" || level === "low") return "low";
-  if (level === "high" || level === "xhigh") return "high";
+  if (level === "high" || level === "xhigh" || level === "max") return "high";
   return "medium";
 }
 

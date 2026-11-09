@@ -2,7 +2,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
-import { DesktopPetWindow } from "./components/DesktopPetWindow";
 import { queryClient } from "./lib/queryClient";
 import { moveManagedQueueItem, removeManagedQueueItem } from "./lib/managedQueue";
 import { useAppStore } from "./store";
@@ -18,7 +17,6 @@ import "./styles/index.css";
 document.documentElement.dataset.theme ??= window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 
 const fixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("fixture") : null;
-const desktopPetWindow = new URLSearchParams(window.location.search).get("desktop-pet") === "1";
 
 if (fixture === "thread" || fixture === "performance" || fixture === "stream" || fixture === "queue" || fixture === "title" || fixture === "diagrams" || fixture === "goal") {
   const cwd = "D:\\Projects\\PIDesktop";
@@ -449,7 +447,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      {desktopPetWindow ? <DesktopPetWindow /> : <App />}
+      <App />
     </QueryClientProvider>
   </React.StrictMode>,
 );

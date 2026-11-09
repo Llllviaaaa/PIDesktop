@@ -15,6 +15,7 @@
  * (docs/archive/REFACTOR_V2_P7.md, 3.1).
  */
 import type {
+  AppendResult,
   CheckpointDiffResult,
   CheckpointListResult,
   CommandListResult,
@@ -42,6 +43,26 @@ export { isRpcMethodNotFound };
 
 export const HARNESS_RUNTIME_PREFIX = "harness:";
 export const HARNESS_SESSION_PREFIX = "harness:";
+
+export type RewindMode = "both" | "conversation" | "code";
+
+export interface RewindInspection {
+  entryId: string;
+  sessionId: string;
+  userSeq: number;
+  hasCheckpoint: boolean;
+  changed: boolean;
+  files: string[];
+}
+
+export interface RewindExecutionResult {
+  ok: boolean;
+  mode: RewindMode;
+  sessionId: string;
+  toSeq: number;
+  rewindSeq?: number;
+  restoredFiles: string[];
+}
 
 export function isHarnessRuntime(runtimeId: string): boolean {
   return runtimeId.startsWith(HARNESS_RUNTIME_PREFIX);
@@ -160,6 +181,8 @@ export class HarnessRuntimes {
         runtime.sessionId = forked.session.id;
         runtime.side = true;
       }
+    } else {
+      runtime.pendingLevel = "medium";
     }
     this.runtimes.set(id, runtime);
     if (runtime.sessionId !== undefined) await this.attach(runtime);
@@ -329,6 +352,7 @@ export class HarnessRuntimes {
   newSession(runtimeId: string): void {
     const runtime = this.runtime(runtimeId);
     runtime.sessionId = undefined;
+    runtime.pendingLevel ??= "medium";
     runtime.lastSeq = 0;
     runtime.title = undefined;
   }
@@ -370,12 +394,8 @@ export class HarnessRuntimes {
     if (previous !== undefined && this.runtimesOf(previous).length === 0) await this.call("session.unsubscribe", { sessionId: previous }).catch(() => undefined);
   }
 
-  /**
-   * Rewind to before the user message at `entryId` (its seq): when the files
-   * changed since its checkpoint, ask before restoring them, then continue the
-   * session from just before the message. False when the user declines.
-   */
-  async rewind(runtimeId: string, entryId: string): Promise<boolean> {
+  /** Inspect whether a workspace checkpoint exists and changed since `entryId` (`userSeq`). */
+  async inspectRewind(runtimeId: string, entryId: string): Promise<RewindInspection> {
     const runtime = this.runtime(runtimeId);
     if (runtime.sessionId === undefined) throw new Error("任务尚未开始");
     const userSeq = Number(entryId);
@@ -387,17 +407,72 @@ export class HarnessRuntimes {
     } catch (error) {
       if (!isRpcMethodNotFound(error)) throw error;
     }
-    if (checkpoints.some((checkpoint) => checkpoint.userSeq === userSeq)) {
-      const diff = await rpc.call<CheckpointDiffResult>("checkpoint.diff", { sessionId, userSeq });
-      if (diff.changed) {
-        const fileSummary = diff.files.length > 0 ? `${diff.files.length} 个文件将恢复到此消息发送前的状态。` : "Git 暂存区将恢复到此消息发送前的状态。";
-        const confirmed = await this.askLocally(runtime.id, "回退消息和工作区？", `${fileSummary}\n\n此操作不会删除已有对话分支，你之后仍可从会话树切回。`);
-        if (!confirmed) return false;
-        await rpc.call("checkpoint.restore", { sessionId, userSeq });
-      }
+    if (!checkpoints.some((checkpoint) => checkpoint.userSeq === userSeq)) {
+      return { entryId, sessionId, userSeq, hasCheckpoint: false, changed: false, files: [] };
     }
-    await rpc.call("session.rewind", { sessionId, toSeq: userSeq - 1, reason: "rewind to before a message" });
-    return true;
+    const diff = await rpc.call<CheckpointDiffResult>("checkpoint.diff", { sessionId, userSeq });
+    return {
+      entryId,
+      sessionId,
+      userSeq,
+      hasCheckpoint: true,
+      changed: diff.changed,
+      files: [...diff.files],
+    };
+  }
+
+  /**
+   * Execute a rewind with explicit mode selection (`both` | `conversation` | `code`)
+   * without duplicating confirmation prompts.
+   */
+  async executeRewind(runtimeId: string, entryId: string, mode: RewindMode = "both"): Promise<RewindExecutionResult> {
+    const inspected = await this.inspectRewind(runtimeId, entryId);
+    const rpc = await this.rpc();
+    const { sessionId, userSeq } = inspected;
+    let restoredFiles: string[] = [];
+    if ((mode === "both" || mode === "code") && inspected.hasCheckpoint && inspected.changed) {
+      const restored = await rpc.call<CheckpointDiffResult>("checkpoint.restore", { sessionId, userSeq });
+      restoredFiles = restored.files.length > 0 ? [...restored.files] : [...inspected.files];
+    }
+    let rewindSeq: number | undefined;
+    const toSeq = Math.max(0, userSeq - 1);
+    if (mode === "both" || mode === "conversation") {
+      const reason = mode === "conversation"
+        ? "rewind conversation only"
+        : "rewind to before a message";
+      const appended = await rpc.call<AppendResult>("session.rewind", { sessionId, toSeq, reason });
+      rewindSeq = appended?.seq;
+    }
+    return {
+      ok: true,
+      mode,
+      sessionId,
+      toSeq,
+      ...(rewindSeq === undefined ? {} : { rewindSeq }),
+      restoredFiles,
+    };
+  }
+
+  /**
+   * Rewind to before the user message at `entryId` (its seq): when the files
+   * changed since its checkpoint, ask before restoring them, then continue the
+   * session from just before the message. False when the user declines.
+   */
+  async rewind(runtimeId: string, entryId: string): Promise<boolean> {
+    const inspected = await this.inspectRewind(runtimeId, entryId);
+    if (inspected.hasCheckpoint && inspected.changed) {
+      const fileSummary = inspected.files.length > 0
+        ? `${inspected.files.length} 个文件将恢复到此消息发送前的状态。`
+        : "Git 暂存区将恢复到此消息发送前的状态。";
+      const confirmed = await this.askLocally(
+        runtimeId,
+        "回退消息和工作区？",
+        `${fileSummary}\n\n此操作不会删除已有对话分支，你之后仍可从会话树切回。`,
+      );
+      if (!confirmed) return false;
+    }
+    const result = await this.executeRewind(runtimeId, entryId, "both");
+    return result.ok;
   }
 
   private askLocally(runtimeId: string, title: string, message: string): Promise<boolean> {
@@ -475,6 +550,7 @@ export class HarnessRuntimes {
             provider: provider.id,
             api: provider.api,
             ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+            ...(model.thinkingLevel === undefined ? {} : { thinkingLevel: model.thinkingLevel }),
             ...(model.input === undefined ? {} : { input: model.input }),
             ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
             ...(model.maxOutputTokens === undefined ? {} : { maxTokens: model.maxOutputTokens }),

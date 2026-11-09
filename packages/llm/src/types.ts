@@ -68,6 +68,8 @@ export type Effort = "off" | "low" | "medium" | "high";
 export interface LlmRequest {
   provider: string;
   model: string;
+  /** Optional stable session identifier for upstream prompt-cache affinity. */
+  sessionId?: string;
   system?: string;
   messages: Message[];
   tools?: ToolSchema[];
@@ -100,6 +102,7 @@ export type StreamChunk =
   | { type: "tool-call-start"; index: number; id: string; name: string }
   | { type: "tool-call-delta"; index: number; argumentsDelta: string }
   | { type: "usage"; usage: Partial<Usage> }
+  | { type: "retry"; attempt: number; maxAttempts: number; delayMs: number; error: LlmErrorInfo; effort?: Effort }
   | { type: "finish"; reason: FinishReason; error?: LlmErrorInfo };
 
 export type LlmErrorKind =
@@ -129,12 +132,15 @@ export interface ModelPricing {
   cacheWrite?: number;
 }
 
+export type ModelThinkingLevel = "off" | "low" | "medium" | "high" | "max";
+
 export interface ModelInfo {
   id: string;
   name?: string;
   contextWindow?: number;
   maxOutputTokens?: number;
   reasoning?: boolean;
+  thinkingLevel?: ModelThinkingLevel;
   input?: Array<"text" | "image">;
   cost?: ModelPricing;
 }

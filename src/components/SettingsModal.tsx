@@ -1,82 +1,26 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { describeError } from "../lib/errors";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { queryKeys } from "../lib/queries";
-import { useSyncOnChange } from "../hooks/useSyncOnChange";
-import { openPath } from "@tauri-apps/plugin-opener";
-import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import {
-  Archive,
-  BarChart3,
-  Bot,
   Boxes,
-  CheckCircle2,
-  ChevronRight,
-  CircleAlert,
-  FileCode2,
-  FileDown,
-  FolderGit2,
-  FolderOpen,
-  GitBranch,
-  Globe2,
-  Network,
-  MonitorCog,
+  Check,
+  ChevronDown,
+  Cpu,
+  Monitor,
+  Moon,
   Palette,
-  Plus,
-  RefreshCw,
-  Search,
-  Save,
-  ServerCog,
-  Settings2,
-  ShieldAlert,
   SlidersHorizontal,
-  Sparkles,
-  Trash2,
-  Workflow,
-  Undo2,
-  Upload,
-  ArrowDown,
-  ArrowUp,
+  Sun,
   X,
 } from "lucide-react";
-import type { McpChangedNotification, McpServerStatus } from "@pid/protocol";
 import { agent } from "../lib/agent";
-import { exportDiagnostics, logsDir } from "../lib/diagnostics";
-import { harnessRuntimes } from "../lib/harnessRuntime";
-import { useAppStore } from "../store";
-import { createCustomAppearanceTheme, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
-import { McpServerInspector } from "./McpServerInspector";
-import { PetAvatar } from "./PetCompanion";
+import { BUILTIN_APPEARANCE_CATALOG, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
+import { queryKeys } from "../lib/queries";
 import { ModelsPage } from "./ModelsPage";
 import { PluginsSettingsPanel } from "./PluginsSettingsPanel";
-import { SkillsSettingsPanel } from "./SkillsSettingsPanel";
-import type {
-  AppSettings,
-  SessionInfo,
-  UsageSummary,
-  WorktreeInfo,
-} from "../types";
+import type { AppSettings } from "../types";
 
-export type SettingsPage =
-  | "general"
-  | "appearance"
-  | "agent"
-  | "providers"
-  | "personalization"
-  | "shortcuts"
-  | "archived"
-  | "usage"
-  | "plugins"
-  | "skills"
-  | "mcp"
-  | "browser"
-  | "computer"
-  | "review"
-  | "environment"
-  | "hooks"
-  | "git"
-  | "worktrees"
-  | "debug";
+export type SettingsPage = "general" | "appearance" | "providers" | "plugins";
 
 export const DEFAULTS: AppSettings = {
   provider: "",
@@ -105,19 +49,16 @@ export const DEFAULTS: AppSettings = {
   notifyOnApproval: true,
   notifyOnlyWhenUnfocused: true,
   theme: "light",
-  petEnabled: false,
-  petCharacter: "cat",
-  petSize: 96,
-  accentColor: "#18181b",
-  backgroundColor: "#ffffff",
-  foregroundColor: "#1a1a1a",
+  accentColor: "#006ee4",
+  backgroundColor: "#fcfcfc",
+  foregroundColor: "#111112",
   uiFont: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   codeFont: 'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
   uiScale: 100,
   messageFontSize: 15,
   personality: "pragmatic",
   customInstructions: "",
-  suggestedPrompts: true,
+  suggestedPrompts: false,
   memoryEnabled: true,
   projectMemoryEnabled: true,
   planTrackingEnabled: true,
@@ -141,7 +82,6 @@ export const DEFAULTS: AppSettings = {
   branchPrefix: "pi/",
   allowForcePush: false,
   commitMessageInstructions: "",
-  pullRequestInstructions: "",
   logLevel: "info",
   shortcutNewChat: "Ctrl+Shift+N",
   shortcutSettings: "Ctrl+,",
@@ -151,327 +91,341 @@ export const DEFAULTS: AppSettings = {
   archivedSessions: [],
 };
 
-/** Individual settings panels; kept stable so callers can deep-link to any of them. */
-const PAGE_INFO: Record<SettingsPage, { label: string; keywords: string }> = {
-  general: { label: "常规", keywords: "语言 启动 后续 文件 通知 language startup notifications" },
-  environment: { label: "环境", keywords: "shell 输出 命令 终端 local worktree output commands terminal" },
-  appearance: { label: "外观", keywords: "主题 黑色 白色 字体 缩放 宠物 theme color font pet" },
-  providers: { label: "模型", keywords: "模型 提供商 默认模型 推理 API 密钥 订阅 登录 OAuth ChatGPT Claude Copilot OpenRouter endpoint provider model key login" },
-  agent: { label: "工作方式", keywords: "工作模式 权限 审批 沙箱 子 agent 规则 计划 approval sandbox rules plan" },
-  personalization: { label: "个性化", keywords: "人格 指令 记忆 提示 personality instructions memory" },
-  plugins: { label: "插件", keywords: "插件 扩展 热更新 热加载 安装 卸载 本地 压缩包 npm git plugin extension hmr reload" },
-  skills: { label: "技能", keywords: "技能 模板 创建 编辑 斜杠 命令 skill instructions template create edit slash" },
-  mcp: { label: "MCP", keywords: "mcp tools stdio http server 工具 服务器" },
-  browser: { label: "浏览器", keywords: "edge chrome chromium 网页 自动化 截图 browser web automation screenshot" },
-  computer: { label: "电脑操控", keywords: "windows 鼠标 键盘 窗口 截图 computer use mouse keyboard" },
-  git: { label: "Git", keywords: "branches commit pull request force push 分支 提交" },
-  review: { label: "代码审查", keywords: "review 检查 审阅 delivery" },
-  worktrees: { label: "Worktrees", keywords: "并行 隔离 本地 检出 parallel isolated" },
-  hooks: { label: "Hooks", keywords: "hooks lifecycle 自动 命令 tool session event" },
-  shortcuts: { label: "快捷键", keywords: "按键 绑定 命令 keys bindings" },
-  archived: { label: "已归档", keywords: "会话 任务 恢复 删除 历史 sessions restore" },
-  usage: { label: "用量", keywords: "token 费用 统计 活动 cost statistics 使用情况 计费" },
-  debug: { label: "调试", keywords: "程序 会话 日志 诊断 binary logging" },
-};
-
-/**
- * Settings navigation, modeled on Open Vetta's flat tab list. Each entry owns one
- * or more panels: light panels stack as sections, heavy ones switch via sub-tabs.
- */
-const SETTINGS_GROUPS: Array<{
-  id: string;
+const NAV_ITEMS: ReadonlyArray<{
+  id: SettingsPage;
   label: string;
-  description: string;
-  icon: typeof Settings2;
-  pages: SettingsPage[];
-  layout: "single" | "stack" | "tabs";
+  heading: string;
+  subtitle: string;
+  icon: typeof SlidersHorizontal;
 }> = [
-  { id: "general", label: "通用设置", description: "启动、消息发送、通知、终端与快捷键。", icon: Settings2, pages: ["general", "environment", "shortcuts"], layout: "stack" },
-  { id: "appearance", label: "外观与体验", description: "主题配色、桌面伴侣宠物与个人交互偏好。", icon: Palette, pages: ["appearance", "personalization"], layout: "stack" },
-  { id: "models", label: "模型与连接", description: "模型提供商、API 密钥与推理等级配置。", icon: ServerCog, pages: ["providers"], layout: "single" },
-  { id: "agent", label: "Agent 与安全", description: "默认工作模式、审批机制与执行规则。", icon: Bot, pages: ["agent"], layout: "single" },
-  { id: "capabilities", label: "能力扩展", description: "动态插件、技能库、MCP 服务器与自动化工具。", icon: Boxes, pages: ["plugins", "skills", "mcp", "browser", "computer"], layout: "tabs" },
-  { id: "coding", label: "Git 与工程", description: "代码分支、代码审查、Worktrees 与生命周期 Hooks。", icon: FolderGit2, pages: ["git", "worktrees", "hooks"], layout: "tabs" },
-  { id: "archived", label: "已归档", description: "历史会话归档管理与一键恢复。", icon: Archive, pages: ["archived"], layout: "single" },
-  { id: "advanced", label: "高级诊断", description: "用量统计分析与 Harness 进程诊断。", icon: SlidersHorizontal, pages: ["usage", "debug"], layout: "stack" },
+  { id: "general", label: "通用", heading: "通用", subtitle: "管理对话发送习惯、外部代码编辑器与桌面通知偏好", icon: SlidersHorizontal },
+  { id: "appearance", label: "外观", heading: "外观", subtitle: "定制工作台明暗主题、阅读排版字号与窗口显示比例", icon: Palette },
+  { id: "providers", label: "模型", heading: "模型与密钥", subtitle: "配置默认推理偏好，按需展开服务商填写本机加密 API Key", icon: Cpu },
+  { id: "plugins", label: "插件", heading: "连接器与插件", subtitle: "连接 MCP 工具服务、智能体核心能力与本地热更新扩展模块", icon: Boxes },
 ];
 
-function groupForPage(page: SettingsPage) {
-  return SETTINGS_GROUPS.find((group) => group.pages.includes(page)) ?? SETTINGS_GROUPS[0];
-}
+const NAV_SPRING = { type: "spring" as const, stiffness: 520, damping: 38, mass: 0.7 };
 
-/** How a panel's own PageHeading renders once it sits inside a grouped page. */
-const PanelHeadingMode = createContext<"page" | "section" | "description">("page");
-
-const NO_SESSIONS: SessionInfo[] = [];
-const NO_WORKTREES: WorktreeInfo[] = [];
+type Update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 
 export function SettingsModal({
   settings,
   cwd,
-  appearanceCatalog,
-  onReloadAppearance,
+  appearanceCatalog = BUILTIN_APPEARANCE_CATALOG,
   onSave,
   onClose,
   initialPage = "general",
 }: {
   settings: AppSettings | null;
   cwd: string;
-  appearanceCatalog: AppearanceCatalog;
-  onReloadAppearance: () => Promise<void>;
+  appearanceCatalog?: AppearanceCatalog;
   onSave: (settings: AppSettings) => Promise<void> | void;
   onClose: () => void;
   initialPage?: SettingsPage;
 }) {
   const [form, setForm] = useState<AppSettings>({ ...DEFAULTS, ...settings, language: "zh-CN" });
   const [active, setActive] = useState<SettingsPage>(initialPage);
-  const [query, setQuery] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
   const editedRef = useRef(false);
   const pendingSaveRef = useRef<AppSettings | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const saveStatusTimerRef = useRef<number | null>(null);
   const inFlightSaveRef = useRef<Promise<void> | null>(null);
-  const isTauri = "__TAURI_INTERNALS__" in window;
+  const pageScrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (pageScrollRef.current) pageScrollRef.current.scrollTop = 0;
+  }, [active]);
 
   useEffect(() => {
     if (!editedRef.current) setForm({ ...DEFAULTS, ...settings, language: "zh-CN" });
   }, [settings]);
+
   const [requestedPage, setRequestedPage] = useState(initialPage);
   if (requestedPage !== initialPage) {
     setRequestedPage(initialPage);
     setActive(initialPage);
   }
+
   useEffect(() => () => {
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);
   }, []);
-  const queryClient = useQueryClient();
-  const archivedQuery = useQuery({
-    queryKey: queryKeys.archivedSessions(),
-    queryFn: () => agent.listArchivedSessions(),
-    enabled: isTauri,
-  });
-  const worktreesQuery = useQuery({
-    queryKey: queryKeys.worktrees(cwd),
-    queryFn: () => (cwd ? agent.listWorktrees(cwd).catch((): WorktreeInfo[] => []) : Promise.resolve([])),
-    enabled: isTauri,
-  });
-  const usageQuery = useQuery({
-    queryKey: queryKeys.usage(),
-    queryFn: () => agent.usageSummary(),
-    enabled: isTauri,
-  });
-  const archived = archivedQuery.data ?? NO_SESSIONS;
-  const worktrees = worktreesQuery.data ?? NO_WORKTREES;
-  const usage = usageQuery.data ?? null;
-  // A failed load used to leave this spinning forever; now it ends and shows what loaded.
-  const loadingData = isTauri && (archivedQuery.isPending || worktreesQuery.isPending);
 
-  // The form carries the archive list.
-  const archivedData = archivedQuery.data;
-  useSyncOnChange([archivedData], () => {
-    if (archivedData) setForm((current) => ({ ...current, archivedSessions: archivedData.map((session) => session.file) }));
-  });
-  const dropArchived = (file: string) => queryClient.setQueryData<SessionInfo[]>(
-    queryKeys.archivedSessions(),
-    (items) => items?.filter((item) => item.file !== file),
-  );
-
-  const normalizeSettings = (value: AppSettings): AppSettings => {
-    return {
-      ...value,
-      language: "zh-CN",
-      petSize: Math.min(224, Math.max(80, Number(value.petSize) || 96)),
-    };
-  };
-
-  async function flushSettings() {
+  const flushSettings = useCallback(async () => {
     if (saveTimerRef.current !== null) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
     if (inFlightSaveRef.current) await inFlightSaveRef.current;
-    const next = pendingSaveRef.current;
-    if (!next) return;
-    pendingSaveRef.current = null;
-    setSaveState("saving");
-    const task = Promise.resolve(onSave(normalizeSettings(next)))
-      .then(() => {
-        if (!pendingSaveRef.current) {
-          editedRef.current = false;
-          setForm((current) => maskMcpCredentials(current));
-        }
-        setSaveState("saved");
-        if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);
-        saveStatusTimerRef.current = window.setTimeout(() => setSaveState("idle"), 1400);
-      })
-      .catch(() => setSaveState("error"));
-    inFlightSaveRef.current = task;
-    await task;
-    inFlightSaveRef.current = null;
-    if (pendingSaveRef.current) await flushSettings();
-  }
+    while (pendingSaveRef.current) {
+      const next = pendingSaveRef.current;
+      pendingSaveRef.current = null;
+      setSaveState("saving");
+      const task = Promise.resolve(onSave({ ...next, language: "zh-CN" }))
+        .then(() => {
+          if (!pendingSaveRef.current) editedRef.current = false;
+          setSaveState("saved");
+          if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);
+          saveStatusTimerRef.current = window.setTimeout(() => setSaveState("idle"), 1200);
+        })
+        .catch(() => setSaveState("error"));
+      inFlightSaveRef.current = task;
+      await task;
+      inFlightSaveRef.current = null;
+    }
+  }, [onSave]);
 
-  function scheduleSave(next: AppSettings) {
+  const scheduleSave = useCallback((next: AppSettings) => {
     pendingSaveRef.current = next;
     setSaveState("pending");
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => void flushSettings(), 320);
-  }
+    saveTimerRef.current = window.setTimeout(() => void flushSettings(), 260);
+  }, [flushSettings]);
 
-  const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) =>
+  const update = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setForm((current) => {
       const next = { ...current, [key]: value };
       editedRef.current = true;
       scheduleSave(next);
       return next;
     });
+  }, [scheduleSave]);
 
-  const closeSettings = () => {
+  const closeSettings = useCallback(() => {
     void flushSettings().finally(onClose);
-  };
+  }, [flushSettings, onClose]);
 
-  const needle = query.trim().toLowerCase();
-  const visibleGroups = SETTINGS_GROUPS.filter((group) => !needle || [
-    group.label,
-    group.description,
-    ...group.pages.map((page) => `${PAGE_INFO[page].label} ${PAGE_INFO[page].keywords}`),
-  ].join(" ").toLowerCase().includes(needle));
-  const activeGroup = groupForPage(active);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (document.querySelector("[data-escape-layer]")) return;
+        event.preventDefault();
+        closeSettings();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [closeSettings]);
 
-  const renderPanel = (page: SettingsPage) => (
-    <>
-      {page === "general" && <GeneralPage form={form} update={update} />}
-      {page === "appearance" && <AppearancePage form={form} update={update} catalog={appearanceCatalog} cwd={cwd} onReload={onReloadAppearance} />}
-      {page === "agent" && <AgentPage form={form} update={update} cwd={cwd} />}
-      {page === "personalization" && <PersonalizationPage form={form} update={update} cwd={cwd} />}
-      {page === "shortcuts" && <ShortcutsPage form={form} update={update} />}
-      {page === "archived" && <ArchivedPage archived={archived} loading={loadingData} onRestore={async (session) => {
-        await agent.restoreSession(session.file);
-        dropArchived(session.file);
-        setForm((current) => ({ ...current, archivedSessions: current.archivedSessions.filter((file) => file !== session.file) }));
-        // The sidebar lists the store's sessions, which still leave out the restored one.
-        await useAppStore.getState().refreshSessions();
-      }} onDelete={async (session) => {
-        if (!window.confirm(`将“${session.name || session.firstMessage || "未命名任务"}”移到 Pi Desktop 回收站吗？`)) return;
-        await agent.deleteSession(session.file);
-        dropArchived(session.file);
-      }} />}
-      {page === "usage" && <UsagePage usage={usage} />}
-      {page === "providers" && <ModelsPage form={form} update={update} />}
-      {page === "plugins" && <PluginsSettingsPanel cwd={cwd} onSyncAppSetting={update} />}
-      {page === "skills" && <SkillsSettingsPanel cwd={cwd} />}
-      {page === "mcp" && <McpPage form={form} update={update} />}
-      {page === "browser" && <BrowserPage form={form} update={update} />}
-      {page === "computer" && <ComputerPage form={form} update={update} />}
-      {page === "review" && <GitPage form={form} update={update} />}
-      {page === "environment" && <EnvironmentPage form={form} update={update} />}
-      {page === "hooks" && <HooksPage form={form} update={update} />}
-      {page === "git" && <GitPage form={form} update={update} />}
-      {page === "worktrees" && <WorktreesPage cwd={cwd} worktrees={worktrees} loading={loadingData} onCreated={(item) => queryClient.setQueryData<WorktreeInfo[]>(queryKeys.worktrees(cwd), (items) => [...(items ?? []), item])} />}
-      {page === "debug" && <DebugPage form={form} update={update} />}
-    </>
-  );
+  const activeMeta = NAV_ITEMS.find((item) => item.id === active) ?? NAV_ITEMS[0];
+  const isWideGrid = active === "plugins";
 
   return (
-    <div className="settings-center" role="dialog" aria-modal="true" aria-label="设置">
-      <aside className="settings-navigation">
-        <div className="settings-nav-title">
-          <button className="settings-back" onClick={closeSettings} title="返回应用" aria-label="返回应用"><ChevronRight size={16} /></button>
-          <h1>设置</h1>
-        </div>
-        <label className="settings-search">
-          <Search size={15} />
-          <input placeholder="搜索设置…" value={query} onChange={(event) => setQuery(event.target.value)} />
-          {query && <button onClick={() => setQuery("")}><X size={13} /></button>}
-        </label>
-        <nav className="settings-nav-scroll">
-          {visibleGroups.map((group) => {
-            const Icon = group.icon;
-            return (
-              <button
-                key={group.id}
-                className={activeGroup.id === group.id ? "active" : ""}
-                onClick={() => { setActive(group.pages[0]); setQuery(""); }}
-              >
-                <Icon size={16} /> <span>{group.label}</span>
-              </button>
-            );
-          })}
-          {visibleGroups.length === 0 && <div className="settings-no-results">没有匹配的设置</div>}
-        </nav>
-      </aside>
+    <motion.div
+      className="settings-backdrop"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closeSettings();
+      }}
+    >
+      <motion.div
+        className="settings-center"
+        role="dialog"
+        aria-modal="true"
+        aria-label="设置"
+        initial={{ opacity: 0, scale: 0.965, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.975, y: 6 }}
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <aside className="settings-navigation">
+          <div className="settings-modal-brand">设置</div>
 
-      <main className="settings-content">
-        <header className="settings-content-header">
-          <span />
-          <div>
-            <span className={`settings-save-status ${saveState}`} aria-live="polite">
-              {saveState === "pending" || saveState === "saving" ? "正在保存…" : saveState === "saved" ? "已保存" : saveState === "error" ? "保存失败" : ""}
-            </span>
+          <LayoutGroup id="settings-sidebar-nav">
+            <nav className="settings-nav-scroll" aria-label="设置分类">
+              {NAV_ITEMS.map((item) => {
+                const Icon = item.icon;
+                const isActive = active === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={isActive ? "active" : ""}
+                    onClick={() => setActive(item.id)}
+                  >
+                    {isActive && (
+                      <motion.span
+                        layoutId="settings-nav-pill"
+                        className="settings-nav-pill"
+                        transition={NAV_SPRING}
+                      />
+                    )}
+                    <Icon size={15.5} strokeWidth={1.85} />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </LayoutGroup>
+
+          <div className="settings-nav-footer">
+            <span className="settings-nav-app">Pi Desktop · v0.3.0</span>
+            <kbd>Ctrl+,</kbd>
           </div>
-        </header>
-        <div className="settings-page-scroll">
-          <div className={`settings-page ${active === "providers" || active === "plugins" || active === "skills" ? "wide" : ""}`}>
-            {activeGroup.layout === "single" ? renderPanel(active) : (
-              <>
-                <div className="settings-page-heading">
-                  <h1>{activeGroup.label}</h1>
-                  {activeGroup.description && <p>{activeGroup.description}</p>}
-                </div>
-                {activeGroup.layout === "tabs" ? (
-                  <>
-                    <div className="settings-subtabs" role="tablist" aria-label={activeGroup.label}>
-                      {activeGroup.pages.map((page) => (
-                        <button
-                          key={page}
-                          type="button"
-                          role="tab"
-                          aria-selected={active === page}
-                          className={active === page ? "active" : ""}
-                          onClick={() => setActive(page)}
-                        >
-                          {PAGE_INFO[page].label}
-                        </button>
-                      ))}
-                    </div>
-                    <PanelHeadingMode.Provider value="description">{renderPanel(active)}</PanelHeadingMode.Provider>
-                  </>
-                ) : (
-                  <PanelHeadingMode.Provider value="section">
-                    {activeGroup.pages.map((page) => <div key={page} className="settings-stack-panel">{renderPanel(page)}</div>)}
-                  </PanelHeadingMode.Provider>
-                )}
-              </>
-            )}
+        </aside>
+
+        <main className="settings-content">
+          <header className="settings-stage-header">
+            <div className="settings-header-titles">
+              <h1>{activeMeta.heading}</h1>
+              <span className={`settings-save-status ${saveState}`} aria-live="polite">
+                {saveState === "pending" || saveState === "saving"
+                  ? "正在保存…"
+                  : saveState === "saved"
+                    ? "已保存"
+                    : saveState === "error"
+                      ? "保存失败"
+                      : ""}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="settings-close-circle"
+              onClick={closeSettings}
+              title="返回应用 (Esc)"
+              aria-label="返回应用"
+            >
+              <X size={15} strokeWidth={2} />
+            </button>
+          </header>
+
+          <div ref={pageScrollRef} className="settings-page-scroll">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={active}
+                className={`settings-page ${isWideGrid ? "is-wide" : ""}`}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -3 }}
+                transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <p className="settings-header-sub">{activeMeta.subtitle}</p>
+                {active === "general" && <GeneralPage form={form} update={update} />}
+                {active === "appearance" && <AppearancePage form={form} update={update} catalog={appearanceCatalog} />}
+                {active === "providers" && <ModelsPage form={form} update={update} />}
+                {active === "plugins" && <PluginsSettingsPanel cwd={cwd} form={form} onSyncAppSetting={update} />}
+              </motion.div>
+            </AnimatePresence>
           </div>
-        </div>
-      </main>
+        </main>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="settings-layered-section">
+      <h2>{title}</h2>
+      <div className="settings-soft-card">{children}</div>
+    </section>
+  );
+}
+
+function Row({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return (
+    <div className="setting-row">
+      <span>
+        <strong>{title}</strong>
+        {description && <small>{description}</small>}
+      </span>
+      <div>{children}</div>
     </div>
   );
 }
 
-type Update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
-
-function PageHeading({ title, description }: { title: string; description: string }) {
-  const mode = useContext(PanelHeadingMode);
-  if (mode === "description") return <p className="settings-panel-description">{description}</p>;
-  // Stacked panels read as one page: the group heading already introduces them.
-  if (mode === "section") return null;
-  return <div className="settings-page-heading"><h1>{title}</h1><p>{description}</p></div>;
-}
-
-function Card({ title, children }: { title?: string; children: ReactNode }) {
-  return <section className="settings-card">{title && <h2>{title}</h2>}<div>{children}</div></section>;
-}
-
-function Row({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
-  return <div className="setting-row"><span><strong>{title}</strong>{description && <small>{description}</small>}</span><div>{children}</div></div>;
-}
-
 function Switch({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
-  return <button type="button" role="switch" aria-checked={checked} aria-label={label} className={`settings-switch ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}><span /></button>;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      className={`settings-switch ${checked ? "on" : ""}`}
+      onClick={() => onChange(!checked)}
+    >
+      <span />
+    </button>
+  );
+}
+
+function SettingsSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  onChange: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+
+  const current = options.find((opt) => opt.value === value)?.label ?? value;
+
+  return (
+    <div className="settings-custom-select" ref={rootRef}>
+      <button
+        type="button"
+        className="settings-select-trigger"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span>{current}</span>
+        <ChevronDown size={14} strokeWidth={1.8} />
+      </button>
+      {open && (
+        <div className="settings-select-popover" role="listbox" data-escape-layer>
+          {options.map((opt) => {
+            const selected = opt.value === value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                className={selected ? "selected" : ""}
+                onClick={() => {
+                  onChange(opt.value);
+                  setOpen(false);
+                }}
+              >
+                <span>{opt.label}</span>
+                {selected && <Check size={13} strokeWidth={2.2} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
@@ -484,833 +438,237 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
   });
   const editors = editorsQuery.data ?? [];
   const savedMissing = form.defaultFileOpener !== "system" && !editors.some((editor) => editor.id === form.defaultFileOpener);
-  return <>
-    <PageHeading title="常规" description="控制 Pi Desktop 的启动、消息发送和项目文件打开方式。" />
-    <Card title="任务">
-      <Row title="跟进消息行为" description="Agent 工作时再次发送消息所执行的操作。"><select value={form.followUpBehavior} onChange={(event) => update("followUpBehavior", event.target.value as AppSettings["followUpBehavior"])}><option value="steer">调整当前任务</option><option value="followUp">排队到下一轮</option></select></Row>
-      <Row title="使用 Ctrl+Enter 发送" description="Enter 插入换行，Ctrl+Enter 发送提示词。"><Switch label="使用 Ctrl+Enter 发送" checked={form.requireCtrlEnter} onChange={(value) => update("requireCtrlEnter", value)} /></Row>
-      <Row title="显示推理过程" description="在任务中保留可展开的推理内容。"><Switch label="显示推理过程" checked={form.showThinking} onChange={(value) => update("showThinking", value)} /></Row>
-      <Row title="对话详细程度" description="摘要隐藏工具轨迹，详细默认展开工作过程。也可在对话里用 Ctrl+O 切换。"><select value={form.transcriptDensity} onChange={(event) => update("transcriptDensity", event.target.value as AppSettings["transcriptDensity"])}><option value="summary">摘要</option><option value="normal">普通</option><option value="verbose">详细</option></select></Row>
-      <Row title="显示建议提示词" description="选好项目后，在新会话首页显示几条可点击的入门提示，点一下会填进输入框。"><Switch label="显示建议提示词" checked={form.suggestedPrompts} onChange={(value) => update("suggestedPrompts", value)} /></Row>
-    </Card>
-    <Card title="应用">
-      <Row title="恢复上次任务" description="启动时重新打开上一次任务及其会话；前端刷新时会直接接回仍在运行的任务。"><Switch label="恢复上次任务" checked={form.autoConnect} onChange={(value) => update("autoConnect", value)} /></Row>
-      <Row title="运行时防止休眠" description="执行长时间本地任务时保持电脑唤醒。"><Switch label="运行时防止休眠" checked={form.preventSleep} onChange={(value) => update("preventSleep", value)} /></Row>
-      <Row title="默认编辑器" description="打开项目和文件（含跳转到行）时使用。顶栏“打开方式”里为某个项目选过的编辑器优先于这里。">
-        <select value={form.defaultFileOpener} onChange={(event) => update("defaultFileOpener", event.target.value)}>
-          <option value="system">自动选择已安装的编辑器</option>
-          {editors.map((editor) => <option key={editor.id} value={editor.id}>{editor.name}</option>)}
-          {savedMissing && <option value={form.defaultFileOpener}>{form.defaultFileOpener}（未检测到）</option>}
-        </select>
-      </Row>
-    </Card>
-    <Card title="通知">
-      <Row title="启用通知" description="允许系统显示任务完成和审批通知。"><Switch label="启用通知" checked={form.notificationsEnabled} onChange={(value) => update("notificationsEnabled", value)} /></Row>
-      <Row title="任务完成" description="Agent 完成长时间任务时通知。"><Switch label="任务完成" checked={form.notifyOnCompletion} onChange={(value) => update("notifyOnCompletion", value)} /></Row>
-      <Row title="需要审批" description="Agent 等待权限决定时通知。"><Switch label="需要审批" checked={form.notifyOnApproval} onChange={(value) => update("notifyOnApproval", value)} /></Row>
-      <Row title="仅窗口未聚焦时" description="Pi Desktop 已处于活动状态时不显示通知。"><Switch label="仅窗口未聚焦时" checked={form.notifyOnlyWhenUnfocused} onChange={(value) => update("notifyOnlyWhenUnfocused", value)} /></Row>
-    </Card>
-  </>;
+
+  const editorOptions = [
+    { value: "system", label: "自动选择已安装编辑器" },
+    ...editors.map((editor) => ({ value: editor.id, label: editor.name })),
+    ...(savedMissing ? [{ value: form.defaultFileOpener, label: `${form.defaultFileOpener}（未检测到）` }] : []),
+  ];
+
+  return (
+    <>
+      <Section title="对话与输入">
+        <Row title="使用 Ctrl + Enter 发送消息" description="开启后按 Enter 换行，按 Ctrl + Enter 提交对话指令">
+          <Switch
+            label="使用 Ctrl+Enter 发送"
+            checked={form.requireCtrlEnter}
+            onChange={(value) => update("requireCtrlEnter", value)}
+          />
+        </Row>
+        <Row title="回复生成期间的发送策略" description="智能体正在流式输出时，继续发送新消息的处理方式">
+          <LayoutGroup id="general-followup-seg">
+            <div className="settings-segmented" role="radiogroup" aria-label="运行中发送方式">
+              {([
+                ["steer", "立即引导"],
+                ["followUp", "排队下一轮"],
+              ] as const).map(([value, label]) => {
+                const active = form.followUpBehavior === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={active ? "active" : ""}
+                    onClick={() => update("followUpBehavior", value)}
+                  >
+                    {active && <motion.span layoutId="followup-seg-thumb" className="settings-segmented-thumb" transition={NAV_SPRING} />}
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </LayoutGroup>
+        </Row>
+        <Row title="任务运行期间防止系统休眠" description="后台执行长耗时编码或自动化任务时保持本机唤醒状态">
+          <Switch
+            label="任务运行期间防止系统休眠"
+            checked={form.preventSleep}
+            onChange={(value) => update("preventSleep", value)}
+          />
+        </Row>
+      </Section>
+
+      <Section title="工作区与系统">
+        <Row title="默认外部编辑器" description="点击工作区文件跳转源码行号或外部打开项目时优先调用的编辑器">
+          <SettingsSelect
+            label="默认外部编辑器"
+            value={form.defaultFileOpener}
+            options={editorOptions}
+            onChange={(next) => update("defaultFileOpener", next)}
+          />
+        </Row>
+        <Row title="桌面系统通知" description="窗口处于后台时，在任务执行完毕或需要工具授权时推送通知">
+          <Switch
+            label="桌面通知"
+            checked={form.notificationsEnabled}
+            onChange={(value) => update("notificationsEnabled", value)}
+          />
+        </Row>
+      </Section>
+    </>
+  );
 }
 
-function ThemePreview({ theme }: { theme: AppearanceThemeDefinition }) {
-  if (theme.mode === "system") {
-    return <span className="theme-preview system"><i className="theme-system-half light"><b /><b /></i><i className="theme-system-half dark"><b /><b /></i></span>;
+function ThemeModeIcon({ theme }: { theme: AppearanceThemeDefinition }) {
+  if (theme.id === "system") return <Monitor size={13} strokeWidth={1.85} />;
+  if (theme.mode === "dark") return <Moon size={13} strokeWidth={1.85} />;
+  return <Sun size={13} strokeWidth={1.85} />;
+}
+
+function MiniWindowGraphic({ mode }: { mode: "light" | "dark" }) {
+  return (
+    <div className={`theme-preview-window is-${mode}`} aria-hidden="true">
+      <div className="tp-sidebar">
+        <span className="tp-dot" />
+        <span className="tp-line" />
+        <span className="tp-line" style={{ width: "64%" }} />
+      </div>
+      <div className="tp-stage">
+        <span className="tp-bubble-user" />
+        <span className="tp-bubble-agent" />
+        <span className="tp-composer" />
+      </div>
+    </div>
+  );
+}
+
+function ThemePreviewIllustration({ theme }: { theme: AppearanceThemeDefinition }) {
+  if (theme.id === "system" || theme.mode === "system") {
+    return (
+      <div className="theme-preview-system-split" aria-hidden="true">
+        <MiniWindowGraphic mode="light" />
+        <MiniWindowGraphic mode="dark" />
+      </div>
+    );
   }
-  const palette = theme.palette;
-  return <span className="theme-preview" style={{ background: palette?.app }}>
-    <i style={{ background: palette?.sidebar }} />
-    <i style={{ background: palette?.panel }} />
-    <i style={{ background: palette?.panelStrong, borderColor: palette?.border }} />
-  </span>;
+  return <MiniWindowGraphic mode={theme.mode === "dark" ? "dark" : "light"} />;
 }
 
 function AppearancePage({
   form,
   update,
   catalog,
-  cwd,
-  onReload,
 }: {
   form: AppSettings;
   update: Update;
   catalog: AppearanceCatalog;
-  cwd: string;
-  onReload: () => Promise<void>;
 }) {
-  const [extensionScope, setExtensionScope] = useState<"user" | "project">("user");
-  const [extensionTarget, setExtensionTarget] = useState<"theme" | "pet" | null>(null);
-  const [extensionState, setExtensionState] = useState<"idle" | "busy" | "done" | "error">("idle");
-  const [extensionNotice, setExtensionNotice] = useState("");
-  const customTheme = createCustomAppearanceTheme(form.backgroundColor, form.foregroundColor, form.accentColor);
-  const displayedThemes = catalog.themes.map((theme) => theme.id === "custom" ? customTheme : theme);
-  const themeOptions = displayedThemes.filter((theme) => theme.id !== "custom");
-  const extensionCount = (kind: "theme" | "pet") => (
-    kind === "theme"
-      ? catalog.themes.filter((theme) => theme.scope !== "builtin").length
-      : catalog.pets.filter((pet) => pet.scope !== "builtin").length
-  );
-
-  const updateCustomColor = (key: "accentColor" | "backgroundColor" | "foregroundColor", value: string) => {
-    update(key, value);
-    if (form.theme !== "custom") update("theme", "custom");
-  };
-
-  const resetCustomColors = () => {
-    update("backgroundColor", "#ffffff");
-    update("foregroundColor", "#1a1a1a");
-    update("accentColor", "#18181b");
-    update("theme", "custom");
-  };
-
-  const runExtensionAction = async (kind: "theme" | "pet", action: () => Promise<void>, success: string) => {
-    setExtensionTarget(kind);
-    setExtensionState("busy");
-    setExtensionNotice("");
-    try {
-      await action();
-      setExtensionState("done");
-      setExtensionNotice(success);
-    } catch (error) {
-      setExtensionState("error");
-      setExtensionNotice(describeError(error));
-    }
-  };
-
-  const importExtension = async (kind: "theme" | "pet") => {
-    const selected = await openDialog(kind === "theme"
-      ? {
-          title: "导入主题",
-          multiple: false,
-          directory: false,
-          filters: [{ name: "主题 JSON", extensions: ["json"] }],
-        }
-      : {
-          title: "导入宠物目录",
-          multiple: false,
-          directory: true,
-        });
-    const source = typeof selected === "string" ? selected : Array.isArray(selected) ? selected[0] : null;
-    if (!source) return;
-    await runExtensionAction(kind, async () => {
-      await agent.installAppearanceExtension(source, cwd, kind, extensionScope);
-      await onReload();
-    }, kind === "theme" ? "主题已导入" : "宠物已导入");
-  };
-
-  const openExtensionDirectory = (kind: "theme" | "pet") => runExtensionAction(
-    kind,
-    () => agent.openAppearanceDirectory(cwd, kind, extensionScope).then(() => undefined),
-    kind === "theme" ? "已打开主题目录" : "已打开宠物目录",
-  );
-
-  const renderExtensionControls = (kind: "theme" | "pet") => (
-    <div className="appearance-extension-stack">
-      <div className="appearance-extension-control">
-        <div className="appearance-scope-control" aria-label={`${kind === "theme" ? "主题" : "宠物"}扩展作用域`}>
-          <button type="button" className={extensionScope === "user" ? "active" : ""} onClick={() => setExtensionScope("user")}>用户</button>
-          <button type="button" className={extensionScope === "project" ? "active" : ""} disabled={!cwd} onClick={() => setExtensionScope("project")}>项目</button>
-        </div>
-        <button type="button" className="icon-button" title={`安装本地${kind === "theme" ? "主题" : "宠物"}`} disabled={extensionState === "busy"} onClick={() => void importExtension(kind)}><Upload size={15} /></button>
-        <button type="button" className="icon-button" title={`打开${extensionScope === "project" ? "项目" : "用户"}${kind === "theme" ? "主题" : "宠物"}目录`} disabled={extensionState === "busy"} onClick={() => void openExtensionDirectory(kind)}><FolderOpen size={15} /></button>
-        <button type="button" className="icon-button" title={`重新扫描${kind === "theme" ? "主题" : "宠物"}`} disabled={extensionState === "busy"} onClick={() => void runExtensionAction(kind, onReload, "扩展列表已更新")}><RefreshCw className={extensionState === "busy" && extensionTarget === kind ? "spinner-icon" : ""} size={15} /></button>
-      </div>
-      {extensionTarget === kind && extensionNotice && <div className={`appearance-extension-notice ${extensionState}`} role="status">{extensionState === "error" ? <CircleAlert size={15} /> : <CheckCircle2 size={15} />}<span>{extensionNotice}</span></div>}
-    </div>
-  );
-
-  return <>
-    <PageHeading title="外观" description="自定义 Pi Desktop 的显示方式。" />
-    <Card title="主题">
-      <div className="appearance-picker-block">
-        <div className="theme-grid" role="radiogroup" aria-label="主题">
-          {themeOptions.map((theme) => <button key={theme.id} type="button" role="radio" aria-checked={form.theme === theme.id} className={form.theme === theme.id ? "active" : ""} onClick={() => update("theme", theme.id)}>
-            <ThemePreview theme={theme} />
-            <span><strong>{theme.label}</strong>{theme.scope !== "builtin" && <small>{theme.scope === "project" ? "项目" : "用户"}</small>}</span>
-          </button>)}
-        </div>
-      </div>
-      <Row title="自定义主题" description={form.theme === "custom" ? "当前正在使用；颜色更改会立即生效。" : "设置配色并应用为独立主题。"}>
-        <div className="appearance-inline-colors">
-          <label title="背景颜色"><span>背景</span><input aria-label="背景颜色" type="color" value={form.backgroundColor} onChange={(event) => updateCustomColor("backgroundColor", event.target.value)} /></label>
-          <label title="文字颜色"><span>文字</span><input aria-label="文字颜色" type="color" value={form.foregroundColor} onChange={(event) => updateCustomColor("foregroundColor", event.target.value)} /></label>
-          <label title="强调色"><span>强调</span><input aria-label="强调色" type="color" value={form.accentColor} onChange={(event) => updateCustomColor("accentColor", event.target.value)} /></label>
-          {form.theme !== "custom" && <button type="button" className="secondary-button compact" onClick={() => update("theme", "custom")}>应用</button>}
-          <button type="button" className="icon-button" title="恢复默认颜色" onClick={resetCustomColors}><Undo2 size={15} /></button>
-        </div>
-      </Row>
-      <Row title="主题扩展" description={`${extensionCount("theme")} 个已安装；可安装到当前用户或项目。`}>{renderExtensionControls("theme")}</Row>
-    </Card>
-
-    <Card title="桌面宠物">
-      <Row title="显示桌面宠物" description="在 Windows 桌面显示会响应任务状态、可自由拖动的小伙伴。"><Switch label="显示桌面宠物" checked={form.petEnabled} onChange={(value) => update("petEnabled", value)} /></Row>
-      <div className="appearance-picker-block appearance-pet-picker-block">
-        <div className="pet-character-picker" role="radiogroup" aria-label="桌面宠物角色">
-          {catalog.pets.map((pet) => (
-            <button key={pet.id} type="button" role="radio" aria-checked={form.petCharacter === pet.id} className={`pet-option-${pet.builtinCharacter ?? "custom"}${form.petCharacter === pet.id ? " active" : ""}`} onClick={() => update("petCharacter", pet.id)}>
-              <span className="pet-option-preview"><PetAvatar pet={pet} /></span>
-              <span><strong>{pet.label}</strong>{pet.scope !== "builtin" && <small>{pet.scope === "project" ? "项目" : "用户"}</small>}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <Row title="宠物大小" description="调整桌面宠物的显示大小，修改后会立即生效。">
-        <label className="pet-size-control">
-          <span className="pet-size-sample small" aria-hidden="true" />
-          <input
-            aria-label="宠物大小"
-            type="range"
-            min="80"
-            max="224"
-            step="4"
-            value={form.petSize}
-            onInput={(event) => update("petSize", Number(event.currentTarget.value))}
-          />
-          <span className="pet-size-sample large" aria-hidden="true" />
-          <output>{form.petSize}px</output>
-        </label>
-      </Row>
-      <Row title="宠物扩展" description={`${extensionCount("pet")} 个已安装；可安装到当前用户或项目。`}>{renderExtensionControls("pet")}</Row>
-    </Card>
-
-    {catalog.errors.length > 0 && <div className="settings-info appearance-errors"><CircleAlert size={17} /><span>{catalog.errors.map((error) => <small key={`${error.kind}-${error.name}`}>{error.name}：{error.message}</small>)}</span></div>}
-
-    <Card title="偏好设置">
-      <Row title="界面字体"><input value={form.uiFont} onChange={(event) => update("uiFont", event.target.value)} /></Row>
-      <Row title="代码字体"><input value={form.codeFont} onChange={(event) => update("codeFont", event.target.value)} /></Row>
-      <Row title="界面缩放" description="调整应用内容的整体显示大小。"><label className="appearance-number-control"><input aria-label="界面缩放百分比" type="number" min="75" max="150" step="5" value={form.uiScale} onChange={(event) => update("uiScale", Number(event.target.value))} /><span>%</span></label></Row>
-      <Row title="对话字号" description="对话正文的字号，行高与行距随之调整。"><label className="appearance-number-control"><input aria-label="对话字号" type="number" min="10" max="22" step="1" value={form.messageFontSize} onChange={(event) => update("messageFontSize", Number(event.target.value))} /><span>px</span></label></Row>
-    </Card>
-  </>;
-}
-
-function PersonalizationPage({
-  form,
-  update,
-  cwd,
-}: {
-  form: AppSettings;
-  update: Update;
-  cwd: string;
-}) {
-  const isTauri = "__TAURI_INTERNALS__" in window;
-  const queryClient = useQueryClient();
-  const hasWorkspace = cwd.trim() !== "";
-  const [selectedScope, setSelectedScope] = useState<"user" | "project">("user");
-  const activeScope: "user" | "project" = selectedScope === "project" && hasWorkspace ? "project" : "user";
-  const [memoryText, setMemoryText] = useState("");
-  const [memoryState, setMemoryState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [confirmClear, setConfirmClear] = useState(false);
-
-  const memoryQuery = useQuery({
-    queryKey: queryKeys.memory(activeScope, cwd),
-    queryFn: () => agent.getMemory(activeScope, activeScope === "project" ? cwd : undefined),
-    enabled: isTauri && (activeScope === "user" || hasWorkspace),
-  });
-
-  const savedContent = memoryQuery.data?.content;
-  useSyncOnChange([activeScope, cwd, savedContent], () => {
-    setMemoryText(savedContent ?? "");
-    setMemoryState("idle");
-    setConfirmClear(false);
-  });
-
-  const saveMemory = async () => {
-    setMemoryState("saving");
-    try {
-      const saved = await agent.setMemory(memoryText, activeScope, activeScope === "project" ? cwd : undefined);
-      queryClient.setQueryData(queryKeys.memory(activeScope, cwd), saved);
-      setMemoryState("saved");
-    } catch {
-      setMemoryState("error");
-    }
-  };
-
-  const exportMemory = async () => {
-    const destination = await saveDialog({
-      title: activeScope === "project" ? "导出项目记忆" : "导出全局记忆",
-      defaultPath: activeScope === "project" ? "project-memory.md" : "pidesktop-memory.md",
-      filters: [{ name: "Markdown", extensions: ["md"] }],
-    });
-    if (typeof destination !== "string") return;
-    setMemoryState("saving");
-    try {
-      const saved = await agent.setMemory(memoryText, activeScope, activeScope === "project" ? cwd : undefined);
-      queryClient.setQueryData(queryKeys.memory(activeScope, cwd), saved);
-      await agent.exportMemory(destination, activeScope, activeScope === "project" ? cwd : undefined);
-      setMemoryState("saved");
-    } catch {
-      setMemoryState("error");
-    }
-  };
-
-  const clearMemory = async () => {
-    setMemoryState("saving");
-    try {
-      await agent.deleteMemory(activeScope, activeScope === "project" ? cwd : undefined);
-      queryClient.setQueryData(queryKeys.memory(activeScope, cwd), (prev) => prev
-        ? { ...prev, content: "" }
-        : { scope: activeScope, path: "", content: "", trusted: true });
-      setMemoryText("");
-      setConfirmClear(false);
-      setMemoryState("idle");
-    } catch {
-      setMemoryState("error");
-    }
-  };
-
-  return <>
-    <PageHeading title="个性化" description="为每个本地会话设置 Agent 的工作风格、全局与项目双层长期记忆。" />
-    <Card title="交流风格">
-      <div className="personality-grid">{(["friendly", "pragmatic", "none"] as const).map((personality) => <button key={personality} className={form.personality === personality ? "active" : ""} onClick={() => update("personality", personality)}><Sparkles size={17} /><strong>{personality === "friendly" ? "友好" : personality === "pragmatic" ? "务实" : "无额外风格"}</strong><small>{personality === "friendly" ? "温和、清晰、协作" : personality === "pragmatic" ? "直接、简洁、注重实现" : "不添加额外表达风格"}</small></button>)}</div>
-    </Card>
-    <Card title="个人指令与记忆注入">
-      <p className="card-description">重新连接后，这些指令会追加到 Agent 的系统提示词。项目中的 AGENTS.md 和 CLAUDE.md 仍按各自作用域加载。</p>
-      <textarea className="large-settings-textarea" value={form.customInstructions} onChange={(event) => update("customInstructions", event.target.value)} placeholder="例如：优先使用 PowerShell，保留已有用户改动，并先运行针对性测试。" />
-      <Row title="加载全局记忆" description="把用户级记忆（~/.pid/memory.md）和 Agent 发现的 AGENTS.md、CLAUDE.md 一起加入新任务上下文。"><Switch label="加载全局记忆" checked={form.memoryEnabled} onChange={(value) => update("memoryEnabled", value)} /></Row>
-      <Row title="加载项目记忆" description="允许读取当前工作区中的 .pid/memory.md 作为仓库专属上下文注入。"><Switch label="加载项目记忆" checked={form.projectMemoryEnabled} onChange={(value) => update("projectMemoryEnabled", value)} /></Row>
-    </Card>
-    <Card title="双层长期记忆">
-      <div className="memory-scope-tabs" role="tablist" aria-label="记忆层级">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeScope === "user"}
-          className={activeScope === "user" ? "active" : ""}
-          onClick={() => setSelectedScope("user")}
-        >
-          全局记忆 (~/.pid/memory.md)
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeScope === "project"}
-          className={activeScope === "project" ? "active" : ""}
-          disabled={!hasWorkspace}
-          title={hasWorkspace ? "编辑当前工作区的 .pid/memory.md" : "请先打开一个项目工作区"}
-          onClick={() => setSelectedScope("project")}
-        >
-          当前项目记忆 (.pid/memory.md)
-        </button>
-      </div>
-      <p className="card-description">
-        {activeScope === "project"
-          ? "保存在当前仓库的 .pid/memory.md 中，适合记录本项目的架构规范、测试命令与踩坑经验；Agent 写入时会展示 Diff 供你确认。"
-          : "保存在当前 Windows 账户的 PIDesktop 配置目录中，对所有项目生效；Agent 写入时会展示 Diff 供你确认。"}
-      </p>
-      {memoryQuery.data?.path && <small className="memory-path-hint">{memoryQuery.data.path}</small>}
-      <textarea
-        className="large-settings-textarea memory-textarea"
-        aria-label={activeScope === "project" ? "当前项目记忆内容" : "全局记忆内容"}
-        value={memoryText}
-        onChange={(event) => {
-          setMemoryText(event.target.value);
-          setMemoryState("idle");
-        }}
-        placeholder={activeScope === "project" ? "记录当前仓库的构建方式、模块边界与团队约定。" : "记录长期有效的个人偏好、工作习惯和通用约定。"}
-      />
-      <div className="memory-actions">
-        <span className={`memory-state ${memoryState}`}>{memoryState === "saving" ? "正在保存…" : memoryState === "saved" ? "已保存" : memoryState === "error" ? "操作失败" : ""}</span>
-        <button type="button" className="secondary-button" disabled={memoryState === "saving"} onClick={() => void exportMemory()}><FileDown size={14} />导出</button>
-        {confirmClear ? (
-          <>
-            <button type="button" className="secondary-button compact" onClick={() => setConfirmClear(false)}>取消</button>
-            <button type="button" className="danger-button compact" disabled={memoryState === "saving"} onClick={() => void clearMemory()}><Trash2 size={13} />确认清空</button>
-          </>
-        ) : (
-          <button type="button" className="icon-button danger" disabled={!memoryText || memoryState === "saving"} title="清空当前记忆文件" onClick={() => setConfirmClear(true)}><Trash2 size={14} /></button>
-        )}
-        <button type="button" className="primary-button" disabled={memoryState === "saving"} onClick={() => void saveMemory()}><Save size={14} />保存记忆</button>
-      </div>
-    </Card>
-  </>;
-}
-
-function ShortcutsPage({ form, update }: { form: AppSettings; update: Update }) {
-  const rows: Array<[keyof AppSettings, string, string]> = [
-    ["shortcutNewChat", "新任务", "创建新任务"],
-    ["shortcutSettings", "打开设置", "打开设置中心"],
-    ["shortcutTerminal", "切换终端", "打开或关闭终端面板"],
-    ["shortcutChanges", "切换更改", "打开或关闭 Git 更改面板"],
-    ["shortcutToggleSidebar", "切换侧栏", "显示或隐藏项目导航"],
-  ];
-  return <>
-    <PageHeading title="键盘快捷键" description="查看并自定义常用操作的快捷键。" />
-    <Card title="快捷键">{rows.map(([key, title, description]) => <Row key={key} title={title} description={description}><input className="shortcut-input" value={String(form[key])} onChange={(event) => update(key, event.target.value as never)} /></Row>)}</Card>
-    <button className="secondary-button reset-shortcuts" onClick={() => rows.forEach(([key]) => update(key, DEFAULTS[key] as never))}><Undo2 size={14} /> 重置快捷键</button>
-  </>;
-}
-
-function ArchivedPage({ archived, loading, onRestore, onDelete }: { archived: SessionInfo[]; loading: boolean; onRestore: (session: SessionInfo) => Promise<void>; onDelete: (session: SessionInfo) => Promise<void> }) {
-  return <>
-    <PageHeading title="已归档的聊天" description="查看和恢复此前归档的聊天。" />
-    <Card>{loading ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在加载聊天…</div> : archived.length === 0 ? <div className="settings-empty"><Archive size={22} />暂无已归档的聊天</div> : <div className="archive-list">{archived.map((session) => <div key={session.file}><span><strong>{session.name || session.firstMessage || "未命名聊天"}</strong><small>{session.cwd} · {session.messageCount} 条消息</small></span><button className="secondary-button" onClick={() => void onRestore(session)}><Undo2 size={13} /> 恢复</button><button className="icon-button danger" onClick={() => void onDelete(session)}><Trash2 size={14} /></button></div>)}</div>}</Card>
-  </>;
-}
-
-function UsagePage({ usage }: { usage: UsageSummary | null }) {
-  const number = (value?: number) => (value ?? 0).toLocaleString();
-  const formatUsd = (cost: number) => {
-    if (cost <= 0) return "$0.00";
-    if (cost < 0.01) return `$${cost.toFixed(4)}`;
-    return `$${cost.toFixed(2)}`;
-  };
-  return <>
-    <PageHeading title="使用情况" description="查看由本机会话记录汇总的活动数据与本地预估成本。" />
-    {!usage ? <div className="settings-empty"><RefreshCw className="spinner-icon" size={18} /> 正在计算使用情况…</div> : <>
-      <div className="usage-hero">
-        <span><small>累计 token</small><strong>{number(usage.totalTokens)}</strong></span>
-        <span><small>预计费用</small><strong>{formatUsd(usage.totalCost)}</strong></span>
-        <span><small>任务</small><strong>{number(usage.sessions)}</strong></span>
-        <span><small>消息</small><strong>{number(usage.messages)}</strong></span>
-      </div>
-      <Card title="Token 活动">
-        <div className="usage-breakdown">
-          <span><i style={{ width: `${Math.max(5, usage.inputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输入</strong><em>{number(usage.inputTokens)}</em></span>
-          <span><i style={{ width: `${Math.max(5, usage.outputTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>输出</strong><em>{number(usage.outputTokens)}</em></span>
-          <span><i style={{ width: `${Math.max(5, usage.reasoningTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>推理（含于输出）</strong><em>{number(usage.reasoningTokens)}</em></span>
-          <span><i style={{ width: `${Math.max(5, usage.cacheReadTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>缓存读取</strong><em>{number(usage.cacheReadTokens)}</em></span>
-          <span><i style={{ width: `${Math.max(5, usage.cacheWriteTokens / Math.max(1, usage.totalTokens) * 100)}%` }} /><strong>缓存写入</strong><em>{number(usage.cacheWriteTokens)}</em></span>
-        </div>
-      </Card>
-    </>}
-    <div className="settings-info"><BarChart3 size={17} /><span>这些数据由本机的会话记录与本地单价表（可在模型配置中自定义）估算；实际账单和订阅额度以模型提供商为准。</span></div>
-  </>;
-}
-
-function AgentPage({ form, update, cwd }: { form: AppSettings; update: Update; cwd: string }) {
-  const [generatingKind, setGeneratingKind] = useState<"wsb" | "devcontainer" | null>(null);
-  const [generatedConfig, setGeneratedConfig] = useState<{ path: string; content: string } | null>(null);
-  const [sandboxError, setSandboxError] = useState("");
-
-  const handleGenerateSandboxConfig = async (kind: "wsb" | "devcontainer") => {
-    if (!cwd) return;
-    setGeneratingKind(kind);
-    setSandboxError("");
-    try {
-      const result = await agent.generateSandboxConfig(kind, cwd);
-      setGeneratedConfig({ path: result.path, content: result.content });
-    } catch (error) {
-      setSandboxError(describeError(error));
-    } finally {
-      setGeneratingKind(null);
-    }
-  };
-
-  return <>
-    <PageHeading title="Agent 与安全" description="设置新聊天的工作模式、审批策略和本地 Agent 能力。" />
-    <Card title="权限">
-      <Row title="默认工作模式" description="执行可修改代码；计划和问答仅使用只读工具。"><select value={form.agentMode} onChange={(event) => update("agentMode", event.target.value as AppSettings["agentMode"])}><option value="agent">执行</option><option value="plan">计划</option><option value="ask">问答</option></select></Row>
-      <Row title="审批与文件访问" description="控制 Agent 何时请求确认，以及允许访问的文件范围。"><select value={form.permissionMode} onChange={(event) => update("permissionMode", event.target.value as AppSettings["permissionMode"])}><option value="read-only">只读</option><option value="ask">先询问</option><option value="workspace-write">工作区写入</option><option value="full-access">完全访问</option></select></Row>
-    </Card>
-    <Card title="计划跟踪">
-      <Row title="启用持久计划" description="为新任务提供 update_plan 工具；步骤状态随会话分支保存，并显示在对话中。"><Switch label="启用持久计划" checked={form.planTrackingEnabled} onChange={(value) => update("planTrackingEnabled", value)} /></Row>
-    </Card>
-    <Card title="本地子 Agent">
-      <Row title="启用任务委派" description="提供 delegate_task 工具，用隔离上下文运行探索、计划、审查或 worker。"><Switch label="启用本地子 Agent" checked={form.subagentsEnabled} onChange={(value) => update("subagentsEnabled", value)} /></Row>
-      <Row title="最大并发" description="一次工具调用最多 8 个任务；实际同时运行数量限制为 1 到 4。"><input type="number" min="1" max="4" value={form.subagentMaxConcurrency} onChange={(event) => update("subagentMaxConcurrency", Math.max(1, Math.min(4, Number(event.target.value) || 1)))} /></Row>
-    </Card>
-    <Card title="Rules v1">
-      <Row title="始终确认 Shell" description="bash / shell / exec 在执行前必须确认。"><Switch label="始终确认 Shell" checked={form.alwaysConfirmShell} onChange={(value) => update("alwaysConfirmShell", value)} /></Row>
-      <Row title="阻止工作区外写入" description="直接拦截对工作区根目录之外路径的写入。"><Switch label="阻止工作区外写入" checked={form.blockWriteOutsideWorkspace} onChange={(value) => update("blockWriteOutsideWorkspace", value)} /></Row>
-      <label className="stacked-setting"><span>Shell 允许前缀</span><textarea value={form.shellAllowPrefixes} onChange={(event) => update("shellAllowPrefixes", event.target.value)} placeholder={"git status\nnpm test\npnpm lint"} rows={4} /><small className="field-hint">每行或逗号分隔；仅在关闭“始终确认 Shell”后生效。</small></label>
-    </Card>
-    <Card title="工具规则">
-      <div className="tool-rules-heading"><span>按列表顺序匹配；只读与计划模式始终优先。完全访问下阻止规则仍然生效，确认规则则直接放行。</span><button type="button" className="secondary-button compact" onClick={() => update("toolRules", [...form.toolRules, { id: `rule-${Date.now().toString(36)}`, enabled: true, toolPattern: "bash", action: "confirm", commandPrefix: "", pathPrefix: "" }])}><Plus size={13} />添加规则</button></div>
-      {form.toolRules.length === 0 && <div className="settings-empty compact">没有自定义工具规则</div>}
-      <div className="tool-rule-list">{form.toolRules.map((rule, index) => {
-        const change = (patch: Partial<typeof rule>) => update("toolRules", form.toolRules.map((item) => item.id === rule.id ? { ...item, ...patch } : item));
-        const move = (direction: -1 | 1) => {
-          const target = index + direction;
-          if (target < 0 || target >= form.toolRules.length) return;
-          const next = [...form.toolRules];
-          [next[index], next[target]] = [next[target], next[index]];
-          update("toolRules", next);
-        };
-        return <div className="tool-rule-row" key={rule.id}>
-          <Switch label={`启用规则 ${rule.id}`} checked={rule.enabled} onChange={(enabled) => change({ enabled })} />
-          <input aria-label="工具模式" value={rule.toolPattern} onChange={(event) => change({ toolPattern: event.target.value })} placeholder="bash 或 mcp__github__*" />
-          <select aria-label="规则动作" value={rule.action} onChange={(event) => change({ action: event.target.value as typeof rule.action })}><option value="allow">允许</option><option value="confirm">询问</option><option value="block">阻止</option></select>
-          <input aria-label="命令前缀" value={rule.commandPrefix} onChange={(event) => change({ commandPrefix: event.target.value })} placeholder="命令前缀（可选）" />
-          <input aria-label="路径前缀" value={rule.pathPrefix} onChange={(event) => change({ pathPrefix: event.target.value })} placeholder="路径前缀（可选）" />
-          <span className="tool-rule-actions"><button type="button" className="icon-button" disabled={index === 0} onClick={() => move(-1)} title="上移"><ArrowUp size={13} /></button><button type="button" className="icon-button" disabled={index === form.toolRules.length - 1} onClick={() => move(1)} title="下移"><ArrowDown size={13} /></button><button type="button" className="icon-button danger" onClick={() => update("toolRules", form.toolRules.filter((item) => item.id !== rule.id))} title="删除规则"><Trash2 size={13} /></button></span>
-        </div>;
-      })}</div>
-    </Card>
-    <Card title="本机轻量沙箱（实验性）">
-      <Row
-        title="启用 Windows 轻量沙箱（实验性）"
-        description="开启后为 bash 工具脱敏密钥与令牌环境变量、把临时目录重定向到工作区 .pid/sandbox-tmp、挂载 Windows Job Object 限制进程树，并在完全访问模式外拦截系统级高危命令。"
-      >
-        <Switch
-          label="启用 Windows 轻量沙箱（实验性）"
-          checked={form.sandboxEnabled}
-          onChange={(value) => update("sandboxEnabled", value)}
-        />
-      </Row>
-      <Row
-        title="生成强隔离环境配置"
-        description={cwd ? `为当前工作区（${cwd}）导出 Windows Sandbox (.wsb) 或 Dev Container 配置文件。` : "先打开一个工作区目录以导出强隔离配置文件。"}
-      >
-        <span className="sandbox-template-actions">
-          <button
-            type="button"
-            className="secondary-button compact"
-            disabled={!cwd || generatingKind !== null}
-            onClick={() => void handleGenerateSandboxConfig("wsb")}
-          >
-            {generatingKind === "wsb" ? "生成中…" : "生成 Windows Sandbox (.wsb)"}
-          </button>
-          <button
-            type="button"
-            className="secondary-button compact"
-            disabled={!cwd || generatingKind !== null}
-            onClick={() => void handleGenerateSandboxConfig("devcontainer")}
-          >
-            {generatingKind === "devcontainer" ? "生成中…" : "生成 Dev Container 配置"}
-          </button>
-        </span>
-      </Row>
-      {sandboxError && <div className="inline-error">{sandboxError}</div>}
-      {generatedConfig && (
-        <div className="sandbox-generated-result" data-testid="sandbox-generated-result">
-          <small>已写入：<code>{generatedConfig.path}</code></small>
-          <pre>{generatedConfig.content}</pre>
-        </div>
-      )}
-    </Card>
-    <div className="settings-info"><Bot size={17} /><span>模型、计划工具和 Rules 设置应用于新启动的聊天；工作模式与权限可在当前聊天的输入框中即时切换。</span></div>
-  </>;
-}
-
-const HOOK_EVENTS: Array<[AppSettings["hooks"][number]["event"], string]> = [
-  ["session_start", "会话启动"],
-  ["before_agent_start", "每轮开始前"],
-  ["agent_end", "模型运行结束"],
-  ["agent_settled", "任务完全结束"],
-  ["tool_call", "工具调用前"],
-  ["tool_result", "工具返回后"],
-];
-
-function HooksPage({ form, update }: { form: AppSettings; update: Update }) {
-  const addHook = () => update("hooks", [...form.hooks, {
-    id: `hook-${Date.now().toString(36)}`,
-    name: "新 Hook",
-    enabled: true,
-    event: "agent_settled",
-    command: "",
-    timeoutSeconds: 30,
-    blocking: false,
-  }]);
-  const changeHook = (id: string, patch: Partial<AppSettings["hooks"][number]>) => {
-    update("hooks", form.hooks.map((hook) => hook.id === id ? { ...hook, ...patch } : hook));
-  };
-  return <>
-    <PageHeading title="Hooks" description="在 Agent 生命周期事件上运行本机命令；事件数据以 JSON 写入标准输入。" />
-    <Card title="Hook 运行器">
-      <Row title="启用 Hooks" description="仅新启动的任务加载这些命令。"><Switch label="启用 Hooks" checked={form.hooksEnabled} onChange={(value) => update("hooksEnabled", value)} /></Row>
-      <Row title="继承完整环境" description="关闭时过滤 API key、令牌、密码、凭据、Authorization 和 Cookie。"><Switch label="Hooks 继承完整环境" checked={form.hooksInheritEnvironment} onChange={(value) => update("hooksInheritEnvironment", value)} /></Row>
-    </Card>
-    <div className="hook-toolbar"><button type="button" className="primary-button" onClick={addHook}><Plus size={14} />添加 Hook</button></div>
-    {form.hooks.length === 0 && <div className="settings-empty"><Workflow size={24} />尚未配置 Hook</div>}
-    {form.hooks.map((hook) => <section className="hook-editor" key={hook.id}>
-      <header><span><Workflow size={16} /><strong>{hook.name || hook.id}</strong></span><div><Switch label={`启用 ${hook.name || hook.id}`} checked={hook.enabled} onChange={(enabled) => changeHook(hook.id, { enabled })} /><button type="button" className="icon-button danger" title="删除 Hook" onClick={() => update("hooks", form.hooks.filter((item) => item.id !== hook.id))}><Trash2 size={15} /></button></div></header>
-      <div>
-        <Row title="名称"><input value={hook.name} onChange={(event) => changeHook(hook.id, { name: event.target.value })} /></Row>
-        <Row title="事件"><select value={hook.event} onChange={(event) => changeHook(hook.id, { event: event.target.value as typeof hook.event, blocking: false })}>{HOOK_EVENTS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Row>
-        <Row title="命令" description="Windows 使用 cmd.exe /c；macOS/Linux 使用 /bin/sh -lc。不要把凭据直接写进命令。"><textarea rows={3} value={hook.command} onChange={(event) => changeHook(hook.id, { command: event.target.value })} placeholder="npm test" /></Row>
-        <Row title="超时（秒）"><input type="number" min="1" max="300" value={hook.timeoutSeconds} onChange={(event) => changeHook(hook.id, { timeoutSeconds: Math.max(1, Math.min(300, Number(event.target.value) || 1)) })} /></Row>
-        <Row title="失败时阻断工具" description="其余事件失败会通知，但不改变任务结果。">{hook.event === "tool_call" ? <Switch label="Hook 失败时阻断工具" checked={hook.blocking} onChange={(blocking) => changeHook(hook.id, { blocking })} /> : <span className="setting-value-muted">仅“工具调用前”可用</span>}</Row>
-      </div>
-    </section>)}
-    <div className="security-note expanded"><ShieldAlert size={18} /><span><strong>Hooks 是你授权的本机代码。</strong>它们不经过模型工具审批。只配置你信任的命令，并保持“继承完整环境”关闭，除非命令确实需要凭据。</span></div>
-  </>;
-}
-
-function linesToRecord(value: string): Record<string, string> {
-  return Object.fromEntries(value.split(/\r?\n/).map((line) => {
-    const separator = line.indexOf("=");
-    return separator < 1 ? null : [line.slice(0, separator).trim(), line.slice(separator + 1)];
-  }).filter((entry): entry is [string, string] => Boolean(entry)));
-}
-
-function recordToLines(value: Record<string, string>): string {
-  return Object.entries(value).map(([key, entry]) => `${key}=${entry}`).join("\n");
-}
-
-function maskMcpCredentials(settings: AppSettings): AppSettings {
-  return {
-    ...settings,
-    mcpServers: settings.mcpServers.map((server) => ({
-      ...server,
-      env: Object.fromEntries(Object.keys(server.env).map((key) => [key, "••••••••"])),
-      headers: Object.fromEntries(Object.keys(server.headers).map((key) => [key, "••••••••"])),
-    })),
-  };
-}
-
-function McpPage({ form, update }: { form: AppSettings; update: Update }) {
-  const queryClient = useQueryClient();
-  const [reconnectingId, setReconnectingId] = useState<string | null>(null);
-  const [reconnectNotice, setReconnectNotice] = useState<{ kind: "info" | "error"; text: string } | null>(null);
-  const mcpStatusQuery = useQuery({
-    queryKey: queryKeys.mcpStatus(),
-    queryFn: () => agent.mcpStatus().catch((): McpServerStatus[] => []),
-  });
-
-  useEffect(() => {
-    return harnessRuntimes.onNotification("mcp/changed", (raw) => {
-      const payload = raw as Partial<McpChangedNotification> | undefined;
-      if (Array.isArray(payload?.servers)) {
-        queryClient.setQueryData(queryKeys.mcpStatus(), payload.servers);
-      } else {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.mcpStatus() });
-      }
-      void queryClient.invalidateQueries({ queryKey: ["mcp", "resources"] });
-      void queryClient.invalidateQueries({ queryKey: ["mcp", "prompts"] });
-    });
-  }, [queryClient]);
-
-  const statusById = new Map((mcpStatusQuery.data ?? []).map((entry) => [entry.id, entry]));
-
-  const handleReconnect = async (serverId?: string) => {
-    const key = serverId ?? "__all__";
-    setReconnectingId(key);
-    setReconnectNotice(null);
-    try {
-      const servers = await agent.mcpReconnect(serverId);
-      queryClient.setQueryData(queryKeys.mcpStatus(), servers);
-      void queryClient.invalidateQueries({ queryKey: ["mcp", "resources"] });
-      void queryClient.invalidateQueries({ queryKey: ["mcp", "prompts"] });
-      const connectedCount = servers.filter((entry) => entry.connected).length;
-      setReconnectNotice({
-        kind: "info",
-        text: serverId
-          ? `已重连服务器 ${serverId}`
-          : `已完成重连（已连接 ${connectedCount}/${servers.length} 个已启用服务）`,
-      });
-    } catch (error) {
-      setReconnectNotice({ kind: "error", text: `重连失败：${describeError(error)}` });
-    } finally {
-      setReconnectingId(null);
-    }
-  };
-
-  const addServer = (transport: "stdio" | "http") => {
-    const id = `server-${Date.now().toString(36)}`;
-    update("mcpServers", [...form.mcpServers, {
-      id,
-      name: transport === "stdio" ? "本地 MCP" : "远程 MCP",
-      enabled: true,
-      transport,
-      command: "",
-      args: [],
-      cwd: "",
-      env: {},
-      inheritEnvironment: false,
-      url: "",
-      headers: {},
-      trustedReadOnly: false,
-    }]);
-  };
-  const changeServer = (id: string, patch: Partial<AppSettings["mcpServers"][number]>) => {
-    update("mcpServers", form.mcpServers.map((server) => server.id === id ? { ...server, ...patch } : server));
-  };
-  const removeServer = (id: string) => update("mcpServers", form.mcpServers.filter((server) => server.id !== id));
-
-  return <>
-    <PageHeading title="MCP 服务器" description="连接本地或远程 Model Context Protocol 服务器，实时热刷新工具，并在线浏览资源与提示词。" />
-    <Card title="MCP 主机">
-      <Row title="启用 MCP" description="自动连接已启用的服务器；收到 tools/list_changed 时无感热刷新工具，无需重启。"><Switch label="启用 MCP" checked={form.mcpEnabled} onChange={(value) => update("mcpEnabled", value)} /></Row>
-      <Row title="工具调用前审批" description="每次执行 MCP 工具前显示服务器、工具名和参数。"><Switch label="MCP 工具调用前审批" checked={form.mcpConfirmTools} onChange={(value) => update("mcpConfirmTools", value)} /></Row>
-    </Card>
-    <div className="mcp-toolbar">
-      <button className="primary-button" onClick={() => addServer("stdio")}><Plus size={14} />添加本地服务器</button>
-      <button className="secondary-button" onClick={() => addServer("http")}><Plus size={14} />添加 HTTP 服务器</button>
-      {form.mcpServers.length > 0 && (
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={reconnectingId !== null}
-          onClick={() => void handleReconnect()}
-        >
-          <RefreshCw className={reconnectingId === "__all__" ? "spinner-icon" : ""} size={14} />
-          <span>{reconnectingId === "__all__" ? "正在重连…" : "全部重连"}</span>
-        </button>
-      )}
-    </div>
-    {reconnectNotice && (
-      <div className={`mcp-live-banner ${reconnectNotice.kind === "error" ? "is-error" : ""}`}>
-        {reconnectNotice.kind === "error" ? <CircleAlert size={14} /> : <CheckCircle2 size={14} />}
-        <span>{reconnectNotice.text}</span>
-      </div>
-    )}
-    {form.mcpServers.length === 0 && <div className="settings-empty mcp-empty"><Network size={24} />尚未配置 MCP 服务器。</div>}
-    {form.mcpServers.map((server) => {
-      const liveStatus = statusById.get(server.id);
-      return <section className="mcp-server-editor" key={server.id}>
-        <header>
-          <span>
-            <Network size={16} />
-            <strong>{server.name || server.id}</strong>
-            <small>{server.transport === "stdio" ? "STDIO" : "Streamable HTTP"}</small>
-            {server.enabled && liveStatus && (
-              <em className={`mcp-status-pill ${liveStatus.connected ? "connected" : "disconnected"}`}>
-                {liveStatus.connected ? `已连接 · ${liveStatus.toolCount} 个工具` : "未连接"}
-              </em>
-            )}
-          </span>
-          <div>
-            {server.enabled && liveStatus !== undefined && (
+  return (
+    <>
+      <section className="settings-layered-section">
+        <h2>主题模式</h2>
+        <div className="theme-mode-grid" role="radiogroup" aria-label="主题模式">
+          {catalog.themes.map((theme) => {
+            const selected = form.theme === theme.id;
+            return (
               <button
+                key={theme.id}
                 type="button"
-                className="secondary-button compact"
-                disabled={reconnectingId !== null}
-                onClick={() => void handleReconnect(server.id)}
-                title="重新连接此 MCP 服务器"
+                role="radio"
+                aria-checked={selected}
+                className={`theme-mode-card ${selected ? "active" : ""}`}
+                onClick={() => update("theme", theme.id)}
               >
-                <RefreshCw className={reconnectingId === server.id ? "spinner-icon" : ""} size={12} />
-                <span>{reconnectingId === server.id ? "重连中…" : "重连"}</span>
+                <ThemePreviewIllustration theme={theme} />
+                <div className="theme-mode-footer">
+                  <span className="theme-mode-label-group">
+                    <span className="theme-mode-icon" aria-hidden="true">
+                      <ThemeModeIcon theme={theme} />
+                    </span>
+                    <span className="theme-mode-label">{theme.label}</span>
+                  </span>
+                  {selected && (
+                    <span className="theme-mode-check" aria-hidden="true">
+                      <Check size={10} strokeWidth={2.6} />
+                    </span>
+                  )}
+                </div>
               </button>
-            )}
-            <Switch label={`启用 ${server.name || server.id}`} checked={server.enabled} onChange={(enabled) => changeServer(server.id, { enabled })} />
-            <button className="icon-button danger" title="删除服务器" onClick={() => removeServer(server.id)}><Trash2 size={15} /></button>
-          </div>
-        </header>
-        {server.enabled && liveStatus?.error && (
-          <div className="mcp-server-error">
-            <CircleAlert size={13} />
-            <span>{liveStatus.error}</span>
-          </div>
-        )}
-        <div className="mcp-server-fields">
-          <Row title="名称"><input value={server.name} onChange={(event) => changeServer(server.id, { name: event.target.value })} placeholder="文件系统" /></Row>
-          <Row title="服务器 ID" description="用于生成 mcp__server__tool 工具名；必须唯一。"><input value={server.id} onChange={(event) => changeServer(server.id, { id: event.target.value.replace(/[^a-zA-Z0-9_-]/g, "-") })} /></Row>
-          <Row title="传输方式"><select value={server.transport} onChange={(event) => changeServer(server.id, { transport: event.target.value as "stdio" | "http" })}><option value="stdio">STDIO（本地进程）</option><option value="http">Streamable HTTP</option></select></Row>
-          {server.transport === "stdio" ? <>
-            <Row title="命令" description="例如 npx、uvx 或服务器可执行文件的绝对路径。"><input value={server.command} onChange={(event) => changeServer(server.id, { command: event.target.value })} placeholder="npx" /></Row>
-            <Row title="参数" description="每行一个参数。"><textarea value={server.args.join("\n")} onChange={(event) => changeServer(server.id, { args: event.target.value.split(/\r?\n/).filter((value) => value.length > 0) })} placeholder={'-y\n@modelcontextprotocol/server-filesystem\nD:\\Projects'} /></Row>
-            <Row title="工作目录" description="留空时使用当前任务工作区。"><input value={server.cwd} onChange={(event) => changeServer(server.id, { cwd: event.target.value })} placeholder="使用任务工作区" /></Row>
-            <Row title="环境变量" description="每行 KEY=value；适合 STDIO 服务器凭据。"><textarea value={recordToLines(server.env)} onChange={(event) => changeServer(server.id, { env: linesToRecord(event.target.value) })} placeholder="TOKEN=…" /></Row>
-            <Row title="继承完整环境" description="默认会过滤父进程中的 API key、令牌、密码和 Cookie。"><Switch label="继承完整父进程环境" checked={server.inheritEnvironment} onChange={(inheritEnvironment) => changeServer(server.id, { inheritEnvironment })} /></Row>
-          </> : <>
-            <Row title="MCP 端点"><input value={server.url} onChange={(event) => changeServer(server.id, { url: event.target.value })} placeholder="https://example.com/mcp" /></Row>
-            <Row title="请求头" description="每行 Header=value；可用于预配置 Bearer 令牌。"><textarea value={recordToLines(server.headers)} onChange={(event) => changeServer(server.id, { headers: linesToRecord(event.target.value) })} placeholder="Authorization=Bearer …" /></Row>
-          </>}
-          <Row title="受信任只读服务器" description="仅在你确认该服务器所有非破坏性工具都只读时启用；只读权限模式据此决定是否允许调用。"><Switch label="将服务器标记为受信任只读" checked={server.trustedReadOnly} onChange={(trustedReadOnly) => changeServer(server.id, { trustedReadOnly })} /></Row>
+            );
+          })}
         </div>
-        <McpServerInspector serverId={server.id} status={liveStatus} />
-      </section>;
-    })}
-    <div className="settings-info"><ShieldAlert size={17} /><span>MCP 服务器拥有其进程或远程账户对应的权限。STDIO 凭据和 HTTP 请求头由当前 Windows 账户加密保存，重新打开设置时只显示掩码；工具注解来自服务器，只有“受信任只读服务器”开关代表你的明确授权。保存设置后自动生效，也可随时在对话中输入 <code>/mcp-status</code>、<code>/mcp-resources</code> 或 <code>/mcp-prompts</code>。</span></div>
-  </>;
-}
+      </section>
 
-function BrowserPage({ form, update }: { form: AppSettings; update: Update }) {
-  return <>
-    <PageHeading title="Agent 浏览器" description="让 Agent 使用 Grok 风格的 browser_* 工具，通过本机 Chromium 会话检查和操作网页。" />
-    <Card title="Agent 浏览器工具">
-      <Row title="启用 Agent 浏览器" description="为新启动的任务注册 browser_navigate、browser_inspect、browser_click 等工具。"><Switch label="启用 Agent 浏览器" checked={form.browserEnabled} onChange={(value) => update("browserEnabled", value)} /></Row>
-      <Row title="后台运行" description="使用无头浏览器并在 Pi Desktop 中显示页面结果和截图。"><Switch label="后台运行浏览器" checked={form.browserHeadless} onChange={(value) => update("browserHeadless", value)} /></Row>
-      <Row title="网站数据" description="临时模式在任务结束后清理；保留模式使用 PIDesktop 专用配置保存 Cookie 和登录状态，不读取日常浏览器资料。"><select value={form.browserProfileMode} onChange={(event) => update("browserProfileMode", event.target.value as AppSettings["browserProfileMode"])}><option value="temporary">任务结束后清理</option><option value="persistent">保留在 PIDesktop 中</option></select></Row>
-      <Row title="操作前审批" description="打开页面、新建或关闭标签、点击、输入、上传和下载前请求确认；检查、切换标签、导航、滚动和截图保持只读。"><Switch label="浏览器操作前审批" checked={form.browserConfirmActions} onChange={(value) => update("browserConfirmActions", value)} /></Row>
-      <Row title="浏览器程序" description="留空时依次查找 Edge、Chrome 和 Chromium。"><input value={form.browserExecutable} onChange={(event) => update("browserExecutable", event.target.value)} placeholder="自动检测" /></Row>
-    </Card>
-    <div className="settings-info"><Globe2 size={17} /><span>browser_upload 仅允许访问当前工作区。设置修改将在新任务中生效。</span></div>
-  </>;
-}
-
-function ComputerPage({ form, update }: { form: AppSettings; update: Update }) {
-  return <>
-    <PageHeading title="电脑操控" description="允许 Agent 使用 Grok 风格的 computer_* 工具查看桌面，并在审批后进入控制会话。" />
-    <Card title="Computer Use">
-      <Row title="启用计算机工具" description="为新任务注册 computer_start、computer_screenshot、computer_click 等工具。"><Switch label="启用计算机工具" checked={form.computerEnabled} onChange={(value) => update("computerEnabled", value)} /></Row>
-      <Row title="交互操作前审批" description="computer_start 进入 control 以及点击、移动、滚动、输入和按键前必须确认；观察、截图和窗口检查保持只读。"><Switch label="计算机操作前审批" checked={form.computerConfirmActions} onChange={(value) => update("computerConfirmActions", value)} /></Row>
-    </Card>
-    <div className="security-note expanded"><ShieldAlert size={18} /><span><strong>系统边界仍然有效。</strong>Windows 会阻止向更高权限或受保护窗口注入输入；Pi Desktop 不会绕过 UIPI。桌面截图可能包含敏感信息，启用后请留意任务上下文。</span></div>
-  </>;
-}
-
-function EnvironmentPage({ form, update }: { form: AppSettings; update: Update }) {
-  // The shells this machine can start; the saved choice stays listed even if it went missing.
-  const shellsQuery = useQuery({ queryKey: ["terminal-shells"], queryFn: () => agent.terminalShells().catch((): string[] => []) });
-  const shells = [...new Set([...(shellsQuery.data ?? []), form.terminalShell].filter(Boolean))].sort();
-  return <>
-    <PageHeading title="环境" description="配置新聊天的工作环境和集成终端。" />
-    <Card title="新聊天">
-      <Row title="默认工作环境" description="在当前检出中工作，或为任务创建隔离 Git Worktree。"><select value={form.defaultTaskEnvironment} onChange={(event) => update("defaultTaskEnvironment", event.target.value as AppSettings["defaultTaskEnvironment"])}><option value="local">Local（当前工作区）</option><option value="worktree">Worktree（隔离检出）</option></select></Row>
-    </Card>
-    <Card title="集成终端">
-      <Row title="集成终端 Shell" description="终端面板里新建标签页时默认使用的 Shell；“+”旁的菜单仍可临时选择其他 Shell。"><select value={form.terminalShell} onChange={(event) => update("terminalShell", event.target.value)}>{shells.map((shell) => <option key={shell} value={shell}>{shell}</option>)}</select></Row>
-      <Row title="Shell 启动参数" description="新建集成终端标签页时追加给默认 Shell 的参数（支持引号分组，如 -NoLogo -NoProfile）。"><input aria-label="Shell 启动参数" value={form.terminalShellArgs} onChange={(event) => update("terminalShellArgs", event.target.value)} placeholder="-NoLogo" /></Row>
-      <Row title="对话中的命令输出" description="展开命令时显示的输出：摘要最多 80 行，完整显示命令打印的全部内容。"><select value={form.terminalOutput} onChange={(event) => update("terminalOutput", event.target.value as AppSettings["terminalOutput"])}><option value="summary">摘要</option><option value="full">完整输出</option></select></Row>
-    </Card>
-  </>;
-}
-
-function GitPage({ form, update }: { form: AppSettings; update: Update }) {
-  return <>
-    <PageHeading title="Git 与审查" description="设置代码分支、审查结果的呈现方式以及提交说明的生成要求。" />
-    <Card title="分支与审查">
-      <Row title="代码审查呈现方式" description="审查完成后在当前对话继续，或为审查结果创建独立会话。">
-        <select value={form.reviewDelivery} onChange={(event) => update("reviewDelivery", event.target.value as AppSettings["reviewDelivery"])}>
-          <option value="inline">当前对话 (Inline)</option>
-          <option value="detached">独立对话 (Detached)</option>
-        </select>
-      </Row>
-      <Row title="分支前缀"><input value={form.branchPrefix} onChange={(event) => update("branchPrefix", event.target.value)} placeholder="pi/" /></Row>
-      <Row title="允许强制推送" description="关闭时，Agent 执行 git push --force、-f、--force-with-lease 或 + 分支名这类会改写远程分支的推送会被直接拦下，完全访问模式也一样。"><Switch label="允许强制推送" checked={form.allowForcePush} onChange={(value) => update("allowForcePush", value)} /></Row>
-    </Card>
-    <Card title="生成指令">
-      <label className="stacked-setting"><span>提交消息</span><textarea value={form.commitMessageInstructions} onChange={(event) => update("commitMessageInstructions", event.target.value)} placeholder="生成提交消息时额外遵守的要求，例如“用英文写，正文引用工单号”" /></label>
-      <label className="stacked-setting"><span>拉取请求说明</span><textarea aria-label="拉取请求说明" value={form.pullRequestInstructions} onChange={(event) => update("pullRequestInstructions", event.target.value)} placeholder="AI 起草 PR 标题和正文时额外遵守的要求，例如“附带关联 Issue 编号与回滚方案”" /></label>
-    </Card>
-  </>;
-}
-
-function WorktreesPage({ cwd, worktrees, loading, onCreated }: { cwd: string; worktrees: WorktreeInfo[]; loading: boolean; onCreated: (item: WorktreeInfo) => void }) {
-  const [creating, setCreating] = useState(false);
-  const create = async () => {
-    if (!cwd) return;
-    setCreating(true);
-    try { onCreated(await agent.createWorktree(cwd)); } finally { setCreating(false); }
-  };
-  return <>
-    <PageHeading title="Worktrees" description="在隔离的 Git Worktree 中运行独立任务，不影响当前本地检出。" />
-    <div className="worktree-actions"><button className="primary-button" disabled={!cwd || creating} onClick={() => void create()}><GitBranch size={14} />{creating ? "正在创建…" : "创建 Worktree"}</button></div>
-    <Card>{loading ? <div className="settings-empty">正在加载 Worktree…</div> : worktrees.length === 0 ? <div className="settings-empty"><GitBranch size={22} />打开 Git 工作区以管理 Worktree</div> : <div className="worktree-list">{worktrees.map((item) => <button key={item.path} onClick={() => void openPath(item.path)}><GitBranch size={17} /><span><strong>{item.isMain ? "本地检出" : item.branch || "游离 Worktree"}</strong><small>{item.path}</small></span><code>{item.head?.slice(0, 8)}</code><ChevronRight size={15} /></button>)}</div>}</Card>
-  </>;
-}
-
-function DebugPage({ form, update }: { form: AppSettings; update: Update }) {
-  const [diagnosticsState, setDiagnosticsState] = useState<{ busy: boolean; message: string }>({ busy: false, message: "" });
-  const openLogs = async () => {
-    try {
-      await openPath(await logsDir());
-    } catch (error) {
-      setDiagnosticsState({ busy: false, message: `打开日志目录失败：${describeError(error)}` });
-    }
-  };
-  const exportBundle = async () => {
-    const stamp = new Date().toISOString().slice(0, 10);
-    const destination = await saveDialog({ title: "导出诊断包", defaultPath: `pidesktop-diagnostics-${stamp}.zip`, filters: [{ name: "Zip", extensions: ["zip"] }] });
-    if (typeof destination !== "string") return;
-    setDiagnosticsState({ busy: true, message: "正在导出…" });
-    try {
-      const files = await exportDiagnostics(destination);
-      setDiagnosticsState({ busy: false, message: `已导出 ${files.length} 个文件到 ${destination}` });
-    } catch (error) {
-      setDiagnosticsState({ busy: false, message: `导出失败：${describeError(error)}` });
-    }
-  };
-  return <>
-    <PageHeading title="调试" description="诊断选项。" />
-    <Card title="诊断">
-      <Row title="日志等级" description="Harness 日志文件记录到哪一级：错误只记错误，调试记录全部内容。"><select value={form.logLevel} onChange={(event) => update("logLevel", event.target.value as AppSettings["logLevel"])}><option value="error">错误</option><option value="warn">警告</option><option value="info">信息</option><option value="debug">调试</option></select></Row>
-      <Row title="日志" description="Harness 和桌面端的日志，每天一个文件，保留 7 天，密钥已脱敏。"><button className="secondary-button" onClick={() => void openLogs()}><FolderOpen size={14} />打开日志目录</button></Row>
-      <Row title="诊断包" description={diagnosticsState.message || "最近的日志、版本号和脱敏后的配置，打包成 zip，由你保存后附在问题报告里。"}><button className="secondary-button" disabled={diagnosticsState.busy} onClick={() => void exportBundle()}><FileDown size={14} />导出诊断包</button></Row>
-    </Card>
-    <div className="settings-info"><MonitorCog size={17} /><span>进程、模型、系统提示词和权限更改会在重新连接工作区后生效。</span></div>
-    <div className="settings-info"><FileCode2 size={17} /><span>设置文件：%APPDATA%/pid-desktop/settings.json · 个人指令：personal-instructions.md</span></div>
-  </>;
+      <Section title="排版与缩放">
+        <Row title="对话阅读字号" description="消息正文、列表与代码片段的基准字号">
+          <LayoutGroup id="appearance-fontsize-seg">
+            <div className="settings-segmented" role="radiogroup" aria-label="对话字号">
+              {[13, 14, 15, 16, 18].map((size) => {
+                const active = form.messageFontSize === size;
+                return (
+                  <button
+                    key={size}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={active ? "active" : ""}
+                    onClick={() => update("messageFontSize", size)}
+                  >
+                    {active && <motion.span layoutId="fontsize-seg-thumb" className="settings-segmented-thumb" transition={NAV_SPRING} />}
+                    <span>{size}px</span>
+                  </button>
+                );
+              })}
+            </div>
+          </LayoutGroup>
+        </Row>
+        <Row title="全局界面缩放" description="按比例缩放整个工作台窗口与控件尺寸">
+          <LayoutGroup id="appearance-uiscale-seg">
+            <div className="settings-segmented" role="radiogroup" aria-label="界面缩放">
+              {[90, 100, 110, 125].map((scale) => {
+                const active = form.uiScale === scale;
+                return (
+                  <button
+                    key={scale}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={active ? "active" : ""}
+                    onClick={() => update("uiScale", scale)}
+                  >
+                    {active && <motion.span layoutId="uiscale-seg-thumb" className="settings-segmented-thumb" transition={NAV_SPRING} />}
+                    <span>{scale}%</span>
+                  </button>
+                );
+              })}
+            </div>
+          </LayoutGroup>
+        </Row>
+        <Row title="消息密度" description="控制对话气泡与工具调用卡片之间的纵向留白节奏">
+          <LayoutGroup id="appearance-density-seg">
+            <div className="settings-segmented" role="radiogroup" aria-label="消息密度">
+              {([
+                ["summary", "精简"],
+                ["normal", "标准"],
+                ["verbose", "详细"],
+              ] as const).map(([val, label]) => {
+                const active = form.transcriptDensity === val;
+                return (
+                  <button
+                    key={val}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={active ? "active" : ""}
+                    onClick={() => update("transcriptDensity", val)}
+                  >
+                    {active && <motion.span layoutId="density-seg-thumb" className="settings-segmented-thumb" transition={NAV_SPRING} />}
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </LayoutGroup>
+        </Row>
+        <Row title="展示推理思考过程" description="控制是否在回复上方展示可折叠思考链（关闭后隐藏思考内容；若需模型跳过深度推理耗时，请将推理强度设为「关」）">
+          <Switch
+            label="显示思考过程"
+            checked={form.showThinking}
+            onChange={(value) => update("showThinking", value)}
+          />
+        </Row>
+      </Section>
+    </>
+  );
 }

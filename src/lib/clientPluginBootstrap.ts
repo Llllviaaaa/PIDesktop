@@ -5,8 +5,9 @@
  * single lightweight Cordis root context (`pidClientRoot`) wired directly to
  * `ClientContributionService` and `createClientPluginRuntime`.
  */
-import type { ReactNode } from "react";
+import { createElement, type ReactNode } from "react";
 import { Context, Service, type Plugin } from "@deepseek-ai/cordis";
+import { Layers } from "lucide-react";
 import { agent } from "./agent";
 import {
   ClientContributionRegistry,
@@ -21,8 +22,16 @@ import {
   type ModuleLoaderGlobal,
 } from "./clientPluginRuntime";
 import { HARNESS_SESSION_PREFIX, harnessRuntimes, isHarnessSessionFile } from "./harnessRuntime";
+import { messageImagesToAttachments, rewindController } from "./rewindController";
+import {
+  INTELLIGENT_UI_CANVAS_TAB_ID,
+  INTELLIGENT_UI_COMPOSER_ACTION_ID,
+} from "./intelligentUi";
 import { pluginClient } from "./pluginClient";
+import { IntelligentUiComposerAction } from "../components/IntelligentUiComposerAction";
+import { IntelligentUiCanvasTab } from "../components/workbench/IntelligentUiCanvasTab";
 import { useAppStore } from "../store";
+import { useIntelligentUiStore } from "../stores/intelligentUiStore";
 import { useWorkbenchStore } from "../stores/workbenchStore";
 
 declare module "@deepseek-ai/cordis" {
@@ -151,11 +160,34 @@ const betterSidebarCompatModule = {
 };
 
 /** Public client SDK exposed to dynamic `.tsx` plugins via `import ... from "@pid/client"`. */
+export {
+  clientContributions,
+  useClientContributions,
+  useWorkbenchStore,
+  harnessRuntimes,
+  rewindController,
+  messageImagesToAttachments,
+  agent,
+  useAppStore,
+};
+export type {
+  ComposerDraftSnapshot,
+  PerformedRewindResult,
+  RewindExecutionResult,
+  RewindInspection,
+  RewindMode,
+  RewindTargetSummary,
+  RewindTurnSummary,
+} from "./rewindController";
+export type { UiMessage, AttachmentPayload } from "../types";
+
 export const pidClientSdk = {
   clientContributions,
   useClientContributions,
   useWorkbenchStore,
   harnessRuntimes,
+  rewindController,
+  messageImagesToAttachments,
   agent,
   useAppStore,
 };
@@ -164,7 +196,30 @@ export const pidClientSdk = {
 export const CLIENT_MODULES: Record<string, () => Promise<unknown>> = {
   "react": () => import("react"),
   "react/jsx-runtime": () => import("react/jsx-runtime"),
-  "react/jsx-dev-runtime": () => import("react/jsx-dev-runtime"),
+  "react/jsx-dev-runtime": async () => {
+    const [devMod, prodMod] = await Promise.all([
+      import("react/jsx-dev-runtime"),
+      import("react/jsx-runtime"),
+    ]);
+    const devRecord = devMod as Record<string, unknown>;
+    if (typeof devRecord.jsxDEV === "function") return devMod;
+    const prodRecord = prodMod as {
+      Fragment: unknown;
+      jsx: (type: unknown, props: unknown, key?: unknown) => unknown;
+      jsxs: (type: unknown, props: unknown, key?: unknown) => unknown;
+    };
+    const jsxDEV = (
+      type: unknown,
+      props: unknown,
+      key?: unknown,
+      isStaticChildren?: boolean,
+    ) => (isStaticChildren ? prodRecord.jsxs(type, props, key) : prodRecord.jsx(type, props, key));
+    return {
+      Fragment: prodRecord.Fragment,
+      jsxDEV,
+      default: { Fragment: prodRecord.Fragment, jsxDEV },
+    };
+  },
   "react-dom": () => import("react-dom"),
   "react-dom/client": () => import("react-dom/client"),
   "cordis": () => import("@deepseek-ai/cordis"),
@@ -197,11 +252,75 @@ const defaultTransport: ClientPluginTransport = {
 let singletonRoot: Context | undefined;
 let singletonRuntime: ClientPluginRuntimeHandle | undefined;
 
+function mountBuiltinIntelligentUiSync(): void {
+  let mountedDisposers: Array<() => void> = [];
+  let currentWorkspace: string | undefined;
+
+  const applyEnabled = (enabled: boolean) => {
+    useIntelligentUiStore.getState().setPluginEnabled(enabled);
+    if (enabled) {
+      if (mountedDisposers.length > 0) return;
+      mountedDisposers = [
+        clientContributions.registerRightWorkbenchTab({
+          id: INTELLIGENT_UI_CANVAS_TAB_ID,
+          label: "画布",
+          icon: createElement(Layers, { size: 13 }),
+          order: 15,
+          render: () => createElement(IntelligentUiCanvasTab),
+        }),
+        clientContributions.registerComposerToolbar({
+          id: INTELLIGENT_UI_COMPOSER_ACTION_ID,
+          order: 20,
+          render: () => createElement(IntelligentUiComposerAction),
+        }),
+      ];
+    } else {
+      for (const dispose of mountedDisposers) dispose();
+      mountedDisposers = [];
+      if (useWorkbenchStore.getState().activeTab === INTELLIGENT_UI_CANVAS_TAB_ID) {
+        useWorkbenchStore.getState().openTab("files");
+      }
+    }
+  };
+
+  // Mount immediately by default so offline / browser / fixture boots have Intelligent UI ready.
+  applyEnabled(true);
+
+  const syncFromHost = async () => {
+    try {
+      const items = await pluginClient.list(currentWorkspace);
+      const entry = items.find((item) => item.id === "intelligent-ui");
+      if (entry !== undefined) {
+        applyEnabled(entry.enabled !== false && entry.status !== "disabled");
+      }
+    } catch {
+      // Keep current state when host is not yet connected or running in browser mode.
+    }
+  };
+
+  void syncFromHost();
+  pluginClient.onChanged(() => {
+    void syncFromHost();
+  });
+  harnessRuntimes.onHostStatus((status) => {
+    if (status === "connected") {
+      void syncFromHost();
+    }
+  });
+  useAppStore.subscribe((state, prev) => {
+    if (state.cwd !== prev.cwd) {
+      currentWorkspace = state.cwd || undefined;
+      void syncFromHost();
+    }
+  });
+}
+
 export function ensureClientPluginRuntime(): ClientPluginRuntimeHandle {
   if (singletonRuntime !== undefined) return singletonRuntime;
   const root = new Context();
   root.plugin(ClientContributionService, clientContributions);
   root.plugin(BetterSidebarCompatService, clientContributions);
+  mountBuiltinIntelligentUiSync();
   singletonRoot = root;
   singletonRuntime = createClientPluginRuntime<Plugin>(root, {
     transport: defaultTransport,
