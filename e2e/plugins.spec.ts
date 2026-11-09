@@ -72,6 +72,17 @@ test("install a local full-stack plugin, hot-reload its TSX UI, configure it, an
     await expect(card).toContainText("后端 Host");
     await expect(card).toContainText("前端 UI");
 
+    const assertActionsStayInsideCard = async () => {
+      const cardBox = await card.boundingBox();
+      const actionsBox = await card.locator(".plugin-card-actions").boundingBox();
+      if (!cardBox || !actionsBox) {
+        throw new Error("expected bounding boxes for plugin card and actions");
+      }
+      expect(actionsBox.x).toBeGreaterThanOrEqual(cardBox.x);
+      expect(actionsBox.x + actionsBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 0.5);
+    };
+    await assertActionsStayInsideCard();
+
     await expect
       .poll(() => app.evaluate(() => document.documentElement.dataset.pidExtStatus))
       .toBe("v1:default");
@@ -114,6 +125,7 @@ test("install a local full-stack plugin, hot-reload its TSX UI, configure it, an
 
     // Remove plugin cleanly.
     await card.getByRole("button", { name: "卸载" }).click();
+    await assertActionsStayInsideCard();
     await card.getByRole("button", { name: "确认卸载" }).click();
     await expect(card).toHaveCount(0);
   } finally {

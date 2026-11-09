@@ -15,7 +15,7 @@ export interface SizeBounds {
 }
 
 export const SIDEBAR_BOUNDS: SizeBounds = { min: 200, max: 380, fallback: 240 };
-export const WORKSPACE_PANEL_BOUNDS: SizeBounds = { min: 320, max: 900, fallback: 420 };
+export const WORKSPACE_PANEL_BOUNDS: SizeBounds = { min: 320, max: 900, fallback: 460 };
 export const BOTTOM_PANEL_BOUNDS: SizeBounds = { min: 180, max: 520, fallback: 280 };
 
 export const SIDEBAR_WIDTH_KEY = "pid-desktop:sidebar-width:v2";

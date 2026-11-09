@@ -1,4 +1,12 @@
-import { useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
+} from "react";
 import { LayoutGroup, motion } from "motion/react";
 import {
   Activity,
@@ -103,6 +111,8 @@ export function RightWorkbench({
   const contributions = useClientContributions();
 
   const [sideChatVisited, setSideChatVisited] = useState(false);
+  const [scrollState, setScrollState] = useState({ left: false, right: false });
+  const tabsRef = useRef<HTMLDivElement>(null);
 
   useSyncOnChange([activeTab], () => {
     if (activeTab === "side-chat") setSideChatVisited(true);
@@ -112,11 +122,54 @@ export function RightWorkbench({
     if (activeTab !== "side-chat") setSideChatVisited(false);
   });
 
+  const updateScrollEdges = useCallback(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 2;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setScrollState((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, []);
+
+  useEffect(() => {
+    if (!rightOpen) return;
+    const el = tabsRef.current;
+    if (!el) return;
+    const frame = window.requestAnimationFrame(() => {
+      el.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+      });
+      updateScrollEdges();
+    });
+    const observer = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => updateScrollEdges())
+      : null;
+    observer?.observe(el);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [activeTab, contributions.rightWorkbenchTabs.length, openFilesCount, rightMaximized, rightOpen, updateScrollEdges, width]);
+
+  const handleTabsWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    const el = tabsRef.current;
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+    if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+      el.scrollLeft += event.deltaY;
+      updateScrollEdges();
+    }
+  }, [updateScrollEdges]);
+
   if (!rightOpen) return null;
 
   const reviewCount = git?.files.length ?? 0;
   const activePluginTab = contributions.rightWorkbenchTabs.find((tab) => tab.id === activeTab);
   const mountSideChat = sideChatVisited || activeTab === "side-chat";
+  const tabsClassName = [
+    "pid-wb-tabs",
+    scrollState.left ? "has-overflow-left" : "",
+    scrollState.right ? "has-overflow-right" : "",
+  ].filter(Boolean).join(" ");
 
   return (
     <>
@@ -142,10 +195,18 @@ export function RightWorkbench({
       >
         <header className="pid-wb-header">
           <LayoutGroup id="pid-wb-header-tabs">
-          <div className="pid-wb-tabs" role="tablist" aria-label="工作台视图">
+          <div
+            ref={tabsRef}
+            className={tabsClassName}
+            role="tablist"
+            aria-label="工作台视图"
+            onScroll={updateScrollEdges}
+            onWheel={handleTabsWheel}
+          >
             <button
               type="button"
               role="tab"
+              data-wb-tab="files"
               aria-selected={activeTab === "files"}
               className={`pid-wb-tab-btn${activeTab === "files" ? " active" : ""}`}
               onClick={() => openTab("files")}
@@ -158,10 +219,11 @@ export function RightWorkbench({
             <button
               type="button"
               role="tab"
+              data-wb-tab="editor"
               aria-selected={activeTab === "editor"}
               className={`pid-wb-tab-btn${activeTab === "editor" ? " active" : ""}`}
               onClick={() => openTab("editor")}
-              title="代码编辑器"
+              title="代码编辑器与动态预览"
             >
               {activeTab === "editor" && <motion.span layoutId="pid-wb-active-pill" className="pid-wb-tab-pill" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
               <FileCode2 size={13} />
@@ -171,6 +233,7 @@ export function RightWorkbench({
             <button
               type="button"
               role="tab"
+              data-wb-tab="review"
               aria-selected={activeTab === "review"}
               className={`pid-wb-tab-btn${activeTab === "review" ? " active" : ""}`}
               onClick={() => openTab("review")}
@@ -184,6 +247,7 @@ export function RightWorkbench({
             <button
               type="button"
               role="tab"
+              data-wb-tab="preview"
               aria-selected={activeTab === "preview"}
               className={`pid-wb-tab-btn${activeTab === "preview" ? " active" : ""}`}
               onClick={() => openTab("preview")}
@@ -200,6 +264,7 @@ export function RightWorkbench({
                   key={tab.id}
                   type="button"
                   role="tab"
+                  data-wb-tab={tab.id}
                   aria-selected={activeTab === tab.id}
                   className={`pid-wb-tab-btn${activeTab === tab.id ? " active" : ""}`}
                   onClick={() => openTab(tab.id)}
@@ -212,6 +277,7 @@ export function RightWorkbench({
             <button
               type="button"
               role="tab"
+              data-wb-tab="summary"
               aria-selected={activeTab === "summary"}
               className={`pid-wb-tab-btn${activeTab === "summary" ? " active" : ""}`}
               onClick={() => openTab("summary")}
@@ -224,6 +290,7 @@ export function RightWorkbench({
             <button
               type="button"
               role="tab"
+              data-wb-tab="side-chat"
               aria-selected={activeTab === "side-chat"}
               className={`pid-wb-tab-btn${activeTab === "side-chat" ? " active" : ""}`}
               onClick={() => openTab("side-chat")}
@@ -231,7 +298,7 @@ export function RightWorkbench({
             >
               {activeTab === "side-chat" && <motion.span layoutId="pid-wb-active-pill" className="pid-wb-tab-pill" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
               <MessageSquare size={13} />
-              <span>侧边对话(beta)</span>
+              <span>侧边对话</span>
             </button>
             {contributions.rightWorkbenchTabs
               .filter((tab) => (tab.order ?? 100) >= 20)
@@ -240,6 +307,7 @@ export function RightWorkbench({
                   key={tab.id}
                   type="button"
                   role="tab"
+                  data-wb-tab={tab.id}
                   aria-selected={activeTab === tab.id}
                   className={`pid-wb-tab-btn${activeTab === tab.id ? " active" : ""}`}
                   onClick={() => openTab(tab.id)}
@@ -289,7 +357,7 @@ export function RightWorkbench({
             />
           )}
           {activeTab === "preview" && (
-            <BrowserPreviewTab />
+            <BrowserPreviewTab cwd={cwd} />
           )}
           {activeTab === "summary" && (
             <TaskSummaryTab cwd={cwd} sessionFile={sessionFile} />
@@ -299,6 +367,7 @@ export function RightWorkbench({
               <SideChatTab
                 key={sessionFile ?? "draft"}
                 sessionFile={sessionFile ?? ""}
+                fallbackCwd={cwd}
                 tabId={`side-${sessionFile ?? "draft"}`}
                 visible={activeTab === "side-chat"}
               />

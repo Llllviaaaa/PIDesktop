@@ -103,6 +103,12 @@ export function entryProblem(
     if (!entry.models.every((model) => (model as { cost?: unknown }).cost === undefined || isValidCost((model as { cost?: unknown }).cost))) {
       return "model.cost must have finite non-negative { input, output }";
     }
+    if (!entry.models.every((model) => {
+      const levels = (model as { thinkingLevels?: unknown }).thinkingLevels;
+      return levels === undefined || (Array.isArray(levels) && levels.every((item) => typeof item === "string" && item.trim() !== ""));
+    })) {
+      return "model.thinkingLevels must be a list of non-empty strings";
+    }
   }
   return undefined;
 }

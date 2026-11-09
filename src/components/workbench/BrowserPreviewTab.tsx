@@ -4,7 +4,15 @@ import { ExternalLink, Globe, RefreshCw } from "lucide-react";
 import { useSyncOnChange } from "../../hooks/useSyncOnChange";
 import { agentBrowserFromMessages } from "../../lib/toolPanels";
 import { useAppStore } from "../../store";
-import { useWorkbenchStore } from "../../stores/workbenchStore";
+import { resolveWorkspacePreviewUrl, useWorkbenchStore } from "../../stores/workbenchStore";
+
+function looksLikeWorkspaceHtmlPath(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed || /^https?:\/\//i.test(trimmed)) return false;
+  if (/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(trimmed)) return false;
+  if (trimmed.startsWith("./") || trimmed.startsWith("../")) return true;
+  return /\.(?:html?|svg)(?:[?#].*)?$/i.test(trimmed);
+}
 
 function normalizePreviewUrl(raw: string): string {
   const trimmed = raw.trim();
@@ -16,7 +24,7 @@ function normalizePreviewUrl(raw: string): string {
   return `https://${trimmed}`;
 }
 
-export function BrowserPreviewTab() {
+export function BrowserPreviewTab({ cwd = "" }: { cwd?: string }) {
   const previewUrl = useWorkbenchStore((state) => state.previewUrl);
   const setPreviewUrl = useWorkbenchStore((state) => state.setPreviewUrl);
   const messages = useAppStore((state) => state.messages);
@@ -35,7 +43,17 @@ export function BrowserPreviewTab() {
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    const normalized = normalizePreviewUrl(draftUrl);
+    const raw = draftUrl.trim();
+    if (cwd && looksLikeWorkspaceHtmlPath(raw)) {
+      const cleanPath = raw.replace(/^(?:\.\/)+/, "").replace(/[?#].*$/, "");
+      void resolveWorkspacePreviewUrl(cwd, cleanPath).then((resolved) => {
+        const nextUrl = resolved ?? normalizePreviewUrl(raw);
+        setDraftUrl(nextUrl);
+        setPreviewUrl(nextUrl);
+      });
+      return;
+    }
+    const normalized = normalizePreviewUrl(raw);
     setDraftUrl(normalized);
     setPreviewUrl(normalized);
   };

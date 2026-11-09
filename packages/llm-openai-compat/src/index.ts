@@ -73,7 +73,34 @@ function toWireMessages(system: string | undefined, messages: Message[]): WireMe
 }
 
 function effortValue(effort: Effort | undefined): string | undefined {
-  return effort === undefined || effort === "off" ? undefined : effort;
+  const trimmed = effort?.trim();
+  return trimmed === undefined || trimmed === "" || trimmed === "off" ? undefined : trimmed;
+}
+
+function clampFallbackEffort(effort: string): "low" | "medium" | "high" | undefined {
+  const normalized = effort.toLowerCase();
+  if (normalized === "low" || normalized === "medium" || normalized === "high") return undefined;
+  if (normalized === "minimal") return "low";
+  if (normalized === "xhigh" || normalized === "max") return "high";
+  return "medium";
+}
+
+function parseEffortList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const normalized = item.trim().toLowerCase();
+    if (!/^[a-z0-9._:-]{1,64}$/.test(normalized) || seen.has(normalized)) continue;
+    seen.add(normalized);
+    list.push(normalized);
+  }
+  if (list.length === 0) return undefined;
+  if (!seen.has("off") && !seen.has("none")) {
+    return ["off", ...list];
+  }
+  return list;
 }
 
 const KNOWN_REASONING_EFFORT_MODEL_RE = /^(?:o1|o3|o4|gpt-5|grok-(?:3-mini|4))(?:$|[-._/])/i;
@@ -94,7 +121,12 @@ export function supportsReasoningEffort(
   if (unsupportedModels?.has(modelId)) return false;
   if (/^deepseek-reasoner$/i.test(modelId) || /api\.deepseek\.com/i.test(provider.baseUrl)) return false;
   const configured = provider.models?.find((item) => item.id === modelId);
-  if (configured?.reasoning === true || (configured?.thinkingLevel !== undefined && configured.thinkingLevel !== "off")) {
+  if (configured?.reasoning === false) return false;
+  if (
+    configured?.reasoning === true
+    || (configured?.thinkingLevel !== undefined && configured.thinkingLevel !== "off")
+    || Boolean(configured?.thinkingLevels?.some((lvl) => lvl !== "off"))
+  ) {
     return true;
   }
   return KNOWN_REASONING_EFFORT_MODEL_RE.test(modelId);
@@ -258,26 +290,47 @@ function parseDiscoveredModel(raw: Record<string, unknown>): ModelInfo[] {
   if (maxOutputTokens !== undefined) info.maxOutputTokens = maxOutputTokens;
 
   const capabilities = typeof raw.capabilities === "object" && raw.capabilities !== null ? (raw.capabilities as Record<string, unknown>) : undefined;
+  const capReasoning = typeof capabilities?.reasoning === "object" && capabilities.reasoning !== null
+    ? (capabilities.reasoning as Record<string, unknown>)
+    : undefined;
   const supportedParams = Array.isArray(raw.supported_parameters) ? raw.supported_parameters : undefined;
+  const discoveredLevels =
+    parseEffortList(raw.thinking_levels)
+    ?? parseEffortList(raw.supported_thinking_levels)
+    ?? parseEffortList(raw.reasoning_efforts)
+    ?? parseEffortList(raw.supported_reasoning_efforts)
+    ?? parseEffortList(raw.efforts)
+    ?? parseEffortList(capabilities?.thinking_levels)
+    ?? parseEffortList(capabilities?.reasoning_efforts)
+    ?? parseEffortList(capReasoning?.efforts)
+    ?? parseEffortList(capReasoning?.levels);
+  if (discoveredLevels !== undefined) {
+    info.thinkingLevels = discoveredLevels;
+  }
+
   if (
     raw.reasoning === true
     || raw.thinking === true
     || raw.supports_reasoning === true
     || capabilities?.reasoning === true
+    || capReasoning?.enabled === true
     || capabilities?.thinking === true
+    || Boolean(discoveredLevels?.some((lvl) => lvl !== "off" && lvl !== "none"))
     || (supportedParams !== undefined && supportedParams.some((p) => p === "reasoning" || p === "include_reasoning" || p === "reasoning_effort"))
   ) {
     info.reasoning = true;
   }
 
   const rawEffort = typeof raw.thinking_level === "string"
-    ? raw.thinking_level.toLowerCase()
+    ? raw.thinking_level.trim().toLowerCase()
     : typeof raw.reasoning_effort === "string"
-      ? raw.reasoning_effort.toLowerCase()
-      : "";
-  if (rawEffort === "off" || rawEffort === "low" || rawEffort === "medium" || rawEffort === "high" || rawEffort === "max") {
+      ? raw.reasoning_effort.trim().toLowerCase()
+      : typeof raw.default_reasoning_effort === "string"
+        ? raw.default_reasoning_effort.trim().toLowerCase()
+        : "";
+  if (rawEffort !== "" && /^[a-z0-9._:-]{1,64}$/.test(rawEffort)) {
     info.thinkingLevel = rawEffort;
-    if (rawEffort !== "off") info.reasoning = true;
+    if (rawEffort !== "off" && rawEffort !== "none") info.reasoning = true;
   }
 
   const arch = typeof raw.architecture === "object" && raw.architecture !== null ? (raw.architecture as Record<string, unknown>) : undefined;
@@ -340,26 +393,44 @@ export class OpenAiCompatAdapter implements LlmAdapter {
       );
       yield* translateStream(events, this.provider.id);
     } catch (error) {
-      // If an OpenAI-compat proxy rejects auto-inferred `reasoning_effort`, remember and retry once cleanly without it.
       if (
-        this.provider.reasoningEffort === undefined
-        && "reasoning_effort" in body
+        "reasoning_effort" in body
         && error instanceof LlmError
         && error.status === 400
-        && /reasoning_effort/i.test(error.message)
         && !signal.aborted
       ) {
-        this.unsupportedReasoningModels.add(request.model);
-        const fallbackBody = buildRequestBody(request, this.provider, this.unsupportedReasoningModels);
-        const retryEvents = postSse(
-          joinUrl(this.provider.baseUrl, "chat/completions"),
-          headers,
-          fallbackBody,
-          signal,
-          this.provider.id,
-        );
-        yield* translateStream(retryEvents, this.provider.id);
-        return;
+        const sentEffort = String(body.reasoning_effort ?? "");
+        const clamped = clampFallbackEffort(sentEffort);
+        if (
+          clamped !== undefined
+          && /(?:invalid.*value|supported values|must be one of|not one of|enum|reasoning_effort)/i.test(error.message)
+          && !/(?:unrecognized request argument|unknown (?:parameter|field)|extra_forbidden)/i.test(error.message)
+        ) {
+          const clampedBody = { ...body, reasoning_effort: clamped };
+          const retryEvents = postSse(
+            joinUrl(this.provider.baseUrl, "chat/completions"),
+            headers,
+            clampedBody,
+            signal,
+            this.provider.id,
+          );
+          yield* translateStream(retryEvents, this.provider.id);
+          return;
+        }
+        // If an OpenAI-compat proxy rejects auto-inferred `reasoning_effort`, remember and retry once cleanly without it.
+        if (this.provider.reasoningEffort === undefined && /reasoning_effort/i.test(error.message)) {
+          this.unsupportedReasoningModels.add(request.model);
+          const fallbackBody = buildRequestBody(request, this.provider, this.unsupportedReasoningModels);
+          const retryEvents = postSse(
+            joinUrl(this.provider.baseUrl, "chat/completions"),
+            headers,
+            fallbackBody,
+            signal,
+            this.provider.id,
+          );
+          yield* translateStream(retryEvents, this.provider.id);
+          return;
+        }
       }
       throw error;
     }

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties } from "react";
 import {
   ArrowUp,
   Bot,
@@ -86,6 +86,8 @@ interface ComposerProps {
   sessionCost?: number;
   sessionTokens?: SessionStats["tokens"];
   variant?: "task-start" | "follow-up";
+  /** Isolates side-chat composers from main-conversation rewind & plugin slots. */
+  scope?: "main" | "side";
   transcriptDensity?: TranscriptDensity;
   onTranscriptDensityChange?: (density: TranscriptDensity) => void;
   onSend: (text: string, behavior?: "steer" | "followUp") => Promise<boolean | void> | boolean | void;
@@ -140,6 +142,7 @@ export const Composer = memo(function Composer({
   sessionCost,
   sessionTokens,
   variant = "follow-up",
+  scope = "main",
   transcriptDensity: _transcriptDensity = "normal",
   onTranscriptDensityChange: _onTranscriptDensityChange,
   onSend,
@@ -177,6 +180,7 @@ export const Composer = memo(function Composer({
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   // Escape hides the suggestions for the draft it was pressed on; typing brings them back.
   const [suggestionsDismissedFor, setSuggestionsDismissedFor] = useState<string | null>(null);
+  const suggestionsId = useId();
   const suggestionMenuRef = useRef<HTMLDivElement>(null);
   const [caret, setCaret] = useState(0);
   const [fileResults, setFileResults] = useState<{ query: string; entries: WorkspaceDirEntry[] } | null>(null);
@@ -205,7 +209,7 @@ export const Composer = memo(function Composer({
   }, [text]);
 
   useEffect(() => {
-    if (disabled) return undefined;
+    if (disabled || scope !== "main") return undefined;
     return rewindController.bindTextBridge({
       getText: () => textRef.current,
       setText: (nextText, focus) => {
@@ -222,7 +226,7 @@ export const Composer = memo(function Composer({
         }
       },
     });
-  }, [disabled]);
+  }, [disabled, scope]);
 
   useEffect(() => {
     if (prefill === null || prefill === undefined) return;
@@ -585,11 +589,11 @@ export const Composer = memo(function Composer({
         data-dsh-claude-draft-empty={!text.trim() ? "" : undefined}
       >
         {commandMenuOpen && (
-          <div className="command-menu" id="composer-suggestions" role="listbox" aria-label="快捷指令" ref={suggestionMenuRef}>
+          <div className="command-menu" id={suggestionsId} role="listbox" aria-label="快捷指令" ref={suggestionMenuRef}>
             {commandMatches.map((command, index) => (
               <button
                 key={`${command.source}-${command.name}`}
-                id={`composer-suggestion-${index}`}
+                id={`${suggestionsId}-${index}`}
                 data-suggestion-index={index}
                 type="button"
                 className={`command-menu-item${command === activeCommand ? " active" : ""}`}
@@ -623,7 +627,7 @@ export const Composer = memo(function Composer({
         )}
 
         {mentionMenuOpen && (
-          <div className="command-menu mention-menu" id="composer-suggestions" role="listbox" aria-label="引用文件" ref={suggestionMenuRef}>
+          <div className="command-menu mention-menu" id={suggestionsId} role="listbox" aria-label="引用文件" ref={suggestionMenuRef}>
             <div className="mention-menu-heading" aria-hidden="true">
               {mentionQuery?.endsWith("/") ? mentionQuery : "文件与文件夹"}
             </div>
@@ -635,7 +639,7 @@ export const Composer = memo(function Composer({
               return (
                 <button
                   key={entry.path}
-                  id={`composer-suggestion-${index}`}
+                  id={`${suggestionsId}-${index}`}
                   data-suggestion-index={index}
                   type="button"
                   className={`mention-item${entry === activeEntry ? " active" : ""}`}
@@ -660,7 +664,7 @@ export const Composer = memo(function Composer({
           </div>
         )}
 
-        {!disabled && contributions.composerBanners.map((banner) => (
+        {!disabled && scope === "main" && contributions.composerBanners.map((banner) => (
           <div key={banner.id} className="composer-plugin-banner">
             {banner.render({ cwd: workspace, sessionFile: null })}
           </div>
@@ -696,8 +700,8 @@ export const Composer = memo(function Composer({
             placeholder={placeholder}
             role="combobox"
             aria-expanded={commandMenuOpen || mentionMenuOpen}
-            aria-controls={commandMenuOpen || mentionMenuOpen ? "composer-suggestions" : undefined}
-            aria-activedescendant={suggestionCount > 0 ? `composer-suggestion-${Math.min(suggestionIndex, suggestionCount - 1)}` : undefined}
+            aria-controls={commandMenuOpen || mentionMenuOpen ? suggestionsId : undefined}
+            aria-activedescendant={suggestionCount > 0 ? `${suggestionsId}-${Math.min(suggestionIndex, suggestionCount - 1)}` : undefined}
             aria-autocomplete="list"
             onChange={(event) => {
               setText(event.target.value);
@@ -813,7 +817,7 @@ export const Composer = memo(function Composer({
                 </div>
               )}
             </div>
-            {!disabled && contributions.composerToolbar.map((action) => (
+            {!disabled && scope === "main" && contributions.composerToolbar.map((action) => (
               <span key={action.id} className="composer-plugin-action">
                 {action.render({ cwd: workspace, sessionFile: null })}
               </span>

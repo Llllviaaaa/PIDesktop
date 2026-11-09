@@ -140,7 +140,7 @@ pub(crate) fn read_workspace_file(
     } else {
         fs::read(&file).map_err(|err| AppError::Io(format!("failed to read file: {err}")))?
     };
-    let text = if mime_type.is_some() {
+    let text = if mime_type.is_some() && extension != "svg" {
         None
     } else {
         String::from_utf8(bytes.clone()).ok()

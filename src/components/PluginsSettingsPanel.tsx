@@ -694,113 +694,118 @@ export function PluginsSettingsPanel({ cwd, form, onSyncAppSetting }: PluginsSet
           </div>
 
           <div className="plugin-card-actions">
-            {plugin.dir !== undefined && isTauri && isExternal && (
-              <button
-                type="button"
-                className="plugin-ghost-btn icon-only"
-                title="在文件管理器中打开"
-                aria-label="在文件管理器中打开"
-                onClick={() => void agent.revealPathInFileManager(plugin.dir ?? "")}
-              >
-                <FolderOpen size={13} />
-              </button>
-            )}
-
-            {plugin.id === "mcp" && !isExternal && (form?.mcpServers.length ?? 0) > 0 && (
-              <button
-                type="button"
-                className="plugin-ghost-btn icon-only"
-                title="重连全部 MCP 服务"
-                aria-label="重连全部 MCP 服务"
-                disabled={mcpReconnectMutation.isPending}
-                onClick={() => mcpReconnectMutation.mutate(undefined)}
-              >
-                <RefreshCw size={12.5} />
-              </button>
-            )}
-
-            <button
-              type="button"
-              className={`plugin-ghost-btn ${isEditing ? "active" : ""}`}
-              disabled={busy}
-              onClick={() => openConfigEditor(plugin)}
-            >
-              <Settings2 size={12.5} />
-              <span>{isEditing ? "收起" : "配置"}</span>
-            </button>
-
-            {isExternal && (
-              <button
-                type="button"
-                className="plugin-ghost-btn"
-                disabled={busy}
-                onClick={() => actionMutation.mutate({
-                  run: () => pluginClient.reload({ id: plugin.id, workspace: cwd }),
-                  label: `已热重载插件 "${title}"。`,
-                })}
-              >
-                <RefreshCw size={12.5} />
-                <span>热重载</span>
-              </button>
-            )}
-
-            {canCheckUpdate(plugin) && (
-              <button
-                type="button"
-                className="plugin-ghost-btn"
-                disabled={busy}
-                onClick={() => actionMutation.mutate({
-                  run: () => pluginClient.update({ id: plugin.id }),
-                  label: `已完成插件 "${title}" 的更新与热加载。`,
-                })}
-              >
-                <CloudDownload size={12.5} />
-                <span>更新</span>
-              </button>
-            )}
-
-            {plugin.removable && (
-              confirmRemoveId === plugin.id ? (
-                <>
-                  <button
-                    type="button"
-                    className="plugin-ghost-btn danger"
-                    disabled={busy}
-                    onClick={() => {
-                      setConfirmRemoveId(null);
-                      const ws = scopeWorkspace(plugin);
-                      actionMutation.mutate({
-                        run: () => pluginClient.remove({
-                          id: plugin.id,
-                          ...(ws === undefined ? {} : { workspace: ws }),
-                        }),
-                        label: plugin.overridesBuiltin
-                          ? `已移除自定义覆盖并恢复内置默认 "${title}"。`
-                          : `已卸载插件 "${title}"。`,
-                      });
-                    }}
-                  >
-                    {plugin.overridesBuiltin ? "确认恢复默认" : "确认卸载"}
-                  </button>
-                  <button
-                    type="button"
-                    className="plugin-ghost-btn"
-                    onClick={() => setConfirmRemoveId(null)}
-                  >
-                    取消
-                  </button>
-                </>
-              ) : (
+            {plugin.removable && confirmRemoveId === plugin.id ? (
+              <>
                 <button
                   type="button"
                   className="plugin-ghost-btn danger"
                   disabled={busy}
-                  onClick={() => setConfirmRemoveId(plugin.id)}
+                  onClick={() => {
+                    setConfirmRemoveId(null);
+                    const ws = scopeWorkspace(plugin);
+                    actionMutation.mutate({
+                      run: () => pluginClient.remove({
+                        id: plugin.id,
+                        ...(ws === undefined ? {} : { workspace: ws }),
+                      }),
+                      label: plugin.overridesBuiltin
+                        ? `已移除自定义覆盖并恢复内置默认 "${title}"。`
+                        : `已卸载插件 "${title}"。`,
+                    });
+                  }}
                 >
-                  {plugin.overridesBuiltin ? <RotateCcw size={12.5} /> : <Trash2 size={12.5} />}
-                  <span>{plugin.overridesBuiltin ? "恢复默认" : "卸载"}</span>
+                  {plugin.overridesBuiltin ? "确认恢复默认" : "确认卸载"}
                 </button>
-              )
+                <button
+                  type="button"
+                  className="plugin-ghost-btn muted"
+                  onClick={() => setConfirmRemoveId(null)}
+                >
+                  取消
+                </button>
+              </>
+            ) : (
+              <>
+                {plugin.id === "mcp" && !isExternal && (form?.mcpServers.length ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    className="plugin-ghost-btn icon-only"
+                    title="重连全部 MCP 服务"
+                    aria-label="重连全部 MCP 服务"
+                    disabled={mcpReconnectMutation.isPending}
+                    onClick={() => mcpReconnectMutation.mutate(undefined)}
+                  >
+                    <RefreshCw size={12.5} />
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className={`plugin-ghost-btn ${isEditing ? "active" : ""}`}
+                  disabled={busy}
+                  onClick={() => openConfigEditor(plugin)}
+                >
+                  <Settings2 size={12.5} />
+                  <span>{isEditing ? "收起" : "配置"}</span>
+                </button>
+
+                {plugin.dir !== undefined && isTauri && isExternal && (
+                  <button
+                    type="button"
+                    className="plugin-ghost-btn icon-only"
+                    title="在文件管理器中打开"
+                    aria-label="在文件管理器中打开"
+                    onClick={() => void agent.revealPathInFileManager(plugin.dir ?? "")}
+                  >
+                    <FolderOpen size={13} />
+                  </button>
+                )}
+
+                {isExternal && (
+                  <button
+                    type="button"
+                    className="plugin-ghost-btn icon-only"
+                    disabled={busy}
+                    title="热重载"
+                    aria-label="热重载"
+                    onClick={() => actionMutation.mutate({
+                      run: () => pluginClient.reload({ id: plugin.id, workspace: cwd }),
+                      label: `已热重载插件 "${title}"。`,
+                    })}
+                  >
+                    <RefreshCw size={12.5} />
+                  </button>
+                )}
+
+                {canCheckUpdate(plugin) && (
+                  <button
+                    type="button"
+                    className="plugin-ghost-btn icon-only"
+                    disabled={busy}
+                    title="更新"
+                    aria-label="更新"
+                    onClick={() => actionMutation.mutate({
+                      run: () => pluginClient.update({ id: plugin.id }),
+                      label: `已完成插件 "${title}" 的更新与热加载。`,
+                    })}
+                  >
+                    <CloudDownload size={13} />
+                  </button>
+                )}
+
+                {plugin.removable && (
+                  <button
+                    type="button"
+                    className="plugin-ghost-btn danger icon-only"
+                    disabled={busy}
+                    title={plugin.overridesBuiltin ? "恢复默认" : "卸载"}
+                    aria-label={plugin.overridesBuiltin ? "恢复默认" : "卸载"}
+                    onClick={() => setConfirmRemoveId(plugin.id)}
+                  >
+                    {plugin.overridesBuiltin ? <RotateCcw size={12.5} /> : <Trash2 size={12.5} />}
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

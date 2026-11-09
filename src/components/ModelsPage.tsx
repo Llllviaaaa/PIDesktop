@@ -33,6 +33,7 @@ import {
   enrichModel,
   formatTokenCount,
   groupProviders,
+  inferModelThinkingLevels,
   isCustomProvider,
   modelKey,
   PROVIDER_APIS,
@@ -42,6 +43,7 @@ import {
   type EnrichedModel,
   type ModelCatalog,
 } from "../lib/modelProviders";
+import { normalizeThinkingLevelId, STANDARD_THINKING_LEVELS, thinkingLabel } from "../lib/thinkingLevels";
 import {
   BUILTIN_PROVIDER_PRESETS,
   ProviderBrandIcon,
@@ -60,20 +62,24 @@ type Update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => vo
 
 const PRIMARY_THINKING_LEVELS: ReadonlyArray<readonly [string, string]> = [
   ["off", "关"],
+  ["minimal", "最少"],
   ["low", "低"],
   ["medium", "中"],
   ["high", "高"],
+  ["xhigh", "极高"],
   ["max", "最高"],
 ];
 
 const ALL_THINKING_LABELS: Record<string, string> = {
   off: "关",
-  minimal: "极低",
+  none: "无",
+  minimal: "最少",
   low: "低",
   medium: "中",
   high: "高",
   xhigh: "极高",
   max: "最高",
+  auto: "自动",
 };
 
 const PILL_SPRING = { type: "spring" as const, stiffness: 520, damping: 38, mass: 0.7 };
@@ -96,10 +102,13 @@ function errorText(error: unknown): string {
 
 const MODEL_THINKING_OPTIONS: ReadonlyArray<readonly [ModelThinkingLevel, string]> = [
   ["off", "不支持思考"],
+  ["minimal", "思考 · 最少"],
   ["low", "思考 · 低"],
   ["medium", "思考 · 中"],
   ["high", "思考 · 高"],
+  ["xhigh", "思考 · 极高"],
   ["max", "思考 · 最高"],
+  ["auto", "思考 · 自动"],
 ];
 
 const CONTEXT_WINDOW_PRESETS: ReadonlyArray<readonly [number, string]> = [
@@ -131,7 +140,7 @@ function modelTraitBadges(
   if (ctx) badges.push({ key: "ctx", label: `上下文 ${ctx}`, tone: "ctx" });
   if (reasoning) {
     const lvl = effectiveModelThinking(reasoning, thinkingLevel);
-    const shortLabel = ALL_THINKING_LABELS[lvl] ?? "中";
+    const shortLabel = ALL_THINKING_LABELS[lvl] ?? thinkingLabel(lvl);
     badges.push({ key: "think", label: `思考·${shortLabel}`, tone: "think" });
   }
   if (input.includes("image")) {
@@ -649,6 +658,7 @@ function DefaultPreferencesCard({
   form: AppSettings;
   update: Update;
 }) {
+  const [customDraft, setCustomDraft] = useState("");
   const connected = providers.filter((provider) => provider.configured);
   const options = connected
     .map((provider) => ({
@@ -659,15 +669,45 @@ function DefaultPreferencesCard({
     }))
     .filter((group) => group.models.length > 0);
   const currentProvider = providers.find((provider) => provider.id === form.provider);
+  const selectedDefaultModel = currentProvider?.models.find((model) => model.id === form.model);
   const staleDefault = Boolean(form.provider && form.model && providers.length > 0 && !currentProvider?.configured);
 
+  const customLevels = useMemo(() => form.customThinkingLevels ?? [], [form.customThinkingLevels]);
+
   const thinkingOptions = useMemo(() => {
-    const base = [...PRIMARY_THINKING_LEVELS];
-    if (form.thinkingLevel && !base.some(([val]) => val === form.thinkingLevel)) {
-      base.push([form.thinkingLevel, ALL_THINKING_LABELS[form.thinkingLevel] ?? form.thinkingLevel]);
+    const entries = new Map<string, string>(PRIMARY_THINKING_LEVELS);
+    const appendLevel = (raw: string | null | undefined) => {
+      if (!raw) return;
+      const trimmed = raw.trim();
+      if (!trimmed || entries.has(trimmed)) return;
+      entries.set(trimmed, ALL_THINKING_LABELS[trimmed] ?? thinkingLabel(trimmed));
+    };
+    for (const lvl of selectedDefaultModel?.thinkingLevels ?? []) appendLevel(lvl);
+    for (const lvl of customLevels) appendLevel(lvl);
+    appendLevel(form.thinkingLevel);
+    return [...entries.entries()];
+  }, [customLevels, form.thinkingLevel, selectedDefaultModel?.thinkingLevels]);
+
+  const addCustomLevel = (event?: FormEvent) => {
+    event?.preventDefault();
+    const normalized = normalizeThinkingLevelId(customDraft);
+    if (!normalized) return;
+    if (!customLevels.includes(normalized)) {
+      update("customThinkingLevels", [...customLevels, normalized]);
     }
-    return base;
-  }, [form.thinkingLevel]);
+    update("thinkingLevel", normalized);
+    setCustomDraft("");
+  };
+
+  const removeCustomLevel = (target: string) => {
+    const next = customLevels.filter((item) => item !== target);
+    update("customThinkingLevels", next);
+    if (form.thinkingLevel === target) {
+      update("thinkingLevel", "medium");
+    }
+  };
+
+  const normalizedDraft = normalizeThinkingLevelId(customDraft);
 
   return (
     <section className="settings-layered-section">
@@ -707,7 +747,7 @@ function DefaultPreferencesCard({
           </span>
           <div>
             <LayoutGroup id="models-thinking-seg">
-              <div className="settings-segmented" role="radiogroup" aria-label="推理等级">
+              <div className="settings-segmented models-thinking-segmented" role="radiogroup" aria-label="推理等级">
                 {thinkingOptions.map(([value, label]) => {
                   const active = form.thinkingLevel === value;
                   return (
@@ -726,6 +766,61 @@ function DefaultPreferencesCard({
                 })}
               </div>
             </LayoutGroup>
+          </div>
+        </div>
+
+        <div className="setting-row models-custom-thinking-row">
+          <span>
+            <strong>自定义思考等级</strong>
+            <small>补充模型专属档位或 Token 预算（如 auto、16384、budget:32k、ultra）</small>
+          </span>
+          <div className="models-custom-thinking-controls">
+            {customLevels.length > 0 && (
+              <div className="models-custom-thinking-chips">
+                {customLevels.map((lvl) => (
+                  <span
+                    key={lvl}
+                    className={`models-custom-thinking-chip ${form.thinkingLevel === lvl ? "is-active" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      className="models-custom-thinking-chip-select"
+                      onClick={() => update("thinkingLevel", lvl)}
+                      title={`设为默认推理强度 (${lvl})`}
+                    >
+                      {thinkingLabel(lvl)}
+                      {thinkingLabel(lvl) !== lvl && <code>{lvl}</code>}
+                    </button>
+                    <button
+                      type="button"
+                      className="models-custom-thinking-chip-remove"
+                      aria-label={`移除自定义思考等级 ${lvl}`}
+                      onClick={() => removeCustomLevel(lvl)}
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <form className="models-custom-thinking-form" onSubmit={addCustomLevel}>
+              <input
+                value={customDraft}
+                onChange={(event) => setCustomDraft(event.target.value)}
+                placeholder="新增档位，如 auto / 16384"
+                aria-label="新增自定义思考等级"
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                className="secondary-button models-custom-thinking-add"
+                disabled={!normalizedDraft}
+                onClick={() => addCustomLevel()}
+              >
+                <Plus size={12} />
+                <span>添加</span>
+              </button>
+            </form>
           </div>
         </div>
       </div>
@@ -1341,6 +1436,7 @@ function CustomProviderEditor({
               maxTokens: existing.maxTokens ?? synced.maxTokens,
               reasoning: existing.reasoning || synced.reasoning,
               thinkingLevel: existing.thinkingLevel ?? synced.thinkingLevel,
+              thinkingLevels: existing.thinkingLevels ?? synced.thinkingLevels,
               input: existing.input.includes("image") || synced.input.includes("image") ? ["text", "image"] : ["text"],
               cost: existing.cost ?? synced.cost,
             };
@@ -1369,10 +1465,16 @@ function CustomProviderEditor({
         ...draft,
         models: draft.models.map((item) => {
           const level = effectiveModelThinking(item.reasoning, item.thinkingLevel);
+          const rawTiers = level === "off"
+            ? undefined
+            : item.thinkingLevels?.length
+              ? Array.from(new Set(["off", ...item.thinkingLevels, level]))
+              : undefined;
           return {
             ...item,
             reasoning: level !== "off",
             thinkingLevel: level,
+            ...(rawTiers ? { thinkingLevels: rawTiers } : { thinkingLevels: undefined }),
             contextWindow: item.contextWindow || 128_000,
             input: item.input.includes("image") ? ["text", "image"] : ["text"],
           };
@@ -1654,6 +1756,16 @@ function CustomProviderEditor({
                             {MODEL_THINKING_OPTIONS.map(([val, label]) => (
                               <option key={val} value={val}>{label}</option>
                             ))}
+                            {Array.from(
+                              new Set([
+                                ...(current.thinkingLevels ?? []),
+                                currentThinking,
+                              ]),
+                            )
+                              .filter((lvl) => lvl && !MODEL_THINKING_OPTIONS.some(([opt]) => opt === lvl))
+                              .map((lvl) => (
+                                <option key={lvl} value={lvl}>{`思考 · ${thinkingLabel(lvl)}`}</option>
+                              ))}
                           </select>
 
                           <button
@@ -1760,6 +1872,18 @@ function CustomProviderEditor({
                               }}
                             />
                           </label>
+                          {currentThinking !== "off" && (
+                            <ModelThinkingLevelsEditor
+                              model={current}
+                              currentThinking={currentThinking}
+                              onChange={(nextLevels, nextDefault) =>
+                                changeModel(current.id, {
+                                  thinkingLevels: nextLevels,
+                                  ...(nextDefault ? { thinkingLevel: nextDefault, reasoning: nextDefault !== "off" } : {}),
+                                })
+                              }
+                            />
+                          )}
                         </div>
                       )}
                     </div>
@@ -1788,5 +1912,115 @@ function CustomProviderEditor({
         </footer>
       </motion.div>
     </motion.div>
+  );
+}
+
+function ModelThinkingLevelsEditor({
+  model,
+  currentThinking,
+  onChange,
+}: {
+  model: ModelProviderModel;
+  currentThinking: string;
+  onChange: (nextLevels: string[] | undefined, nextDefault?: string) => void;
+}) {
+  const [customInput, setCustomInput] = useState("");
+  const inferred = useMemo(
+    () => inferModelThinkingLevels(model.id, true) ?? ["off", "minimal", "low", "medium", "high"],
+    [model.id],
+  );
+  const activeLevels = useMemo(() => {
+    const raw = model.thinkingLevels?.length ? model.thinkingLevels : inferred;
+    const set = new Set<string>(["off", ...raw]);
+    if (currentThinking && currentThinking !== "off") set.add(currentThinking);
+    return [...set];
+  }, [currentThinking, inferred, model.thinkingLevels]);
+
+  const candidateLevels = useMemo(() => {
+    const set = new Set<string>(STANDARD_THINKING_LEVELS.filter((item) => item !== "off"));
+    for (const item of activeLevels) {
+      if (item !== "off") set.add(item);
+    }
+    return [...set];
+  }, [activeLevels]);
+
+  const toggleTier = (tier: string) => {
+    const enabled = activeLevels.includes(tier);
+    const nonOff = activeLevels.filter((item) => item !== "off");
+    if (enabled && nonOff.length <= 1) return;
+    const next = enabled
+      ? activeLevels.filter((item) => item !== tier)
+      : [...activeLevels, tier];
+    const nextDefault = enabled && currentThinking === tier
+      ? next.find((item) => item !== "off")
+      : undefined;
+    onChange(next, nextDefault);
+  };
+
+  const addCustomTier = () => {
+    const normalized = normalizeThinkingLevelId(customInput);
+    if (!normalized || normalized === "off") return;
+    const next = activeLevels.includes(normalized)
+      ? activeLevels
+      : [...activeLevels, normalized];
+    onChange(next, normalized);
+    setCustomInput("");
+  };
+
+  return (
+    <div className="models-thinking-levels-field">
+      <div className="models-thinking-levels-head">
+        <span>支持的思考档位</span>
+        {model.thinkingLevels?.length ? (
+          <button
+            type="button"
+            className="models-subtle-link"
+            onClick={() => onChange(undefined)}
+          >
+            恢复自动推断
+          </button>
+        ) : (
+          <small>自动推断（点击可按需增减）</small>
+        )}
+      </div>
+      <div className="models-thinking-levels-chips">
+        {candidateLevels.map((tier) => {
+          const on = activeLevels.includes(tier);
+          return (
+            <button
+              key={tier}
+              type="button"
+              aria-pressed={on}
+              className={`models-thinking-tier-chip ${on ? "is-on" : ""}`}
+              onClick={() => toggleTier(tier)}
+              title={`${thinkingLabel(tier)} (${tier})`}
+            >
+              <span>{thinkingLabel(tier)}</span>
+              {thinkingLabel(tier) !== tier && <code>{tier}</code>}
+            </button>
+          );
+        })}
+        <span className="models-thinking-tier-custom">
+          <input
+            value={customInput}
+            onChange={(event) => setCustomInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addCustomTier();
+              }
+            }}
+            placeholder="新增档位，如 ultra / 16384"
+            aria-label={`${model.id} 新增思考档位`}
+            spellCheck={false}
+          />
+          {normalizeThinkingLevelId(customInput) && (
+            <button type="button" onClick={addCustomTier} aria-label="确认添加档位">
+              <Plus size={12} />
+            </button>
+          )}
+        </span>
+      </div>
+    </div>
   );
 }

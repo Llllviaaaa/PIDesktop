@@ -201,7 +201,19 @@ describe("harness runtimes", () => {
     const sessionId = String((await runtimes.state(runtimeId)).sessionId);
     const session = await host?.ctx.sessions.get(sessionId);
     expect(session === undefined ? undefined : host?.ctx.permissions.modes(session).agentMode).toBe("plan");
-    expect(runtimes.thinkingLevels()).toEqual(["off", "low", "medium", "high"]);
+    expect(runtimes.thinkingLevels()).toEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+    expect(runtimes.thinkingLevels({ id: "plain", name: "Plain", provider: "p", reasoning: false })).toEqual(["off"]);
+    expect(
+      runtimes.thinkingLevels({
+        id: "grok-4.7",
+        name: "Grok 4.7",
+        provider: "xai",
+        reasoning: true,
+        thinkingLevels: ["off", "low", "medium", "high", "xhigh", "ultra"],
+      }),
+    ).toEqual(["off", "low", "medium", "high", "xhigh", "ultra"]);
+    await runtimes.setThinkingLevel(runtimeId, "ultra");
+    expect((await runtimes.state(runtimeId)).thinkingLevel).toBe("ultra");
     await runtimes.stop(runtimeId);
     await expect(runtimes.state(runtimeId)).rejects.toThrow("Harness 任务已结束");
   });

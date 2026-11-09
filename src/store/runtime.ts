@@ -5,6 +5,7 @@ import { harnessRuntimes } from "../lib/harnessRuntime";
 import { effortForLevel } from "../lib/hostSessions";
 import { redactSensitiveText } from "../lib/redact";
 import { readStoredModelCatalog } from "../lib/modelCatalogCache";
+import { fallbackThinkingLevel, mergeThinkingLevels } from "../lib/thinkingLevels";
 import { agentBrowserFromMessages, computerFromMessages } from "../lib/toolPanels";
 import type { AppSettings } from "../types";
 import type { GetState, SetState, StoreContext } from "./context";
@@ -28,10 +29,7 @@ function readWebSettings(): AppSettings | null {
 const cachedModelCatalog = readStoredModelCatalog();
 
 function resolveSupportedThinkingLevel(raw: string | null | undefined, available: readonly string[]): string | null {
-  if (!raw) return null;
-  if (available.includes(raw)) return raw;
-  const mapped = effortForLevel(raw);
-  return available.includes(mapped) ? mapped : null;
+  return fallbackThinkingLevel(raw, available);
 }
 
 export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreContext): RuntimeSlice {
@@ -373,12 +371,24 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
     appendLog: (line) => set((state) => ({ hostLog: [...state.hostLog.slice(-399), redactSensitiveText(line)] })),
 
     reloadProviderCatalog: async () => {
-      const runtimeId = get().runtimeId;
-      if (!runtimeId) return;
       try {
-        const models = await harnessRuntimes.models();
-        if (get().runtimeId !== runtimeId) return;
-        set({ availableModels: models });
+        const models = await harnessRuntimes.models(true);
+        const current = get().model;
+        const refreshedSelected = current
+          ? models.find((item) => item.provider === current.provider && item.id === current.id) ?? current
+          : null;
+        set({
+          availableModels: models,
+          ...(refreshedSelected
+            ? {
+                model: refreshedSelected,
+                availableThinkingLevels: mergeThinkingLevels(
+                  harnessRuntimes.thinkingLevels(refreshedSelected),
+                  get().settings?.customThinkingLevels,
+                ),
+              }
+            : {}),
+        });
         ctx.persistCurrentModelCatalog();
       } catch (error) {
         get().appendLog(`刷新模型目录失败：${describeError(error)}`);
@@ -407,10 +417,20 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
         if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新选择模型");
         const confirmed = await harnessRuntimes.setModel(runtimeId, model.provider, model.id);
         if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新选择模型");
-        const syncedLevel = confirmed.thinkingLevel ?? model.thinkingLevel;
+        const nextAvailable = mergeThinkingLevels(
+          harnessRuntimes.thinkingLevels(confirmed),
+          get().settings?.customThinkingLevels,
+        );
+        const explicitLevel = confirmed.reasoning === false
+          ? "off"
+          : (confirmed.thinkingLevel ?? model.thinkingLevel);
+        const syncedLevel = explicitLevel
+          ?? (nextAvailable.length > 0 && !nextAvailable.includes(get().thinkingLevel)
+            ? (fallbackThinkingLevel(get().thinkingLevel, nextAvailable) ?? undefined)
+            : undefined);
         set({
           model: confirmed,
-          availableThinkingLevels: harnessRuntimes.thinkingLevels(),
+          availableThinkingLevels: nextAvailable,
           ...(syncedLevel ? { thinkingLevel: syncedLevel } : {}),
         });
         if (syncedLevel) {
@@ -499,7 +519,18 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
     loadSettings: async () => {
       const applyLoadedSettings = (settings: AppSettings | null) => {
         if (!settings) return;
-        set({ settings });
+        const currentModel = get().model;
+        set({
+          settings,
+          ...(currentModel
+            ? {
+                availableThinkingLevels: mergeThinkingLevels(
+                  harnessRuntimes.thinkingLevels(currentModel),
+                  settings.customThinkingLevels,
+                ),
+              }
+            : {}),
+        });
         if (!ctx.taskNotStarted() || ctx.queuedThinkingLevel || !settings.thinkingLevel) return;
         const available = get().availableThinkingLevels;
         const normalized = available.length > 0
@@ -521,13 +552,24 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
     },
 
     saveSettings: async (settings) => {
+      const refreshCustomLevels = (nextSettings: AppSettings | null) => {
+        const currentModel = get().model;
+        if (!currentModel) return {};
+        return {
+          availableThinkingLevels: mergeThinkingLevels(
+            harnessRuntimes.thinkingLevels(currentModel),
+            nextSettings?.customThinkingLevels,
+          ),
+        };
+      };
+      set({ settings, ...refreshCustomLevels(settings) });
       if (!isTauriRuntime()) {
         window.localStorage.setItem(WEB_SETTINGS_KEY, JSON.stringify(settings));
-        set({ settings });
         return;
       }
       await agent.setSettings(settings);
-      set({ settings: await agent.getSettings() });
+      const saved = await agent.getSettings();
+      set({ settings: saved, ...refreshCustomLevels(saved) });
     },
   };
 }

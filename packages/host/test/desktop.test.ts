@@ -79,7 +79,7 @@ describe("desktop settings", () => {
     expect(config.memory).toEqual({ enabled: false, file: join("C:/cfg", "memory.md") });
     expect(config.contextFiles).toEqual({ enabled: false });
     expect(config.mcp).toMatchObject({ confirmTools: false, secretsFile: join("C:/cfg", "mcp-secrets.dat"), servers: [{ id: "fs" }] });
-    expect(config.subagents).toEqual({ enabled: true, concurrency: 4, model: defaultModel, effort: "high" });
+    expect(config.subagents).toEqual({ enabled: true, concurrency: 4, model: defaultModel, effort: "xhigh" });
     expect(config.browser).toEqual({ enabled: true, headless: false, confirmActions: true, profileDir: join("C:/cfg", "browser-profile") });
     expect(config.computer).toEqual({ enabled: false, confirmActions: true, helper: "C:/app/Pi Desktop.exe" });
     expect(config.sandbox).toEqual({ enabled: false });
@@ -93,7 +93,7 @@ describe("desktop settings", () => {
     expect(config.permissions).toMatchObject({ defaultPermission: "ask", defaultAgentMode: "agent", alwaysConfirmShell: true });
     expect(config.mcp.servers).toEqual([]);
     expect(personalInstructions({ personality: "unknown" })).toBe("");
-    expect([effortFromThinking("off"), effortFromThinking("minimal"), effortFromThinking("medium"), effortFromThinking("")]).toEqual(["off", "low", "medium", undefined]);
+    expect([effortFromThinking("off"), effortFromThinking("minimal"), effortFromThinking("medium"), effortFromThinking("ultra"), effortFromThinking("")]).toEqual(["off", "minimal", "medium", "ultra", undefined]);
   });
 });
 

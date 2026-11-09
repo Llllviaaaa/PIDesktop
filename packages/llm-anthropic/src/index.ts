@@ -27,7 +27,27 @@ export const ANTHROPIC_VERSION = "2023-06-01";
 const DEFAULT_BASE_URL = "https://api.anthropic.com";
 /** The Messages API requires max_tokens; used when neither request nor model sets one. */
 const DEFAULT_MAX_TOKENS = 8_192;
-const THINKING_BUDGET: Record<Exclude<Effort, "off">, number> = { low: 2_048, medium: 8_192, high: 24_576 };
+const THINKING_BUDGET: Record<string, number> = {
+  minimal: 1_024,
+  low: 2_048,
+  medium: 8_192,
+  high: 24_576,
+  xhigh: 32_768,
+  max: 64_000,
+  auto: 16_384,
+};
+
+export function resolveThinkingBudget(effort: Effort): number {
+  const normalized = effort.trim().toLowerCase();
+  if (normalized in THINKING_BUDGET) return THINKING_BUDGET[normalized] as number;
+  const numericMatch = /^(?:budget:)?(\d+)(k)?$/.exec(normalized);
+  if (numericMatch) {
+    const base = Number(numericMatch[1]);
+    const tokens = numericMatch[2] ? base * 1_024 : base;
+    if (Number.isFinite(tokens) && tokens > 0) return Math.max(1_024, Math.round(tokens));
+  }
+  return THINKING_BUDGET.medium as number;
+}
 
 export interface ProviderConfig {
   id: string;
@@ -93,8 +113,8 @@ export function buildRequestBody(request: LlmRequest, model?: ModelInfo): Record
   if (request.tools !== undefined && request.tools.length > 0) {
     body.tools = request.tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.parameters }));
   }
-  if (request.effort !== undefined && request.effort !== "off") {
-    const budget = THINKING_BUDGET[request.effort];
+  if (request.effort !== undefined && request.effort !== "off" && model?.reasoning !== false) {
+    const budget = resolveThinkingBudget(request.effort);
     // budget_tokens must stay below max_tokens.
     if (maxTokens <= budget) maxTokens = budget + DEFAULT_MAX_TOKENS;
     body.thinking = { type: "enabled", budget_tokens: budget };

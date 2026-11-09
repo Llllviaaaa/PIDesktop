@@ -108,6 +108,11 @@ export function ReviewDiffTab({
   const allFiles = git.files;
   const stagedCount = allFiles.filter((file) => file.staged).length;
   const unstagedCount = allFiles.filter((file) => file.unstaged || file.untracked).length;
+  const filteredFiles = filter === "staged"
+    ? allFiles.filter((file) => file.staged)
+    : filter === "unstaged"
+      ? allFiles.filter((file) => file.unstaged || file.untracked)
+      : allFiles;
 
   return (
     <div className="pid-wb-pane">
@@ -172,9 +177,13 @@ export function ReviewDiffTab({
       <div className="pid-wb-scroll">
         {allFiles.length === 0 ? (
           <div className="pid-wb-empty">工作区干净，没有未提交的更改。</div>
+        ) : filteredFiles.length === 0 ? (
+          <div className="pid-wb-empty">
+            {filter === "staged" ? "当前没有已暂存的更改。" : "当前没有未暂存的更改。"}
+          </div>
         ) : parsedFiles.length === 0 ? (
           <div className="pid-wb-section">
-            {allFiles.map((change) => (
+            {filteredFiles.map((change) => (
               <div key={change.path} className="pid-wb-diff-card">
                 <div className="pid-wb-diff-header">
                   <button

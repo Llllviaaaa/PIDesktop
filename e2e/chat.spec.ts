@@ -98,7 +98,8 @@ test("chat beside the conversation", async ({ app, harness }) => {
   // A side chat runs in the right column, on a hidden fork of the task.
   await app.keyboard.press("Control+Alt+B");
   const sidebar = app.locator("[data-rightbar-col]");
-  await sidebar.getByText("侧边对话(beta)").click();
+  await sidebar.getByRole("tab", { name: "侧边对话" }).click();
+  await expect(composer(sidebar)).toBeEnabled();
   await composer(sidebar).fill("side question");
   await sidebar.getByTitle("发送").click();
   await expect(sidebar.locator(".dshc-answer", { hasText: "Side answer." })).toBeVisible();
@@ -109,6 +110,84 @@ test("chat beside the conversation", async ({ app, harness }) => {
   await expect(main.locator(".dshc-bubble-text", { hasText: "side question" })).toHaveCount(0);
   await expect(main.locator(".dshc-answer", { hasText: "Side answer." })).toHaveCount(0);
   expect(harness.provider.requests.at(-1)?.messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+});
+
+test("side chat fills workbench width, syncs permission, resets cleanly, and isolates main rewind", async ({ app, harness }) => {
+  const mainStage = app.locator(".main-stage");
+  harness.provider.push(
+    textReply("First main reply."),
+    textReply("Second main reply."),
+    toolReply([{ id: "side-w1", name: "write", args: { path: "side-note.txt", content: "written in side chat" } }]),
+    textReply("Side wrote it without asking."),
+  );
+
+  // Switch main permission to "完全访问" before opening Side Chat so we verify inheritance + visible label.
+  await mainStage.locator(".chip-permission").click();
+  await mainStage.locator(".permission-menu").getByRole("menuitemradio", { name: /完全访问/ }).click();
+  await expect(mainStage.locator(".chip-permission")).toContainText("完全访问");
+
+  await send(app, "first main turn");
+  await expect(answer(app, "First main reply.")).toBeVisible();
+  await settled(app);
+  await composer(mainStage).fill("second main turn");
+  await mainStage.getByTitle("发送").click();
+  await expect(answer(app, "Second main reply.")).toBeVisible();
+  await settled(app);
+
+  // Open Right Workbench -> 侧边对话.
+  await app.keyboard.press("Control+Alt+B");
+  const sidebar = app.locator("[data-rightbar-col]");
+  await sidebar.getByRole("tab", { name: "侧边对话" }).click();
+  const sidePane = sidebar.locator(".side-chat-pane");
+  await expect(composer(sidebar)).toBeEnabled();
+
+  // Permission chip in Side Chat shows readable text ("完全访问") and main-only plugin chip does not leak in.
+  await expect(sidebar.locator(".chip-permission > span")).toBeVisible();
+  await expect(sidebar.locator(".chip-permission")).toContainText("完全访问");
+  await expect(sidebar.getByRole("button", { name: "交互组件" })).toHaveCount(0);
+
+  // Widen the workbench via keyboard resize and verify `.side-chat-pane` fills 100% of `[data-rightbar-col]`.
+  const resizer = app.locator(".pid-right-resizer");
+  await resizer.focus();
+  for (let i = 0; i < 6; i += 1) {
+    await app.keyboard.press("Shift+ArrowLeft");
+  }
+  const wideSidebarBox = await sidebar.boundingBox();
+  const widePaneBox = await sidePane.boundingBox();
+  if (!wideSidebarBox || !widePaneBox) {
+    throw new Error("Expected bounding boxes for right workbench and side chat pane");
+  }
+  expect(wideSidebarBox.width).toBeGreaterThanOrEqual(620);
+  expect(Math.abs(widePaneBox.width - wideSidebarBox.width)).toBeLessThanOrEqual(2);
+
+  // Maximize workbench and verify `.side-chat-pane` still fills 100% of `[data-rightbar-col]`, then restore.
+  await sidebar.getByTitle("最大化工作台").click();
+  const maxSidebarBox = await sidebar.boundingBox();
+  const maxPaneBox = await sidePane.boundingBox();
+  if (!maxSidebarBox || !maxPaneBox) {
+    throw new Error("Expected bounding boxes for maximized workbench and side chat pane");
+  }
+  expect(maxSidebarBox.width).toBeGreaterThanOrEqual(850);
+  expect(Math.abs(maxPaneBox.width - maxSidebarBox.width)).toBeLessThanOrEqual(2);
+  await sidebar.getByTitle("还原宽度").click();
+
+  // Inherited "完全访问" permission lets Side Chat execute `write` without a confirmation modal.
+  await composer(sidebar).fill("write side-note.txt");
+  await sidebar.getByTitle("发送").click();
+  await expect(sidebar.locator(".dshc-answer", { hasText: "Side wrote it without asking." })).toBeVisible();
+  expect(readFileSync(join(harness.workspace, "side-note.txt"), "utf8")).toBe("written in side chat");
+
+  // Clicking "重新开始" clears Side Chat back to its ready empty state without touching Main Chat.
+  await sidebar.getByRole("button", { name: "重新开始" }).click();
+  await expect(sidebar.locator(".side-chat-empty-state")).toBeVisible();
+  await expect(sidebar.locator(".dshc-answer")).toHaveCount(0);
+  await expect(composer(sidebar)).toBeEnabled();
+
+  // Rewinding a message in Main Chat while Side Chat is mounted restores text to Main Chat's composer.
+  await userRow(app, "second main turn").hover();
+  await userRow(app, "second main turn").getByRole("button", { name: "回退消息和改动" }).click();
+  await expect(composer(mainStage)).toHaveValue("second main turn");
+  await expect(composer(sidebar)).toHaveValue("");
 });
 
 test("reconnect after the Host restarts", async ({ app, harness }) => {
