@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { UiSandboxUrlResult } from "@qianji/protocol";
 import {
   ArrowUpRight,
   Check,
+  ChevronDown,
+  ChevronUp,
   Code2,
   Copy,
   Eye,
@@ -12,11 +15,13 @@ import {
   Send,
 } from "lucide-react";
 import { showToast } from "../notifications";
+import { harnessRuntimes } from "../lib/harnessRuntime";
 import {
   buildInitialWidgetState,
-  buildSandboxedWidgetDataUrl,
+  buildSandboxedWidgetHtml,
   evaluateNumericFormula,
   formatStatValue,
+  INTELLIGENT_UI_CANVAS_TAB_ID,
   INTELLIGENT_UI_POSTMESSAGE_SOURCE,
   interpolateTemplate,
   serializeWidgetSource,
@@ -29,6 +34,30 @@ import {
   type IntelligentUiVersionGroup,
 } from "../lib/intelligentUi";
 import { useIntelligentUiStore } from "../stores/intelligentUiStore";
+import { useWorkbenchStore } from "../stores/workbenchStore";
+
+export type HtmlSandboxHeightPreset = "compact" | "auto" | "full";
+
+const sandboxUrlCache = new Map<string, string>();
+
+async function resolveSandboxFrameSrc(htmlDoc: string): Promise<string> {
+  const cached = sandboxUrlCache.get(htmlDoc);
+  if (cached) return cached;
+  try {
+    const res = await harnessRuntimes.call<UiSandboxUrlResult>("ui.sandboxUrl", { html: htmlDoc });
+    if (res?.url) {
+      if (sandboxUrlCache.size >= 64) {
+        const oldest = sandboxUrlCache.keys().next().value;
+        if (oldest !== undefined) sandboxUrlCache.delete(oldest);
+      }
+      sandboxUrlCache.set(htmlDoc, res.url);
+      return res.url;
+    }
+  } catch {
+    // Offline or unit-test environment without Host HTTP server: fall back to data: URL.
+  }
+  return `data:text/html;charset=utf-8,${encodeURIComponent(htmlDoc)}`;
+}
 
 function useDocumentDarkTheme(): boolean {
   const [isDark, setIsDark] = useState(() => {
@@ -778,22 +807,41 @@ function DeclarativeBlocksRenderer({
   );
 }
 
+function presetHeightCap(mode: "inline" | "canvas", preset: HtmlSandboxHeightPreset): number {
+  if (preset === "compact") return mode === "canvas" ? 420 : 320;
+  if (preset === "full") return mode === "canvas" ? 1800 : 1200;
+  return mode === "canvas" ? 960 : 640;
+}
+
 function SandboxedHtmlRenderer({
   artifact,
   mode,
+  heightPreset,
+  manualHeight,
+  contentHeight,
+  onContentHeight,
+  onManualHeight,
+  onResetHeight,
   onSendPrompt,
 }: {
   artifact: IntelligentUiArtifact;
   mode: "inline" | "canvas";
+  heightPreset: HtmlSandboxHeightPreset;
+  manualHeight: number | null;
+  contentHeight: number | null;
+  onContentHeight: (height: number) => void;
+  onManualHeight: (height: number) => void;
+  onResetHeight: () => void;
   onSendPrompt: (prompt: string) => void;
 }) {
   const isDark = useDocumentDarkTheme();
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const [height, setHeight] = useState<number>(mode === "canvas" ? 420 : 240);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
-  const dataUrl = useMemo(
+  const htmlDoc = useMemo(
     () =>
-      buildSandboxedWidgetDataUrl({
+      buildSandboxedWidgetHtml({
         html: artifact.html ?? "",
         widgetId: artifact.id,
         title: artifact.title,
@@ -801,6 +849,28 @@ function SandboxedHtmlRenderer({
       }),
     [artifact.html, artifact.id, artifact.title, isDark],
   );
+
+  const [resolvedEntry, setResolvedEntry] = useState<{ doc: string; src: string } | null>(() => {
+    const cached = sandboxUrlCache.get(htmlDoc);
+    return cached ? { doc: htmlDoc, src: cached } : null;
+  });
+
+  const frameSrc = useMemo(() => {
+    const cached = sandboxUrlCache.get(htmlDoc);
+    if (cached) return cached;
+    return resolvedEntry?.doc === htmlDoc ? resolvedEntry.src : null;
+  }, [htmlDoc, resolvedEntry]);
+
+  useEffect(() => {
+    if (sandboxUrlCache.has(htmlDoc)) return;
+    let cancelled = false;
+    void resolveSandboxFrameSrc(htmlDoc).then((url) => {
+      if (!cancelled) setResolvedEntry({ doc: htmlDoc, src: url });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [htmlDoc]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -810,27 +880,102 @@ function SandboxedHtmlRenderer({
       if (payload.widgetId !== artifact.id) return;
 
       if (payload.kind === "resize" && typeof payload.height === "number" && Number.isFinite(payload.height)) {
-        const maxH = mode === "canvas" ? 1200 : 680;
-        const clamped = Math.min(maxH, Math.max(92, Math.ceil(payload.height)));
-        setHeight(clamped);
+        onContentHeight(Math.max(96, Math.ceil(payload.height)));
       } else if (payload.kind === "prompt" && typeof payload.prompt === "string" && payload.prompt.trim()) {
         onSendPrompt(payload.prompt.trim());
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [artifact.id, mode, onSendPrompt]);
+  }, [artifact.id, onContentHeight, onSendPrompt]);
+
+  if (mode === "canvas") {
+    return (
+      <div className="pi-iui-html-frame-wrap is-canvas-stage">
+        {frameSrc ? (
+          <iframe
+            ref={iframeRef}
+            className="pi-iui-html-frame is-canvas-stage"
+            sandbox="allow-scripts"
+            src={frameSrc}
+            title={artifact.title}
+          />
+        ) : (
+          <div className="pi-iui-html-frame-placeholder is-canvas-stage" />
+        )}
+      </div>
+    );
+  }
+
+  const cap = presetHeightCap(mode, heightPreset);
+  const fallbackHeight = Math.min(cap, 380);
+  const autoHeight = contentHeight !== null ? Math.min(cap, Math.max(112, contentHeight)) : fallbackHeight;
+  const effectiveHeight = manualHeight ?? autoHeight;
+  const isClipped = contentHeight !== null && contentHeight > effectiveHeight + 6;
+
+  const minDrag = 180;
+  const maxDrag = 960;
 
   return (
     <div className="pi-iui-html-frame-wrap">
-      <iframe
-        ref={iframeRef}
-        className="pi-iui-html-frame"
-        sandbox="allow-scripts"
-        src={dataUrl}
-        title={artifact.title}
-        style={{ height: `${height}px` }}
-      />
+      {frameSrc ? (
+        <iframe
+          ref={iframeRef}
+          className="pi-iui-html-frame"
+          sandbox="allow-scripts"
+          src={frameSrc}
+          title={artifact.title}
+          style={{
+            height: `${effectiveHeight}px`,
+            pointerEvents: isDragging ? "none" : undefined,
+          }}
+        />
+      ) : (
+        <div className="pi-iui-html-frame-placeholder" style={{ height: `${effectiveHeight}px` }} />
+      )}
+      <div
+        className={`pi-iui-resize-bar${isDragging ? " is-dragging" : ""}${isClipped ? " is-clipped" : ""}`}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="上下拖动调节沙箱高度"
+        title="上下拖动调节沙箱高度（双击恢复适中高度）"
+        onDoubleClick={onResetHeight}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          dragStartRef.current = { startY: event.clientY, startHeight: effectiveHeight };
+          setIsDragging(true);
+        }}
+        onPointerMove={(event) => {
+          if (!dragStartRef.current) return;
+          const delta = event.clientY - dragStartRef.current.startY;
+          const next = Math.round(Math.min(maxDrag, Math.max(minDrag, dragStartRef.current.startHeight + delta)));
+          onManualHeight(next);
+        }}
+        onPointerUp={(event) => {
+          if (!dragStartRef.current) return;
+          dragStartRef.current = null;
+          setIsDragging(false);
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+        }}
+        onPointerCancel={() => {
+          dragStartRef.current = null;
+          setIsDragging(false);
+        }}
+      >
+        <span className="pi-iui-resize-status">
+          {isClipped
+            ? "内容超出当前高度 · 可拖底边或点「完整」"
+            : manualHeight !== null
+              ? `${effectiveHeight}px · 双击恢复适中`
+              : ""}
+        </span>
+        <span className="pi-iui-resize-grip" aria-hidden="true" />
+        <span className="pi-iui-resize-spacer" aria-hidden="true" />
+      </div>
     </div>
   );
 }
@@ -847,9 +992,13 @@ export function IntelligentUiCard({
   mode = "inline",
 }: IntelligentUiCardProps) {
   const selectedVersionOverride = useIntelligentUiStore((s) => s.selectedVersionById[group.id]);
+  const selectedCanvasWidgetId = useIntelligentUiStore((s) => s.selectedWidgetId);
   const selectVersion = useIntelligentUiStore((s) => s.selectVersion);
   const openInCanvas = useIntelligentUiStore((s) => s.openInCanvas);
   const dispatchWidgetPrompt = useIntelligentUiStore((s) => s.dispatchWidgetPrompt);
+  const isCanvasPaneOpen = useWorkbenchStore(
+    (s) => s.rightOpen && s.activeTab === INTELLIGENT_UI_CANVAS_TAB_ID,
+  );
 
   const activeVersionNumber = selectedVersionOverride ?? defaultVersion ?? group.latest.version;
   const activeArtifact = useMemo(
@@ -865,6 +1014,54 @@ export function IntelligentUiCard({
   const [stateOverridesByVersion, setStateOverridesByVersion] = useState<Record<number, IntelligentUiStateMap>>({});
   const [viewMode, setViewMode] = useState<"preview" | "source">("preview");
   const [copied, setCopied] = useState(false);
+  const [inlineExpanded, setInlineExpanded] = useState(false);
+  const [heightPreset, setHeightPreset] = useState<HtmlSandboxHeightPreset>("auto");
+  const [manualHeightByKey, setManualHeightByKey] = useState<Record<string, number>>({});
+  const [contentHeightByKey, setContentHeightByKey] = useState<Record<string, number>>({});
+
+  const artifactKey = `${activeArtifact.id}:${activeArtifact.version}`;
+  const manualHeight = manualHeightByKey[artifactKey] ?? null;
+  const contentHeight = contentHeightByKey[artifactKey] ?? null;
+  const isFocusedInCanvas = isCanvasPaneOpen && (selectedCanvasWidgetId === null || selectedCanvasWidgetId === group.id);
+
+  const handleContentHeight = useCallback(
+    (nextHeight: number) => {
+      setContentHeightByKey((prev) => (prev[artifactKey] === nextHeight ? prev : { ...prev, [artifactKey]: nextHeight }));
+    },
+    [artifactKey],
+  );
+
+  const handleManualHeight = useCallback(
+    (nextHeight: number) => {
+      setManualHeightByKey((prev) => ({ ...prev, [artifactKey]: nextHeight }));
+    },
+    [artifactKey],
+  );
+
+  const handleResetHeight = useCallback(() => {
+    setManualHeightByKey((prev) => {
+      if (!(artifactKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[artifactKey];
+      return next;
+    });
+    setHeightPreset("auto");
+  }, [artifactKey]);
+
+  const selectHeightPreset = (preset: HtmlSandboxHeightPreset) => {
+    setManualHeightByKey((prev) => {
+      if (!(artifactKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[artifactKey];
+      return next;
+    });
+    setHeightPreset(preset);
+  };
+
+  const currentHtmlCap = presetHeightCap(mode, heightPreset);
+  const currentEffectiveHtmlHeight =
+    manualHeight ?? (contentHeight !== null ? Math.min(currentHtmlCap, Math.max(112, contentHeight)) : currentHtmlCap);
+  const htmlHasOverflow = contentHeight !== null && contentHeight > currentEffectiveHtmlHeight + 6;
 
   const currentOverrides = stateOverridesByVersion[activeArtifact.version];
   const mergedState = useMemo(
@@ -910,32 +1107,58 @@ export function IntelligentUiCard({
     }).catch(() => undefined);
   };
 
+  const isCollapsedArtifactCard =
+    mode === "inline" && activeArtifact.engine === "html" && !inlineExpanded;
+
   return (
     <section
-      className={`pi-iui-card pi-iui-card-${mode}`}
+      className={`pi-iui-card pi-iui-card-${mode}${isCollapsedArtifactCard ? " is-artifact-collapsed" : ""}`}
       data-widget-id={group.id}
       data-widget-version={activeArtifact.version}
       data-widget-engine={activeArtifact.engine}
       aria-label={`交互组件：${activeArtifact.title}`}
     >
       <header className="pi-iui-header">
-        <div className="pi-iui-header-main">
-          <span className="pi-iui-glyph" aria-hidden="true">
-            <Layers size={14} strokeWidth={1.8} />
-          </span>
-          <div className="pi-iui-titles">
-            <div className="pi-iui-title-row">
-              <h3 className="pi-iui-title">{activeArtifact.title}</h3>
-              <span className="pi-iui-engine-tag">
-                {activeArtifact.engine === "html" ? "HTML 沙箱" : "交互视图"}
-              </span>
-              {activeArtifact.running && <span className="pi-iui-live-pill">生成中</span>}
+        {isCollapsedArtifactCard ? (
+          <button
+            type="button"
+            className="pi-iui-header-main pi-iui-artifact-launch"
+            onClick={() => openInCanvas(group.id, activeArtifact.version)}
+            title="点击在右侧画布全屏打开"
+          >
+            <span className="pi-iui-glyph" aria-hidden="true">
+              <Layers size={14} strokeWidth={1.8} />
+            </span>
+            <div className="pi-iui-titles">
+              <div className="pi-iui-title-row">
+                <h3 className="pi-iui-title">{activeArtifact.title}</h3>
+                <span className="pi-iui-engine-tag">HTML 沙箱</span>
+                {activeArtifact.running && <span className="pi-iui-live-pill">生成中</span>}
+              </div>
+              <p className="pi-iui-subtitle">
+                {activeArtifact.subtitle || "交互式微应用 · 点击在右侧画布全高展开"}
+              </p>
             </div>
-            {activeArtifact.subtitle && (
-              <p className="pi-iui-subtitle">{activeArtifact.subtitle}</p>
-            )}
+          </button>
+        ) : (
+          <div className="pi-iui-header-main">
+            <span className="pi-iui-glyph" aria-hidden="true">
+              <Layers size={14} strokeWidth={1.8} />
+            </span>
+            <div className="pi-iui-titles">
+              <div className="pi-iui-title-row">
+                <h3 className="pi-iui-title">{activeArtifact.title}</h3>
+                <span className="pi-iui-engine-tag">
+                  {activeArtifact.engine === "html" ? "HTML 沙箱" : "交互视图"}
+                </span>
+                {activeArtifact.running && <span className="pi-iui-live-pill">生成中</span>}
+              </div>
+              {activeArtifact.subtitle && (
+                <p className="pi-iui-subtitle">{activeArtifact.subtitle}</p>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="pi-iui-toolbar">
           {group.versions.length > 1 && (
@@ -954,86 +1177,163 @@ export function IntelligentUiCard({
             </div>
           )}
 
-          {isDirty && viewMode === "preview" && (
-            <button
-              type="button"
-              className="pi-iui-icon-btn"
-              onClick={resetState}
-              title="重置为初始参数"
-              aria-label="重置参数"
-            >
-              <RotateCcw size={13} strokeWidth={1.8} />
-            </button>
-          )}
+          {isCollapsedArtifactCard ? (
+            <>
+              <button
+                type="button"
+                className="pi-iui-inline-toggle-btn"
+                onClick={() => setInlineExpanded(true)}
+                title="在当前消息气泡内展开预览"
+              >
+                <ChevronDown size={12} strokeWidth={1.8} />
+                <span>内联预览</span>
+              </button>
+              <button
+                type="button"
+                className={`pi-iui-canvas-btn${isFocusedInCanvas ? " is-active" : ""}`}
+                onClick={() => openInCanvas(group.id, activeArtifact.version)}
+                title="在右侧画布全高查看"
+              >
+                <Maximize2 size={12} strokeWidth={1.8} />
+                <span>{isFocusedInCanvas ? "画布已展开" : "画布"}</span>
+              </button>
+            </>
+          ) : (
+            <>
+              {isDirty && viewMode === "preview" && (
+                <button
+                  type="button"
+                  className="pi-iui-icon-btn"
+                  onClick={resetState}
+                  title="重置为初始参数"
+                  aria-label="重置参数"
+                >
+                  <RotateCcw size={13} strokeWidth={1.8} />
+                </button>
+              )}
 
-          <div className="pi-iui-seg" role="group" aria-label="视图切换">
-            <button
-              type="button"
-              className={`pi-iui-seg-btn${viewMode === "preview" ? " is-active" : ""}`}
-              onClick={() => setViewMode("preview")}
-              title="交互预览"
-            >
-              <Eye size={12} strokeWidth={1.8} />
-              <span>预览</span>
-            </button>
-            <button
-              type="button"
-              className={`pi-iui-seg-btn${viewMode === "source" ? " is-active" : ""}`}
-              onClick={() => setViewMode("source")}
-              title="查看定义源码"
-            >
-              <Code2 size={12} strokeWidth={1.8} />
-              <span>源码</span>
-            </button>
-          </div>
+              {mode === "inline" && activeArtifact.engine === "html" && viewMode === "preview" && (
+                <div className="pi-iui-seg pi-iui-height-seg" role="group" aria-label="沙箱高度档位">
+                  <button
+                    type="button"
+                    className={`pi-iui-seg-btn${manualHeight === null && heightPreset === "compact" ? " is-active" : ""}`}
+                    onClick={() => selectHeightPreset("compact")}
+                    title="紧凑高度（不拉长对话）"
+                  >
+                    <span>紧凑</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`pi-iui-seg-btn${manualHeight === null && heightPreset === "auto" ? " is-active" : ""}`}
+                    onClick={() => selectHeightPreset("auto")}
+                    title="适中自适应高度"
+                  >
+                    <span>适中</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`pi-iui-seg-btn${manualHeight === null && heightPreset === "full" ? " is-active" : ""}`}
+                    onClick={() => selectHeightPreset("full")}
+                    title="完整展开沙箱内容"
+                  >
+                    <span>完整</span>
+                    {htmlHasOverflow && (manualHeight !== null || heightPreset !== "full") && (
+                      <span className="pi-iui-overflow-dot" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
+              )}
 
-          <button
-            type="button"
-            className="pi-iui-icon-btn"
-            onClick={copySource}
-            title={copied ? "已复制" : "复制组件源码"}
-            aria-label="复制组件源码"
-          >
-            {copied ? <Check size={13} strokeWidth={1.8} /> : <Copy size={13} strokeWidth={1.8} />}
-          </button>
+              <div className="pi-iui-seg" role="group" aria-label="视图切换">
+                <button
+                  type="button"
+                  className={`pi-iui-seg-btn${viewMode === "preview" ? " is-active" : ""}`}
+                  onClick={() => setViewMode("preview")}
+                  title="交互预览"
+                >
+                  <Eye size={12} strokeWidth={1.8} />
+                  <span>预览</span>
+                </button>
+                <button
+                  type="button"
+                  className={`pi-iui-seg-btn${viewMode === "source" ? " is-active" : ""}`}
+                  onClick={() => setViewMode("source")}
+                  title="查看定义源码"
+                >
+                  <Code2 size={12} strokeWidth={1.8} />
+                  <span>源码</span>
+                </button>
+              </div>
 
-          {mode === "inline" && (
-            <button
-              type="button"
-              className="pi-iui-canvas-btn"
-              onClick={() => openInCanvas(group.id, activeArtifact.version)}
-              title="在右侧画布中展开"
-            >
-              <Maximize2 size={12} strokeWidth={1.8} />
-              <span>画布</span>
-            </button>
+              <button
+                type="button"
+                className="pi-iui-icon-btn"
+                onClick={copySource}
+                title={copied ? "已复制" : "复制组件源码"}
+                aria-label="复制组件源码"
+              >
+                {copied ? <Check size={13} strokeWidth={1.8} /> : <Copy size={13} strokeWidth={1.8} />}
+              </button>
+
+              {mode === "inline" && activeArtifact.engine === "html" && (
+                <button
+                  type="button"
+                  className="pi-iui-inline-toggle-btn"
+                  onClick={() => setInlineExpanded(false)}
+                  title="收起内联预览"
+                >
+                  <ChevronUp size={12} strokeWidth={1.8} />
+                  <span>收起</span>
+                </button>
+              )}
+
+              {mode === "inline" && (
+                <button
+                  type="button"
+                  className={`pi-iui-canvas-btn${isFocusedInCanvas ? " is-active" : ""}`}
+                  onClick={() => openInCanvas(group.id, activeArtifact.version)}
+                  title="在右侧画布中展开"
+                >
+                  <Maximize2 size={12} strokeWidth={1.8} />
+                  <span>画布</span>
+                </button>
+              )}
+            </>
           )}
         </div>
       </header>
 
-      <div className="pi-iui-body">
-        {viewMode === "source" ? (
-          <div className="pi-iui-source-view">
-            <pre>
-              <code>{sourceCode}</code>
-            </pre>
-          </div>
-        ) : activeArtifact.engine === "html" ? (
-          <SandboxedHtmlRenderer
-            artifact={activeArtifact}
-            mode={mode}
-            onSendPrompt={handleSendPrompt}
-          />
-        ) : (
-          <DeclarativeBlocksRenderer
-            blocks={activeArtifact.spec?.blocks ?? []}
-            state={mergedState}
-            widgetTitle={activeArtifact.title}
-            onChangeState={handleStateChange}
-            onSendPrompt={handleSendPrompt}
-          />
-        )}
-      </div>
+      {!isCollapsedArtifactCard && (
+        <div className="pi-iui-body">
+          {viewMode === "source" ? (
+            <div className="pi-iui-source-view">
+              <pre>
+                <code>{sourceCode}</code>
+              </pre>
+            </div>
+          ) : activeArtifact.engine === "html" ? (
+            <SandboxedHtmlRenderer
+              artifact={activeArtifact}
+              mode={mode}
+              heightPreset={heightPreset}
+              manualHeight={manualHeight}
+              contentHeight={contentHeight}
+              onContentHeight={handleContentHeight}
+              onManualHeight={handleManualHeight}
+              onResetHeight={handleResetHeight}
+              onSendPrompt={handleSendPrompt}
+            />
+          ) : (
+            <DeclarativeBlocksRenderer
+              blocks={activeArtifact.spec?.blocks ?? []}
+              state={mergedState}
+              widgetTitle={activeArtifact.title}
+              onChangeState={handleStateChange}
+              onSendPrompt={handleSendPrompt}
+            />
+          )}
+        </div>
+      )}
 
       {mode === "inline" && viewMode === "preview" && activeArtifact.engine === "declarative" && (
         <footer className="pi-iui-footer">

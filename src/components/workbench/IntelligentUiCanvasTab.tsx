@@ -144,7 +144,7 @@ export function IntelligentUiCanvasTab() {
         </button>
       </div>
 
-      <div className="pi-iui-canvas-scroll">
+      <div className={`pi-iui-canvas-scroll${activeArtifact.engine === "html" ? " is-html-stage" : ""}`}>
         <IntelligentUiCard group={activeGroup} mode="canvas" />
       </div>
     </div>

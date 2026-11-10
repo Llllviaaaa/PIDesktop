@@ -990,6 +990,7 @@ export function buildSandboxedWidgetHtml(options: {
   var WIDGET_ID = ${JSON.stringify(widgetId)};
   var SOURCE = ${JSON.stringify(INTELLIGENT_UI_POSTMESSAGE_SOURCE)};
   var lastHeight = 0;
+  var rafId = 0;
   function post(payload) {
     try {
       window.parent.postMessage(Object.assign({ source: SOURCE, widgetId: WIDGET_ID }, payload), "*");
@@ -999,11 +1000,18 @@ export function buildSandboxedWidgetHtml(options: {
     var root = document.getElementById("pi-widget-root") || document.body;
     if (!root) return;
     var rect = root.getBoundingClientRect();
-    var h = Math.ceil(Math.max(rect.height, document.documentElement.offsetHeight, 80));
+    var h = Math.ceil(Math.max(root.scrollHeight, root.offsetHeight, rect.height, 96));
     if (Math.abs(h - lastHeight) > 1) {
       lastHeight = h;
       post({ kind: "resize", height: h });
     }
+  }
+  function scheduleMeasure() {
+    if (rafId) return;
+    rafId = requestAnimationFrame(function () {
+      rafId = 0;
+      measure();
+    });
   }
   window.piUI = Object.freeze({
     sendPrompt: function (text) {
@@ -1022,13 +1030,34 @@ export function buildSandboxedWidgetHtml(options: {
       window.piUI.sendPrompt(promptText);
     }
   });
-  window.addEventListener("load", measure);
-  if (typeof ResizeObserver !== "undefined") {
-    new ResizeObserver(measure).observe(document.documentElement);
-  } else {
-    setInterval(measure, 300);
+  window.addEventListener("message", function (e) {
+    var data = e && e.data;
+    if (data && data.source === SOURCE && data.widgetId === WIDGET_ID && data.kind === "remeasure") {
+      lastHeight = 0;
+      measure();
+    }
+  });
+  function attachObservers() {
+    var root = document.getElementById("pi-widget-root") || document.body;
+    if (typeof ResizeObserver !== "undefined" && root) {
+      var ro = new ResizeObserver(scheduleMeasure);
+      ro.observe(root);
+      if (document.body && document.body !== root) ro.observe(document.body);
+    }
+    if (typeof MutationObserver !== "undefined" && root) {
+      var mo = new MutationObserver(scheduleMeasure);
+      mo.observe(root, { childList: true, subtree: true, attributes: true });
+    }
+    measure();
+    setTimeout(measure, 60);
+    setTimeout(measure, 240);
   }
-  setTimeout(measure, 30);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", attachObservers);
+  } else {
+    attachObservers();
+  }
+  window.addEventListener("load", measure);
 })();
 `;
 
@@ -1056,6 +1085,7 @@ export function buildSandboxedWidgetHtml(options: {
     -webkit-font-smoothing: antialiased;
   }
   #pi-widget-root {
+    display: flow-root;
     padding: 14px 16px;
   }
   button, input, select, textarea {

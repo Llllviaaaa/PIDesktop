@@ -1786,10 +1786,10 @@ export default function App() {
                       <button
                         type="button"
                         className="dsh-home-starter-pill"
-                        onClick={() => useAppStore.setState({ composerPrefill: "使用 render_ui 为我构建一个可交互的项目指标计算与对比看板：" })}
+                        onClick={() => useAppStore.setState({ composerPrefill: "排查当前项目里值得优先修复的潜在缺陷或边界情况，并给出修复建议。" })}
                       >
                         <Sparkles size={13} strokeWidth={1.8} />
-                        <span>生成交互式组件</span>
+                        <span>排查潜在缺陷</span>
                       </button>
                       <button
                         type="button"
