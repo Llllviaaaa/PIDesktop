@@ -1,4 +1,4 @@
-# @pid/schedule
+# @qianji/schedule
 
 由 Host 执行的定时任务，见 [ADR 0011](../../docs/adr/0011-computer-and-schedule.md)。
 

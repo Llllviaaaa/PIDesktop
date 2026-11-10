@@ -4,8 +4,8 @@
  * the server echoes only the protocol name back.
  */
 
-export const SUBPROTOCOL = "pid.v1";
-const TOKEN_PREFIX = "pid.token.";
+export const SUBPROTOCOL = "qianji.v1";
+const TOKEN_PREFIX = "qianji.token.";
 
 /** The token is base64url, which is all valid subprotocol token characters. */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;

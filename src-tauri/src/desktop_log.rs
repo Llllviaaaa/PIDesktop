@@ -1,6 +1,6 @@
 //! The desktop's log on disk (docs/archive/REFACTOR_V2_P7.md, 3.3): its own messages
 //! and the Harness Host's stderr, one file a day beside the Host's in
-//! `~/.pid/logs`, kept for a week and redacted line by line. Every line also
+//! `~/.qianji/logs`, kept for a week and redacted line by line. Every line also
 //! still goes to stderr.
 
 use std::fs::{self, File, OpenOptions};

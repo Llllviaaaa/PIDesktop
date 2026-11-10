@@ -1,9 +1,9 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, it } from "vitest";
-import { Commands } from "@pid/commands";
-import { Sessions } from "@pid/session";
-import { SystemPrompt } from "@pid/system-prompt";
-import { Tools } from "@pid/tools";
+import { Commands } from "@qianji/commands";
+import { Sessions } from "@qianji/session";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { Tools } from "@qianji/tools";
 import * as intelligentUi from "../src/index.ts";
 
 async function bootTestHost() {
@@ -17,7 +17,7 @@ async function bootTestHost() {
   return { ctx, uiFiber };
 }
 
-describe("@pid/intelligent-ui", () => {
+describe("@qianji/intelligent-ui", () => {
   it("registers render_ui & update_ui tools, injects system prompt instructions, and tracks version history across session branches", async () => {
     const { ctx, uiFiber } = await bootTestHost();
     const session = ctx.sessions.create({ cwd: "D:/repo" });

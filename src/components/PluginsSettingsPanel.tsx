@@ -8,7 +8,7 @@ import type {
   PluginInstallChannel,
   PluginMutationResult,
   WorkspaceTrustListResult,
-} from "@pid/protocol";
+} from "@qianji/protocol";
 import {
   Archive,
   Blocks,
@@ -865,7 +865,7 @@ export function PluginsSettingsPanel({ cwd, form, onSyncAppSetting }: PluginsSet
                 />
 
                 <details className="plugin-raw-json-details">
-                  <summary>高级底层 JSON 参数覆盖（~/.pid/plugins.json）</summary>
+                  <summary>高级底层 JSON 参数覆盖（~/.qianji/plugins.json）</summary>
                   <div className="plugin-raw-json-body">
                     <textarea
                       id={`plugin-config-${plugin.id}`}
@@ -906,7 +906,7 @@ export function PluginsSettingsPanel({ cwd, form, onSyncAppSetting }: PluginsSet
               >
                 <div className="plugin-config-top">
                   <label htmlFor={`plugin-config-${plugin.id}`}>
-                    JSON 配置（保存后立即热应用至 <code>~/.pid/plugins.json</code>）
+                    JSON 配置（保存后立即热应用至 <code>~/.qianji/plugins.json</code>）
                   </label>
                   {isExternal && (
                     <label className="plugin-watch-toggle">
@@ -1033,7 +1033,7 @@ export function PluginsSettingsPanel({ cwd, form, onSyncAppSetting }: PluginsSet
     }
 
     if (filter === "workspace") {
-      const wsDirDisplay = cwd.trim() ? `${cwd.replace(/[\\/]+$/, "")}/.pid/plugins` : ".pid/plugins";
+      const wsDirDisplay = cwd.trim() ? `${cwd.replace(/[\\/]+$/, "")}/.qianji/plugins` : ".qianji/plugins";
       return (
         <div className="plugins-quickstart-hub">
           <div className="plugins-quickstart-head">
@@ -1062,7 +1062,7 @@ export function PluginsSettingsPanel({ cwd, form, onSyncAppSetting }: PluginsSet
                 disabled={busy}
                 onClick={() => actionMutation.mutate({
                   run: () => pluginClient.reload({ workspace: cwd }),
-                  label: "已重新扫描当前工作区 .pid/plugins 目录。",
+                  label: "已重新扫描当前工作区 .qianji/plugins 目录。",
                 })}
               >
                 <RefreshCw size={13} />
@@ -1074,7 +1074,7 @@ export function PluginsSettingsPanel({ cwd, form, onSyncAppSetting }: PluginsSet
           <div className="plugins-workspace-steps">
             <div className="plugins-workspace-step">
               <strong>1. 创建插件目录</strong>
-              <small>在仓库下新建 .pid/plugins/my-tool 并写入含 pid 字段的 package.json。</small>
+              <small>在仓库下新建 .qianji/plugins/my-tool 并写入含 qianji 字段的 package.json。</small>
             </div>
             <div className="plugins-workspace-step">
               <strong>2. 编写 Host / UI 入口</strong>
@@ -1219,7 +1219,7 @@ export function PluginsSettingsPanel({ cwd, form, onSyncAppSetting }: PluginsSet
         <div className={`plugins-trust-banner${currentTrust.trusted ? " trusted" : ""}`}>
           <div className="plugins-trust-body">
             <strong>
-              {currentTrust.trusted ? "工作区已信任（允许加载 .pid/plugins 项目扩展）" : "工作区尚未信任（已拦截 .pid/plugins 项目扩展）"}
+              {currentTrust.trusted ? "工作区已信任（允许加载 .qianji/plugins 项目扩展）" : "工作区尚未信任（已拦截 .qianji/plugins 项目扩展）"}
             </strong>
             <p>
               <code>{currentTrust.workspace}</code>
@@ -1726,7 +1726,7 @@ function CoreCapabilityDrawer({
         <div className="plugin-structured-row">
           <div className="plugin-structured-copy">
             <strong>浏览器会话与 Cookie 策略</strong>
-            <small>持久化模式将保留登录态至 ~/.pid/browser-profile，方便复用已登录站点</small>
+            <small>持久化模式将保留登录态至 ~/.qianji/browser-profile，方便复用已登录站点</small>
           </div>
           <div className="plugin-structured-control">
             <div className="settings-segmented">
@@ -1829,7 +1829,7 @@ function CoreCapabilityDrawer({
       <div>
         <div className="plugin-structured-row">
           <div className="plugin-structured-copy">
-            <strong>全局跨会话长期记忆 (~/.pid/memory.md)</strong>
+            <strong>全局跨会话长期记忆 (~/.qianji/memory.md)</strong>
             <small>自动加载并允许智能体沉淀你的个人偏好、常用工具链与代码风格约定</small>
           </div>
           <div className="plugin-structured-control">
@@ -2225,7 +2225,7 @@ function InstallPluginDialog({
               <div className="plugin-path-picker">
                 <input
                   id="plugin-install-source"
-                  placeholder="例如 D:\plugins\my-pid-plugin"
+                  placeholder="例如 D:\plugins\my-qianji-plugin"
                   value={source}
                   onChange={(event) => setSource(event.target.value)}
                 />
@@ -2264,7 +2264,7 @@ function InstallPluginDialog({
                 </button>
               )}
             </div>
-            <small>自动校验路径安全并解压至 <code>~/.pid/plugins/</code>。</small>
+            <small>自动校验路径安全并解压至 <code>~/.qianji/plugins/</code>。</small>
           </div>
         )}
 
@@ -2274,7 +2274,7 @@ function InstallPluginDialog({
               <label htmlFor="plugin-install-source">Git 仓库地址</label>
               <input
                 id="plugin-install-source"
-                placeholder="例如 https://github.com/org/pid-plugin.git"
+                placeholder="例如 https://github.com/org/qianji-plugin.git"
                 value={source}
                 onChange={(event) => setSource(event.target.value)}
               />
@@ -2296,7 +2296,7 @@ function InstallPluginDialog({
             <label htmlFor="plugin-install-source">npm 包名与版本</label>
             <input
               id="plugin-install-source"
-              placeholder="例如 pid-plugin-csv 或 @scope/pid-plugin@^1.0.0"
+              placeholder="例如 qianji-plugin-csv 或 @scope/qianji-plugin@^1.0.0"
               value={source}
               onChange={(event) => setSource(event.target.value)}
             />

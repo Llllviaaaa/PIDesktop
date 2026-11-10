@@ -5,13 +5,13 @@ import { harnessRuntimes } from "../lib/harnessRuntime";
 import { effortForLevel } from "../lib/hostSessions";
 import { redactSensitiveText } from "../lib/redact";
 import { readStoredModelCatalog } from "../lib/modelCatalogCache";
-import { fallbackThinkingLevel, mergeThinkingLevels } from "../lib/thinkingLevels";
+import { customThinkingLevelsForModel, fallbackThinkingLevel, mergeThinkingLevels, modelThinkingKey } from "../lib/thinkingLevels";
 import { agentBrowserFromMessages, computerFromMessages } from "../lib/toolPanels";
 import type { AppSettings } from "../types";
 import type { GetState, SetState, StoreContext } from "./context";
 import type { RuntimeSlice } from "./types";
 
-const WEB_SETTINGS_KEY = "pid-desktop:settings:v1";
+const WEB_SETTINGS_KEY = "qianji:settings:v1";
 
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -130,7 +130,11 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
           if (connectVersion !== ctx.connectionVersion) return;
           // A new task without a pick of its own starts from the remembered defaults.
           const queuedModel = ctx.queuedModelSelection ?? (sessionFile ? null : ctx.newTaskDefaultModel());
-          const queuedLevel = ctx.queuedThinkingLevel ?? (sessionFile ? null : get().settings?.thinkingLevel || null);
+          const startModel = queuedModel ?? get().model;
+          const perModelDefault = !sessionFile && startModel
+            ? get().settings?.modelThinkingLevels?.[modelThinkingKey(startModel.provider, startModel.id)]
+            : undefined;
+          const queuedLevel = ctx.queuedThinkingLevel ?? (sessionFile ? null : (perModelDefault || get().settings?.thinkingLevel || null));
           // A saved session takes a pick once. A task that has not started keeps it, because
           // sending can still move the task to another runtime (worktree, quick chat, project).
           if (sessionFile) {
@@ -384,7 +388,7 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
                 model: refreshedSelected,
                 availableThinkingLevels: mergeThinkingLevels(
                   harnessRuntimes.thinkingLevels(refreshedSelected),
-                  get().settings?.customThinkingLevels,
+                  customThinkingLevelsForModel(get().settings, refreshedSelected.provider, refreshedSelected.id),
                 ),
               }
             : {}),
@@ -400,11 +404,20 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
       // While connect() is still attaching a runtime there is nothing to send the pick to.
       if (!runtimeId || get().connection === "starting") {
         ctx.queuedModelSelection = model;
-        if (model.thinkingLevel) {
-          ctx.queuedThinkingLevel = model.thinkingLevel;
-          set({ model, thinkingLevel: model.thinkingLevel });
+        const nextAvailable = mergeThinkingLevels(
+          harnessRuntimes.thinkingLevels(model),
+          customThinkingLevelsForModel(get().settings, model.provider, model.id),
+        );
+        const savedPerModel = get().settings?.modelThinkingLevels?.[modelThinkingKey(model.provider, model.id)];
+        const desired = model.reasoning === false ? "off" : (savedPerModel ?? model.thinkingLevel);
+        if (desired) {
+          const resolved = nextAvailable.length > 0
+            ? (fallbackThinkingLevel(desired, nextAvailable) ?? desired)
+            : desired;
+          ctx.queuedThinkingLevel = resolved;
+          set({ model, thinkingLevel: resolved, availableThinkingLevels: nextAvailable });
         } else {
-          set({ model });
+          set({ model, availableThinkingLevels: nextAvailable });
         }
         ctx.persistCurrentModelCatalog();
         return;
@@ -419,13 +432,15 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
         if (get().runtimeId !== runtimeId) throw new Error("当前任务已切换，请重新选择模型");
         const nextAvailable = mergeThinkingLevels(
           harnessRuntimes.thinkingLevels(confirmed),
-          get().settings?.customThinkingLevels,
+          customThinkingLevelsForModel(get().settings, confirmed.provider, confirmed.id),
         );
+        const savedPerModel = get().settings?.modelThinkingLevels?.[modelThinkingKey(confirmed.provider, confirmed.id)];
         const explicitLevel = confirmed.reasoning === false
           ? "off"
-          : (confirmed.thinkingLevel ?? model.thinkingLevel);
+          : (savedPerModel ?? confirmed.thinkingLevel ?? model.thinkingLevel);
         const syncedLevel = explicitLevel
-          ?? (nextAvailable.length > 0 && !nextAvailable.includes(get().thinkingLevel)
+          ? (nextAvailable.length > 0 ? (fallbackThinkingLevel(explicitLevel, nextAvailable) ?? explicitLevel) : explicitLevel)
+          : (nextAvailable.length > 0 && !nextAvailable.includes(get().thinkingLevel)
             ? (fallbackThinkingLevel(get().thinkingLevel, nextAvailable) ?? undefined)
             : undefined);
         set({
@@ -526,16 +541,19 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
             ? {
                 availableThinkingLevels: mergeThinkingLevels(
                   harnessRuntimes.thinkingLevels(currentModel),
-                  settings.customThinkingLevels,
+                  customThinkingLevelsForModel(settings, currentModel.provider, currentModel.id),
                 ),
               }
             : {}),
         });
-        if (!ctx.taskNotStarted() || ctx.queuedThinkingLevel || !settings.thinkingLevel) return;
+        const desiredRaw = currentModel
+          ? (settings.modelThinkingLevels?.[modelThinkingKey(currentModel.provider, currentModel.id)] || settings.thinkingLevel)
+          : settings.thinkingLevel;
+        if (!ctx.taskNotStarted() || ctx.queuedThinkingLevel || !desiredRaw) return;
         const available = get().availableThinkingLevels;
         const normalized = available.length > 0
-          ? resolveSupportedThinkingLevel(settings.thinkingLevel, available)
-          : effortForLevel(settings.thinkingLevel);
+          ? resolveSupportedThinkingLevel(desiredRaw, available)
+          : effortForLevel(desiredRaw);
         if (normalized && normalized !== get().thinkingLevel) {
           void get().setThinkingLevel(normalized).catch(() => undefined);
         }
@@ -552,17 +570,38 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
     },
 
     saveSettings: async (settings) => {
+      const prevSettings = get().settings;
       const refreshCustomLevels = (nextSettings: AppSettings | null) => {
         const currentModel = get().model;
         if (!currentModel) return {};
         return {
           availableThinkingLevels: mergeThinkingLevels(
             harnessRuntimes.thinkingLevels(currentModel),
-            nextSettings?.customThinkingLevels,
+            customThinkingLevelsForModel(nextSettings, currentModel.provider, currentModel.id),
           ),
         };
       };
       set({ settings, ...refreshCustomLevels(settings) });
+
+      const currentModel = get().model;
+      if (currentModel && currentModel.reasoning !== false) {
+        const key = modelThinkingKey(currentModel.provider, currentModel.id);
+        const prevLevel = prevSettings?.modelThinkingLevels?.[key];
+        const nextLevel = settings.modelThinkingLevels?.[key];
+        if (nextLevel && nextLevel !== prevLevel && nextLevel !== get().thinkingLevel) {
+          const available = get().availableThinkingLevels;
+          const resolved = available.length > 0
+            ? (resolveSupportedThinkingLevel(nextLevel, available) ?? nextLevel)
+            : nextLevel;
+          set({ thinkingLevel: resolved });
+          if (ctx.taskNotStarted()) ctx.queuedThinkingLevel = resolved;
+          const runtimeId = get().runtimeId;
+          if (runtimeId && get().connection === "running") {
+            void harnessRuntimes.setThinkingLevel(runtimeId, resolved).catch(() => undefined);
+          }
+        }
+      }
+
       if (!isTauriRuntime()) {
         window.localStorage.setItem(WEB_SETTINGS_KEY, JSON.stringify(settings));
         return;

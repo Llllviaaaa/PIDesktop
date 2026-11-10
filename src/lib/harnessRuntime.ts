@@ -31,7 +31,7 @@ import type {
   SessionResult,
   SessionSubscribeResult,
   UiRequestNotification,
-} from "@pid/protocol";
+} from "@qianji/protocol";
 import type { AttachmentPayload, ExtensionUIRequest, ForkPoint, ModelInfo, SessionStats, SlashCommand, UiMessage } from "../types";
 import type { SessionTreeNode } from "./sessionTree";
 import { connectHarness, harnessEndpoint, isRpcMethodNotFound, type HarnessConnection } from "./harnessClient";
@@ -83,9 +83,11 @@ interface Runtime {
   id: string;
   cwd: string;
   sessionId?: string;
-  /** The model and level picked before the session exists, applied when it is created. */
+  /** Model, effort and permission modes picked before the session exists, applied when it is created. */
   pendingModel?: { provider: string; model: string };
   pendingLevel?: string;
+  pendingPermission?: string;
+  pendingAgentMode?: string;
   lastSeq: number;
   translator: TranscriptTranslator;
   model?: { provider: string; model: string };
@@ -273,7 +275,11 @@ export class HarnessRuntimes {
   /** The permission mode or agent mode of the runtime's session. */
   async setPermission(runtimeId: string, change: { permission?: string; agentMode?: string }): Promise<void> {
     const runtime = this.runtime(runtimeId);
-    await this.ensureSession(runtime);
+    if (runtime.sessionId === undefined) {
+      if (change.permission !== undefined) runtime.pendingPermission = change.permission;
+      if (change.agentMode !== undefined) runtime.pendingAgentMode = change.agentMode;
+      return;
+    }
     try {
       await (await this.rpc()).call("permission.set", { sessionId: runtime.sessionId, ...change });
     } catch (error) {
@@ -364,6 +370,8 @@ export class HarnessRuntimes {
     const runtime = this.runtime(runtimeId);
     runtime.sessionId = undefined;
     runtime.pendingLevel ??= "medium";
+    runtime.pendingPermission = undefined;
+    runtime.pendingAgentMode = undefined;
     runtime.lastSeq = 0;
     runtime.title = undefined;
   }
@@ -609,9 +617,24 @@ export class HarnessRuntimes {
       ...(runtime.pendingLevel === undefined ? {} : { effort: effortForLevel(runtime.pendingLevel) }),
     });
     runtime.sessionId = created.session.id;
+    const pendingPermission = runtime.pendingPermission;
+    const pendingAgentMode = runtime.pendingAgentMode;
     runtime.pendingModel = undefined;
     runtime.pendingLevel = undefined;
+    runtime.pendingPermission = undefined;
+    runtime.pendingAgentMode = undefined;
     await this.attach(runtime);
+    if (pendingPermission !== undefined || pendingAgentMode !== undefined) {
+      try {
+        await rpc.call("permission.set", {
+          sessionId: runtime.sessionId,
+          ...(pendingPermission === undefined ? {} : { permission: pendingPermission }),
+          ...(pendingAgentMode === undefined ? {} : { agentMode: pendingAgentMode }),
+        });
+      } catch (error) {
+        if (!isRpcMethodNotFound(error)) throw error;
+      }
+    }
   }
 
   /** Subscribe to the runtime's session, starting live from what the log already holds. */

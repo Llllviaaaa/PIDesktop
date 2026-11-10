@@ -25,33 +25,78 @@ export function reconcileSidebarSessionOrder(
 export interface SidebarOrder {
   /** Session files, newest first. A session keeps its slot once it has one. */
   sessions: string[];
-  /** Normalized workspace paths, in the order the sidebar lists them. */
+  /** Normalized workspace paths, in the fixed order the sidebar lists them. */
   workspaces: string[];
 }
 
 /**
- * Updates the remembered order against the sessions Pi lists now.
+ * Updates the remembered order against the sessions and registered projects now listed.
  *
- * A workspace moves to the top only when it gains a session. Sessions that
- * disappear (archived, deleted, or hidden behind a fork) never move it, so
- * archiving a project's newest chat leaves the project where it was. An empty
- * list means the sessions have not loaded yet, so it changes nothing.
+ * Workspaces keep their existing slots once discovered: opening a workspace or
+ * starting a new session inside it never moves the workspace above others.
+ * Newly discovered workspaces are appended at the end so spatial order stays stable.
+ * An empty session list means sessions may not have loaded yet, so session order is untouched.
  */
-export function reconcileSidebarOrder(previous: SidebarOrder, sessions: SessionInfo[]): SidebarOrder {
-  if (sessions.length === 0) return previous;
-  const sessionOrder = reconcileSidebarSessionOrder(previous.sessions, sessions);
-  const known = new Set(previous.sessions.map(normalizedPath));
-  const workspaceByFile = new Map(sessions.map((session) => [normalizedPath(session.file), normalizedPath(session.cwd)]));
-  const workspacesOf = (files: string[]) => [
-    ...new Set(files.map((file) => workspaceByFile.get(normalizedPath(file)) ?? "")),
+export function reconcileSidebarOrder(
+  previous: SidebarOrder,
+  sessions: SessionInfo[],
+  extraWorkspaces: readonly string[] = [],
+): SidebarOrder {
+  const normalizedExtra = [
+    ...new Set(extraWorkspaces.map(normalizedPath).filter(Boolean)),
   ];
-  const promoted = workspacesOf(sessionOrder.filter((file) => !known.has(normalizedPath(file))));
-  const retained = previous.workspaces.filter((workspace) => !promoted.includes(workspace));
-  const listed = new Set([...promoted, ...retained]);
-  // Workspaces the order has not seen yet (the first run with this order) keep
-  // the position their newest session gives them.
-  const discovered = workspacesOf(sessionOrder).filter((workspace) => !listed.has(workspace));
-  return { sessions: sessionOrder, workspaces: [...promoted, ...retained, ...discovered] };
+  if (sessions.length === 0) {
+    if (normalizedExtra.length === 0) return previous;
+    // Wait for sessions before seeding an empty workspace order from legacy session-only state.
+    if (previous.workspaces.length === 0 && previous.sessions.length > 0) return previous;
+    const retainedOnly = [...new Set(previous.workspaces.map(normalizedPath).filter(Boolean))];
+    const listedOnly = new Set(retainedOnly);
+    const addedOnly = normalizedExtra.filter((workspace) => !listedOnly.has(workspace));
+    if (addedOnly.length === 0 && retainedOnly.length === previous.workspaces.length) return previous;
+    return { sessions: previous.sessions, workspaces: [...retainedOnly, ...addedOnly] };
+  }
+
+  const sessionOrder = reconcileSidebarSessionOrder(previous.sessions, sessions);
+  const workspaceByFile = new Map(
+    sessions.map((session) => [normalizedPath(session.file), normalizedPath(session.cwd)]),
+  );
+  const workspacesOf = (files: string[]) => [
+    ...new Set(files.map((file) => workspaceByFile.get(normalizedPath(file)) ?? "").filter(Boolean)),
+  ];
+  const retained = [...new Set(previous.workspaces.map(normalizedPath).filter(Boolean))];
+  const listed = new Set(retained);
+  // Workspaces the order has not seen yet keep the initial position their newest session or registration gives them.
+  const discoveredFromSessions = workspacesOf(sessionOrder).filter((workspace) => !listed.has(workspace));
+  for (const workspace of discoveredFromSessions) listed.add(workspace);
+  const discoveredFromProjects = normalizedExtra.filter((workspace) => !listed.has(workspace));
+  return {
+    sessions: sessionOrder,
+    workspaces: [...retained, ...discoveredFromSessions, ...discoveredFromProjects],
+  };
+}
+
+/** Moves `sourceWorkspace` directly before or after `targetWorkspace` while preserving all other slots. */
+export function reorderSidebarWorkspaces(
+  workspaces: readonly string[],
+  sourceWorkspace: string,
+  targetWorkspace: string,
+  position: "before" | "after" = "before",
+): string[] {
+  const source = normalizedPath(sourceWorkspace);
+  const target = normalizedPath(targetWorkspace);
+  const unique = [...new Set(workspaces.map(normalizedPath).filter(Boolean))];
+  if (!source || !target || source === target) return unique;
+  if (!unique.includes(source)) unique.push(source);
+  if (!unique.includes(target)) unique.push(target);
+  const withoutSource = unique.filter((workspace) => workspace !== source);
+  const targetIndex = withoutSource.indexOf(target);
+  if (targetIndex < 0) return unique;
+  const insertIndex = position === "after" ? targetIndex + 1 : targetIndex;
+  return [
+    ...withoutSource.slice(0, insertIndex),
+    source,
+    ...withoutSource.slice(insertIndex),
+  ];
 }
 
 export function sortSidebarSessions(

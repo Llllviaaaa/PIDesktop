@@ -70,9 +70,12 @@ test("rich content", async () => {
   assert.equal(parseRichContent(" ".repeat(RICH_CONTENT_MAX_BYTES + 1)), null, "byte limit should hold");
   assert.equal(parseRichContent("[".repeat(17) + "]".repeat(17)), null, "nesting limit should hold");
 
-  const fencedSource = `\`\`\`pidesktop-rich\n${validSource}\n\`\`\``;
+  const fencedSource = `\`\`\`qianji-rich\n${validSource}\n\`\`\``;
+  const legacyFencedSource = `\`\`\`pidesktop-rich\n${validSource}\n\`\`\``;
   const enabledMarkdown = renderToStaticMarkup(createElement(Markdown, { content: fencedSource, allowRichContent: true }));
   assert.match(enabledMarkdown, /class="pi-rich"/, "enabled Markdown should render the protocol");
+  const legacyEnabledMarkdown = renderToStaticMarkup(createElement(Markdown, { content: legacyFencedSource, allowRichContent: true }));
+  assert.match(legacyEnabledMarkdown, /class="pi-rich"/, "legacy pidesktop-rich blocks in past sessions should still render");
   const disabledMarkdown = renderToStaticMarkup(createElement(Markdown, { content: fencedSource }));
   assert.doesNotMatch(disabledMarkdown, /class="pi-rich"/, "Markdown should be safe by default");
   assert.match(disabledMarkdown, /markdown-code/, "disabled rich content should remain a code fence");
@@ -94,7 +97,7 @@ test("rich content", async () => {
   const repeatedRichContent = renderToStaticMarkup(createElement(Markdown, { content: twoFences, allowRichContent: true }));
   assert.doesNotMatch(repeatedRichContent, /class="pi-rich"/, "more than one rich fence should fall back to code");
   assert.equal((repeatedRichContent.match(/class="markdown-code"/g) ?? []).length, 2, "both repeated fences should remain visible");
-  const unclosedFence = `\`\`\`pidesktop-rich\n${validSource}`;
+  const unclosedFence = `\`\`\`qianji-rich\n${validSource}`;
   const unclosedRichContent = renderToStaticMarkup(createElement(Markdown, { content: unclosedFence, allowRichContent: true }));
   assert.doesNotMatch(unclosedRichContent, /class="pi-rich"/, "an unclosed rich fence should never render as UI");
   assert.match(unclosedRichContent, /markdown-code/, "an unclosed rich fence should keep its source visible");
@@ -102,15 +105,15 @@ test("rich content", async () => {
   const quotedAndTopLevel = renderToStaticMarkup(createElement(Markdown, { content: `${quotedFence}\n\n${fencedSource}`, allowRichContent: true }));
   assert.doesNotMatch(quotedAndTopLevel, /class="pi-rich"/, "a quoted rich fence should consume the one-fence budget");
   assert.equal((quotedAndTopLevel.match(/class="markdown-code"/g) ?? []).length, 2, "quoted and top-level fences should remain code");
-  const listFence = `- nested\n\n  \`\`\`pidesktop-rich\n  ${validSource}\n  \`\`\``;
+  const listFence = `- nested\n\n  \`\`\`qianji-rich\n  ${validSource}\n  \`\`\``;
   const listedAndTopLevel = renderToStaticMarkup(createElement(Markdown, { content: `${listFence}\n\n${fencedSource}`, allowRichContent: true }));
   assert.doesNotMatch(listedAndTopLevel, /class="pi-rich"/, "a list-nested rich fence should consume the one-fence budget");
   assert.equal((listedAndTopLevel.match(/class="markdown-code"/g) ?? []).length, 2, "list-nested and top-level fences should remain code");
-  const metadataFence = fencedSource.replace("```pidesktop-rich", "```pidesktop-rich extra");
+  const metadataFence = fencedSource.replace("```qianji-rich", "```qianji-rich extra");
   const metadataAndExact = renderToStaticMarkup(createElement(Markdown, { content: `${metadataFence}\n\n${fencedSource}`, allowRichContent: true }));
   assert.doesNotMatch(metadataAndExact, /class="pi-rich"/, "a rich language token with metadata should consume the one-fence budget");
   assert.equal((metadataAndExact.match(/class="markdown-code"/g) ?? []).length, 2, "metadata and exact fences should remain code");
-  const suffixedFence = fencedSource.replace("```pidesktop-rich", "```pidesktop-rich:extra");
+  const suffixedFence = fencedSource.replace("```qianji-rich", "```qianji-rich:extra");
   const suffixedAndExact = renderToStaticMarkup(createElement(Markdown, { content: `${suffixedFence}\n\n${fencedSource}`, allowRichContent: true }));
   assert.doesNotMatch(suffixedAndExact, /class="pi-rich"/, "a punctuation-suffixed rich token should consume the one-fence budget");
   assert.equal((suffixedAndExact.match(/class="markdown-code"/g) ?? []).length, 2, "suffixed and exact fences should remain code");

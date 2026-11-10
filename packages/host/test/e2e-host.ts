@@ -4,7 +4,7 @@
  * extra model, `scripted/m`, whose replies the test lines up. Production code
  * has no switch for this; only the suite (e2e/) imports it.
  */
-import { ScriptedProvider, useScriptedProvider } from "@pid/testkit";
+import { ScriptedProvider, useScriptedProvider } from "@qianji/testkit";
 import { builtinPluginDefinitions, corePlugins } from "../src/agent-plugins.ts";
 import { readEffectiveHarnessConfig } from "../src/harness-config.ts";
 import { createHost, type Host } from "../src/host.ts";

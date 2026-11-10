@@ -11,7 +11,7 @@
  * commands reconnect on demand.
  */
 import { Context, Service } from "@deepseek-ai/cordis";
-import "@pid/commands";
+import "@qianji/commands";
 import {
   ErrorCode,
   type McpGetPromptResult,
@@ -20,11 +20,11 @@ import {
   type McpResourcesResult,
   type McpServerStatus,
   type McpStatusResult,
-} from "@pid/protocol";
-import { RpcError } from "@pid/rpc";
-import type { Session } from "@pid/session";
-import { textOutput, type ToolDefinition, type ToolEnv, type ToolOutput } from "@pid/tools";
-import "@pid/ui";
+} from "@qianji/protocol";
+import { RpcError } from "@qianji/rpc";
+import type { Session } from "@qianji/session";
+import { textOutput, type ToolDefinition, type ToolEnv, type ToolOutput } from "@qianji/tools";
+import "@qianji/ui";
 import {
   createClient,
   errorText,

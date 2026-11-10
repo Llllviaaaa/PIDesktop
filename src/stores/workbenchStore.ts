@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { WorkbenchOpenNotification, WorkbenchPreviewUrlResult } from "@pid/protocol";
+import type { WorkbenchOpenNotification, WorkbenchPreviewUrlResult } from "@qianji/protocol";
 import { agent } from "../lib/agent";
 import { describeError } from "../lib/errors";
 import { harnessRuntimes, isRpcMethodNotFound } from "../lib/harnessRuntime";

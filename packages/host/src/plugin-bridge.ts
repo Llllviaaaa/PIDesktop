@@ -1,8 +1,8 @@
 /**
- * Shares the Host's in-memory Cordis and `@pid/*` interface singletons with
- * external plugins loaded outside `pid-harness.exe` (ADR 0016).
+ * Shares the Host's in-memory Cordis and `@qianji/*` interface singletons with
+ * external plugins loaded outside `qianji-harness.exe` (ADR 0016).
  *
- * - Inside the Bun-compiled executable (`pid-harness.exe`), `Bun.plugin`
+ * - Inside the Bun-compiled executable (`qianji-harness.exe`), `Bun.plugin`
  *   registers `build.module(specifier, ...)` virtual modules backed by the
  *   running process's own module namespace objects, and external plugins are
  *   loaded via native `import()` with a cache-busting revision query parameter.
@@ -17,17 +17,17 @@ import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as cordisNs from "@deepseek-ai/cordis";
 import Schema, * as schemasteryNs from "@deepseek-ai/schemastery";
-import * as agentNs from "@pid/agent";
-import * as commandsNs from "@pid/commands";
-import * as kernelNs from "@pid/kernel";
-import * as llmNs from "@pid/llm";
-import * as pricingNs from "@pid/pricing";
-import * as protocolNs from "@pid/protocol";
-import * as rpcNs from "@pid/rpc";
-import * as sessionNs from "@pid/session";
-import * as systemPromptNs from "@pid/system-prompt";
-import * as toolsNs from "@pid/tools";
-import * as uiNs from "@pid/ui";
+import * as agentNs from "@qianji/agent";
+import * as commandsNs from "@qianji/commands";
+import * as kernelNs from "@qianji/kernel";
+import * as llmNs from "@qianji/llm";
+import * as pricingNs from "@qianji/pricing";
+import * as protocolNs from "@qianji/protocol";
+import * as rpcNs from "@qianji/rpc";
+import * as sessionNs from "@qianji/session";
+import * as systemPromptNs from "@qianji/system-prompt";
+import * as toolsNs from "@qianji/tools";
+import * as uiNs from "@qianji/ui";
 
 interface BunPluginBuilder {
   module(specifier: string, callback: () => { exports: Record<string, unknown>; loader: "object" }): void;
@@ -58,6 +58,18 @@ export const HOST_SHARED_MODULES: Readonly<Record<string, Record<string, unknown
   cordis: cordisExports,
   "@deepseek-ai/schemastery": schemasteryExports,
   schemastery: schemasteryExports,
+  "@qianji/protocol": { ...protocolNs },
+  "@qianji/kernel": { ...kernelNs },
+  "@qianji/rpc": { ...rpcNs },
+  "@qianji/llm": { ...llmNs },
+  "@qianji/pricing": { ...pricingNs },
+  "@qianji/tools": { ...toolsNs },
+  "@qianji/session": { ...sessionNs },
+  "@qianji/agent": { ...agentNs },
+  "@qianji/commands": { ...commandsNs },
+  "@qianji/system-prompt": { ...systemPromptNs },
+  "@qianji/ui": { ...uiNs },
+  // Legacy `@pid/*` aliases so existing external plugins migrated from `~/.pid/plugins` continue working.
   "@pid/protocol": { ...protocolNs },
   "@pid/kernel": { ...kernelNs },
   "@pid/rpc": { ...rpcNs },
@@ -89,7 +101,7 @@ export function installHostModuleBridge(): Promise<void> {
     const bun = (globalThis as { Bun?: BunGlobal }).Bun;
     if (bun !== undefined) {
       await bun.plugin({
-        name: "pid-host-module-bridge",
+        name: "qianji-host-module-bridge",
         setup(build) {
           for (const [specifier, exports] of Object.entries(HOST_SHARED_MODULES)) {
             build.module(specifier, () => ({ exports, loader: "object" }));

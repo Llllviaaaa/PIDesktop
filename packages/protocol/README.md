@@ -1,4 +1,4 @@
-# @pid/protocol
+# @qianji/protocol
 
 前端与 Harness Host 之间的协议，按 [ADR 0002](../../docs/adr/0002-client-protocol.md) 实现。前端（`src/`）和 Host 都依赖这个包，它是协议定义的唯一来源。
 

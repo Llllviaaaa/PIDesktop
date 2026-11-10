@@ -1,9 +1,9 @@
 /**
  * Pure dynamic client-side plugin loader, module normalizer, and zero-reload
- * Fiber HMR reconciler (ADR 0016). Bound to PI-Desktop's unified frontend in
+ * Fiber HMR reconciler (ADR 0016). Bound to Qianji's unified frontend in
  * `src/lib/clientPluginBootstrap.ts`.
  */
-import type { PluginClientBundleParams, PluginClientBundleResult, PluginInfo } from "@pid/protocol";
+import type { PluginClientBundleParams, PluginClientBundleResult, PluginInfo } from "@qianji/protocol";
 
 export type ModuleFactory = (require: (specifier: string) => unknown) => unknown;
 
@@ -79,7 +79,7 @@ export async function executeBrowserBundleScript(code: string, pluginId: string)
   if (typeof document === "undefined" || typeof Blob === "undefined" || typeof URL.createObjectURL !== "function") {
     throw new Error(`当前运行环境不支持加载客户端插件 "${pluginId}" 的脚本`);
   }
-  const blob = new Blob([`${code}\n//# sourceURL=pid-plugin://${encodeURIComponent(pluginId)}/client.js`], {
+  const blob = new Blob([`${code}\n//# sourceURL=qianji-plugin://${encodeURIComponent(pluginId)}/client.js`], {
     type: "text/javascript",
   });
   const url = URL.createObjectURL(blob);
@@ -379,7 +379,7 @@ export function createClientPluginRuntime<P = unknown>(
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         setClientPluginError(item.id, message);
-        console.error(`[pid-client-plugins] failed to load "${item.id}":`, error);
+        console.error(`[qianji-client-plugins] failed to load "${item.id}":`, error);
       }
     }
   };

@@ -22,8 +22,7 @@ export default defineConfig({
     hookTimeout: 60_000,
     coverage: {
       provider: "v8",
-      include: ["src/lib/**", "src/hooks/**", "src-tauri/resources/pidesktop-*.ts", "packages/*/src/**"],
-      exclude: ["src-tauri/resources/pi-runtime/**"],
+      include: ["src/lib/**", "src/hooks/**", "packages/*/src/**"],
       reporter: ["text-summary", "lcov"],
     },
   },

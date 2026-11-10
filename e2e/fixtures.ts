@@ -8,12 +8,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test as base, expect, type Locator, type Page } from "@playwright/test";
-import { ScriptedProvider } from "@pid/testkit";
+import { ScriptedProvider } from "@qianji/testkit";
 import { startE2eHost, type E2eHost } from "../packages/host/test/e2e-host.ts";
 import { E2E_ORIGIN } from "../playwright.config.ts";
 
 export { expect };
-export { textReply, toolReply } from "@pid/testkit";
+export { textReply, toolReply } from "@qianji/testkit";
 
 export interface Harness {
   provider: ScriptedProvider;

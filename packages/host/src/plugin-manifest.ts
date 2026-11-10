@@ -1,11 +1,11 @@
 /**
  * Reads and validates external plugin manifests (`package.json` or bare plugin
- * folders) under `<dataDir>/plugins/*` and trusted `<workspace>/.pid/plugins/*`
+ * folders) under `<dataDir>/plugins/*` and trusted `<workspace>/.qianji/plugins/*`
  * (ADR 0016).
  */
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import type { PluginTier } from "@pid/protocol";
+import type { PluginTier } from "@qianji/protocol";
 
 export interface DiscoveredPluginManifest {
   id: string;
@@ -103,7 +103,7 @@ function isValidPluginId(id: string): boolean {
 }
 
 function isDshEcosystemPackage(pkg: Record<string, unknown>): boolean {
-  if (isRecord(pkg.pid)) return false;
+  if (isRecord(pkg.qianji) || isRecord(pkg.pid)) return false;
   if (isRecord(pkg.dsh) || typeof pkg.dsh === "string") return true;
   const name = typeof pkg.name === "string" ? pkg.name : "";
   if (name.startsWith("dsh-") || name.startsWith("@dsh-external/") || name.includes("/dsh-")) return true;
@@ -141,7 +141,7 @@ export function readPluginManifest(dir: string, tier: PluginTier, workspace?: st
     pkg = parsed;
   }
 
-  const pidField = isRecord(pkg.pid) ? pkg.pid : undefined;
+  const pidField = isRecord(pkg.qianji) ? pkg.qianji : isRecord(pkg.pid) ? pkg.pid : undefined;
   const dshField = isRecord(pkg.dsh) ? pkg.dsh : undefined;
   const exportsField = isRecord(pkg.exports) ? pkg.exports : undefined;
 

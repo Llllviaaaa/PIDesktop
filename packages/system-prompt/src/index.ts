@@ -4,7 +4,7 @@
  * before every model call, so sections may change between turns.
  */
 import { Context, Service } from "@deepseek-ai/cordis";
-import type { ToolSchema } from "@pid/llm";
+import type { ToolSchema } from "@qianji/llm";
 
 declare module "@deepseek-ai/cordis" {
   interface Context {

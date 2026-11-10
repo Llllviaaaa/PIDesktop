@@ -1,5 +1,11 @@
-export const RICH_CONTENT_LANGUAGE = "pidesktop-rich";
+export const RICH_CONTENT_LANGUAGE = "qianji-rich";
+export const LEGACY_RICH_CONTENT_LANGUAGE = "pidesktop-rich";
 export const RICH_CONTENT_MAX_BYTES = 32 * 1024;
+
+export function isRichContentLanguage(lang: string): boolean {
+  const normalized = lang.trim().toLowerCase();
+  return normalized === RICH_CONTENT_LANGUAGE || normalized === LEGACY_RICH_CONTENT_LANGUAGE;
+}
 
 const MAX_BLOCKS = 12;
 const MAX_GROUP_ITEMS = 12;

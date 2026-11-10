@@ -4,9 +4,9 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { LlmService } from "@pid/llm";
-import { ErrorCode, PROTOCOL_VERSION, clientSubprotocols } from "@pid/protocol";
-import { ScriptedProvider, errorReply, textReply, useScriptedProvider } from "@pid/testkit";
+import { LlmService } from "@qianji/llm";
+import { ErrorCode, PROTOCOL_VERSION, clientSubprotocols } from "@qianji/protocol";
+import { ScriptedProvider, errorReply, textReply, useScriptedProvider } from "@qianji/testkit";
 import { RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
 import * as llmRpc from "../src/llm-rpc.ts";
 

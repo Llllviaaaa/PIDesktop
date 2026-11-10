@@ -6,8 +6,8 @@ import { sameLocalPath } from "../lib/pathIdentity";
 import { useAppStore } from "../store";
 import type { ConnectionState, SessionInfo } from "../types";
 
-export const ACTIVE_RUNTIME_KEY = "pid-desktop:active-runtime";
-export const LAST_TASK_KEY = "pid-desktop:last-task";
+export const ACTIVE_RUNTIME_KEY = "qianji:active-runtime";
+export const LAST_TASK_KEY = "qianji:last-task";
 
 interface PersistedTask {
   cwd: string;
@@ -103,7 +103,7 @@ export function useRuntimeBootstrap({
           current.prepareNewTask();
           onDraftModeChange(true);
           if (workspace) {
-            window.localStorage.setItem("pid-desktop:last-workspace", workspace);
+            window.localStorage.setItem("qianji:last-workspace", workspace);
             onDraftWorkspaceChange(workspace);
           }
         } else {
@@ -126,7 +126,7 @@ export function useRuntimeBootstrap({
   useEffect(() => {
     if (!runtimeRecoveryDone || !autoConnect || autoConnectedRef.current || connection !== "disconnected") return;
     const lastTask = readPersistedTask();
-    const lastWorkspace = lastTask?.cwd || window.localStorage.getItem("pid-desktop:last-workspace");
+    const lastWorkspace = lastTask?.cwd || window.localStorage.getItem("qianji:last-workspace");
     if (!lastWorkspace) return;
     const restoredSession = lastTask?.sessionFile
       && sessions.some((session) => sameLocalPath(session.file, lastTask.sessionFile))
@@ -143,7 +143,7 @@ export function useRuntimeBootstrap({
   useEffect(() => {
     if (!runtimeId || !cwd) return;
     window.localStorage.setItem(ACTIVE_RUNTIME_KEY, runtimeId);
-    window.localStorage.setItem("pid-desktop:last-workspace", cwd);
+    window.localStorage.setItem("qianji:last-workspace", cwd);
     if (!draftMode && sessionFile) {
       window.localStorage.setItem(LAST_TASK_KEY, JSON.stringify({ cwd, sessionFile } satisfies PersistedTask));
     } else {

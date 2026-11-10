@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import {
+  customThinkingLevelsForModel,
   effectiveThinkingLevel,
   fallbackThinkingLevel,
   normalizeThinkingLevelId,
+  preferredThinkingLevelForModel,
   resolveThinkingLevels,
   thinkingLabel,
+  withModelCustomThinkingLevels,
+  withModelThinkingLevel,
 } from "../src/lib/thinkingLevels";
 import { inferModelThinkingLevels } from "../src/lib/modelProviders";
-import type { ModelInfo } from "../src/types";
+import type { AppSettings, ModelInfo } from "../src/types";
 import { test } from "vitest";
 
 const reasoningModel: ModelInfo = { id: "claude-opus", name: "Claude Opus", provider: "anthropic", reasoning: true };
@@ -61,4 +65,58 @@ test("a stored level outside the offered list is not displayed", () => {
   assert.equal(thinkingLabel("xhigh"), "极高");
   assert.equal(thinkingLabel("budget:16k"), "预算 16k");
   assert.equal(thinkingLabel("custom"), "custom");
+});
+
+test("thinking levels and custom tiers stay isolated per provider/model", () => {
+  const baseSettings = {
+    provider: "sub2api",
+    model: "grok-4.7",
+    thinkingLevel: "medium",
+    customThinkingLevels: ["legacy-tier"],
+  } as AppSettings;
+
+  // Legacy customThinkingLevels only fall back on the matching default model, never leaking to other models.
+  assert.deepEqual(customThinkingLevelsForModel(baseSettings, "sub2api", "grok-4.7"), ["legacy-tier"]);
+  assert.deepEqual(customThinkingLevelsForModel(baseSettings, "openai", "o4-mini"), []);
+
+  const withGrokCustom = withModelCustomThinkingLevels(baseSettings, "sub2api", "grok-4.7", ["ultra", "16384"]);
+  assert.deepEqual(customThinkingLevelsForModel(withGrokCustom, "sub2api", "grok-4.7"), ["ultra", "16384"]);
+  assert.deepEqual(customThinkingLevelsForModel(withGrokCustom, "openai", "o4-mini"), []);
+  assert.deepEqual(withGrokCustom.customThinkingLevels, []);
+
+  const withLevels = withModelThinkingLevel(
+    withModelThinkingLevel(withGrokCustom, "sub2api", "grok-4.7", "ultra"),
+    "openai",
+    "o4-mini",
+    "low",
+  );
+  // Default model's thinkingLevel stays synced with sub2api/grok-4.7, while openai/o4-mini keeps its own "low".
+  assert.equal(withLevels.thinkingLevel, "ultra");
+  assert.equal(
+    preferredThinkingLevelForModel(
+      { id: "grok-4.7", reasoning: true },
+      withLevels,
+      "sub2api",
+      inferModelThinkingLevels("grok-4.7", true),
+    ),
+    "ultra",
+  );
+  assert.equal(
+    preferredThinkingLevelForModel(
+      { id: "o4-mini", reasoning: true },
+      withLevels,
+      "openai",
+      inferModelThinkingLevels("o4-mini", true),
+    ),
+    "low",
+  );
+  assert.equal(
+    preferredThinkingLevelForModel(
+      { id: "gpt-4.1", reasoning: false },
+      withLevels,
+      "openai",
+      inferModelThinkingLevels("gpt-4.1", false),
+    ),
+    "off",
+  );
 });

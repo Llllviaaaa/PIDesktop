@@ -1,4 +1,4 @@
-# @pid/testkit
+# @qianji/testkit
 
 harness 各包的测试工具：
 

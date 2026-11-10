@@ -8,15 +8,15 @@
  * the rich-content block the desktop renders.
  */
 import type { Context } from "@deepseek-ai/cordis";
-import { ErrorCode, type UiPendingResult, type UiRequestNotification } from "@pid/protocol";
-import { SectionOrder } from "@pid/system-prompt";
-import "@pid/ui";
+import { ErrorCode, type UiPendingResult, type UiRequestNotification } from "@qianji/protocol";
+import { SectionOrder } from "@qianji/system-prompt";
+import "@qianji/ui";
 import { RpcError } from "./rpc.ts";
 
-export const name = "pid-ui-rpc";
+export const name = "qianji-ui-rpc";
 export const inject = ["rpc", "ui", "systemPrompt"];
 
-export const RICH_CONTENT_INSTRUCTIONS = `PIDesktop can render one optional structured visual in a completed assistant reply. Use it only when metrics, comparisons, steps, progress, grouped status, or curated links are materially easier to scan than ordinary prose. Otherwise use normal Markdown. Emit at most one fenced block with the exact language pidesktop-rich and valid JSON in this schema:
+export const RICH_CONTENT_INSTRUCTIONS = `Qianji can render one optional structured visual in a completed assistant reply. Use it only when metrics, comparisons, steps, progress, grouped status, or curated links are materially easier to scan than ordinary prose. Otherwise use normal Markdown. Emit at most one fenced block with the exact language qianji-rich and valid JSON in this schema:
 {"version":1,"title"?:string,"summary"?:string,"blocks":[...]}
 Allowed blocks are:
 - {"type":"metrics","title"?:string,"items":[{"label":string,"value":string,"detail"?:string,"tone"?:Tone}]}

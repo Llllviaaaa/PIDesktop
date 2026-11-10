@@ -18,7 +18,7 @@ import type {
   WorkspaceTrustChangedNotification,
   WorkspaceTrustListResult,
   WorkspaceTrustSetParams,
-} from "@pid/protocol";
+} from "@qianji/protocol";
 import { harnessRuntimes } from "./harnessRuntime";
 
 type Unsubscribe = () => void;

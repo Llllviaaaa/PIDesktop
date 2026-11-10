@@ -11,7 +11,7 @@
  * result the model can read.
  */
 import { Context, Service } from "@deepseek-ai/cordis";
-import type { ToolResultContent, ToolSchema } from "@pid/llm";
+import type { ToolResultContent, ToolSchema } from "@qianji/llm";
 
 declare module "@deepseek-ai/cordis" {
   interface Context {

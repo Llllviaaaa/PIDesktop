@@ -1,5 +1,5 @@
 {
-  "name": "@pid/memory",
+  "name": "@qianji/memory",
   "version": "0.0.0",
   "private": true,
   "description": "Local memory file: the desktop_memory tool and its prompt section (ADR 0009)",
@@ -9,12 +9,12 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/permissions": "*",
-    "@pid/protocol": "*",
-    "@pid/rpc": "*",
-    "@pid/session": "*",
-    "@pid/system-prompt": "*",
-    "@pid/tools": "*",
-    "@pid/ui": "*"
+    "@qianji/permissions": "*",
+    "@qianji/protocol": "*",
+    "@qianji/rpc": "*",
+    "@qianji/session": "*",
+    "@qianji/system-prompt": "*",
+    "@qianji/tools": "*",
+    "@qianji/ui": "*"
   }
 }

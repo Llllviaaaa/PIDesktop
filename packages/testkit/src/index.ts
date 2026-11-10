@@ -4,8 +4,8 @@
  * loop tests compare against `test/golden/*.jsonl`.
  */
 import type { Context } from "@deepseek-ai/cordis";
-import type { LlmAdapter, LlmErrorInfo, LlmRequest, StreamChunk, Usage } from "@pid/llm";
-import type { Session } from "@pid/session";
+import type { LlmAdapter, LlmErrorInfo, LlmRequest, StreamChunk, Usage } from "@qianji/llm";
+import type { Session } from "@qianji/session";
 
 /** One scripted model call: its chunks, or a function of the request that returns them. */
 export type ScriptedReply = StreamChunk[] | ((request: LlmRequest) => StreamChunk[]);

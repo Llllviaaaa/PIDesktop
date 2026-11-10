@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Pi Desktop installers include the Harness Host as one executable compiled with Bun, so users do not need a global Node.js or npm installation for the core agent workflow.
+Qianji installers include the Harness Host as one executable compiled with Bun, so users do not need a global Node.js or npm installation for the core agent workflow.
 
 ## Pi coding agent
 

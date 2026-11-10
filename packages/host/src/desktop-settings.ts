@@ -9,10 +9,10 @@
  * tested field by field.
  */
 import { join } from "node:path";
-import type { Effort } from "@pid/llm";
-import type { DesktopHookConfig } from "@pid/hooks";
-import type { McpServerConfig } from "@pid/mcp";
-import type { ToolPermissionRule } from "@pid/permissions";
+import type { Effort } from "@qianji/llm";
+import type { DesktopHookConfig } from "@qianji/hooks";
+import type { McpServerConfig } from "@qianji/mcp";
+import type { ToolPermissionRule } from "@qianji/permissions";
 import type { HarnessConfig } from "./harness-config.ts";
 
 /** One `{"desktop": …}` control line. */
@@ -61,7 +61,11 @@ export function harnessFromDesktop(message: DesktopMessage): DesktopHarness {
   const provider = str(settings.provider);
   const model = str(settings.model);
   const defaultModel = provider !== "" && model !== "" ? { provider, model } : undefined;
-  const effort = effortFromThinking(str(settings.thinkingLevel));
+  const modelThinkingLevels = settings.modelThinkingLevels && typeof settings.modelThinkingLevels === "object" && !Array.isArray(settings.modelThinkingLevels)
+    ? (settings.modelThinkingLevels as Record<string, unknown>)
+    : undefined;
+  const perModelEffort = defaultModel ? str(modelThinkingLevels?.[`${provider}/${model}`]) : "";
+  const effort = effortFromThinking(perModelEffort || str(settings.thinkingLevel));
   const memoryEnabled = bool(settings.memoryEnabled, true);
   const projectMemoryEnabled = typeof settings.projectMemoryEnabled === "boolean" ? settings.projectMemoryEnabled : memoryEnabled;
   const executable = message.executable?.trim();

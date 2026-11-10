@@ -252,7 +252,7 @@ fn shell_command(shell: &str, custom_args: &str) -> CommandBuilder {
     }
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
-    command.env("TERM_PROGRAM", "PIDesktop");
+    command.env("TERM_PROGRAM", "Qianji");
     command
 }
 

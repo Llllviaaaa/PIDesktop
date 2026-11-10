@@ -7,9 +7,9 @@ import {
   clientSubprotocols,
   type WorkbenchOpenNotification,
   type WorkbenchPreviewUrlResult,
-} from "@pid/protocol";
-import { Sessions } from "@pid/session";
-import { Tools } from "@pid/tools";
+} from "@qianji/protocol";
+import { Sessions } from "@qianji/session";
+import { Tools } from "@qianji/tools";
 import WebSocket from "ws";
 import { createHost, type Host } from "../src/host.ts";
 import { RpcGateway } from "../src/rpc.ts";

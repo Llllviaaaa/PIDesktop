@@ -12,7 +12,7 @@ import { buildPromptPayload, HARNESS_SESSION_PREFIX, harnessRuntimes } from "../
 import { insertManagedQueueItem } from "../lib/managedQueue";
 import { persistModelCatalog } from "../lib/modelCatalogCache";
 import { sameLocalPath } from "../lib/pathIdentity";
-import { mergeThinkingLevels } from "../lib/thinkingLevels";
+import { customThinkingLevelsForModel, mergeThinkingLevels, modelThinkingKey } from "../lib/thinkingLevels";
 import { agentBrowserFromMessages, computerFromMessages } from "../lib/toolPanels";
 import { streamAssistant } from "../lib/transcript";
 import { createNotices } from "../notifications";
@@ -75,15 +75,31 @@ export class StoreContext {
   // Before the first turn a pick belongs to the task, not to the runtime it happens to be on.
   taskNotStarted = () => this.get().messages.length === 0;
 
-  // The last model and thinking level the user picked become the defaults new tasks start with.
+  // The last model and its per-model thinking level become the defaults new tasks start with.
   rememberForNewTasks = (patch: Partial<Pick<AppSettings, "provider" | "model" | "thinkingLevel">>) => {
     const settings = this.get().settings;
     if (!settings) return;
-    const next = { ...settings, ...patch };
+    const activeModel = this.get().model;
+    const targetProvider = patch.provider ?? activeModel?.provider ?? settings.provider;
+    const targetModel = patch.model ?? activeModel?.id ?? settings.model;
+    const key = targetProvider && targetModel ? modelThinkingKey(targetProvider, targetModel) : "";
+    let next: AppSettings = { ...settings, ...patch };
+    if (patch.thinkingLevel && key) {
+      if (settings.modelThinkingLevels?.[key] !== patch.thinkingLevel) {
+        next = {
+          ...next,
+          modelThinkingLevels: {
+            ...(settings.modelThinkingLevels ?? {}),
+            [key]: patch.thinkingLevel,
+          },
+        };
+      }
+    }
     if (
       next.provider === settings.provider
       && next.model === settings.model
       && next.thinkingLevel === settings.thinkingLevel
+      && (key === "" || next.modelThinkingLevels?.[key] === settings.modelThinkingLevels?.[key])
     ) return;
     void this.get().saveSettings(next).catch((error) => {
       this.get().appendLog(`保存默认模型失败：${describeError(error)}`);
@@ -175,10 +191,13 @@ export class StoreContext {
   recordStartedSession = (runtimeId: string) => {
     const sessionFile = harnessRuntimes.sessionFileOf(runtimeId);
     if (!sessionFile) return;
+    const isNew = this.get().runtimes[runtimeId]?.sessionFile !== sessionFile
+      || (this.get().runtimeId === runtimeId && this.get().sessionFile !== sessionFile);
     if (this.get().runtimes[runtimeId]?.sessionFile !== sessionFile) this.updateRuntime(runtimeId, { sessionFile });
     if (this.get().runtimeId === runtimeId && this.get().sessionFile !== sessionFile) {
       this.set({ sessionFile, sessionId: sessionFile.slice(HARNESS_SESSION_PREFIX.length) });
     }
+    if (isNew) void this.get().refreshSessions();
   };
 
   setManagedQueueForRuntime = (runtimeId: string, queue: ManagedQueuedMessage[]) => {
@@ -219,11 +238,12 @@ export class StoreContext {
     const commandsRequest = harnessRuntimes.commands(activeCwd || undefined).catch(() => []);
     const modelCatalogRequest = Promise.all([harnessRuntimes.models(), commandsRequest]).then(([models, commands]) => {
       if (get().runtimeId !== runtimeId || expectedVersion !== this.connectionVersion) return;
+      const current = get().model;
       set({
         availableModels: models,
         availableThinkingLevels: mergeThinkingLevels(
-          harnessRuntimes.thinkingLevels(get().model),
-          get().settings?.customThinkingLevels,
+          harnessRuntimes.thinkingLevels(current),
+          customThinkingLevelsForModel(get().settings, current?.provider, current?.id),
         ),
         commands,
       });
@@ -249,7 +269,7 @@ export class StoreContext {
         ? {
             availableThinkingLevels: mergeThinkingLevels(
               harnessRuntimes.thinkingLevels(activeModel),
-              get().settings?.customThinkingLevels,
+              customThinkingLevelsForModel(get().settings, activeModel.provider, activeModel.id),
             ),
           }
         : {}),

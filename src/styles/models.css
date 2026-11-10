@@ -1,5 +1,5 @@
 /*
- * Pi Desktop — Meta AI Muse (Hatch Design System) Models & Keys Page (`models.css`)
+ * Qianji — Meta AI Muse (Hatch Design System) Models & Keys Page (`models.css`)
  *
  * Spatial architecture (modeled after Muse Connectors & Settings):
  * - Flows seamlessly inside the floating `880×640` Muse Settings sheet.
@@ -750,6 +750,243 @@
 .models-cap-pill.is-think {
   background: color-mix(in srgb, var(--accent) 11%, transparent);
   color: var(--accent);
+}
+
+.models-cap-pill.is-think-off {
+  background: var(--muse-soft-fill);
+  color: var(--text-3);
+}
+
+.models-think-trigger {
+  gap: 3px;
+  padding: 0 7px 0 8px;
+  border: 1px solid transparent;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.models-think-trigger.is-think:hover,
+.models-think-trigger.is-think.is-open {
+  background: color-mix(in srgb, var(--accent) 17%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.models-think-trigger.is-think-off:hover,
+.models-think-trigger.is-think-off.is-open {
+  background: var(--muse-soft-fill-hover);
+  color: var(--text-2);
+  border-color: var(--muse-divider);
+}
+
+.models-think-trigger > svg {
+  opacity: 0.78;
+  transition: transform 140ms ease;
+}
+
+.models-think-trigger.is-open > svg {
+  transform: rotate(180deg);
+}
+
+/* ── Per-Model Thinking Level Popover ──────────────────────────────── */
+
+.models-think-popover {
+  position: fixed;
+  z-index: 320;
+  width: 244px;
+  padding: 8px;
+  border: 1px solid var(--muse-divider);
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  box-shadow: var(--muse-elevation-popover, 0 14px 36px rgba(17, 17, 18, 0.16));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+:root[data-theme="dark"] .models-think-popover {
+  background: #282a2e;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.models-think-popover-head {
+  padding: 4px 8px 6px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--muse-divider);
+}
+
+.models-think-popover-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.models-think-popover-head small {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.models-think-popover-list {
+  max-height: 224px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.models-think-option-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 9px;
+  transition: background-color 110ms ease;
+}
+
+.models-think-option-row:hover {
+  background: var(--muse-soft-fill);
+}
+
+.models-think-option-row.is-active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.models-think-option-btn {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 520;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.models-think-option-row.is-active .models-think-option-btn {
+  font-weight: 580;
+}
+
+.models-think-option-label {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.models-think-option-label code {
+  font-family: var(--code-font);
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.models-think-option-row.is-active .models-think-option-label code {
+  color: currentColor;
+  opacity: 0.78;
+}
+
+.models-think-option-remove {
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.models-think-option-remove:hover {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+}
+
+.models-think-popover-custom {
+  padding-top: 6px;
+  border-top: 1px solid var(--muse-divider);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.models-think-popover-custom input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 9px;
+  border: 1.5px solid transparent;
+  border-radius: 8px;
+  background: var(--muse-soft-fill);
+  color: var(--text);
+  font-family: var(--code-font);
+  font-size: 11.5px;
+  outline: none;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.models-think-popover-custom input::placeholder {
+  font-family: var(--font-ui);
+  color: var(--text-3);
+}
+
+.models-think-popover-custom input:focus {
+  border-color: var(--accent);
+  background: var(--panel);
+}
+
+.models-think-popover-custom button {
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--muse-soft-fill-hover);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 560;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 120ms ease, opacity 120ms ease;
+}
+
+.models-think-popover-custom button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.models-think-popover-custom button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .models-cap-pill.is-vision {

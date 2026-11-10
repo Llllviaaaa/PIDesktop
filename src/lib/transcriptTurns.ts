@@ -24,7 +24,7 @@ function normalizedMessages(messages: UiMessage[]): UiMessage[] {
 }
 
 function lastContent(messages: UiMessage[]): string {
-  const rich = [...messages].reverse().find((message) => /```pidesktop-rich/.test(message.content || ""));
+  const rich = [...messages].reverse().find((message) => /```(?:qianji-rich|pidesktop-rich)/.test(message.content || ""));
   if (rich) return rich.content;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index].content?.trim()) return messages[index].content;

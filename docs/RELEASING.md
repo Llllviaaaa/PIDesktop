@@ -1,6 +1,6 @@
 # Release process
 
-Pi Desktop is a Windows desktop application with security-sensitive local capabilities. A release should be reproducible from a clean checkout and should not rely on an already-running development build.
+Qianji is a Windows desktop application with security-sensitive local capabilities. A release should be reproducible from a clean checkout and should not rely on an already-running development build.
 
 ## Preconditions
 
@@ -16,9 +16,9 @@ Pi Desktop is a Windows desktop application with security-sensitive local capabi
 Update the same version in:
 
 - `package.json` and the root package in `package-lock.json`;
-- `src-tauri/Cargo.toml` and the `pid-desktop` package in `src-tauri/Cargo.lock`;
+- `src-tauri/Cargo.toml` and the `qianji` package in `src-tauri/Cargo.lock`;
 - `src-tauri/tauri.conf.json`;
-- bundled MCP client metadata in `src-tauri/resources/pidesktop-mcp.ts`.
+- bundled MCP client metadata in `packages/mcp/src/client.ts`.
 
 Do not replace an existing release while keeping the same version number.
 
@@ -44,11 +44,11 @@ npm run tauri -- build
 
 Verify the executable product version and calculate SHA-256 hashes for the executable, MSI, and NSIS installer. Publish hashes with the release notes.
 
-Extract or administratively expand one installer and check `harness/build-manifest.json` against the commit being released, then start the desktop with a sanitized `PATH`: it must reach the bundled Harness Host (`harness/pid-harness.exe`) without Node.js or Bun on the machine.
+Extract or administratively expand one installer and check `harness/build-manifest.json` against the commit being released, then start the desktop with a sanitized `PATH`: it must reach the bundled Harness Host (`harness/qianji-harness.exe`) without Node.js or Bun on the machine.
 
 ## Signing
 
-Public Windows binaries should be Authenticode-signed with a protected signing identity. Sign both `pid-desktop.exe` and the generated `harness/pid-harness.exe` before producing the signed installer. Keep signing credentials outside the repository and CI logs. Configure CI signing only through encrypted repository or environment secrets with restricted release permissions.
+Public Windows binaries should be Authenticode-signed with a protected signing identity. Sign both `qianji.exe` and the generated `harness/qianji-harness.exe` before producing the signed installer. Keep signing credentials outside the repository and CI logs. Configure CI signing only through encrypted repository or environment secrets with restricted release permissions.
 
 Unsigned development builds may be shared for testing only when clearly labeled as unsigned.
 

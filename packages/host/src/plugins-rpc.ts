@@ -12,11 +12,11 @@ import {
   type PluginListResult,
   type PluginMutationResult,
   type WorkspaceTrustListResult,
-} from "@pid/protocol";
+} from "@qianji/protocol";
 import type { PluginManager } from "./plugin-manager.ts";
 import { RpcError } from "./rpc.ts";
 
-export const name = "pid-plugins-rpc";
+export const name = "qianji-plugins-rpc";
 export const inject = ["rpc"];
 
 export interface PluginsRpcConfig {

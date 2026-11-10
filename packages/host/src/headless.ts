@@ -1,7 +1,7 @@
 /**
  * Headless runs: one prompt, no window, no RPC.
  *
- * Usage: pid-harness run [--data-dir <dir>] [--cwd <dir>] [--model <provider>/<model>]
+ * Usage: qianji-harness run [--data-dir <dir>] [--cwd <dir>] [--model <provider>/<model>]
  *                        [--effort off|low|medium|high] [--permission <mode>] [--session <id>]
  *                        [--json] <prompt...>
  *
@@ -16,12 +16,13 @@
  * working directory go through, shell commands need `full-access` or an
  * allow-listed prefix.
  */
+import { cpSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { Logger, type Exporter } from "@deepseek-ai/cordis";
-import type { AgentDelta, RunOutcome } from "@pid/agent";
-import type { Effort } from "@pid/llm";
-import type { PermissionMode } from "@pid/permissions";
+import type { AgentDelta, RunOutcome } from "@qianji/agent";
+import type { Effort } from "@qianji/llm";
+import type { PermissionMode } from "@qianji/permissions";
 import { builtinPluginDefinitions, corePlugins } from "./agent-plugins.ts";
 import { readEffectiveHarnessConfig } from "./harness-config.ts";
 import { createHost } from "./host.ts";
@@ -43,8 +44,22 @@ export interface HeadlessOptions {
 const EFFORT_ID_RE = /^[a-zA-Z0-9._:-]{1,64}$/;
 const PERMISSIONS = ["read-only", "ask", "workspace-write", "full-access"];
 
+function defaultHeadlessDataDir(): string {
+  const home = homedir();
+  const primary = join(home, ".qianji");
+  const legacy = join(home, ".pid");
+  if (!existsSync(primary) && existsSync(legacy)) {
+    try {
+      cpSync(legacy, primary, { recursive: true });
+    } catch {
+      // Fall back to primary path if migration copy fails.
+    }
+  }
+  return primary;
+}
+
 export function parseHeadlessOptions(argv: readonly string[], cwd = process.cwd()): HeadlessOptions {
-  const options: HeadlessOptions = { dataDir: join(homedir(), ".pid"), cwd, json: false, prompt: "" };
+  const options: HeadlessOptions = { dataDir: defaultHeadlessDataDir(), cwd, json: false, prompt: "" };
   const words: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index] as string;
@@ -96,7 +111,7 @@ export async function runHeadless(argv: readonly string[], out: NodeJS.WritableS
   try {
     options = parseHeadlessOptions(argv);
   } catch (error) {
-    err.write(`pid-harness run: ${(error as Error).message}\n`);
+    err.write(`qianji-harness run: ${(error as Error).message}\n`);
     return 2;
   }
 
@@ -127,9 +142,10 @@ export async function runHeadless(argv: readonly string[], out: NodeJS.WritableS
         }
       }
       const permission = options.permission ?? config.permissions.defaultPermission ?? "workspace-write";
+      const computerHelper = process.env.QIANJI_COMPUTER_HELPER || process.env.PID_COMPUTER_HELPER;
       return builtinPluginDefinitions(options.dataDir, config, {
         permission,
-        ...(process.env.PID_COMPUTER_HELPER ? { computerHelper: process.env.PID_COMPUTER_HELPER } : {}),
+        ...(computerHelper ? { computerHelper } : {}),
         ...(codec === undefined ? {} : { codec }),
       });
     },
@@ -140,7 +156,7 @@ export async function runHeadless(argv: readonly string[], out: NodeJS.WritableS
   try {
     let session = options.sessionId === undefined ? undefined : await ctx.sessions.get(options.sessionId);
     if (options.sessionId !== undefined && session === undefined) {
-      err.write(`pid-harness run: no session ${options.sessionId}\n`);
+      err.write(`qianji-harness run: no session ${options.sessionId}\n`);
       return 2;
     }
     session ??= ctx.sessions.create({ cwd: options.cwd });
@@ -148,7 +164,7 @@ export async function runHeadless(argv: readonly string[], out: NodeJS.WritableS
     if (model !== undefined) session.append("model", model);
     if (options.effort !== undefined) session.append("effort", { effort: options.effort });
     if (session.state().model === undefined) {
-      err.write("pid-harness run: no model; pass --model <provider>/<model> or set defaultModel in providers.json\n");
+      err.write("qianji-harness run: no model; pass --model <provider>/<model> or set defaultModel in providers.json\n");
       return 2;
     }
 

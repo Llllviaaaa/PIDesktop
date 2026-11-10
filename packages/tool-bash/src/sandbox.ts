@@ -1,5 +1,5 @@
 /**
- * Lightweight Windows / cross-platform sandbox helpers for `@pid/tool-bash` (M4.3):
+ * Lightweight Windows / cross-platform sandbox helpers for `@qianji/tool-bash` (M4.3):
  * 1. Environment credential scrubbing + workspace-local temp directory redirection
  * 2. Command-line escape / system-tampering guard (active outside `full-access`)
  * 3. Windows Job Object containment via `bun:ffi` (`KILL_ON_JOB_CLOSE` + `ACTIVE_PROCESS` cap)
@@ -30,6 +30,7 @@ const SENSITIVE_PREFIXES = [
   "OPENROUTER_",
   "COOKIE",
   "AUTHORIZATION",
+  "QIANJI_SECRET_",
   "PID_SECRET_",
 ];
 
@@ -57,7 +58,7 @@ export function isSensitiveEnvName(name: string): boolean {
 
 /**
  * Scrubs secret-bearing environment variables and redirects `TMP`/`TEMP`/`TMPDIR`
- * into `<cwd>/.pid/sandbox-tmp` so temporary artifacts stay inside the workspace.
+ * into `<cwd>/.qianji/sandbox-tmp` so temporary artifacts stay inside the workspace.
  */
 export function buildSandboxedEnv(baseEnv: NodeJS.ProcessEnv, cwd: string): NodeJS.ProcessEnv {
   const scrubbed: NodeJS.ProcessEnv = {};
@@ -66,7 +67,7 @@ export function buildSandboxedEnv(baseEnv: NodeJS.ProcessEnv, cwd: string): Node
     if (isSensitiveEnvName(key)) continue;
     scrubbed[key] = value;
   }
-  const scratchTmp = join(resolve(cwd), ".pid", "sandbox-tmp");
+  const scratchTmp = join(resolve(cwd), ".qianji", "sandbox-tmp");
   try {
     mkdirSync(scratchTmp, { recursive: true });
   } catch {
@@ -76,7 +77,7 @@ export function buildSandboxedEnv(baseEnv: NodeJS.ProcessEnv, cwd: string): Node
   scrubbed.TEMP = scratchTmp;
   scrubbed.TMPDIR = scratchTmp;
   scrubbed.GIT_TERMINAL_PROMPT = "0";
-  scrubbed.PID_SANDBOX = "1";
+  scrubbed.QIANJI_SANDBOX = "1";
   return scrubbed;
 }
 
@@ -307,7 +308,7 @@ export function generateWindowsSandboxConfig(workspacePath: string): string {
 export function generateDevContainerConfig(workspacePath: string): string {
   const folderName = basename(resolve(workspacePath)) || "workspace";
   const payload = {
-    name: `PI-Desktop (${folderName})`,
+    name: `Qianji (${folderName})`,
     image: "mcr.microsoft.com/devcontainers/base:ubuntu",
     features: {
       "ghcr.io/devcontainers/features/node:1": { version: "22" },

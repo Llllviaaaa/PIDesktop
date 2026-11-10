@@ -4,11 +4,11 @@
  * replaces the `pi --print` the desktop used to run for them.
  */
 import type { Context } from "@deepseek-ai/cordis";
-import type { LlmRequest } from "@pid/llm";
-import { ErrorCode, type LlmCompleteResult, type ModelChoice } from "@pid/protocol";
+import type { LlmRequest } from "@qianji/llm";
+import { ErrorCode, type LlmCompleteResult, type ModelChoice } from "@qianji/protocol";
 import { RpcError } from "./rpc.ts";
 
-export const name = "pid-llm-rpc";
+export const name = "qianji-llm-rpc";
 export const inject = ["rpc", "llm"];
 
 export interface Config {

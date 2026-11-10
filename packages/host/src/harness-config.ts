@@ -9,7 +9,7 @@
  *   "plan": { "enabled": true },
  *   "mcp": { "servers": [], "confirmTools": true },
  *   "subagents": { "enabled": true, "concurrency": 3 },
- *   "computer": { "enabled": true, "helper": "C:/.../Pi Desktop.exe", "confirmActions": true },
+ *   "computer": { "enabled": true, "helper": "C:/.../qianji.exe", "confirmActions": true },
  *   "browser": { "enabled": true, "headless": true, "confirmActions": true, "profileDir": "…", "idleMinutes": 10 },
  *   "schedule": { "enabled": true }
  * }
@@ -20,12 +20,12 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Config as BrowserConfig } from "@pid/browser";
-import type { Config as ComputerConfig } from "@pid/computer";
-import type { Config as HooksConfig } from "@pid/hooks";
-import type { Config as McpConfig } from "@pid/mcp";
-import type { Config as PermissionsConfig } from "@pid/permissions";
-import type { Config as SubagentsConfig } from "@pid/subagents";
+import type { Config as BrowserConfig } from "@qianji/browser";
+import type { Config as ComputerConfig } from "@qianji/computer";
+import type { Config as HooksConfig } from "@qianji/hooks";
+import type { Config as McpConfig } from "@qianji/mcp";
+import type { Config as PermissionsConfig } from "@qianji/permissions";
+import type { Config as SubagentsConfig } from "@qianji/subagents";
 
 export interface HarnessConfig {
   permissions: PermissionsConfig;
@@ -171,7 +171,8 @@ export function readHarnessConfig(file: string): { config: HarnessConfig; proble
 
 /**
  * Read `<dataDir>/harness.json` and, when `trustedWorkspace` is provided and
- * contains `.pid/harness.json`, overlay workspace-scoped settings cleanly.
+ * contains `.qianji/harness.json` (or legacy `.pid/harness.json`), overlay
+ * workspace-scoped settings cleanly.
  */
 export function readEffectiveHarnessConfig(
   dataDir: string,
@@ -180,7 +181,9 @@ export function readEffectiveHarnessConfig(
   const config = defaultHarnessConfig();
   const problems = [...applyHarnessLayer(config, join(dataDir, "harness.json"))];
   if (trustedWorkspace !== undefined && trustedWorkspace.trim() !== "") {
-    const projectFile = join(trustedWorkspace, ".pid", "harness.json");
+    const primaryFile = join(trustedWorkspace, ".qianji", "harness.json");
+    const legacyFile = join(trustedWorkspace, ".pid", "harness.json");
+    const projectFile = existsSync(primaryFile) ? primaryFile : legacyFile;
     if (existsSync(projectFile)) {
       problems.push(...applyHarnessLayer(config, projectFile));
     }

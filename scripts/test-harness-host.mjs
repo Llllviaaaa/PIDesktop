@@ -1,5 +1,5 @@
 // Smoke test of the compiled Harness Host (scripts/prepare-harness-host.mjs):
-// start pid-harness.exe the way the desktop app does, read its port line, then
+// start qianji-harness.exe the way the desktop app does, read its port line, then
 // check the RPC gateway (token, initialize, host.info), a provider key it
 // decrypts itself from a DPAPI-protected secrets.dat (Bun FFI), sessions on
 // disk, settings sent as a `{"desktop": …}` stdin line taking effect without
@@ -16,11 +16,11 @@ import { createServer } from "node:http";
 import WebSocket from "ws";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const executable = join(repoRoot, "src-tauri", "resources", "harness", "pid-harness.exe");
+const executable = join(repoRoot, "src-tauri", "resources", "harness", "qianji-harness.exe");
 const appVersion = (await import("../package.json", { with: { type: "json" } })).default.version;
 const pageOrigin = "http://tauri.localhost";
 const token = randomBytes(32).toString("base64url");
-const dataDir = mkdtempSync(join(tmpdir(), "pidesktop-harness-test-"));
+const dataDir = mkdtempSync(join(tmpdir(), "qianji-harness-test-"));
 
 // A provider that records the key it is called with.
 let seenAuthorization = "";
@@ -42,7 +42,7 @@ assert.equal(protectedKey.status, 0, `could not write the DPAPI fixture
 ${protectedKey.stderr}`);
 
 const child = spawn(executable, ["--data-dir", dataDir, "--port", "0", "--page-origin", pageOrigin, "--exit-with-stdin"], {
-  env: { ...process.env, PID_HARNESS_TOKEN: token },
+  env: { ...process.env, QIANJI_HARNESS_TOKEN: token },
   stdio: ["pipe", "pipe", "pipe"],
   windowsHide: true,
 });
@@ -64,11 +64,11 @@ try {
   });
   assert.ok(Number.isInteger(port) && port > 0, "host must report its port");
 
-  const refused = new WebSocket(`ws://127.0.0.1:${port}/rpc`, ["pid.v1", `pid.token.${randomBytes(32).toString("base64url")}`]);
+  const refused = new WebSocket(`ws://127.0.0.1:${port}/rpc`, ["qianji.v1", `qianji.token.${randomBytes(32).toString("base64url")}`]);
   const [, response] = await once(refused, "unexpected-response");
   assert.equal(response.statusCode, 401, "a wrong token must be refused");
 
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/rpc`, ["pid.v1", `pid.token.${token}`], { origin: pageOrigin });
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/rpc`, ["qianji.v1", `qianji.token.${token}`], { origin: pageOrigin });
   await once(socket, "open");
   const replies = new Map();
   socket.on("message", (data) => {
@@ -118,11 +118,11 @@ ${stderr}`);
   writeFileSync(join(extPluginDir, "package.json"), JSON.stringify({
     name: "smoke-ext",
     version: "0.1.0",
-    pid: { id: "smoke-ext", name: "Smoke Ext", host: "./index.ts", client: "./client.tsx" },
+    qianji: { id: "smoke-ext", name: "Smoke Ext", host: "./index.ts", client: "./client.tsx" },
   }));
   writeFileSync(join(extPluginDir, "index.ts"), `
     import { Context } from "@deepseek-ai/cordis";
-    import { textOutput } from "@pid/tools";
+    import { textOutput } from "@qianji/tools";
     export const name = "smoke-ext";
     export const inject = ["tools"];
     export function apply(ctx: Context) {
@@ -143,9 +143,9 @@ ${stderr}`);
     }
   `);
   const installedExt = await call(8, "plugin.install", { channel: "local", spec: extPluginDir, link: true });
-  assert.equal(installedExt.result?.plugin?.status, "active", `pid-harness.exe must load external .ts plugins via Bun.plugin\n${JSON.stringify(installedExt)}\n${stderr}`);
+  assert.equal(installedExt.result?.plugin?.status, "active", `qianji-harness.exe must load external .ts plugins via Bun.plugin\n${JSON.stringify(installedExt)}\n${stderr}`);
   const clientRes = await fetch(`http://127.0.0.1:${port}/plugins/smoke-ext/client.js`, { headers: { origin: pageOrigin } });
-  assert.equal(clientRes.status, 200, "pid-harness.exe must serve compiled .tsx client bundles");
+  assert.equal(clientRes.status, 200, "qianji-harness.exe must serve compiled .tsx client bundles");
   const clientJs = await clientRes.text();
   assert.match(clientJs, /window\.__ModuleLoader__\.load/);
   assert.match(clientJs, /smoke-client-ready/);
@@ -181,4 +181,4 @@ ${headless.stderr}`);
   rmSync(dataDir, { recursive: true, force: true });
 }
 
-console.log(`harness-host: pid-harness ${appVersion} RPC, DPAPI secrets, providers, sessions, desktop settings reload, log file and diagnostics, workbench RPC, stdin shutdown and headless run passed`);
+console.log(`harness-host: qianji-harness ${appVersion} RPC, DPAPI secrets, providers, sessions, desktop settings reload, log file and diagnostics, workbench RPC, stdin shutdown and headless run passed`);

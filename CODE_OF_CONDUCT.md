@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Pi Desktop contributors are expected to keep project spaces professional, constructive, and safe.
+Qianji contributors are expected to keep project spaces professional, constructive, and safe.
 
 ## Expected behavior
 

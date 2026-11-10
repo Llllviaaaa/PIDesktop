@@ -1,4 +1,4 @@
-# @pid/hooks
+# @qianji/hooks
 
 用户 hooks：在 agent 事件和工具事件上运行 shell 命令，事件内容以 JSON 形式从 stdin 传入。见 [ADR 0009](../../docs/adr/0009-feature-plugins.md)，事件的对应关系写在 `src/index.ts` 的文件头。
 

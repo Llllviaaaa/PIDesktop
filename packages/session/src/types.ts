@@ -3,7 +3,7 @@
  * A session is append-only; the LLM context and the transcript are derived
  * from the events, never stored.
  */
-import type { AssistantContent, Effort, FinishReason, LlmErrorInfo, ToolResultContent, Usage, UserContent } from "@pid/llm";
+import type { AssistantContent, Effort, FinishReason, LlmErrorInfo, ToolResultContent, Usage, UserContent } from "@qianji/llm";
 
 export type { Usage };
 
@@ -88,7 +88,7 @@ export interface SessionSummary {
   messageCount: number;
   /** Tokens of every model call in the log, rewound ones included: they were paid for. */
   usage: Usage;
-  /** Disaggregated token buckets per `provider/model` so `@pid/pricing` can price multi-model sessions accurately. */
+  /** Disaggregated token buckets per `provider/model` so `@qianji/pricing` can price multi-model sessions accurately. */
   modelUsage?: SessionModelUsage[];
   forkedFrom?: SessionHeader["forkedFrom"];
   parent?: SessionHeader["parent"];

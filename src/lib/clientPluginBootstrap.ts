@@ -159,7 +159,7 @@ const betterSidebarCompatModule = {
   SIDEBAR_SERVICE_VERSION: "0.26.0",
 };
 
-/** Public client SDK exposed to dynamic `.tsx` plugins via `import ... from "@pid/client"`. */
+/** Public client SDK exposed to dynamic `.tsx` plugins via `import ... from "@qianji/client"`. */
 export {
   clientContributions,
   useClientContributions,
@@ -226,8 +226,10 @@ export const CLIENT_MODULES: Record<string, () => Promise<unknown>> = {
   "@deepseek-ai/cordis": () => import("@deepseek-ai/cordis"),
   "schemastery": () => import("@deepseek-ai/schemastery"),
   "@deepseek-ai/schemastery": () => import("@deepseek-ai/schemastery"),
+  "@qianji/client": async () => pidClientSdk,
+  "@qianji/protocol": () => import("@qianji/protocol"),
   "@pid/client": async () => pidClientSdk,
-  "@pid/protocol": () => import("@pid/protocol"),
+  "@pid/protocol": () => import("@qianji/protocol"),
   "dsh-better-sidebar": async () => betterSidebarCompatModule,
   "dsh-better-sidebar/client": async () => betterSidebarCompatModule,
   "lucide-react": () => import("lucide-react"),

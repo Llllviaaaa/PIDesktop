@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible Pi Desktop defect
+description: Report a reproducible Qianji defect
 title: "[Bug]: "
 labels: ["bug"]
 body:
@@ -9,8 +9,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Pi Desktop version
-      placeholder: 0.2.8 or commit SHA
+      label: Qianji version
+      placeholder: 0.3.0 or commit SHA
     validations:
       required: true
   - type: input

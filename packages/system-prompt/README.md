@@ -1,4 +1,4 @@
-# @pid/system-prompt
+# @qianji/system-prompt
 
 系统提示词由多个片段组成，见 [ADR 0003](../../docs/adr/0003-plugin-model-and-events.md)。
 

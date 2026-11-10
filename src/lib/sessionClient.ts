@@ -1,4 +1,4 @@
-import type { SessionSearchResult } from "@pid/protocol";
+import type { SessionSearchResult } from "@qianji/protocol";
 import type { SessionInfo, SessionSearchMatch, UiMessage } from "../types";
 import { HARNESS_SESSION_PREFIX, harnessRuntimes } from "./harnessRuntime";
 import { sessionInfoFromHost } from "./hostSessions";

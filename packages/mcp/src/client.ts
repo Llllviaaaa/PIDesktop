@@ -180,7 +180,7 @@ class StdioMcpClient implements McpClient {
     const result = await this.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: "Pi Desktop", version: "0.3.0" },
+      clientInfo: { name: "Qianji", version: "0.3.0" },
     }) as { protocolVersion?: string; capabilities?: McpCapabilities };
     const negotiated = result.protocolVersion || PROTOCOL_VERSION;
     if (!SUPPORTED_PROTOCOL_VERSIONS.has(negotiated)) {
@@ -260,7 +260,7 @@ class StdioMcpClient implements McpClient {
         const entry = this.pending.get(id);
         if (!entry) return;
         try {
-          this.notify("notifications/cancelled", { requestId: id, reason: "Pi Desktop tool call cancelled" });
+          this.notify("notifications/cancelled", { requestId: id, reason: "Qianji tool call cancelled" });
         } catch {
           // The connection may already be closing.
         }
@@ -339,7 +339,7 @@ class StdioMcpClient implements McpClient {
         continue;
       }
       if (message.id !== undefined && message.method) {
-        this.send({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Pi Desktop does not support this MCP client request" } });
+        this.send({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Qianji does not support this MCP client request" } });
         continue;
       }
       if (message.method && message.id === undefined) {
@@ -377,7 +377,7 @@ class HttpMcpClient implements McpClient {
     const result = await this.request("initialize", {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: "Pi Desktop", version: "0.3.0" },
+      clientInfo: { name: "Qianji", version: "0.3.0" },
     }) as { protocolVersion?: string; capabilities?: McpCapabilities };
     this.negotiatedVersion = result.protocolVersion || PROTOCOL_VERSION;
     if (!SUPPORTED_PROTOCOL_VERSIONS.has(this.negotiatedVersion)) {

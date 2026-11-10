@@ -19,7 +19,7 @@ document.documentElement.dataset.theme ??= window.matchMedia("(prefers-color-sch
 const fixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("fixture") : null;
 
 if (fixture === "thread" || fixture === "performance" || fixture === "stream" || fixture === "queue" || fixture === "title" || fixture === "diagrams" || fixture === "goal") {
-  const cwd = "D:\\Projects\\PIDesktop";
+  const cwd = "D:\\Projects\\Qianji";
   const performanceFixture = fixture === "performance";
   const streamFixture = fixture === "stream";
   const queueFixture = fixture === "queue";
@@ -38,7 +38,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
     cwd,
     sessionFile: "fixture-session.jsonl",
     sessionId: "fixture-session",
-    sessionName: titleFixture ? null : "修复 Pi Desktop 界面与启动性能",
+    sessionName: titleFixture ? null : "修复千机界面与启动性能",
     stats: {
       sessionFile: "fixture-session.jsonl",
       sessionId: "fixture-session",
@@ -98,9 +98,9 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
           "```plantuml",
           "@startuml",
           "actor Agent",
-          "participant PIDesktop",
-          "Agent -> PIDesktop: PlantUML 源码",
-          "PIDesktop --> Agent: 本地渲染 SVG",
+          "participant Qianji",
+          "Agent -> Qianji: PlantUML 源码",
+          "Qianji --> Agent: 本地渲染 SVG",
           "@enduml",
           "```",
         ].join("\n"),
@@ -194,7 +194,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
             args: {
               path: "src/App.tsx",
               old_string: "const title = \"Pi\"",
-              new_string: "const title = \"Pi Desktop\"",
+              new_string: "const title = \"千机\"",
             },
             running: false,
             startedAt: Date.now() - 17_000,
@@ -272,7 +272,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
       file: "fixture-session.jsonl",
       sessionId: "fixture-session",
       cwd,
-      name: titleFixture ? undefined : "修复 Pi Desktop 界面与启动性能",
+      name: titleFixture ? undefined : "修复千机界面与启动性能",
       firstMessage: titleFixture ? "按照paseo" : "对齐 Codex 的右上角控制",
       messageCount: performanceFixture ? performanceMessages.length : 3,
       updatedAt: Date.now(),
@@ -414,7 +414,7 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
           type: "tool-end",
           callId: "fixture-stream-read",
           name: "read",
-          result: { text: "# Pi Desktop\n\nA local Windows desktop client.", isError: false, finishedAt: Date.now() },
+          result: { text: "# 千机\n\nA local Windows desktop client.", isError: false, finishedAt: Date.now() },
         });
         const timer = window.setInterval(() => {
           updateCount += 1;

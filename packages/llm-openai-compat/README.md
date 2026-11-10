@@ -1,4 +1,4 @@
-# @pid/llm-openai-compat
+# @qianji/llm-openai-compat
 
 适用于 OpenAI 兼容 Chat Completions 接口的适配器插件，见 [ADR 0007](../../docs/adr/0007-llm-layer.md)。一个插件可以服务多个 provider，例如 OpenAI、DeepSeek、OpenRouter、Ollama、vLLM。
 

@@ -1,4 +1,4 @@
-# @pid/tool-bash
+# @qianji/tool-bash
 
 `bash` 工具：在会话的 cwd 中执行命令，返回合并后的 stdout 和 stderr（只保留最后 2000 行或 50 KB）。
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { Sessions } from "@pid/session";
+import { Sessions } from "@qianji/session";
 import * as sessionJsonl from "../src/index.ts";
 import { parseLog } from "../src/index.ts";
 

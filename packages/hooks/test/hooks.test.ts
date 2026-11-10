@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { Sessions } from "@pid/session";
-import { Tools, textOutput } from "@pid/tools";
-import { Ui } from "@pid/ui";
+import { Sessions } from "@qianji/session";
+import { Tools, textOutput } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
 import * as hooks from "../src/index.ts";
 import { hookEnvironment, type DesktopHookConfig } from "../src/index.ts";
 

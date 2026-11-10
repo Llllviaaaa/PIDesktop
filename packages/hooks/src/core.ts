@@ -29,7 +29,7 @@ const EVENTS = new Set<DesktopHookEvent>([
 ]);
 
 export function validateDesktopHooks(input: DesktopHookConfig[]): DesktopHookConfig[] {
-  if (input.length > 32) throw new Error("Pi Desktop supports at most 32 hooks");
+  if (input.length > 32) throw new Error("Qianji supports at most 32 hooks");
   const ids = new Set<string>();
   return input.map((hook, index) => {
     const id = hook.id.trim();

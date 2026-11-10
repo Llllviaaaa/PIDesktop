@@ -320,3 +320,23 @@ test("a picked model that Pi rejects is reported once and not retried on the nex
   assert.deepEqual(runtimeIn(WORKTREE).setModelRequests, []);
   assert.equal(store().model?.id, DEFAULT_MODEL.id);
 });
+
+test("each model remembers its own thinking level when switching back and forth", async () => {
+  await store().connect(PROJECT);
+  await store().setThinkingLevel("medium");
+
+  await store().setModel(PICKED_MODEL);
+  await store().setThinkingLevel("high");
+  assert.equal(store().thinkingLevel, "high");
+  assert.equal(runtimeIn(PROJECT).thinkingLevel, "high");
+
+  // Switching back to DEFAULT_MODEL restores DEFAULT_MODEL's own "medium" level.
+  await store().setModel(DEFAULT_MODEL);
+  assert.equal(store().thinkingLevel, "medium");
+  assert.equal(runtimeIn(PROJECT).thinkingLevel, "medium");
+
+  // Switching to PICKED_MODEL again restores PICKED_MODEL's "high" level.
+  await store().setModel(PICKED_MODEL);
+  assert.equal(store().thinkingLevel, "high");
+  assert.equal(runtimeIn(PROJECT).thinkingLevel, "high");
+});

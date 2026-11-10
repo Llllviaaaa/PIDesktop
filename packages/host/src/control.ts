@@ -17,7 +17,7 @@ import { HARNESS_TOGGLED_PLUGIN_IDS, pluginEnabledInHarness, readHarnessConfig }
 import { installPlugin, managedPluginsRoot } from "./plugin-installer.ts";
 import { pluginsStorePath, updatePluginsStore } from "./plugin-store.ts";
 
-/** The fields a desktop scheduled task shares with the host's (`@pid/schedule`). */
+/** The fields a desktop scheduled task shares with the host's (`@qianji/schedule`). */
 const TASK_FIELDS = ["id", "name", "prompt", "cwd", "frequency", "hour", "minute", "weekday", "permissionMode", "enabled", "lastRunAt", "lastStatus", "lastMessage"] as const;
 
 /**

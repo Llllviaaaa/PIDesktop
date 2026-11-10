@@ -4,12 +4,12 @@
  */
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentBusyError, type AgentDelta } from "@pid/agent";
-import { LlmService } from "@pid/llm";
-import { COMPACTION_PREFIX, Sessions, type Session } from "@pid/session";
-import { SystemPrompt } from "@pid/system-prompt";
-import { ScriptedProvider, errorReply, goldenLog, textReply, toolReply, useScriptedProvider, type ScriptedOptions, type ScriptedReply } from "@pid/testkit";
-import { Tools, textOutput } from "@pid/tools";
+import { AgentBusyError, type AgentDelta } from "@qianji/agent";
+import { LlmService } from "@qianji/llm";
+import { COMPACTION_PREFIX, Sessions, type Session } from "@qianji/session";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { ScriptedProvider, errorReply, goldenLog, textReply, toolReply, useScriptedProvider, type ScriptedOptions, type ScriptedReply } from "@qianji/testkit";
+import { Tools, textOutput } from "@qianji/tools";
 import { AgentLoop, COMPACTION_REQUEST, type AgentLoopConfig } from "../src/index.ts";
 
 interface Harness {

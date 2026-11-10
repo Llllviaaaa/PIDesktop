@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { ErrorCode } from "@pid/protocol";
+import { ErrorCode } from "@qianji/protocol";
 import { RpcError } from "../src/index.ts";
 
-describe("@pid/rpc contract", () => {
+describe("@qianji/rpc contract", () => {
   it("constructs structured RpcError instances with code, message, and optional data", () => {
     const err = new RpcError(ErrorCode.InvalidParams, "sessionId must be a string", { field: "sessionId" });
     expect(err).toBeInstanceOf(Error);

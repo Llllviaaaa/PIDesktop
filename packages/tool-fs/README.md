@@ -1,4 +1,4 @@
-# @pid/tool-fs
+# @qianji/tool-fs
 
 内置文件工具：`read`、`write`、`edit`、`ls`、`find`、`grep`。
 

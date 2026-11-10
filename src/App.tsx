@@ -214,7 +214,7 @@ export default function App() {
   const [editingTitle, setEditingTitle] = useState(false);
   // Codex home defaults to Local; Worktree only when settings or user toggle says so.
   const [taskEnvironment, setTaskEnvironment] = useState<"local" | "worktree">("local");
-  const [draftWorkspace, setDraftWorkspace] = useState(() => window.localStorage.getItem("pid-desktop:last-workspace") || "");
+  const [draftWorkspace, setDraftWorkspace] = useState(() => window.localStorage.getItem("qianji:last-workspace") || "");
   // The home composer shows the chosen workspace's branch and uncommitted changes.
   const draftGitQuery = useQuery({
     queryKey: queryKeys.gitSnapshot(draftWorkspace),
@@ -487,7 +487,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    window.localStorage.setItem("pid-desktop:task-environment", taskEnvironment);
+    window.localStorage.setItem("qianji:task-environment", taskEnvironment);
   }, [taskEnvironment]);
 
   useEffect(() => {
@@ -627,15 +627,18 @@ export default function App() {
       }
       if (shortcut === normalize(shortcuts.newChat) && connection === "running") {
         event.preventDefault();
+        setSettingsOpen(false);
         prepareNewTask();
         setDraftMode(true);
         setQuickChat(false);
         setHubView(null);
       } else if (shortcut === normalize(shortcuts.terminal) || shortcut === "ctrl+j") {
         event.preventDefault();
+        setSettingsOpen(false);
         toggleBottomPanel();
       } else if (shortcut === normalize(shortcuts.changes) && !inTerminal) {
         event.preventDefault();
+        setSettingsOpen(false);
         openReview();
       } else if (shortcut === normalize(shortcuts.toggleSidebar) && !inTerminal) {
         event.preventDefault();
@@ -698,10 +701,10 @@ export default function App() {
     };
     void loadProjects();
     const reload = () => void loadProjects();
-    window.addEventListener("pid-desktop:projects-changed", reload);
+    window.addEventListener("qianji:projects-changed", reload);
     return () => {
       disposed = true;
-      window.removeEventListener("pid-desktop:projects-changed", reload);
+      window.removeEventListener("qianji:projects-changed", reload);
     };
   }, [isTauri]);
 
@@ -719,12 +722,12 @@ export default function App() {
   }, [draftWorkspace, isTauri, queryClient]);
 
   const selectWorkspace = useCallback((workspace: string) => {
-    window.localStorage.setItem("pid-desktop:last-workspace", workspace);
+    window.localStorage.setItem("qianji:last-workspace", workspace);
     setDraftWorkspace(workspace);
     setQuickChat(false);
     if (isTauri && workspace && !workspace.toLowerCase().endsWith("quick-chat")) {
       void agent.registerProject(workspace)
-        .then(() => window.dispatchEvent(new Event("pid-desktop:projects-changed")))
+        .then(() => window.dispatchEvent(new Event("qianji:projects-changed")))
         .catch(() => undefined);
     }
   }, [isTauri]);
@@ -764,7 +767,7 @@ export default function App() {
   const newWorktreeChat = useCallback(async () => {
     if (!cwd) return;
     const worktree = await agent.createWorktree(cwd, git?.branch);
-    window.localStorage.setItem("pid-desktop:last-workspace", worktree.path);
+    window.localStorage.setItem("qianji:last-workspace", worktree.path);
     await connect(worktree.path);
   }, [cwd, git?.branch, connect]);
 
@@ -851,7 +854,7 @@ export default function App() {
     }
     const normalize = (value: string) => value.replace(/[\\/]+$/, "").toLowerCase();
     if (current.connection !== "running" || normalize(current.cwd) !== normalize(workspace)) {
-      window.localStorage.setItem("pid-desktop:last-workspace", workspace);
+      window.localStorage.setItem("qianji:last-workspace", workspace);
       const connection = current.connect(workspace);
       enterConversation();
       await connection;
@@ -867,7 +870,7 @@ export default function App() {
         await current.refreshGit();
         current = useAppStore.getState();
         const worktree = await agent.createWorktree(current.cwd, current.git?.branch);
-        window.localStorage.setItem("pid-desktop:last-workspace", worktree.path);
+        window.localStorage.setItem("qianji:last-workspace", worktree.path);
         setDraftWorkspace(worktree.path);
         const connection = current.connect(worktree.path);
         enterConversation();
@@ -906,7 +909,7 @@ export default function App() {
     // Codex home defaults to Local; only keep Worktree when settings ask for it.
     const preferred = current.settings?.defaultTaskEnvironment === "worktree" ? "worktree" : "local";
     setTaskEnvironment(asQuickChat ? "local" : preferred);
-    window.localStorage.setItem("pid-desktop:task-environment", asQuickChat ? "local" : preferred);
+    window.localStorage.setItem("qianji:task-environment", asQuickChat ? "local" : preferred);
     setHubView(null);
   }, []);
 
@@ -989,7 +992,7 @@ export default function App() {
       else startNewTask(false);
       return;
     }
-    window.localStorage.setItem("pid-desktop:last-workspace", target.cwd);
+    window.localStorage.setItem("qianji:last-workspace", target.cwd);
     setDraftWorkspace(target.cwd);
     setDraftMode(false);
     setQuickChat(target.cwd.toLowerCase().endsWith("quick-chat"));
@@ -1304,10 +1307,10 @@ export default function App() {
   const exportConversationMarkdown = useCallback(async () => {
     const current = useAppStore.getState();
     if (!current.sessionFile) return;
-    const baseName = (current.sessionName || "pidesktop-conversation")
+    const baseName = (current.sessionName || "qianji-conversation")
       // eslint-disable-next-line no-control-regex -- stripping control characters is what this sanitiser is for
       .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-")
-      .trim() || "pidesktop-conversation";
+      .trim() || "qianji-conversation";
     const destination = await saveDialog({
       title: "导出当前对话",
       defaultPath: `${baseName}.md`,
@@ -1376,24 +1379,37 @@ export default function App() {
 
 
   // Codex layout: native-style menubar above the sidebar and rounded work surface.
+  const settingsIsModal = settings?.settingsDisplayMode === "modal";
   return (
-    <div className="app-shell codex-shot">
+    <div
+      className="app-shell codex-shot"
+      style={{ ["--sidebar-width" as string]: `${sidebarWidth}px` }}
+    >
       <div className="window-menubar" data-tauri-drag-region>
         <div className="window-menubar-left" data-tauri-drag-region>
           <button
             type="button"
             className="window-nav-button"
             onClick={togglePrimarySidebar}
-            onMouseEnter={showSidebarHoverPreview}
-            onMouseLeave={scheduleSidebarHoverClose}
+            onMouseEnter={settingsOpen ? undefined : showSidebarHoverPreview}
+            onMouseLeave={settingsOpen ? undefined : scheduleSidebarHoverClose}
             title={sidebarVisible ? "隐藏侧栏" : "显示侧栏"}
           >
             <PanelLeft size={17} strokeWidth={1.65} />
           </button>
-          <button type="button" className="window-nav-button" disabled={!canNavigateBack} onClick={navigateBack} title="后退">
+          <button
+            type="button"
+            className="window-nav-button"
+            disabled={!settingsOpen && !canNavigateBack}
+            onClick={() => {
+              if (settingsOpen) setSettingsOpen(false);
+              else navigateBack();
+            }}
+            title="后退"
+          >
             <ArrowLeft size={18} strokeWidth={1.55} />
           </button>
-          <button type="button" className="window-nav-button" disabled={!canNavigateForward} onClick={navigateForward} title="前进">
+          <button type="button" className="window-nav-button" disabled={settingsOpen || !canNavigateForward} onClick={navigateForward} title="前进">
             <ArrowRight size={18} strokeWidth={1.55} />
           </button>
           <div className="app-menu-bar">
@@ -1411,8 +1427,8 @@ export default function App() {
           {appMenu && (
             <div className={`app-menu-dropdown menu-${appMenu}`}>
               {appMenu === "file" && <>
-                <button onClick={() => { setAppMenu(null); navigateTo({ kind: "home", workspace: draftWorkspace || cwd }); }}>新对话</button>
-                <button onClick={() => { setAppMenu(null); void pickFolder(); }}>打开项目...</button>
+                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); navigateTo({ kind: "home", workspace: draftWorkspace || cwd }); }}>新对话</button>
+                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); void pickFolder(); }}>打开项目...</button>
                 <button disabled={!canOpenWorkspace} onClick={() => { setAppMenu(null); openWorkspaceInPreferredApp(); }}>{preferredWorkspaceEditor ? `在 ${preferredWorkspaceEditor.name} 中打开` : "在文件资源管理器中打开"}  Ctrl+Shift+O</button>
                 <button disabled={!connected || !sessionFile} onClick={() => { setAppMenu(null); void exportConversationMarkdown(); }}>导出为 Markdown...</button>
                 <button disabled={!connected} onClick={() => { setAppMenu(null); void exportConversation(); }}>导出为 Markdown</button>
@@ -1434,14 +1450,14 @@ export default function App() {
                   </button>
                 ))}
                 <div className="menu-separator" />
-                <button onClick={() => { setAppMenu(null); toggleWorkspaceSidebar(); }}>侧边栏  Ctrl+Alt+B</button>
-                <button onClick={() => { setAppMenu(null); openBrowserAt(); }}>浏览器  Ctrl+T</button>
-                <button onClick={() => { setAppMenu(null); toggleBottomPanel(); }}>底部面板  Ctrl+J</button>
+                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); toggleWorkspaceSidebar(); }}>侧边栏  Ctrl+Alt+B</button>
+                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); openBrowserAt(); }}>浏览器  Ctrl+T</button>
+                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); toggleBottomPanel(); }}>底部面板  Ctrl+J</button>
                 <button onClick={() => { setAppMenu(null); openSettingsPage("appearance"); }}>外观设置</button>
               </>}
               {appMenu === "help" && <>
-                <button onClick={() => { setAppMenu(null); void openUrl("https://pi.dev"); }}>Pi 文档</button>
-                <button onClick={() => { setAppMenu(null); openDiagnostics(); }}>诊断日志</button>
+                <button onClick={() => { setAppMenu(null); void openUrl("https://github.com/Llllviaaaa/PIDesktop"); }}>项目主页</button>
+                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); openDiagnostics(); }}>诊断日志</button>
               </>}
             </div>
           )}
@@ -1462,7 +1478,7 @@ export default function App() {
         ["--sidebar-width" as string]: `${sidebarWidth}px`,
         ["--workspace-panel-width" as string]: `${workspacePanelWidth}px`,
       }}>
-        {!sidebarVisible && (
+        {!sidebarVisible && !settingsOpen && (
           <div
             aria-hidden="true"
             className="sidebar-hover-zone"
@@ -1815,7 +1831,7 @@ export default function App() {
                     ) : undefined}
                   />
                   {/* ConversationPlan already renders update_plan; skip the plan extension's text copy. */}
-                  {Object.entries(extensionWidgets).filter(([key]) => key !== "pidesktop-plan").map(([key, lines]) => (
+                  {Object.entries(extensionWidgets).filter(([key]) => key !== "qianji-plan" && key !== "pidesktop-plan").map(([key, lines]) => (
                     <div className="extension-widget" key={key}>{lines.map((line, lineIndex) => <div key={lineIndex}>{line}</div>)}</div>
                   ))}
                   {extensionRequest && <ExtensionDialog request={extensionRequest} onAnswer={(response) => void store.answerExtension(response)} />}
@@ -1876,7 +1892,15 @@ export default function App() {
       )}
       <AnimatePresence>
         {settingsOpen && (
-          <Suspense fallback={<div className="settings-center settings-loading">正在加载设置…</div>}>
+          <Suspense
+            fallback={(
+              <div className={`settings-backdrop ${settingsIsModal ? "is-modal" : "is-page"}`}>
+                <div className={`settings-center settings-loading ${settingsIsModal ? "is-modal" : "is-page"}`}>
+                  正在加载设置…
+                </div>
+              </div>
+            )}
+          >
             <SettingsModal
               initialPage={settingsPage}
               settings={settings}

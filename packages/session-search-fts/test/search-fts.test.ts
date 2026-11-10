@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { Sessions } from "@pid/session";
-import * as sessionJsonl from "@pid/session-jsonl";
+import { Sessions } from "@qianji/session";
+import * as sessionJsonl from "@qianji/session-jsonl";
 import * as sessionSearchFts from "../src/index.ts";
 
 let dir = "";
@@ -21,7 +21,7 @@ afterEach(async () => {
 
 const text = (value: string) => [{ type: "text" as const, text: value }];
 
-describe("@pid/session-search-fts", () => {
+describe("@qianji/session-search-fts", () => {
   it("indexes appended events asynchronously without blocking append, flushes before search, and falls back cleanly when unmounted", async () => {
     dir = mkdtempSync(join(tmpdir(), "pid-fts-plugin-"));
     const sessionsDir = join(dir, "sessions");

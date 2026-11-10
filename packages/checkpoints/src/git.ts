@@ -8,8 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 
-export const PIDESKTOP_CHECKPOINT_TYPE = "pidesktop-workspace-checkpoint";
-export const PIDESKTOP_CHECKPOINT_RETENTION = 250;
+export const QIANJI_CHECKPOINT_TYPE = "qianji-workspace-checkpoint";
+export const QIANJI_CHECKPOINT_RETENTION = 250;
+export const PIDESKTOP_CHECKPOINT_TYPE = QIANJI_CHECKPOINT_TYPE;
+export const PIDESKTOP_CHECKPOINT_RETENTION = QIANJI_CHECKPOINT_RETENTION;
 
 export interface WorkspaceCheckpoint {
   version: 1;
@@ -77,7 +79,7 @@ async function headTree(root: string): Promise<string | null> {
 }
 
 async function worktreeTree(root: string): Promise<string> {
-  const temp = await mkdtemp(join(tmpdir(), "pidesktop-checkpoint-"));
+  const temp = await mkdtemp(join(tmpdir(), "qianji-checkpoint-"));
   const indexFile = join(temp, "index");
   const env = { GIT_INDEX_FILE: indexFile };
   try {
@@ -99,18 +101,19 @@ async function indexTree(root: string): Promise<string> {
 
 function checkpointEnvironment(): Record<string, string> {
   return {
-    GIT_AUTHOR_NAME: "PIDesktop",
-    GIT_AUTHOR_EMAIL: "checkpoint@pidesktop.local",
-    GIT_COMMITTER_NAME: "PIDesktop",
-    GIT_COMMITTER_EMAIL: "checkpoint@pidesktop.local",
+    GIT_AUTHOR_NAME: "Qianji",
+    GIT_AUTHOR_EMAIL: "checkpoint@qianji.local",
+    GIT_COMMITTER_NAME: "Qianji",
+    GIT_COMMITTER_EMAIL: "checkpoint@qianji.local",
   };
 }
 
-export async function pruneWorkspaceCheckpoints(root: string, retain = PIDESKTOP_CHECKPOINT_RETENTION): Promise<number> {
+export async function pruneWorkspaceCheckpoints(root: string, retain = QIANJI_CHECKPOINT_RETENTION): Promise<number> {
   const result = await runGit(root, [
     "for-each-ref",
     "--sort=-creatordate",
     "--format=%(refname)",
+    "refs/qianji/checkpoints",
     "refs/pidesktop/checkpoints",
   ]);
   const refs = result.stdout.toString("utf8").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
@@ -126,10 +129,10 @@ export async function createWorkspaceCheckpoint(cwd: string): Promise<WorkspaceC
   try {
     const [tree, stagedTree] = await Promise.all([worktreeTree(root), indexTree(root)]);
     const id = randomUUID();
-    const ref = `refs/pidesktop/checkpoints/${id}`;
+    const ref = `refs/qianji/checkpoints/${id}`;
     const commit = await runGit(root, ["commit-tree", tree], {
       env: checkpointEnvironment(),
-      input: `PIDesktop workspace checkpoint ${id}\n`,
+      input: `Qianji workspace checkpoint ${id}\n`,
     });
     await runGit(root, ["update-ref", ref, commit.stdout.toString("utf8").trim()]);
     await pruneWorkspaceCheckpoints(root);

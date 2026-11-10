@@ -11,16 +11,16 @@
  */
 import { readFileSync } from "node:fs";
 import type { Context } from "@deepseek-ai/cordis";
-import { LlmError, isSecretRef, type LlmProtocolSpec, type ModelInfo, type ModelPricing, type SecretRef } from "@pid/llm";
-import * as anthropic from "@pid/llm-anthropic";
-import * as gemini from "@pid/llm-gemini";
-import * as openaiCompat from "@pid/llm-openai-compat";
-import * as openaiResponses from "@pid/llm-openai-responses";
-import "@pid/pricing";
-import { ErrorCode, type ModelListResult, type ProviderListResult } from "@pid/protocol";
+import { LlmError, isSecretRef, type LlmProtocolSpec, type ModelInfo, type ModelPricing, type SecretRef } from "@qianji/llm";
+import * as anthropic from "@qianji/llm-anthropic";
+import * as gemini from "@qianji/llm-gemini";
+import * as openaiCompat from "@qianji/llm-openai-compat";
+import * as openaiResponses from "@qianji/llm-openai-responses";
+import "@qianji/pricing";
+import { ErrorCode, type ModelListResult, type ProviderListResult } from "@qianji/protocol";
 import { RpcError } from "./rpc.ts";
 
-export const name = "pid-providers";
+export const name = "qianji-providers";
 export const inject = ["llm", "credentials"];
 
 export interface Config {

@@ -1,4 +1,4 @@
-# @pid/subagents
+# @qianji/subagents
 
 `delegate_task` 工具：把最多 8 个互相独立的任务交给子 agent 并行执行。每个子 agent 运行在调用方会话的一个子会话里，由同一个 loop 驱动。见 [ADR 0010](../../docs/adr/0010-subagents-mcp-usage.md)。
 

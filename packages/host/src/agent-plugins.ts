@@ -11,34 +11,34 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Context, Plugin } from "@deepseek-ai/cordis";
-import { AgentLoop } from "@pid/agent-loop";
-import * as browser from "@pid/browser";
-import * as checkpoints from "@pid/checkpoints";
-import { Commands } from "@pid/commands";
-import * as computer from "@pid/computer";
-import * as hooks from "@pid/hooks";
-import * as intelligentUi from "@pid/intelligent-ui";
-import { Credentials, LlmService } from "@pid/llm";
-import * as llmAnthropic from "@pid/llm-anthropic";
-import * as llmGemini from "@pid/llm-gemini";
-import * as llmOpenaiCompat from "@pid/llm-openai-compat";
-import * as llmOpenaiResponses from "@pid/llm-openai-responses";
-import { Mcp, type McpServerConfig } from "@pid/mcp";
-import * as memory from "@pid/memory";
-import { Permissions, type PermissionMode } from "@pid/permissions";
-import * as plan from "@pid/plan";
-import { Pricing } from "@pid/pricing";
-import * as promptContext from "@pid/prompt-context";
-import { Schedule } from "@pid/schedule";
-import { Sessions } from "@pid/session";
-import * as sessionJsonl from "@pid/session-jsonl";
-import * as sessionSearchFts from "@pid/session-search-fts";
-import * as subagents from "@pid/subagents";
-import { SystemPrompt } from "@pid/system-prompt";
-import * as toolBash from "@pid/tool-bash";
-import * as toolFs from "@pid/tool-fs";
-import { Tools } from "@pid/tools";
-import { Ui } from "@pid/ui";
+import { AgentLoop } from "@qianji/agent-loop";
+import * as browser from "@qianji/browser";
+import * as checkpoints from "@qianji/checkpoints";
+import { Commands } from "@qianji/commands";
+import * as computer from "@qianji/computer";
+import * as hooks from "@qianji/hooks";
+import * as intelligentUi from "@qianji/intelligent-ui";
+import { Credentials, LlmService } from "@qianji/llm";
+import * as llmAnthropic from "@qianji/llm-anthropic";
+import * as llmGemini from "@qianji/llm-gemini";
+import * as llmOpenaiCompat from "@qianji/llm-openai-compat";
+import * as llmOpenaiResponses from "@qianji/llm-openai-responses";
+import { Mcp, type McpServerConfig } from "@qianji/mcp";
+import * as memory from "@qianji/memory";
+import { Permissions, type PermissionMode } from "@qianji/permissions";
+import * as plan from "@qianji/plan";
+import { Pricing } from "@qianji/pricing";
+import * as promptContext from "@qianji/prompt-context";
+import { Schedule } from "@qianji/schedule";
+import { Sessions } from "@qianji/session";
+import * as sessionJsonl from "@qianji/session-jsonl";
+import * as sessionSearchFts from "@qianji/session-search-fts";
+import * as subagents from "@qianji/subagents";
+import { SystemPrompt } from "@qianji/system-prompt";
+import * as toolBash from "@qianji/tool-bash";
+import * as toolFs from "@qianji/tool-fs";
+import { Tools } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
 import * as commandsRpc from "./commands-rpc.ts";
 import * as diagnostics from "./diagnostics.ts";
 import type { HarnessConfig } from "./harness-config.ts";
@@ -62,7 +62,7 @@ export interface CoreOptions {
 
 /** Registers secrets.dat as the store for `{ secret }` refs. */
 const secretStore = {
-  name: "pid-secret-store",
+  name: "qianji-secret-store",
   inject: ["credentials"],
   apply(ctx: Context, config: { file: string; codec: SecretCodec }) {
     ctx.effect(() => ctx.credentials.registerStore(fileSecretResolver(config.file, config.codec)), "secret store: secrets.dat");
@@ -71,7 +71,7 @@ const secretStore = {
 
 /** Exposes `config.reload` when an RPC gateway is attached. */
 const configRpcPlugin = {
-  name: "pid-config-rpc",
+  name: "qianji-config-rpc",
   inject: ["rpc"],
   apply(ctx: Context, config: { reload: () => Promise<string[]> }) {
     ctx.effect(
@@ -83,7 +83,7 @@ const configRpcPlugin = {
 
 /** Reloadable lightweight sandbox policy for `bash` (M4.3). */
 const bashSandboxPlugin = {
-  name: "pid-bash-sandbox",
+  name: "qianji-bash-sandbox",
   inject: ["tools", "sessions"],
   apply(ctx: Context) {
     ctx.plugin(toolBash.BashSandbox, { enabled: true });

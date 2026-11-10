@@ -19,7 +19,7 @@ assert.equal(packageLock.version, packageManifest.version, "package-lock version
 assert.equal(packageLock.packages?.[""]?.version, packageManifest.version, "package-lock root package version must match package.json");
 assert.match(cargoManifest, new RegExp(`^version = "${packageManifest.version.replaceAll(".", "\\.")}"$`, "m"), "Cargo package version must match package.json");
 assert.match(cargoManifest, /^license = "Apache-2\.0"$/m, "Cargo metadata must declare the repository license");
-assert.match(cargoLock, new RegExp(`name = "pid-desktop"\\r?\\nversion = "${packageManifest.version.replaceAll(".", "\\.")}"`), "Cargo.lock package version must match package.json");
+assert.match(cargoLock, new RegExp(`name = "qianji"\\r?\\nversion = "${packageManifest.version.replaceAll(".", "\\.")}"`), "Cargo.lock package version must match package.json");
 assert.equal(tauriConfig.version, packageManifest.version, "Tauri bundle version must match package.json");
 assert.match(packageManifest.devDependencies?.bun ?? "", /^\d+\.\d+\.\d+$/, "the Harness Host compiler must be pinned exactly");
 
@@ -65,7 +65,7 @@ assert.equal(
   "the Harness Host resource directory must exist in a clean checkout",
 );
 assert.match(thirdPartyNotices, /Bun runtime/, "bundled Bun runtime must have redistribution notices");
-const mcpVersions = [...mcpClient.matchAll(/clientInfo: \{ name: "Pi Desktop", version: "([^"]+)" \}/g)].map((match) => match[1]);
+const mcpVersions = [...mcpClient.matchAll(/clientInfo: \{ name: "Qianji", version: "([^"]+)" \}/g)].map((match) => match[1]);
 assert.ok(mcpVersions.length > 0, "the MCP client must declare a version");
 assert.ok(mcpVersions.every((version) => version === packageManifest.version), "the MCP client version must match package.json");
 

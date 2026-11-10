@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
-import { textOutput, type ToolDefinition } from "@pid/tools";
+import { textOutput, type ToolDefinition } from "@qianji/tools";
 import {
   MAX_BYTES,
   MAX_LINES,
@@ -21,7 +21,7 @@ import {
 
 export * from "./shared.ts";
 
-export const name = "pid-tool-fs";
+export const name = "qianji-tool-fs";
 export const inject = ["tools"];
 
 const IMAGE_TYPES: Record<string, string> = {

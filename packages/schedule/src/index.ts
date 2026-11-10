@@ -14,7 +14,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Context, Service } from "@deepseek-ai/cordis";
-import type { RunOutcome } from "@pid/agent";
+import type { RunOutcome } from "@qianji/agent";
 import {
   ErrorCode,
   type ScheduleListResult,
@@ -22,10 +22,10 @@ import {
   type ScheduleTaskNotification,
   type ScheduledRunInfo,
   type ScheduledTaskInfo,
-} from "@pid/protocol";
-import { RpcError } from "@pid/rpc";
-import type { Session } from "@pid/session";
-import "@pid/ui";
+} from "@qianji/protocol";
+import { RpcError } from "@qianji/rpc";
+import type { Session } from "@qianji/session";
+import "@qianji/ui";
 import {
   nextScheduledRun,
   timeoutMinutes,
@@ -300,7 +300,7 @@ export class Schedule extends Service {
       void this.ctx.agents.abort(session.id);
     }, timeoutMinutes(task) * 60_000);
     try {
-      if (handle.cancelled) return { status: "cancelled", output: "PIDesktop cancelled this scheduled task.", sessionId: session.id };
+      if (handle.cancelled) return { status: "cancelled", output: "Qianji cancelled this scheduled task.", sessionId: session.id };
       this.ctx.agents.prompt(session, [{ type: "text", text: task.prompt }]);
       await this.ctx.agents.idle(session.id);
     } finally {
@@ -313,7 +313,7 @@ export class Schedule extends Service {
       ? reply.data.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n").trim()
       : "";
     const error = reply?.type === "assistant" ? reply.data.error?.message : undefined;
-    if (handle.cancelled) return { status: "cancelled", output: "PIDesktop cancelled this scheduled task.", sessionId: session.id };
+    if (handle.cancelled) return { status: "cancelled", output: "Qianji cancelled this scheduled task.", sessionId: session.id };
     if (timedOut) return { status: "timed-out", output: `Scheduled task exceeded its ${timeoutMinutes(task)} minute timeout.`, sessionId: session.id };
     if (outcome === "done") return { status: "success", output: text, sessionId: session.id };
     return { status: "error", output: error ?? (text || `The run ended: ${outcome ?? "unknown"}`), sessionId: session.id };
@@ -330,7 +330,7 @@ export class Schedule extends Service {
     for (const task of this.tasks) {
       if (task.lastStatus === "running") {
         task.lastStatus = "interrupted";
-        task.lastMessage = "PIDesktop exited before this run completed.";
+        task.lastMessage = "Qianji exited before this run completed.";
       }
       if (!task.enabled) delete task.nextRunAt;
       else if (task.nextRunAt === undefined) task.nextRunAt = nextScheduledRun(task, now);
@@ -338,7 +338,7 @@ export class Schedule extends Service {
     // Runs that were running when the host stopped.
     const recent = this.runs(undefined, RUN_HISTORY_LIMIT);
     for (const run of recent) {
-      if (run.status === "running") this.recordRun({ ...run, status: "interrupted", finishedAt: now, output: "PIDesktop exited before this run completed." });
+      if (run.status === "running") this.recordRun({ ...run, status: "interrupted", finishedAt: now, output: "Qianji exited before this run completed." });
     }
     // The history is append-only (a run is written when it starts and when it
     // ends); keep it to the latest runs once it has grown well past that.

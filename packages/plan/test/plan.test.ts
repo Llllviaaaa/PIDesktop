@@ -1,7 +1,7 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, it } from "vitest";
-import { Sessions } from "@pid/session";
-import { Tools } from "@pid/tools";
+import { Sessions } from "@qianji/session";
+import { Tools } from "@qianji/tools";
 import * as plan from "../src/index.ts";
 import { planOf } from "../src/index.ts";
 

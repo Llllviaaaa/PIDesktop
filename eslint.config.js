@@ -62,12 +62,12 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["@pid/*", "!@pid/protocol", "@pid/protocol/**"],
-              message: "Renderer code under src/ may only import @pid/protocol from @pid/* (ADR 0005).",
+              group: ["@qianji/*", "!@qianji/protocol", "@qianji/protocol/**", "@pid/*", "@pid/**"],
+              message: "Renderer code under src/ may only import @qianji/protocol from @qianji/* (ADR 0005).",
             },
             {
               regex: "(?:^|[\\\\/])packages(?:[\\\\/]|$)",
-              message: "Renderer code under src/ must not import packages/ by path; use @pid/protocol (ADR 0005).",
+              message: "Renderer code under src/ must not import packages/ by path; use @qianji/protocol (ADR 0005).",
             },
           ],
         },
@@ -76,13 +76,13 @@ export default tseslint.config(
         "error",
         {
           selector:
-            ":matches(ImportExpression, TSImportType) > :matches(Literal.source[value=/^@pid\\/(?!protocol$)/], TemplateLiteral.source[expressions.length=0][quasis.0.value.cooked=/^@pid\\/(?!protocol$)/])",
-          message: "Renderer code under src/ may only import @pid/protocol from @pid/* (ADR 0005).",
+            ":matches(ImportExpression, TSImportType) > :matches(Literal.source[value=/^(?:@qianji\\/(?!protocol$)|@pid\\/)/], TemplateLiteral.source[expressions.length=0][quasis.0.value.cooked=/^(?:@qianji\\/(?!protocol$)|@pid\\/)/])",
+          message: "Renderer code under src/ may only import @qianji/protocol from @qianji/* (ADR 0005).",
         },
         {
           selector:
             ":matches(ImportExpression, TSImportType) > :matches(Literal.source[value=/(?:^|[\\\\/])packages(?:[\\\\/]|$)/], TemplateLiteral.source[expressions.length=0][quasis.0.value.cooked=/(?:^|[\\\\/])packages(?:[\\\\/]|$)/])",
-          message: "Renderer code under src/ must not import packages/ by path; use @pid/protocol (ADR 0005).",
+          message: "Renderer code under src/ must not import packages/ by path; use @qianji/protocol (ADR 0005).",
         },
       ],
     },

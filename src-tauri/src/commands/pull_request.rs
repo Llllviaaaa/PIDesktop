@@ -722,7 +722,7 @@ pub(crate) fn create_worktree(
         .trim()
         .to_string();
     let branch_prefix = if branch_prefix.is_empty() {
-        "pi/".to_string()
+        "qianji/".to_string()
     } else if branch_prefix.ends_with('/') {
         branch_prefix
     } else {

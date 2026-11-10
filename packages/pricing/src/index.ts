@@ -1,5 +1,5 @@
 /**
- * Local token pricing catalog and session cost estimator (`@pid/pricing`).
+ * Local token pricing catalog and session cost estimator (`@qianji/pricing`).
  *
  * Prices are expressed in USD per 1,000,000 tokens (`input`, `output`,
  * `cacheRead`, `cacheWrite`). Custom model prices configured in `providers.json`
@@ -8,8 +8,8 @@
  * cost calculation bills `outputTokens` once at the output rate.
  */
 import { Context, Service } from "@deepseek-ai/cordis";
-import type { LlmResponseInfo, ModelPricing, Usage } from "@pid/llm";
-import type { SessionSummary } from "@pid/session";
+import type { LlmResponseInfo, ModelPricing, Usage } from "@qianji/llm";
+import type { SessionSummary } from "@qianji/session";
 
 declare module "@deepseek-ai/cordis" {
   interface Context {

@@ -17,12 +17,12 @@ describe("ESLint renderer import boundaries (ADR 0005)", () => {
       .map((msg) => msg.message);
   }
 
-  it("allows @pid/protocol static, dynamic, and TS inline type imports in src/", async () => {
+  it("allows @qianji/protocol static, dynamic, and TS inline type imports in src/", async () => {
     const code = [
-      'import { redactSensitiveText, type SessionInfo } from "@pid/protocol";',
-      'export const loadProtocol = () => import("@pid/protocol");',
-      "export const loadProtocolTemplate = () => import(`@pid/protocol`);",
-      'export type InlineSessionInfo = import("@pid/protocol").SessionInfo;',
+      'import { redactSensitiveText, type SessionInfo } from "@qianji/protocol";',
+      'export const loadProtocol = () => import("@qianji/protocol");',
+      "export const loadProtocolTemplate = () => import(`@qianji/protocol`);",
+      'export type InlineSessionInfo = import("@qianji/protocol").SessionInfo;',
       "export function demo(info: SessionInfo): string {",
       "  return redactSensitiveText(info.cwd);",
       "}",
@@ -31,20 +31,21 @@ describe("ESLint renderer import boundaries (ADR 0005)", () => {
     expect(await boundaryMessages(code)).toEqual([]);
   });
 
-  it("forbids importing any non-protocol @pid/* package, subpath, relative packages/ path, dynamic import(), or TSImportType in src/", async () => {
+  it("forbids importing any non-protocol @qianji/* package, legacy @pid/* package, subpath, relative packages/ path, dynamic import(), or TSImportType in src/", async () => {
     const forbiddenImports = [
-      'import { createHost } from "@pid/host";\nexport const x = createHost;\n',
-      'import type { Session } from "@pid/session";\nexport type X = Session;\n',
-      'import { PluginManager } from "@pid/kernel";\nexport const x = PluginManager;\n',
-      'import * as fts from "@pid/session-search-fts";\nexport const x = fts;\n',
-      'import type { SessionInfo } from "@pid/protocol/src/methods.ts";\nexport type X = SessionInfo;\n',
+      'import { createHost } from "@qianji/host";\nexport const x = createHost;\n',
+      'import type { Session } from "@qianji/session";\nexport type X = Session;\n',
+      'import { PluginManager } from "@qianji/kernel";\nexport const x = PluginManager;\n',
+      'import * as fts from "@qianji/session-search-fts";\nexport const x = fts;\n',
+      'import type { SessionInfo } from "@qianji/protocol/src/methods.ts";\nexport type X = SessionInfo;\n',
+      'import type { SessionInfo } from "@pid/protocol";\nexport type X = SessionInfo;\n',
       'import { Sessions } from "../packages/session/src/index.ts";\nexport const x = Sessions;\n',
       'import * as protoInternals from "../packages/protocol/src/methods.ts";\nexport const x = protoInternals;\n',
-      'export const loadHost = () => import("@pid/host");\n',
-      "export const loadSessionTemplate = () => import(`@pid/session`);\n",
-      'export const loadSubpath = () => import("@pid/protocol/src/methods.ts");\n',
+      'export const loadHost = () => import("@qianji/host");\n',
+      "export const loadSessionTemplate = () => import(`@qianji/session`);\n",
+      'export const loadSubpath = () => import("@qianji/protocol/src/methods.ts");\n',
       'export const loadRelativePkg = () => import("../packages/session/src/index.ts");\n',
-      'export type BackendSession = import("@pid/session").Session;\n',
+      'export type BackendSession = import("@qianji/session").Session;\n',
       'export type RelativeProto = import("../packages/protocol/src/methods.ts").SessionInfo;\n',
     ];
 

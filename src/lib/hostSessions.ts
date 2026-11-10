@@ -4,7 +4,7 @@
  * the session tree, and the harness's efforts as thinking levels. The
  * messages themselves are src/lib/transcript.ts.
  */
-import type { PersistedEvent, SessionInfo as HostSessionInfo } from "@pid/protocol";
+import type { PersistedEvent, SessionInfo as HostSessionInfo } from "@qianji/protocol";
 import type { ForkPoint, SessionInfo } from "../types";
 import { currentBranch, userMessageOf } from "./transcript";
 

@@ -17,9 +17,9 @@ import {
   type ModelInfo,
   type SecretRef,
   type StreamChunk,
-} from "@pid/llm";
+} from "@qianji/llm";
 
-export const name = "pid-llm-gemini";
+export const name = "qianji-llm-gemini";
 export const inject = ["llm", "credentials"];
 
 export const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";

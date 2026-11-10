@@ -4,7 +4,7 @@
  * onto the Host's four native adapters (`openai-compat`, `openai-responses`,
  * `anthropic`, and `gemini`).
  */
-import type { ModelListResult, ModelSummary } from "@pid/protocol";
+import type { ModelListResult, ModelSummary } from "@qianji/protocol";
 import type {
   ModelProviderCheckResult,
   ModelProviderConfig,

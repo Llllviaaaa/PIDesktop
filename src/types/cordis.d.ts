@@ -2,7 +2,7 @@
    These mirror cordis's own published declarations: its Context is a class merged with an
    augmentable interface, its event table starts empty, and its service values are `any`. */
 /**
- * Type declarations for `@deepseek-ai/cordis` 4.x (MIT), used by PI-Desktop's
+ * Type declarations for `@deepseek-ai/cordis` 4.x (MIT), used by Qianji's
  * unified client plugin runtime (`src/lib/clientPluginBootstrap.ts`). The runtime
  * is the npm package itself; only type checking resolves here (`tsconfig.json` `paths`).
  */

@@ -1,6 +1,6 @@
 import type { AppNotification } from "../types";
 
-const NOTIFICATION_STORAGE_KEY = "pid-desktop:notifications:v1";
+const NOTIFICATION_STORAGE_KEY = "qianji:notifications:v1";
 const MAX_NOTIFICATIONS = 50;
 
 export type NotificationDraft = Omit<AppNotification, "createdAt" | "read"> & {

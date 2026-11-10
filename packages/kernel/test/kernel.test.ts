@@ -9,7 +9,7 @@ import {
   topologicalSortPlugins,
 } from "../src/index.ts";
 
-describe("@pid/kernel", () => {
+describe("@qianji/kernel", () => {
   it("extracts inject and provide metadata from classes, objects, and default exports", () => {
     class DbService extends Service {
       static inject = ["logger"];

@@ -1,6 +1,6 @@
 //! The Harness Host (packages/host, docs/adr/0001-harness-host-process.md).
 //!
-//! One `pid-harness.exe` (scripts/prepare-harness-host.mjs) serves the RPC
+//! One `qianji-harness.exe` (scripts/prepare-harness-host.mjs) serves the RPC
 //! gateway the V2 frontend talks to and better-sidebar's host routes
 //! (`/sidebar/api/*`, the file and HTML routes, the watch sockets), which used
 //! to run as a sidecar of their own. It starts on the first request for its
@@ -10,7 +10,7 @@
 //! the app ends. After a crash the next request restarts it with a growing
 //! delay, and five crashes within a minute stop the restarts.
 //!
-//! The host keeps its data in `~/.pid` (decision D4). Its stdin doubles as a
+//! The host keeps its data in `~/.qianji` (migrating `~/.pid` once when needed). Its stdin doubles as a
 //! control channel (docs/adr/0013-desktop-settings-and-secrets.md): right
 //! after it starts, and whenever the settings change, this process writes one
 //! `{"desktop": …}` line with the public settings (no MCP secrets) and the
@@ -28,7 +28,9 @@ use base64::Engine;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
-use crate::config::{app_config_dir, without_mcp_secrets, AppSettings};
+use crate::config::{
+    app_config_dir, migrate_legacy_dir_if_needed, without_mcp_secrets, AppSettings,
+};
 use crate::error::AppError;
 
 /// The page origins the host answers for: Tauri's on Windows (http, or
@@ -42,7 +44,7 @@ const PAGE_ORIGINS: &[&str] = &[
 const DEV_PAGE_ORIGIN: &str = "http://localhost:1420";
 
 const START_TIMEOUT: Duration = Duration::from_secs(20);
-const TOKEN_ENV: &str = "PID_HARNESS_TOKEN";
+const TOKEN_ENV: &str = "QIANJI_HARNESS_TOKEN";
 const TOKEN_BYTES: usize = 32;
 /// The delay before a restart, by how many crashes the window holds; a fifth
 /// crash within the window stops the restarts until `restart_harness_host`.
@@ -79,7 +81,7 @@ fn locate_harness_host() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Ok(executable) = std::env::current_exe() {
         if let Some(directory) = executable.parent() {
-            candidates.push(directory.join("harness").join("pid-harness.exe"));
+            candidates.push(directory.join("harness").join("qianji-harness.exe"));
         }
     }
     #[cfg(debug_assertions)]
@@ -87,7 +89,7 @@ fn locate_harness_host() -> Option<PathBuf> {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("resources")
             .join("harness")
-            .join("pid-harness.exe"),
+            .join("qianji-harness.exe"),
     );
     candidates.into_iter().find(|candidate| candidate.is_file())
 }
@@ -126,11 +128,19 @@ fn fill_random(buffer: &mut [u8]) -> Result<(), AppError> {
     Ok(())
 }
 
-/// `~/.pid`, where the host keeps sessions, providers and its own settings.
+/// `~/.qianji`, where the host keeps sessions, providers and its own settings.
+/// Automatically migrates legacy `~/.pid` once if `~/.qianji` does not yet exist.
 pub(crate) fn harness_data_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".pid")
+    static HARNESS_DATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    HARNESS_DATA_DIR
+        .get_or_init(|| {
+            let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+            let target = home.join(".qianji");
+            let legacy = home.join(".pid");
+            migrate_legacy_dir_if_needed(&legacy, &target);
+            target
+        })
+        .clone()
 }
 
 /// The control line that hands the host the desktop's settings, without MCP
@@ -375,8 +385,8 @@ mod tests {
     }
 
     #[test]
-    fn data_lives_in_dot_pid() {
-        assert!(harness_data_dir().ends_with(".pid"));
+    fn data_lives_in_dot_qianji() {
+        assert!(harness_data_dir().ends_with(".qianji"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import type { ScheduleListResult, ScheduleRunsResult, ScheduledRunInfo, ScheduledTaskInfo } from "@pid/protocol";
+import type { ScheduleListResult, ScheduleRunsResult, ScheduledRunInfo, ScheduledTaskInfo } from "@qianji/protocol";
 import type { ScheduledRunRecord, ScheduledRunResult, ScheduledTask } from "../types";
 import { HARNESS_SESSION_PREFIX, harnessRuntimes, isRpcMethodNotFound } from "./harnessRuntime";
 

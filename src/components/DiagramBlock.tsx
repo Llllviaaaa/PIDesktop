@@ -56,7 +56,7 @@ function downloadDiagramSvg(kind: DiagramKind, svg: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `pidesktop-${kind}-${new Date().toISOString().replace(/[:.]/g, "-")}.svg`;
+  anchor.download = `qianji-${kind}-${new Date().toISOString().replace(/[:.]/g, "-")}.svg`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -74,7 +74,7 @@ async function renderMermaid(source: string, dark: boolean): Promise<string> {
       theme: dark ? "dark" : "default",
       flowchart: { htmlLabels: false },
     });
-    const result = await mermaid.render(`pidesktop-diagram-${++diagramSequence}`, source);
+    const result = await mermaid.render(`qianji-diagram-${++diagramSequence}`, source);
     rendered = result.svg;
   });
   mermaidQueue = task.catch(() => undefined);
@@ -88,7 +88,7 @@ function loadVizGlobal(): Promise<void> {
   if (vizLoader) return vizLoader;
   vizLoader = import("@plantuml/core/viz-global.js?url").then(({ default: vizGlobalUrl }) => (
     new Promise<void>((resolve, reject) => {
-      const existing = document.querySelector<HTMLScriptElement>("script[data-pidesktop-plantuml-viz]");
+      const existing = document.querySelector<HTMLScriptElement>("script[data-qianji-plantuml-viz]");
       const script = existing ?? document.createElement("script");
       const loaded = () => resolve();
       const failed = () => reject(new Error("PlantUML 布局引擎加载失败"));
@@ -96,7 +96,7 @@ function loadVizGlobal(): Promise<void> {
       script.addEventListener("error", failed, { once: true });
       if (!existing) {
         script.src = vizGlobalUrl;
-        script.dataset.pidesktopPlantumlViz = "true";
+        script.dataset.qianjiPlantumlViz = "true";
         document.head.appendChild(script);
       }
     })
@@ -113,7 +113,7 @@ async function renderPlantUmlNow(source: string, dark: boolean): Promise<string>
     : `@startuml\n${source}\n@enduml`;
   return new Promise((resolve, reject) => {
     const target = document.createElement("div");
-    target.id = `pidesktop-plantuml-${++diagramSequence}`;
+    target.id = `qianji-plantuml-${++diagramSequence}`;
     target.style.cssText = "position:absolute;left:-100000px;top:0;width:1px;height:1px;overflow:hidden";
     document.body.appendChild(target);
     let timer = 0;

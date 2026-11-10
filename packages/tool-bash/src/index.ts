@@ -7,9 +7,9 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { Service, type Context } from "@deepseek-ai/cordis";
-import { ErrorCode, type SandboxConfigKind, type SandboxGenerateConfigResult } from "@pid/protocol";
-import { RpcError } from "@pid/rpc";
-import { textOutput, type ToolDefinition } from "@pid/tools";
+import { ErrorCode, type SandboxConfigKind, type SandboxGenerateConfigResult } from "@qianji/protocol";
+import { RpcError } from "@qianji/rpc";
+import { textOutput, type ToolDefinition } from "@qianji/tools";
 import {
   attachWindowsJobObject,
   buildSandboxedEnv,
@@ -34,7 +34,7 @@ export class BashSandbox extends Service {
   }
 }
 
-export const name = "pid-tool-bash";
+export const name = "qianji-tool-bash";
 export const inject = ["tools"];
 
 export interface Config {
@@ -242,7 +242,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           const cwd = resolvePath(requiredStr("cwd"));
           const overwrite = p.overwrite === true;
           if (kind === "wsb") {
-            const target = join(cwd, ".pid", "sandbox.wsb");
+            const target = join(cwd, ".qianji", "sandbox.wsb");
             const content = generateWindowsSandboxConfig(cwd);
             mkdirSync(dirname(target), { recursive: true });
             writeFileSync(target, content, "utf8");
@@ -250,7 +250,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           }
           const primaryTarget = join(cwd, ".devcontainer", "devcontainer.json");
           const target = !overwrite && existsSync(primaryTarget)
-            ? join(cwd, ".pid", "devcontainer.generated.json")
+            ? join(cwd, ".qianji", "devcontainer.generated.json")
             : primaryTarget;
           const content = generateDevContainerConfig(cwd);
           mkdirSync(dirname(target), { recursive: true });

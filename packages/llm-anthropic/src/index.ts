@@ -18,9 +18,9 @@ import {
   type ModelInfo,
   type SecretRef,
   type StreamChunk,
-} from "@pid/llm";
+} from "@qianji/llm";
 
-export const name = "pid-llm-anthropic";
+export const name = "qianji-llm-anthropic";
 export const inject = ["llm", "credentials"];
 
 export const ANTHROPIC_VERSION = "2023-06-01";

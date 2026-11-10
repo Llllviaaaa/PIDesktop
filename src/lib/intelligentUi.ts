@@ -1,7 +1,7 @@
 /**
  * Frontend Intelligent UI engine (`src/lib/intelligentUi.ts`).
  *
- * Powers PI-Desktop's built-in `intelligent-ui` plugin with:
+ * Powers Qianji's built-in `intelligent-ui` plugin with:
  * 1. Versioned widget extraction across session turns (`render_ui`, `update_ui`, and ```intelligent-ui fences)
  * 2. A zero-eval, CSP-safe recursive-descent expression parser for live formulas
  * 3. A Cool-Gray Minimalist sandboxed HTML escape pod (`sandbox="allow-scripts"` + `connect-src 'none'`)

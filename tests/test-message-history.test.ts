@@ -4,7 +4,7 @@
  * log, and streamed text and thinking reach the store.
  * Run: npx vitest run test-message-history.test.ts
  */
-import type { PersistedEvent } from "@pid/protocol";
+import type { PersistedEvent } from "@qianji/protocol";
 import { INTERRUPTED_TURN, historyToUi, interruptTurn } from "../src/lib/transcript.ts";
 import { useAppStore } from "../src/store/index.ts";
 import { test } from "vitest";

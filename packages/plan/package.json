@@ -1,5 +1,5 @@
 {
-  "name": "@pid/plan",
+  "name": "@qianji/plan",
   "version": "0.0.0",
   "private": true,
   "description": "The update_plan tool and session plan state (ADR 0009)",
@@ -9,10 +9,10 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/commands": "*",
-    "@pid/protocol": "*",
-    "@pid/rpc": "*",
-    "@pid/session": "*",
-    "@pid/tools": "*"
+    "@qianji/commands": "*",
+    "@qianji/protocol": "*",
+    "@qianji/rpc": "*",
+    "@qianji/session": "*",
+    "@qianji/tools": "*"
   }
 }

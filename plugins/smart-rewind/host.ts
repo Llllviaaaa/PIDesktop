@@ -9,16 +9,17 @@
  *   checkpoint `userSeq` bindings without creating duplicate fork sessions).
  */
 import type { Context } from "@deepseek-ai/cordis";
-import "@pid/agent";
-import "@pid/commands";
-import { ErrorCode } from "@pid/protocol";
-import { RpcError } from "@pid/rpc";
-import { currentBranch, type SessionEvent } from "@pid/session";
+import "@qianji/agent";
+import "@qianji/commands";
+import { ErrorCode } from "@qianji/protocol";
+import { RpcError } from "@qianji/rpc";
+import { currentBranch, type SessionEvent } from "@qianji/session";
 
 export const name = "smart-rewind";
 export const inject = ["commands", "sessions", "agents", "rpc"];
 
-const CHECKPOINT_NS = "pid-checkpoints";
+const CHECKPOINT_NS = "qianji-checkpoints";
+const LEGACY_CHECKPOINT_NS = "pid-checkpoints";
 
 function extractUserText(event: Extract<SessionEvent, { type: "user" }>): string {
   return event.data.content
@@ -106,7 +107,7 @@ export function apply(ctx: Context): void {
         const seqMap = new Map<number, number>();
         for (const oldEvent of droppedTail) {
           if (oldEvent.type === "rewind") continue;
-          if (oldEvent.type === "custom" && oldEvent.data.ns === CHECKPOINT_NS) {
+          if (oldEvent.type === "custom" && (oldEvent.data.ns === CHECKPOINT_NS || oldEvent.data.ns === LEGACY_CHECKPOINT_NS)) {
             const payload = oldEvent.data.data as { userSeq?: unknown; checkpoint?: unknown } | undefined;
             const mappedUserSeq = typeof payload?.userSeq === "number" ? seqMap.get(payload.userSeq) : undefined;
             const appended = target.append("custom", {

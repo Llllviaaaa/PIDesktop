@@ -14,7 +14,7 @@ import {
   RefreshCw,
   TerminalSquare,
 } from "lucide-react";
-import type { HostInfoResult, PlanGetResult } from "@pid/protocol";
+import type { HostInfoResult, PlanGetResult } from "@qianji/protocol";
 import { agent } from "../../lib/agent";
 import {
   deriveSubagentActivities,

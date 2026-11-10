@@ -11,7 +11,7 @@ const host = process.env.TAURI_DEV_HOST;
  * before the app, for the browser E2E suite (e2e/). Other builds never see it.
  */
 const e2eTauriStub: Plugin = {
-  name: "pid-e2e-tauri-stub",
+  name: "qianji-e2e-tauri-stub",
   // Before Vite bundles the page's scripts, so the stub is bundled ahead of main.tsx.
   transformIndexHtml: {
     order: "pre",

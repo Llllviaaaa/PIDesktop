@@ -1,6 +1,6 @@
-# @pid/agent-loop
+# @qianji/agent-loop
 
-唯一的 agent loop（`agents` 服务的实现），见 [ADR 0008](../../docs/adr/0008-agent-loop-and-sessions.md)。只有 `@pid/host` 加载它，其他包不得依赖它。
+唯一的 agent loop（`agents` 服务的实现），见 [ADR 0008](../../docs/adr/0008-agent-loop-and-sessions.md)。只有 `@qianji/host` 加载它，其他包不得依赖它。
 
 配置：`{ maxTurns?, compactAboveTokens?, summaryMaxTokens? }`。
 

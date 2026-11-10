@@ -18,9 +18,9 @@ export const SIDEBAR_BOUNDS: SizeBounds = { min: 200, max: 380, fallback: 240 };
 export const WORKSPACE_PANEL_BOUNDS: SizeBounds = { min: 320, max: 900, fallback: 460 };
 export const BOTTOM_PANEL_BOUNDS: SizeBounds = { min: 180, max: 520, fallback: 280 };
 
-export const SIDEBAR_WIDTH_KEY = "pid-desktop:sidebar-width:v2";
-export const WORKSPACE_PANEL_WIDTH_KEY = "pid-desktop:workspace-panel-width:v5";
-export const BOTTOM_PANEL_HEIGHT_KEY = "pid-desktop:bottom-panel-height:v1";
+export const SIDEBAR_WIDTH_KEY = "qianji:sidebar-width:v2";
+export const WORKSPACE_PANEL_WIDTH_KEY = "qianji:workspace-panel-width:v5";
+export const BOTTOM_PANEL_HEIGHT_KEY = "qianji:bottom-panel-height:v1";
 
 export function clampSize(value: number, bounds: SizeBounds): number {
   if (!Number.isFinite(value)) return bounds.fallback;

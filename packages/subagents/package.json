@@ -1,5 +1,5 @@
 {
-  "name": "@pid/subagents",
+  "name": "@qianji/subagents",
   "version": "0.0.0",
   "private": true,
   "description": "The delegate_task tool: subagents as in-process child sessions (ADR 0010)",
@@ -9,12 +9,12 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/agent": "*",
-    "@pid/session": "*",
-    "@pid/tools": "*"
+    "@qianji/agent": "*",
+    "@qianji/session": "*",
+    "@qianji/tools": "*"
   },
   "devDependencies": {
-    "@pid/agent-loop": "*",
-    "@pid/testkit": "*"
+    "@qianji/agent-loop": "*",
+    "@qianji/testkit": "*"
   }
 }

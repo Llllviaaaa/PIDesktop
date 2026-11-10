@@ -1,4 +1,4 @@
-# @pid/memory
+# @qianji/memory
 
 本地记忆：一个 Markdown 文件，保存用户的长期偏好。见 [ADR 0009](../../docs/adr/0009-feature-plugins.md)。
 

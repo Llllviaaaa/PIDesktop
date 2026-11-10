@@ -7,7 +7,7 @@ import { Check, Copy, FileText } from "lucide-react";
 import { useAppStore } from "../store";
 import { showToast } from "../notifications";
 import { stripCodeReviewDirectives } from "../lib/codeReview";
-import { parseRichContent, RICH_CONTENT_LANGUAGE } from "../lib/richContent";
+import { isRichContentLanguage, parseRichContent } from "../lib/richContent";
 import { INTELLIGENT_UI_FENCE_LANGUAGE, parseIntelligentUiFence } from "../lib/intelligentUi";
 import { useIntelligentUiStore } from "../stores/intelligentUiStore";
 import { DiagramBlock, diagramKindForLanguage } from "./DiagramBlock";
@@ -94,7 +94,8 @@ const LANGUAGE_LABELS: Record<string, string> = {
   markdown: "Markdown",
   mjs: "JavaScript",
   php: "PHP",
-  "pidesktop-rich": "PIDesktop Rich",
+  "qianji-rich": "千机 Rich",
+  "pidesktop-rich": "千机 Rich",
   "intelligent-ui": "Intelligent UI",
   ps1: "PowerShell",
   powershell: "PowerShell",
@@ -175,7 +176,7 @@ function MarkdownPre({ children, allowRichContent = false }: { children?: ReactN
   const { language, text } = codeFenceDetails(children);
   const intelligentUiEnabled = useIntelligentUiStore((state) => state.pluginEnabled);
   const richDocument = useMemo(
-    () => allowRichContent && language === RICH_CONTENT_LANGUAGE ? parseRichContent(text) : null,
+    () => allowRichContent && isRichContentLanguage(language) ? parseRichContent(text) : null,
     [allowRichContent, language, text],
   );
   const intelligentUiGroup = useMemo(() => {
@@ -201,7 +202,7 @@ function MarkdownTable({ children, ...props }: ComponentPropsWithoutRef<"table">
 function richContentFenceCount(markdown: string): number {
   const allRichOpeners = markdown
     .split(/\r?\n/)
-    .filter((line) => /(`{3,}|~{3,})[ \t]*pidesktop-rich/i.test(line))
+    .filter((line) => /(`{3,}|~{3,})[ \t]*(?:qianji-rich|pidesktop-rich)/i.test(line))
     .length;
   let activeFence: { marker: "`" | "~"; length: number; rich: boolean } | null = null;
   let richStarts = 0;
@@ -210,7 +211,7 @@ function richContentFenceCount(markdown: string): number {
     if (!activeFence) {
       const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
       if (!opening) continue;
-      const rich = opening[2].trim().toLowerCase() === RICH_CONTENT_LANGUAGE;
+      const rich = isRichContentLanguage(opening[2]);
       if (rich) richStarts += 1;
       activeFence = { marker: opening[1][0] as "`" | "~", length: opening[1].length, rich };
       continue;

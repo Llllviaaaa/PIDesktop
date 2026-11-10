@@ -1,4 +1,4 @@
-# @pid/checkpoints
+# @qianji/checkpoints
 
 运行前给 git 工作区拍快照（不动真实的暂存区），以便回退。见 [ADR 0009](../../docs/adr/0009-feature-plugins.md)。
 

@@ -7,7 +7,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { PluginInstallOrigin, WorkspaceTrustEntry, WorkspaceTrustListResult } from "@pid/protocol";
+import type { PluginInstallOrigin, WorkspaceTrustEntry, WorkspaceTrustListResult } from "@qianji/protocol";
 import { canonicalPath, pathComparisonKey, scanPluginsDirectory } from "./plugin-manifest.ts";
 
 export interface StoredPluginPatch {
@@ -165,6 +165,20 @@ export function setWorkspaceTrust(dataDir: string, workspacePath: string, truste
   return existing;
 }
 
+export function resolveWorkspacePluginsDir(normalizedWorkspace: string): string {
+  const primary = join(normalizedWorkspace, ".qianji", "plugins");
+  if (existsSync(primary)) return primary;
+  const legacy = join(normalizedWorkspace, ".pid", "plugins");
+  return existsSync(legacy) ? legacy : primary;
+}
+
+export function resolveWorkspaceHarnessConfigPath(normalizedWorkspace: string): string {
+  const primary = join(normalizedWorkspace, ".qianji", "harness.json");
+  if (existsSync(primary)) return primary;
+  const legacy = join(normalizedWorkspace, ".pid", "harness.json");
+  return existsSync(legacy) ? legacy : primary;
+}
+
 export function inspectWorkspaceTrust(dataDir: string, workspacePath?: string): WorkspaceTrustListResult {
   const trusted = listTrustedWorkspaces(dataDir);
   if (workspacePath === undefined || workspacePath.trim() === "") {
@@ -173,8 +187,8 @@ export function inspectWorkspaceTrust(dataDir: string, workspacePath?: string): 
   const normalized = canonicalPath(workspacePath);
   const targetKey = pathComparisonKey(normalized);
   const isTrusted = trusted.some((entry) => pathComparisonKey(entry.path) === targetKey);
-  const pluginsDir = join(normalized, ".pid", "plugins");
-  const configPath = join(normalized, ".pid", "harness.json");
+  const pluginsDir = resolveWorkspacePluginsDir(normalized);
+  const configPath = resolveWorkspaceHarnessConfigPath(normalized);
   const scanned = scanPluginsDirectory(pluginsDir, "workspace", normalized);
   return {
     trusted,

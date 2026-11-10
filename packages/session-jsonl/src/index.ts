@@ -5,7 +5,7 @@
  * By default (`indexFile` omitted), `JsonlStorage` performs pure append-only
  * JSONL I/O with an in-memory mtime/size summary cache — zero SQLite or FTS
  * tokenization overhead on the synchronous `append()` hot path. Full-text
- * indexing is handled asynchronously by `@pid/session-search-fts` (or opt-in
+ * indexing is handled asynchronously by `@qianji/session-search-fts` (or opt-in
  * via explicit `config.indexFile` for standalone callers).
  */
 import {
@@ -34,7 +34,7 @@ import {
   type SessionSearchOptions,
   type SessionStorage,
   type SessionSummary,
-} from "@pid/session";
+} from "@qianji/session";
 import { extractSessionSearchBody, SessionSqliteIndex, type IndexedSessionInput } from "./sqlite-index.ts";
 
 export {
@@ -46,7 +46,7 @@ export {
   type IndexedSessionInput,
 } from "./sqlite-index.ts";
 
-export const name = "pid-session-jsonl";
+export const name = "qianji-session-jsonl";
 export const inject = ["sessions"];
 
 export interface Config {
@@ -55,7 +55,7 @@ export interface Config {
   /**
    * Optional explicit SQLite index file path for legacy combined storage+FTS mode.
    * When omitted, `JsonlStorage` runs pure fast JSONL-only persistence so
-   * `@pid/session-search-fts` can index asynchronously off the hot path.
+   * `@qianji/session-search-fts` can index asynchronously off the hot path.
    */
   indexFile?: string;
 }

@@ -138,7 +138,7 @@ export interface LlmErrorInfo {
   retryable: boolean;
 }
 
-/** Per-million-token USD pricing for a model (`@pid/pricing`). */
+/** Per-million-token USD pricing for a model (`@qianji/pricing`). */
 export interface ModelPricing {
   input: number;
   output: number;

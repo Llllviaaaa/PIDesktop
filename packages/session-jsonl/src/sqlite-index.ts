@@ -14,7 +14,7 @@ import {
   type SessionSearchHit,
   type SessionSearchOptions,
   type SessionSummary,
-} from "@pid/session";
+} from "@qianji/session";
 
 const SCHEMA_VERSION = 3;
 const CJK_CHAR_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;

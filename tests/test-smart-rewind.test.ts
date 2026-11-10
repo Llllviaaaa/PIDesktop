@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ScriptedProvider, textReply, toolReply } from "@pid/testkit";
+import { ScriptedProvider, textReply, toolReply } from "@qianji/testkit";
 import { ClientBundleRegistry } from "../packages/host/src/client-bundles.ts";
 import { startE2eHost } from "../packages/host/test/e2e-host.ts";
 import { connectHarness } from "../src/lib/harnessClient";

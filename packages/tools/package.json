@@ -1,5 +1,5 @@
 {
-  "name": "@pid/tools",
+  "name": "@qianji/tools",
   "version": "0.0.0",
   "private": true,
   "description": "Tool registry and the pre-execute / execute / result pipeline (ADR 0003, 0008)",
@@ -9,6 +9,6 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/llm": "*"
+    "@qianji/llm": "*"
   }
 }

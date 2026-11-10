@@ -1,5 +1,5 @@
 {
-  "name": "@pid/tool-fs",
+  "name": "@qianji/tool-fs",
   "version": "0.0.0",
   "private": true,
   "description": "Built-in file tools: read, write, edit, ls, find, grep",
@@ -9,6 +9,6 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/tools": "*"
+    "@qianji/tools": "*"
   }
 }

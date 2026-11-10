@@ -14,7 +14,7 @@ test("slash commands run via Host Commands service and Sidebar Ctrl+K searches F
   // Selecting `/doctor` and submitting renders Host diagnostics inline without consuming a model turn.
   await suggestionMenu.getByRole("option", { name: /\/doctor/ }).click();
   await app.getByTitle("发送").click();
-  await expect(answer(app, "PI-Desktop 宿主诊断报告")).toBeVisible();
+  await expect(answer(app, "千机 宿主诊断报告")).toBeVisible();
   expect(harness.provider.requests).toHaveLength(0);
 
   // 2. Send a real prompt whose assistant answer contains a unique phrase not present in the user prompt/title.

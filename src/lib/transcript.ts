@@ -8,7 +8,7 @@
  * Everything here is pure or a small per-runtime translator, so it is tested
  * against the agent loop's golden logs.
  */
-import type { LiveDelta, PersistedEvent } from "@pid/protocol";
+import type { LiveDelta, PersistedEvent } from "@qianji/protocol";
 import type { ExtensionUIRequest, ImageContent, UiMessage, UiToolCall, Usage } from "../types";
 
 /** What a running task reports, in the transcript's terms. */

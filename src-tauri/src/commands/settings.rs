@@ -42,6 +42,11 @@ pub(crate) fn set_settings(
             "invalid default task environment".to_string(),
         ));
     }
+    if !matches!(settings.settings_display_mode.as_str(), "page" | "modal") {
+        return Err(AppError::InvalidInput(
+            "invalid settings display mode".to_string(),
+        ));
+    }
     if !(75..=150).contains(&settings.ui_scale) {
         return Err(AppError::InvalidInput(
             "UI scale must be between 75 and 150".to_string(),
@@ -197,5 +202,47 @@ mod tests {
             settings.default_task_environment.as_str(),
             "local" | "worktree"
         ));
+    }
+
+    #[test]
+    fn settings_display_mode_defaults_to_page_and_validates() {
+        let defaults = AppSettings::default();
+        assert_eq!(defaults.settings_display_mode, "page");
+        let parsed: AppSettings = serde_json::from_str("{}").expect("deserialize empty settings");
+        assert_eq!(parsed.settings_display_mode, "page");
+        assert!(matches!(
+            parsed.settings_display_mode.as_str(),
+            "page" | "modal"
+        ));
+        assert!(!matches!("drawer", "page" | "modal"));
+    }
+
+    #[test]
+    fn per_model_thinking_settings_round_trip() {
+        let parsed: AppSettings = serde_json::from_str(
+            r#"{
+                "modelThinkingLevels": { "sub2api/grok-4.7": "high", "openai/o4-mini": "low" },
+                "modelCustomThinkingLevels": { "sub2api/grok-4.7": ["ultra", "16384"] }
+            }"#,
+        )
+        .expect("deserialize per-model thinking maps");
+        assert_eq!(
+            parsed
+                .model_thinking_levels
+                .get("sub2api/grok-4.7")
+                .map(String::as_str),
+            Some("high")
+        );
+        assert_eq!(
+            parsed
+                .model_thinking_levels
+                .get("openai/o4-mini")
+                .map(String::as_str),
+            Some("low")
+        );
+        assert_eq!(
+            parsed.model_custom_thinking_levels.get("sub2api/grok-4.7"),
+            Some(&vec!["ultra".to_string(), "16384".to_string()])
+        );
     }
 }

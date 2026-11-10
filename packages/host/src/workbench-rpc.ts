@@ -20,12 +20,12 @@ import {
   type WorkbenchOpenNotification,
   type WorkbenchOpenTarget,
   type WorkbenchPreviewUrlResult,
-} from "@pid/protocol";
-import { RpcError } from "@pid/rpc";
-import { textOutput, type ToolOutput } from "@pid/tools";
+} from "@qianji/protocol";
+import { RpcError } from "@qianji/rpc";
+import { textOutput, type ToolOutput } from "@qianji/tools";
 import type { WebServer } from "./web-server.ts";
 
-export const name = "pid-workbench";
+export const name = "qianji-workbench";
 export const inject = ["rpc", "tools", "sessions"];
 
 const VALID_TARGETS = new Set<WorkbenchOpenTarget>([

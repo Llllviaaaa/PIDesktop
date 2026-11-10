@@ -23,8 +23,8 @@ import {
   type InitializeParams,
   type InitializeResult,
   type JsonRpcMessage,
-} from "@pid/protocol";
-import { RpcError, type RpcCall, type RpcHandler, type RpcService } from "@pid/rpc";
+} from "@qianji/protocol";
+import { RpcError, type RpcCall, type RpcHandler, type RpcService } from "@qianji/rpc";
 import { WebSocket, WebSocketServer } from "ws";
 import "./web-server.ts";
 import "./host-info.ts";

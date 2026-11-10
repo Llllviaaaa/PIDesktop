@@ -673,7 +673,7 @@ fn write_worktree_tree(root: &Path) -> Result<String, AppError> {
         .map(|value| value.as_nanos())
         .unwrap_or_default();
     let scratch = std::env::temp_dir().join(format!(
-        "pid-desktop-worktree-{}-{stamp}.index",
+        "qianji-worktree-{}-{stamp}.index",
         std::process::id()
     ));
     let head_tree = run_git(root, &["rev-parse", "--verify", "--quiet", "HEAD^{tree}"])
@@ -717,7 +717,7 @@ pub(crate) struct LastTurnSnapshot {
     pub(crate) started_at: i64,
 }
 
-/// The newest turn checkpoint the Pi guard extension recorded for this repository.
+/// The newest turn checkpoint recorded for this repository.
 fn latest_turn_checkpoint(root: &Path) -> Result<Option<(String, i64)>, AppError> {
     let output = run_git(
         root,
@@ -726,6 +726,7 @@ fn latest_turn_checkpoint(root: &Path) -> Result<Option<(String, i64)>, AppError
             "--sort=-creatordate",
             "--count=1",
             "--format=%(objectname) %(creatordate:unix)",
+            "refs/qianji/checkpoints",
             "refs/pidesktop/checkpoints",
         ],
     )?;
@@ -1057,7 +1058,7 @@ mod tests {
         fs::remove_dir_all(directory).expect("temporary repository should be removed");
     }
 
-    /// Records a turn checkpoint the way the Pi guard extension does.
+    /// Records a turn checkpoint the way the checkpoints plugin does.
     fn record_turn_checkpoint(directory: &Path, name: &str) {
         let tree = write_worktree_tree(directory).expect("worktree tree should be written");
         let commit = run_git(
@@ -1066,7 +1067,7 @@ mod tests {
                 "-c",
                 "user.email=checkpoint@example.invalid",
                 "-c",
-                "user.name=PIDesktop",
+                "user.name=Qianji",
                 "commit-tree",
                 &tree,
                 "-m",
@@ -1078,7 +1079,7 @@ mod tests {
             directory,
             &[
                 "update-ref",
-                &format!("refs/pidesktop/checkpoints/{name}"),
+                &format!("refs/qianji/checkpoints/{name}"),
                 commit.trim(),
             ],
         )

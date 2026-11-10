@@ -22,16 +22,40 @@ pub(crate) fn list_resources(cwd: String) -> Result<Vec<ResourceItem>, AppError>
     collect_resources(&user.join("themes"), "theme", "user", &mut items);
     collect_resources(&user.join("pets"), "pet", "user", &mut items);
     let workspace = PathBuf::from(cwd);
-    let project_pid = workspace.join(".pid");
-    collect_resources(&project_pid.join("skills"), "skill", "project", &mut items);
+    let project_qianji = workspace.join(".qianji");
+    let project_legacy = workspace.join(".pid");
+    collect_resources(
+        &project_qianji.join("skills"),
+        "skill",
+        "project",
+        &mut items,
+    );
+    collect_resources(
+        &project_legacy.join("skills"),
+        "skill",
+        "project",
+        &mut items,
+    );
     collect_resources(
         &workspace.join(".agents").join("skills"),
         "skill",
         "project",
         &mut items,
     );
-    collect_resources(&project_pid.join("themes"), "theme", "project", &mut items);
-    collect_resources(&project_pid.join("pets"), "pet", "project", &mut items);
+    collect_resources(
+        &project_qianji.join("themes"),
+        "theme",
+        "project",
+        &mut items,
+    );
+    collect_resources(
+        &project_legacy.join("themes"),
+        "theme",
+        "project",
+        &mut items,
+    );
+    collect_resources(&project_qianji.join("pets"), "pet", "project", &mut items);
+    collect_resources(&project_legacy.join("pets"), "pet", "project", &mut items);
     items.sort_by(|a, b| a.kind.cmp(&b.kind).then_with(|| a.name.cmp(&b.name)));
     Ok(items)
 }
@@ -52,7 +76,9 @@ pub(crate) fn appearance_directory(
     };
     match scope {
         "user" => Ok(harness_data_dir().join(folder)),
-        "project" => Ok(validate_workspace_directory(cwd)?.join(".pid").join(folder)),
+        "project" => Ok(validate_workspace_directory(cwd)?
+            .join(".qianji")
+            .join(folder)),
         _ => Err(AppError::InvalidInput(format!(
             "unsupported appearance extension scope: {scope}"
         ))),
@@ -266,7 +292,7 @@ mod tests {
         .expect("theme should import");
         assert_eq!(
             PathBuf::from(installed_theme),
-            workspace.join(".pid/themes/ocean.json")
+            workspace.join(".qianji/themes/ocean.json")
         );
 
         let pet = sources.join("comet");
@@ -286,10 +312,10 @@ mod tests {
         .expect("pet should import");
         assert_eq!(
             PathBuf::from(installed_pet),
-            workspace.join(".pid/pets/comet")
+            workspace.join(".qianji/pets/comet")
         );
         assert!(workspace
-            .join(".pid/pets/comet/sprites/comet.png")
+            .join(".qianji/pets/comet/sprites/comet.png")
             .is_file());
 
         assert!(install_appearance_extension(

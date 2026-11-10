@@ -188,7 +188,7 @@ export class BrowserSession {
     this.persistentProfile = Boolean(persistentDirectory);
     this.dataDir = persistentDirectory
       ? resolve(persistentDirectory)
-      : await mkdtemp(join(tmpdir(), "pidesktop-browser-"));
+      : await mkdtemp(join(tmpdir(), "qianji-browser-"));
     await mkdir(this.dataDir, { recursive: true });
 
     if (this.persistentProfile) {
@@ -301,7 +301,7 @@ export class BrowserSession {
         .filter((element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden");
       const elements = candidates.slice(0, 300).map((element, index) => {
         const ref = index + 1;
-        element.setAttribute("data-pidesktop-ref", String(ref));
+        element.setAttribute("data-qianji-ref", String(ref));
         const tag = element.tagName.toLowerCase();
         const role = element.getAttribute("role") || undefined;
         const text = clean(element.innerText || element.getAttribute("aria-label") || element.getAttribute("title") || element.getAttribute("name") || element.getAttribute("placeholder"));
@@ -432,7 +432,7 @@ export class BrowserSession {
     return this.inspect();
   }
 
-  async download(ref: number | undefined, selector: string | undefined, directory = ".pidesktop-downloads"): Promise<{ path: string; snapshot: PageSnapshot }> {
+  async download(ref: number | undefined, selector: string | undefined, directory = ".qianji-downloads"): Promise<{ path: string; snapshot: PageSnapshot }> {
     const destination = resolveWorkspacePath(directory, this.options.workspace);
     await mkdir(destination, { recursive: true });
     const metadata = await stat(destination);
@@ -667,7 +667,7 @@ function terminateWindowsProcessTree(processId: number, force: boolean): Promise
 }
 
 async function acquireProfileLock(directory: string): Promise<string> {
-  const lockPath = join(directory, ".pidesktop-browser.lock");
+  const lockPath = join(directory, ".qianji-browser.lock");
   try {
     await writeFile(lockPath, `${process.pid}\n`, { flag: "wx" });
     return lockPath;
@@ -682,7 +682,7 @@ async function acquireProfileLock(directory: string): Promise<string> {
   if (activePort > 0) {
     try {
       await waitForTargets(activePort, 3);
-      throw new Error("The persistent PIDesktop browser profile is already in use by another task");
+      throw new Error("The persistent Qianji browser profile is already in use by another task");
     } catch (error) {
       if (error instanceof Error && error.message.includes("already in use")) throw error;
     }
@@ -741,7 +741,7 @@ export function isRecoverableBrowserError(error: unknown): boolean {
 function elementExpression(ref: number | undefined, selector: string | undefined, operation: string): string {
   if (!ref && !selector?.trim()) throw new Error("Provide an element ref from inspect or a CSS selector");
   const lookup = ref
-    ? `document.querySelector('[data-pidesktop-ref="${ref}"]')`
+    ? `document.querySelector('[data-qianji-ref="${ref}"]')`
     : `document.querySelector(${JSON.stringify(selector?.trim())})`;
   return `(() => {
     const element = ${lookup};
