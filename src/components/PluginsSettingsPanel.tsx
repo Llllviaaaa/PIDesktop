@@ -15,6 +15,7 @@ import {
   BookMarked,
   Boxes,
   CalendarClock,
+  ChartPie,
   Check,
   ChevronDown,
   CircleAlert,
@@ -152,6 +153,7 @@ function shouldShowVersion(version: string, tier: PluginInfo["tier"]): boolean {
 
 function iconAccentTone(id: string): string {
   if (id === "smart-rewind") return "violet";
+  if (id === "session-usage") return "sky";
   if (id === "intelligent-ui") return "indigo";
   if (id === "mcp") return "blue";
   if (id === "browser") return "sky";
@@ -167,6 +169,7 @@ function iconAccentTone(id: string): string {
 
 function PluginCategoryIcon({ id, tier }: { id: string; tier: PluginInfo["tier"] }) {
   if (id === "smart-rewind") return <RotateCcw size={18} strokeWidth={1.8} />;
+  if (id === "session-usage") return <ChartPie size={18} strokeWidth={1.8} />;
   if (id === "intelligent-ui") return <Sparkles size={18} strokeWidth={1.8} />;
   if (id === "mcp") return <Blocks size={18} strokeWidth={1.8} />;
   if (id === "browser") return <Globe size={18} strokeWidth={1.8} />;

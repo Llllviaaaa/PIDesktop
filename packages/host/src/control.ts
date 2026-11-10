@@ -123,21 +123,29 @@ export function applyDesktopMessage(dataDir: string, message: DesktopMessage): s
     if (tasks.length > 0) notes.push(`imported ${tasks.length} scheduled task(s) from ${desktopFile}`);
   }
 
-  // Seed official bundled plugins (such as `smart-rewind`) once on desktop launch.
+  // Seed official bundled plugins (`smart-rewind`, `session-usage`) once on desktop launch.
   const desktopExe = message.executable?.trim();
   if (desktopExe) {
-    const bundledSmartRewind = join(dirname(desktopExe), "harness", "bundled-plugins", "smart-rewind");
     const pluginsRoot = managedPluginsRoot(dataDir);
-    const seedMarker = join(pluginsRoot, ".seeded-smart-rewind-v1");
-    if (existsSync(join(bundledSmartRewind, "package.json")) && !existsSync(seedMarker)) {
-      mkdirSync(pluginsRoot, { recursive: true });
-      writeFileSync(seedMarker, `${new Date().toISOString()}\n`, "utf8");
-      if (!existsSync(join(pluginsRoot, "smart-rewind"))) {
-        try {
-          installPlugin(dataDir, { channel: "local", spec: bundledSmartRewind, link: false });
-          notes.push(`seeded bundled plugin smart-rewind from ${bundledSmartRewind}`);
-        } catch (error) {
-          notes.push(`failed to seed bundled plugin smart-rewind: ${error instanceof Error ? error.message : String(error)}`);
+    const bundledRoots = [
+      join(dirname(desktopExe), "harness", "bundled-plugins"),
+      join(dirname(process.execPath), "bundled-plugins"),
+    ];
+    for (const pluginId of ["smart-rewind", "session-usage"] as const) {
+      const bundledPluginDir = bundledRoots
+        .map((root) => join(root, pluginId))
+        .find((candidate) => existsSync(join(candidate, "package.json")));
+      const seedMarker = join(pluginsRoot, `.seeded-${pluginId}-v1`);
+      if (bundledPluginDir !== undefined && !existsSync(seedMarker)) {
+        mkdirSync(pluginsRoot, { recursive: true });
+        writeFileSync(seedMarker, `${new Date().toISOString()}\n`, "utf8");
+        if (!existsSync(join(pluginsRoot, pluginId))) {
+          try {
+            installPlugin(dataDir, { channel: "local", spec: bundledPluginDir, link: false });
+            notes.push(`seeded bundled plugin ${pluginId} from ${bundledPluginDir}`);
+          } catch (error) {
+            notes.push(`failed to seed bundled plugin ${pluginId}: ${error instanceof Error ? error.message : String(error)}`);
+          }
         }
       }
     }

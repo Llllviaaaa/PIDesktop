@@ -171,6 +171,10 @@ export {
   useAppStore,
 };
 export type {
+  ClientComposerStatusContribution,
+  WorkbenchSlotContext,
+} from "./clientContributions";
+export type {
   ComposerDraftSnapshot,
   PerformedRewindResult,
   RewindExecutionResult,

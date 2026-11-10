@@ -16,7 +16,11 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    "paths": {
+      "@qianji/client": ["./src/lib/clientPluginBootstrap.ts"]
+    }
   },
   "//include": "The two ambient declaration files come from src/ because the .tsx scripts render components that rely on them.",
   "include": ["scripts", "tests", "src-tauri/resources/*.ts", "src/vite-env.d.ts", "src/plantuml-core.d.ts"]

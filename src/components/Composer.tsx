@@ -672,7 +672,7 @@ export const Composer = memo(function Composer({
 
         {!disabled && scope === "main" && contributions.composerBanners.map((banner) => (
           <div key={banner.id} className="composer-plugin-banner">
-            {banner.render({ cwd: workspace, sessionFile: null })}
+            {banner.render({ cwd: workspace, sessionFile: null, variant })}
           </div>
         ))}
 
@@ -825,7 +825,7 @@ export const Composer = memo(function Composer({
             </div>
             {!disabled && scope === "main" && contributions.composerToolbar.map((action) => (
               <span key={action.id} className="composer-plugin-action">
-                {action.render({ cwd: workspace, sessionFile: null })}
+                {action.render({ cwd: workspace, sessionFile: null, variant })}
               </span>
             ))}
             {actionsOpen && (
@@ -911,7 +911,14 @@ export const Composer = memo(function Composer({
           </div>
 
           <div className="composer-toolbar-right">
-            {sessionCost !== undefined && sessionCost > 0 && (
+            {!disabled && scope === "main" && contributions.composerStatus
+              .filter((item) => item.position === "before-model")
+              .map((item) => (
+                <span key={item.id} className="composer-plugin-status">
+                  {item.render({ cwd: workspace, sessionFile: null, variant })}
+                </span>
+              ))}
+            {(scope !== "main" || contributions.composerStatus.length === 0) && sessionCost !== undefined && sessionCost > 0 && (
               <span
                 className="composer-session-cost"
                 title={sessionTokens
@@ -921,7 +928,7 @@ export const Composer = memo(function Composer({
                 {sessionCost < 0.01 ? `$${sessionCost.toFixed(4)}` : `$${sessionCost.toFixed(2)}`}
               </span>
             )}
-            {normalizedContextPercent !== null && (
+            {(scope !== "main" || contributions.composerStatus.length === 0) && normalizedContextPercent !== null && (
               <span className="composer-context-usage">
                 <span
                   className="composer-context-indicator"
@@ -963,6 +970,13 @@ export const Composer = memo(function Composer({
               onModelChange={onModelChange}
               onThinkingChange={onThinkingChange}
             />
+            {!disabled && scope === "main" && contributions.composerStatus
+              .filter((item) => item.position !== "before-model")
+              .map((item) => (
+                <span key={item.id} className="composer-plugin-status">
+                  {item.render({ cwd: workspace, sessionFile: null, variant })}
+                </span>
+              ))}
             {isStreaming ? (
               <button type="button" className="stop-button dsh-primary-send" onClick={onStop} title="停止">
                 <Square size={11} fill="currentColor" />
