@@ -51,6 +51,10 @@ const DEFAULT_TIMEOUT_SECONDS = 120;
 const MAX_BUFFER_BYTES = 1024 * 1024;
 const MAX_OUTPUT_LINES = 2000;
 const MAX_OUTPUT_BYTES = 50 * 1024;
+/** Grace window after the shell exits before detaching inherited background stdio pipes. */
+const POST_EXIT_PIPE_DRAIN_MS = 250;
+/** Grace window after killing a timed-out or aborted command before forcing resolution. */
+const POST_KILL_GRACE_MS = 500;
 
 function gitBashCandidates(env: NodeJS.ProcessEnv): string[] {
   const candidates: string[] = [];
@@ -131,9 +135,36 @@ export function runCommand(
 
     let timedOut = false;
     let aborted = false;
+    let settled = false;
+    let recordedExitCode: number | null = null;
+    let exitDrainTimer: ReturnType<typeof setTimeout> | undefined;
+    let killGraceTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (exitDrainTimer !== undefined) clearTimeout(exitDrainTimer);
+      if (killGraceTimer !== undefined) clearTimeout(killGraceTimer);
+      signal.removeEventListener("abort", onAbort);
+      closeJob?.();
+    };
+
+    const finish = (exitCode: number | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      child.stdout.destroy();
+      child.stderr.destroy();
+      resolve({ output: Buffer.concat(chunks).toString("utf8"), exitCode, timedOut, aborted });
+    };
+
     const stop = () => {
       closeJob?.();
       if (child.pid !== undefined) killTree(child.pid);
+      child.stdout.destroy();
+      child.stderr.destroy();
+      if (killGraceTimer === undefined) {
+        killGraceTimer = setTimeout(() => finish(recordedExitCode), POST_KILL_GRACE_MS);
+      }
     };
     const timer = setTimeout(() => {
       timedOut = true;
@@ -144,18 +175,23 @@ export function runCommand(
       stop();
     };
     signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
 
     child.once("error", (error) => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", onAbort);
-      closeJob?.();
+      if (settled) return;
+      settled = true;
+      cleanup();
       reject(error);
     });
+    child.once("exit", (exitCode) => {
+      recordedExitCode = exitCode;
+      if (settled || exitDrainTimer !== undefined) return;
+      // Background grandchildren (`Start-Process`, `node app.js &`) can inherit
+      // stdout/stderr handles and prevent `"close"` from firing after the shell exits.
+      exitDrainTimer = setTimeout(() => finish(recordedExitCode), POST_EXIT_PIPE_DRAIN_MS);
+    });
     child.once("close", (exitCode) => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", onAbort);
-      closeJob?.();
-      resolve({ output: Buffer.concat(chunks).toString("utf8"), exitCode, timedOut, aborted });
+      finish(exitCode ?? recordedExitCode);
     });
   });
 }

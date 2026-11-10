@@ -56,4 +56,12 @@ describe.skipIf(shell === undefined)("bash tool", () => {
     expect(text).toContain("line3000");
     expect(text).not.toContain("line1\n");
   });
+
+  it("does not hang when a background child process keeps stdio pipes open after the shell exits", async () => {
+    const started = Date.now();
+    const output = await tool.execute({ command: "(sleep 5 &) && echo background-started", timeout: 3 }, env());
+    expect(output.isError).toBe(false);
+    expect(textOf(output)).toContain("background-started");
+    expect(Date.now() - started).toBeLessThan(2500);
+  });
 });

@@ -161,6 +161,8 @@ export interface AppSettings {
   toolRules: ToolPermissionRule[];
   /** Default new-task environment when starting a coding task. */
   defaultTaskEnvironment: "local" | "worktree";
+  /** Optional custom default workspace directory; falls back to the built-in quick-chat directory when empty. */
+  defaultWorkspace?: string;
   showThinking: boolean;
   /** Conversation transcript density: summary hides work, verbose expands it. */
   transcriptDensity: "summary" | "normal" | "verbose";

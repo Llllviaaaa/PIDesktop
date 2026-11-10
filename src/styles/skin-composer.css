@@ -287,7 +287,7 @@
 
 .codex-shot .main-stage > .composer-dock > .composer-area.codex-composer {
   width: 100%;
-  max-width: min(748px, 100%);
+  max-width: var(--chat-reading-width, 760px);
   margin: 0 auto;
 }
 

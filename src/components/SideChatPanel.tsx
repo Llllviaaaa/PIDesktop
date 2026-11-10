@@ -127,8 +127,11 @@ export function SideChatPanel({
   const [restartToken, setRestartToken] = useState(0);
   const [forkedParentCount, setForkedParentCount] = useState(parentMessageCount);
 
-  const permissionMode: AppSettings["permissionMode"] = permissionOverride ?? settings?.permissionMode ?? "ask";
-  const agentMode: AppSettings["agentMode"] = agentModeOverride ?? settings?.agentMode ?? "agent";
+  // Side Chat defaults to read-only `ask` mode (like `/btw` with read-only codebase lookup)
+  // so side questions never mutate the shared workspace unless the user explicitly switches modes.
+  const agentMode: AppSettings["agentMode"] = agentModeOverride ?? "ask";
+  const permissionMode: AppSettings["permissionMode"] =
+    permissionOverride ?? (agentMode === "agent" ? (settings?.permissionMode ?? "ask") : "read-only");
 
   const runtimeRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -392,6 +395,8 @@ export function SideChatPanel({
     setStats(null);
     setRetryStatus(null);
     setIsCompacting(false);
+    setPermissionOverride(null);
+    setAgentModeOverride(null);
     setTitle("侧边对话");
     setError(null);
     setPhase("starting");
@@ -563,9 +568,17 @@ export function SideChatPanel({
   const changePermission = async (mode: AppSettings["permissionMode"]) => {
     const runtimeId = runtimeRef.current;
     if (!runtimeId || isStreaming) return;
+    const nextAgentMode: AppSettings["agentMode"] =
+      mode !== "read-only" && agentMode !== "agent" ? "agent" : agentMode;
     try {
-      await harnessRuntimes.setPermission(runtimeId, { permission: mode });
+      await harnessRuntimes.setPermission(runtimeId, {
+        permission: mode,
+        agentMode: nextAgentMode,
+      });
       setPermissionOverride(mode);
+      if (nextAgentMode !== agentMode) {
+        setAgentModeOverride(nextAgentMode);
+      }
     } catch (reason) {
       reportError(reason);
     }
@@ -574,8 +587,17 @@ export function SideChatPanel({
   const changeAgentMode = async (mode: AppSettings["agentMode"]) => {
     const runtimeId = runtimeRef.current;
     if (!runtimeId || isStreaming) return;
+    const nextPermission: AppSettings["permissionMode"] =
+      mode === "agent" && permissionOverride === null
+        ? (settings?.permissionMode ?? "ask")
+        : mode !== "agent" && permissionOverride === null
+          ? "read-only"
+          : permissionMode;
     try {
-      await harnessRuntimes.setPermission(runtimeId, { agentMode: mode });
+      await harnessRuntimes.setPermission(runtimeId, {
+        agentMode: mode,
+        permission: nextPermission,
+      });
       setAgentModeOverride(mode);
     } catch (reason) {
       reportError(reason);

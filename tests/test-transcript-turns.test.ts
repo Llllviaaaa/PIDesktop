@@ -52,8 +52,19 @@ test("transcript turns", async () => {
   assert.equal(grouped[1].durationMs, 8000);
 
   const merged = mergeAssistantTurn([step1, step2]);
-  assert.equal(merged.content, "豆包失败了，我改用微博。");
+  assert.equal(merged.content, "");
   assert.equal(merged.toolCalls?.length, 2);
+  assert.deepEqual(
+    merged.workSteps?.map((step) => (step.kind === "tool" ? `tool:${step.call.id}` : `${step.kind}:${step.text}`)),
+    [
+      "thinking:Need to search.",
+      "note:先按智能搜索流程处理。",
+      "tool:t1",
+      "thinking:Retry another source.",
+      "note:豆包失败了，我改用微博。",
+      "tool:t2",
+    ],
+  );
 
   const single = groupTranscriptMessages([user, finale]);
   assert.equal(single[1].id, finale.id);
@@ -63,7 +74,8 @@ test("transcript turns", async () => {
   const notice: UiMessage = { id: "n1", role: "notice", noticeKind: "compaction", content: "Context compacted", timestamp: 4 };
   const split = groupTranscriptMessages([user, step1, notice, finale]);
   assert.equal(split.length, 4);
-  assert.equal(split[1].content, "先按智能搜索流程处理。");
+  assert.equal(split[1].content, "");
+  assert.equal(split[1].workSteps?.some((step) => step.kind === "note" && step.text === "先按智能搜索流程处理。"), true);
   assert.equal(split[3].content, "今天是 9月13日。敬一丹去世。");
 
   const drafted = mergeAssistantTurn([

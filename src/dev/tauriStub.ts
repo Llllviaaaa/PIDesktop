@@ -117,7 +117,7 @@ const commands: Record<string, (args: Args) => unknown> = {
   terminal_close: () => null,
   list_resources: () => [],
   get_local_memory: () => "",
-  quick_chat_dir: () => workspace,
+  quick_chat_dir: () => settings.defaultWorkspace?.trim() || workspace,
   "plugin:event|listen": () => ++nextCallback,
   "plugin:event|unlisten": () => null,
   "plugin:event|emit": () => null,

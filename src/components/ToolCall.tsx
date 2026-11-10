@@ -63,7 +63,7 @@ export function toolRowCopy(presented: ToolPresentation, call: UiToolCall): { ti
       if (presented.inputKind === "script") return { title: "运行脚本", summary: detail ?? "" };
       return {
         title: "运行命令",
-        summary: presented.command ? clipLine(presented.command) : detail ?? headingLabel(presented.heading).replace(/^运行\s*/, ""),
+        summary: presented.command ? clipLine(presented.command) : detail ?? headingLabel(presented.heading).replace(/^运行(?:了命令)?\s*/, ""),
       };
     case "search": {
       const title = name === "grep" ? "搜索文件内容" : name === "glob" || name === "find" || name === "ls" ? "查找文件" : "搜索";

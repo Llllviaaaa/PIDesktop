@@ -225,6 +225,21 @@ export default function App() {
   const draftBranch = draftGit?.isRepository ? draftGit.branch || "" : "";
   const [registeredProjects, setRegisteredProjects] = useState<ProjectConfig[]>([]);
   const [quickChat, setQuickChat] = useState(false);
+  const customDefaultWorkspace = settings?.defaultWorkspace?.trim() || "";
+  const defaultWorkspaceQuery = useQuery({
+    queryKey: ["default-workspace-dir", customDefaultWorkspace],
+    queryFn: () => agent.quickChatDir(),
+    enabled: isTauri,
+    staleTime: Infinity,
+  });
+  const defaultWorkspaceDir = (customDefaultWorkspace || defaultWorkspaceQuery.data || "").trim();
+  const isDefaultWorkspace = useCallback((path: string) => {
+    const trimmed = path.trim().replace(/[\\/]+$/, "");
+    if (!trimmed) return false;
+    if (trimmed.toLowerCase().endsWith("quick-chat")) return true;
+    if (customDefaultWorkspace) return sameLocalPath(trimmed, customDefaultWorkspace);
+    return false;
+  }, [customDefaultWorkspace]);
   const [editingMessage, setEditingMessage] = useState<{ messageId: string } | null>(null);
 
   const conversationScrollRef = useRef<HTMLDivElement>(null);
@@ -684,7 +699,7 @@ export default function App() {
 
   useSyncOnChange([draftWorkspace, sessions], () => {
     if (draftWorkspace || sessions.length === 0) return;
-    const firstProject = sessions.find((session) => !session.cwd.toLowerCase().endsWith("quick-chat"))?.cwd;
+    const firstProject = sessions.find((session) => !isDefaultWorkspace(session.cwd))?.cwd;
     if (firstProject) setDraftWorkspace(firstProject);
   });
 
@@ -709,12 +724,13 @@ export default function App() {
   }, [isTauri]);
 
   useEffect(() => {
-    if (!isTauri || !draftWorkspace) return;
+    const targetWorkspace = quickChat ? defaultWorkspaceDir : (draftWorkspace || defaultWorkspaceDir);
+    if (!isTauri || !targetWorkspace) return;
     if (!runtimeRecoveryDone || !newTask || hubView !== null || connection !== "disconnected" || startupAutoConnectRef.current) return;
     // A home composer needs an active blank runtime: the model catalog and
     // model/thinking commands are runtime RPCs, not static settings data.
-    void connect(draftWorkspace).catch(() => undefined);
-  }, [connection, draftWorkspace, hubView, isTauri, newTask, runtimeRecoveryDone, startupAutoConnectRef, connect]);
+    void connect(targetWorkspace).catch(() => undefined);
+  }, [connection, defaultWorkspaceDir, draftWorkspace, hubView, isTauri, newTask, quickChat, runtimeRecoveryDone, startupAutoConnectRef, connect]);
 
   const refreshDraftGit = useCallback(async () => {
     if (!isTauri || !draftWorkspace) return;
@@ -722,15 +738,16 @@ export default function App() {
   }, [draftWorkspace, isTauri, queryClient]);
 
   const selectWorkspace = useCallback((workspace: string) => {
+    const isDefault = isDefaultWorkspace(workspace);
     window.localStorage.setItem("qianji:last-workspace", workspace);
-    setDraftWorkspace(workspace);
-    setQuickChat(false);
-    if (isTauri && workspace && !workspace.toLowerCase().endsWith("quick-chat")) {
+    if (!isDefault) setDraftWorkspace(workspace);
+    setQuickChat(isDefault);
+    if (isTauri && workspace && !isDefault) {
       void agent.registerProject(workspace)
         .then(() => window.dispatchEvent(new Event("qianji:projects-changed")))
         .catch(() => undefined);
     }
-  }, [isTauri]);
+  }, [isDefaultWorkspace, isTauri]);
 
   const pickFolder = useCallback(async () => {
     const selected = await open({ directory: true, multiple: false, title: "打开工作区" });
@@ -798,8 +815,8 @@ export default function App() {
   }, [workspaceCwd, workspaceFilePath]);
   const workspaceOptions = useMemo(
     () => [draftWorkspace, cwd, ...registeredProjects.map((project) => project.path), ...sessions.map((session) => session.cwd)]
-      .filter((item): item is string => Boolean(item) && !item.toLowerCase().endsWith("quick-chat")),
-    [cwd, draftWorkspace, registeredProjects, sessions],
+      .filter((item): item is string => Boolean(item) && !isDefaultWorkspace(item)),
+    [cwd, draftWorkspace, isDefaultWorkspace, registeredProjects, sessions],
   );
   const runningSessionFiles = useMemo(
     () => Object.values(runtimes).filter((runtime) => runtime.isStreaming && runtime.sessionFile).map((runtime) => runtime.sessionFile as string),
@@ -825,12 +842,10 @@ export default function App() {
   }, [reviewGit?.diff]);
   const reviewFileCount = reviewGit?.files.length ?? 0;
   const taskWorkspaceName = draftWorkspace.split(/[\\/]/).filter(Boolean).pop() ?? "";
-  // The home headline names the chosen project; without one it asks for one.
-  const homeHeadline = quickChat
+  // The home headline names the chosen project; without one it falls back to the default workspace.
+  const homeHeadline = quickChat || !taskWorkspaceName
     ? "接下来聊些什么？"
-    : taskWorkspaceName
-      ? `接下来在 ${taskWorkspaceName} 做什么？`
-      : "选一个项目开始";
+    : `接下来在 ${taskWorkspaceName} 做什么？`;
   const statusText = isCompacting
     ? "正在压缩上下文…"
     : retryStatus || (isStreaming ? "Agent 正在工作…" : connected ? "就绪" : connection === "starting" ? "正在启动 Harness…" : "未连接");
@@ -845,7 +860,9 @@ export default function App() {
       if (enteringConversation) useAppStore.setState({ composerPrefill: text });
     };
     let current = useAppStore.getState();
-    let workspace = quickChat ? await agent.quickChatDir() : draftWorkspace || current.cwd;
+    let workspace = quickChat
+      ? (defaultWorkspaceDir || await agent.quickChatDir())
+      : (draftWorkspace || current.cwd || defaultWorkspaceDir || await agent.quickChatDir());
     if (!workspace) {
         const selected = await open({ directory: true, multiple: false, title: "选择任务项目" });
         if (typeof selected !== "string") return false;
@@ -893,7 +910,7 @@ export default function App() {
       setAttachments([]);
     } else restoreInitialPrompt();
     return sent;
-  }, [attachments, draftWorkspace, newTask, quickChat, selectWorkspace, taskEnvironment]);
+  }, [attachments, defaultWorkspaceDir, draftWorkspace, newTask, quickChat, selectWorkspace, taskEnvironment]);
 
   useEffect(() => {
     useIntelligentUiStore.getState().setPromptDispatcher((prompt) => sendFromComposer(prompt, "followUp"));
@@ -902,7 +919,7 @@ export default function App() {
 
   const startNewTask = useCallback((asQuickChat = false) => {
     const current = useAppStore.getState();
-    if (current.cwd && !current.cwd.toLowerCase().endsWith("quick-chat")) setDraftWorkspace(current.cwd);
+    if (current.cwd && !isDefaultWorkspace(current.cwd)) setDraftWorkspace(current.cwd);
     current.prepareNewTask();
     setDraftMode(true);
     setQuickChat(asQuickChat);
@@ -911,16 +928,17 @@ export default function App() {
     setTaskEnvironment(asQuickChat ? "local" : preferred);
     window.localStorage.setItem("qianji:task-environment", asQuickChat ? "local" : preferred);
     setHubView(null);
-  }, []);
+  }, [isDefaultWorkspace]);
 
   const openProjectHome = useCallback((workspace: string) => {
     if (!workspace) return;
+    const isDefault = isDefaultWorkspace(workspace);
     selectWorkspace(workspace);
     useAppStore.getState().prepareNewTask();
     setDraftMode(true);
-    setQuickChat(false);
+    setQuickChat(isDefault);
     setHubView(null);
-  }, [selectWorkspace]);
+  }, [isDefaultWorkspace, selectWorkspace]);
 
   const revealWorkspaceInExplorer = useCallback((workspace: string) => {
     if (!workspace) return;
@@ -993,12 +1011,12 @@ export default function App() {
       return;
     }
     window.localStorage.setItem("qianji:last-workspace", target.cwd);
-    setDraftWorkspace(target.cwd);
+    if (!isDefaultWorkspace(target.cwd)) setDraftWorkspace(target.cwd);
     setDraftMode(false);
-    setQuickChat(target.cwd.toLowerCase().endsWith("quick-chat"));
+    setQuickChat(isDefaultWorkspace(target.cwd));
     setHubView(null);
     await switchSession(target.cwd, target.file);
-  }, [openProjectHome, startNewTask, switchSession]);
+  }, [isDefaultWorkspace, openProjectHome, startNewTask, switchSession]);
 
   // The history stacks are refs so navigation never re-renders mid-update; this
   // copies what the back and forward buttons need into state after each change.
@@ -1738,6 +1756,7 @@ export default function App() {
           {hubView === "scheduled" ? (
             <ScheduledTasksPage
               workspaces={workspaceOptions}
+              defaultWorkspace={defaultWorkspaceDir}
               onTasksChanged={() => void store.refreshSessions()}
               onOpenSession={(workspace, file) => navigateTo({ kind: "session", cwd: workspace, file })}
               onError={showErrorToast}
@@ -1837,7 +1856,6 @@ export default function App() {
                   {extensionRequest && <ExtensionDialog request={extensionRequest} onAnswer={(response) => void store.answerExtension(response)} />}
                 </>
               )}
-              <div />
             </div>
           </div>
 

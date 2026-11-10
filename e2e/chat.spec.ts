@@ -141,9 +141,11 @@ test("side chat fills workbench width, syncs permission, resets cleanly, and iso
   const sidePane = sidebar.locator(".side-chat-pane");
   await expect(composer(sidebar)).toBeEnabled();
 
-  // Permission chip in Side Chat shows readable text ("完全访问") and main-only plugin chip does not leak in.
+  // Side Chat defaults to safe read-only Ask mode ("问答模式" + "只读") even when Main Chat is "完全访问",
+  // and main-only plugin chips do not leak in.
+  await expect(sidebar.locator(".chip-agent-mode")).toContainText("问答模式");
   await expect(sidebar.locator(".chip-permission > span")).toBeVisible();
-  await expect(sidebar.locator(".chip-permission")).toContainText("完全访问");
+  await expect(sidebar.locator(".chip-permission")).toContainText("只读");
   await expect(sidebar.getByRole("button", { name: "交互组件" })).toHaveCount(0);
 
   // Widen the workbench via keyboard resize and verify `.side-chat-pane` fills 100% of `[data-rightbar-col]`.
@@ -171,15 +173,22 @@ test("side chat fills workbench width, syncs permission, resets cleanly, and iso
   expect(Math.abs(maxPaneBox.width - maxSidebarBox.width)).toBeLessThanOrEqual(2);
   await sidebar.getByTitle("还原宽度").click();
 
-  // Inherited "完全访问" permission lets Side Chat execute `write` without a confirmation modal.
+  // Explicitly switching Side Chat permission to "完全访问" lifts it into agent execution mode.
+  await sidebar.locator(".chip-permission").click();
+  await sidebar.locator(".permission-menu").getByRole("menuitemradio", { name: /完全访问/ }).click();
+  await expect(sidebar.locator(".chip-permission")).toContainText("完全访问");
+  await expect(sidebar.locator(".chip-agent-mode")).toHaveCount(0);
+
   await composer(sidebar).fill("write side-note.txt");
   await sidebar.getByTitle("发送").click();
   await expect(sidebar.locator(".dshc-answer", { hasText: "Side wrote it without asking." })).toBeVisible();
   expect(readFileSync(join(harness.workspace, "side-note.txt"), "utf8")).toBe("written in side chat");
 
-  // Clicking "重新开始" clears Side Chat back to its ready empty state without touching Main Chat.
+  // Clicking "重新开始" clears Side Chat back to its ready empty state (and default read-only Ask mode) without touching Main Chat.
   await sidebar.getByRole("button", { name: "重新开始" }).click();
   await expect(sidebar.locator(".side-chat-empty-state")).toBeVisible();
+  await expect(sidebar.locator(".chip-agent-mode")).toContainText("问答模式");
+  await expect(sidebar.locator(".chip-permission")).toContainText("只读");
   await expect(sidebar.locator(".dshc-answer")).toHaveCount(0);
   await expect(composer(sidebar)).toBeEnabled();
 
@@ -201,4 +210,35 @@ test("reconnect after the Host restarts", async ({ app, harness }) => {
   await send(app, "after");
   await expect(answer(app, "After the restart.")).toBeVisible();
   await expect(answer(app, "Before the restart.")).toBeVisible();
+});
+
+test("expanding a short turn process does not trigger spurious scrollbars", async ({ app, harness }) => {
+  harness.provider.push(
+    textReply("<think>只思考一句话。</think>只有一句话的回复。"),
+  );
+  await send(app, "你好");
+  await expect(answer(app, "只有一句话的回复。")).toBeVisible();
+  await settled(app);
+
+  await app.locator(".dshc-turn-process").click();
+  await app.locator(".dshc-group-title").click();
+  await app.locator(".dshc-reasoning-row").click();
+  await expect(app.locator(".dshc-think-body")).toContainText("只思考一句话。");
+
+  const metrics = await app.evaluate(() => {
+    const scroller = document.querySelector<HTMLElement>(".conversation-scroll");
+    const groupBody = document.querySelector<HTMLElement>(".dshc-group-body");
+    if (!scroller || !groupBody) {
+      throw new Error("Expected conversation scroller and group body elements");
+    }
+    return {
+      scrollerOverflows: scroller.scrollHeight > scroller.clientHeight,
+      groupScrollable: groupBody.classList.contains("is-scrollable"),
+      groupOverflows: groupBody.scrollHeight > groupBody.clientHeight,
+    };
+  });
+
+  expect(metrics.scrollerOverflows).toBe(false);
+  expect(metrics.groupScrollable).toBe(false);
+  expect(metrics.groupOverflows).toBe(false);
 });

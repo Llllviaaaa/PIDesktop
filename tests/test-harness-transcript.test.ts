@@ -62,9 +62,19 @@ describe("live progress as transcript events", () => {
       ...translator.delta({ type: "agent-end", outcome: "done" }),
     ];
     expect(events.map((event) => event.type)).toEqual([
-      "turn-start", "assistant-start", "assistant-delta", "assistant-tool-calls", "tool-start", "tool-end", "turn-end",
+      "turn-start",
+      "assistant-start",
+      "assistant-delta",
+      "assistant-tool-calls",
+      "assistant-tool-calls",
+      "assistant-tool-calls",
+      "tool-start",
+      "tool-end",
+      "turn-end",
     ]);
-    expect(events.find((event) => event.type === "assistant-tool-calls")).toMatchObject({ calls: [{ id: "c1", name: "read", args: { path: "a.ts" }, running: true }] });
+    const toolCallEvents = events.filter((event) => event.type === "assistant-tool-calls");
+    expect(toolCallEvents[0]).toMatchObject({ calls: [{ id: "c1", name: "read", args: {}, running: true }] });
+    expect(toolCallEvents.at(-1)).toMatchObject({ calls: [{ id: "c1", name: "read", args: { path: "a.ts" }, running: true }] });
     expect(events.find((event) => event.type === "tool-end")).toMatchObject({ callId: "c1", result: { text: "x", isError: false } });
   });
 

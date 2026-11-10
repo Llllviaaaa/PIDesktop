@@ -146,9 +146,18 @@ export class Permissions extends Service {
     return { permission, agentMode, effective: permissionForAgentMode(agentMode, permission) };
   }
 
+  defaultModesForSession(session?: Session): SessionModes {
+    if (session?.header.side === true) {
+      return { permission: "read-only", agentMode: "ask", effective: "read-only" };
+    }
+    return this.defaultModes();
+  }
+
   modes(session: Session): SessionModes {
-    const defaults = this.defaultModes();
-    const stored = latestCustom<{ permission?: string; agentMode?: string }>(session.events, [NAMESPACE, LEGACY_NAMESPACE]);
+    const defaults = this.defaultModesForSession(session);
+    const minSeq = session.header.side === true ? (session.header.forkedFrom?.seq ?? 0) : 0;
+    const events = minSeq > 0 ? session.events.filter((event) => event.seq > minSeq) : session.events;
+    const stored = latestCustom<{ permission?: string; agentMode?: string }>(events, [NAMESPACE, LEGACY_NAMESPACE]);
     const permission = stored?.permission === undefined ? defaults.permission : normalizePermissionMode(stored.permission);
     const agentMode = stored?.agentMode === undefined ? defaults.agentMode : normalizeAgentMode(stored.agentMode);
     return { permission, agentMode, effective: permissionForAgentMode(agentMode, permission) };

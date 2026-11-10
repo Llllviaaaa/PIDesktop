@@ -486,19 +486,32 @@ function ProcessGroup({
   const setOpen = (next: (value: boolean) => boolean) => setTouched({ autoOpen, open: next(open) });
   const bodyId = useId();
   const bodyRef = useRef<HTMLDivElement>(null);
-  const [edges, setEdges] = useState({ up: false, down: false });
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ scrollable: false, up: false, down: false });
 
   const measureEdges = () => {
     const node = bodyRef.current;
     if (!node) return;
-    const up = node.scrollTop > 0;
-    const down = node.scrollTop + node.clientHeight < node.scrollHeight - 1;
-    setEdges((current) => current.up === up && current.down === down ? current : { up, down });
+    const scrollable = node.scrollHeight > node.clientHeight + 2;
+    const up = scrollable && node.scrollTop > 0;
+    const down = scrollable && node.scrollTop + node.clientHeight < node.scrollHeight - 1;
+    setEdges((current) =>
+      current.scrollable === scrollable && current.up === up && current.down === down
+        ? current
+        : { scrollable, up, down },
+    );
   };
 
   useLayoutEffect(() => {
     if (!grouped || !open) return;
     measureEdges();
+    const node = bodyRef.current;
+    const content = contentRef.current;
+    if (!node || typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => measureEdges());
+    observer.observe(node);
+    if (content) observer.observe(content);
+    return () => observer.disconnect();
   }, [grouped, open, children]);
 
   if (!grouped) {
@@ -521,7 +534,7 @@ function ProcessGroup({
         aria-label={summary}
         data-process-activity={activity}
         onClick={(event) => {
-          event.currentTarget.focus();
+          event.currentTarget.focus({ preventScroll: true });
           setOpen((value) => !value);
         }}
       >
@@ -541,11 +554,11 @@ function ProcessGroup({
         <div
           ref={bodyRef}
           id={bodyId}
-          className={`dshc-group-body${edges.up ? " is-fade-top" : ""}${edges.down ? " is-fade-bottom" : ""}`}
+          className={`dshc-group-body${edges.scrollable ? " is-scrollable" : ""}${edges.up ? " is-fade-top" : ""}${edges.down ? " is-fade-bottom" : ""}`}
           data-step-process-body=""
           onScroll={measureEdges}
         >
-          <div className="dshc-group-content" data-step-process-content="" data-chat-flow="">{children}</div>
+          <div ref={contentRef} className="dshc-group-content" data-step-process-content="" data-chat-flow="">{children}</div>
         </div>
       )}
     </div>
@@ -1067,7 +1080,8 @@ export const Message = memo(function Message({
   const durationParts = !message.isError && durationMs !== null ? formatRunDuration(Math.max(1000, durationMs)) : [];
   const liveProcessVisible = working && hasProcess;
   const liveLabel = liveActivityLabel(workingLabel, hasRunningTool, reasoningLive, working && hasContent);
-  const activityKey = `${assistantContent.length}:${(normalizedAssistant.thinking ?? "").length}:${toolCalls.length}:${toolCalls.filter((call) => call.running).length}`;
+  const toolActivity = toolCalls.map((call) => `${call.id}:${call.running ? 1 : 0}:${Object.keys(call.args).length}`).join(",");
+  const activityKey = `${workingLabel ?? ""}:${assistantContent.length}:${(normalizedAssistant.thinking ?? "").length}:${toolActivity}`;
 
   return (
     <article
@@ -1086,7 +1100,7 @@ export const Message = memo(function Message({
           aria-expanded={canCollapse ? processOpen : undefined}
           aria-label={canCollapse ? (processOpen ? "收起工作过程" : "展开工作过程") : undefined}
           onClick={(event) => {
-            event.currentTarget.focus();
+            event.currentTarget.focus({ preventScroll: true });
             setProcessOpen((value) => !value);
           }}
         >
