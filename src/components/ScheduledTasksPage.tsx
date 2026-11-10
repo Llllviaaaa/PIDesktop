@@ -273,8 +273,8 @@ export function ScheduledTasksPage({
             <article className={`scheduled-task-row ${task.enabled ? "" : "disabled"}`} key={task.id}>
               <button type="button" className={`schedule-toggle ${task.enabled ? "enabled" : ""}`} role="switch" aria-label={`${task.enabled ? "停用" : "启用"}${task.name}`} aria-checked={task.enabled} onClick={() => void toggle(task)}><span /></button>
               <div className="scheduled-task-copy">
-                <div><strong>{task.name}</strong><span className={`run-status ${task.lastStatus || "idle"}`}>{task.lastStatus === "running" ? "运行中" : task.lastStatus ? `上次${runStatusLabel(task.lastStatus)}` : "未运行"}</span></div>
-                <p>{task.prompt}</p>
+                <div><strong title={task.name}>{task.name}</strong><span className={`run-status ${task.lastStatus || "idle"}`}>{task.lastStatus === "running" ? "运行中" : task.lastStatus ? `上次${runStatusLabel(task.lastStatus)}` : "未运行"}</span></div>
+                <p title={task.prompt}>{task.prompt}</p>
                 <small>{workspaceName(task.cwd)} · {permissionLabel(task.permissionMode)} · 超时 {task.timeoutMinutes ?? 30} 分钟 · {scheduleSummary(task)} · 下次 {formatScheduleTime(task.nextRunAt)}</small>
               </div>
               <div className="scheduled-task-actions">
@@ -311,7 +311,7 @@ export function ScheduledTasksPage({
                 <article className={`scheduled-run-row ${run.status}`} key={run.id}>
                   <button type="button" className="scheduled-run-summary" onClick={() => setExpandedRunId(expanded ? null : run.id)} aria-expanded={expanded}>
                     <span className="scheduled-run-status-icon"><RunStatusIcon status={run.status} /></span>
-                    <span className="scheduled-run-copy"><strong>{run.taskName}</strong><small>{formatRunTime(run.startedAt)} · {formatDuration(run.durationMs)} · {permissionLabel(run.permissionMode)} · {run.trigger === "manual" ? "手动运行" : "计划运行"}</small></span>
+                    <span className="scheduled-run-copy"><strong title={run.taskName}>{run.taskName}</strong><small>{formatRunTime(run.startedAt)} · {formatDuration(run.durationMs)} · {permissionLabel(run.permissionMode)} · {run.trigger === "manual" ? "手动运行" : "计划运行"}</small></span>
                     <span className={`run-status ${run.status}`}>{runStatusLabel(run.status)}</span>
                     {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                   </button>
