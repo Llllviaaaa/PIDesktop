@@ -8,8 +8,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "^4.0.5",
-    "@deepseek-ai/schemastery": "^3.18.5",
+    "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/schemastery": "^3.19.0",
     "@qianji/agent": "*",
     "@qianji/agent-loop": "*",
     "@qianji/browser": "*",
@@ -42,7 +42,7 @@
     "@qianji/tool-fs": "*",
     "@qianji/tools": "*",
     "@qianji/ui": "*",
-    "ws": "^8.18.3"
+    "ws": "^8.22.1"
   },
   "devDependencies": {
     "@qianji/testkit": "*"
