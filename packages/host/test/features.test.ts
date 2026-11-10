@@ -7,21 +7,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { AgentLoop } from "@pid/agent-loop";
-import * as checkpoints from "@pid/checkpoints";
-import { LlmService } from "@pid/llm";
-import { Mcp } from "@pid/mcp";
-import { Permissions } from "@pid/permissions";
-import { Schedule } from "@pid/schedule";
-import * as plan from "@pid/plan";
-import { PROTOCOL_VERSION, clientSubprotocols, ErrorCode } from "@pid/protocol";
-import { Sessions } from "@pid/session";
-import { SystemPrompt } from "@pid/system-prompt";
-import { ScriptedProvider, textReply, toolReply, useScriptedProvider } from "@pid/testkit";
-import * as toolBash from "@pid/tool-bash";
-import * as toolFs from "@pid/tool-fs";
-import { Tools } from "@pid/tools";
-import { Ui } from "@pid/ui";
+import { AgentLoop } from "@qianji/agent-loop";
+import * as checkpoints from "@qianji/checkpoints";
+import { LlmService } from "@qianji/llm";
+import { Mcp } from "@qianji/mcp";
+import { Permissions } from "@qianji/permissions";
+import { Schedule } from "@qianji/schedule";
+import * as plan from "@qianji/plan";
+import { PROTOCOL_VERSION, clientSubprotocols, ErrorCode } from "@qianji/protocol";
+import { Sessions } from "@qianji/session";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { ScriptedProvider, textReply, toolReply, useScriptedProvider } from "@qianji/testkit";
+import * as toolBash from "@qianji/tool-bash";
+import * as toolFs from "@qianji/tool-fs";
+import { Tools } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
 import { defaultHarnessConfig, readHarnessConfig } from "../src/harness-config.ts";
 import { RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
 import * as sessionsRpc from "../src/sessions-rpc.ts";
@@ -135,8 +135,8 @@ describe("feature plugins in the host", () => {
     await call("session.prompt", { sessionId, content: "plan it" });
     await until(settled);
     expect((await call("plan.get", { sessionId })).result.plan.items).toEqual([{ id: "a", text: "Look around", status: "in_progress" }]);
-    expect(provider.requests[0]?.system).toContain("PIDesktop mode: Plan.");
-    expect(provider.requests[0]?.system).toContain("pidesktop-rich");
+    expect(provider.requests[0]?.system).toContain("Qianji mode: Plan.");
+    expect(provider.requests[0]?.system).toContain("qianji-rich");
     // Read-only run, and not a git repository either: no checkpoint.
     expect((await call("checkpoint.list", { sessionId })).result).toEqual({ checkpoints: [] });
     expect((await call("checkpoint.restore", { sessionId, userSeq: 1 })).error?.code).toBe(ErrorCode.InvalidParams);
@@ -160,7 +160,7 @@ describe("feature plugins in the host", () => {
     expect((await call("usage.summary")).result).toMatchObject({ sessions: 1, messages: 0 });
     expect((await call("sandbox.generateConfig", { kind: "wsb", cwd: dir })).result).toMatchObject({
       kind: "wsb",
-      path: join(dir, ".pid", "sandbox.wsb"),
+      path: join(dir, ".qianji", "sandbox.wsb"),
     });
   });
 });

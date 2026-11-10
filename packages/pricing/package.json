@@ -1,5 +1,5 @@
 {
-  "name": "@pid/pricing",
+  "name": "@qianji/pricing",
   "version": "0.0.0",
   "private": true,
   "description": "Local per-model token pricing catalog and session cost estimator",
@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/llm": "*",
-    "@pid/session": "*"
+    "@qianji/llm": "*",
+    "@qianji/session": "*"
   }
 }

@@ -9,7 +9,7 @@
 import type { WorkspaceEditorInfo } from "../types";
 import { normalizeLocalPath } from "./pathIdentity";
 
-const STORAGE_KEY = "pid-desktop:project-editors:v1";
+const STORAGE_KEY = "qianji:project-editors:v1";
 
 type EditorStorage = Pick<Storage, "getItem" | "setItem">;
 

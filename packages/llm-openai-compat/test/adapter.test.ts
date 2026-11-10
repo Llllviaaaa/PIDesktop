@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
-import { Credentials, LlmService, assemble, type LlmRequest } from "@pid/llm";
+import { Credentials, LlmService, assemble, type LlmRequest } from "@qianji/llm";
 import { sseFixture, startFakeProvider, type FakeProvider } from "../../llm/test/fake-server.ts";
 import * as adapter from "../src/index.ts";
 

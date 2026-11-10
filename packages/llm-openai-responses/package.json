@@ -1,5 +1,5 @@
 {
-  "name": "@pid/llm-openai-responses",
+  "name": "@qianji/llm-openai-responses",
   "version": "0.0.0",
   "private": true,
   "description": "Native LLM adapter for the OpenAI Responses API (/v1/responses)",
@@ -9,6 +9,6 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/llm": "*"
+    "@qianji/llm": "*"
   }
 }

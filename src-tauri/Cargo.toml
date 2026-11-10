@@ -1,8 +1,8 @@
 [package]
-name = "pid-desktop"
+name = "qianji"
 version = "0.3.0"
-description = "Pi Desktop - a Codex-style desktop client for the Pi coding agent"
-authors = ["PIDesktop"]
+description = "Qianji (千机) - a local-first desktop environment fusing Agent Workbench, autonomous Bot, and IDE"
+authors = ["Qianji"]
 license = "Apache-2.0"
 repository = "https://github.com/Llllviaaaa/PIDesktop"
 homepage = "https://github.com/Llllviaaaa/PIDesktop"
@@ -14,7 +14,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "pid_desktop_lib"
+name = "qianji_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -8,14 +8,14 @@ import { join } from "node:path";
 import { Writable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { AgentLoop } from "@pid/agent-loop";
-import { LlmService } from "@pid/llm";
-import { ErrorCode, PROTOCOL_VERSION, clientSubprotocols, type SessionEventNotification } from "@pid/protocol";
-import { Sessions } from "@pid/session";
-import { SystemPrompt } from "@pid/system-prompt";
-import { ScriptedProvider, textReply, toolReply, useScriptedProvider } from "@pid/testkit";
-import * as toolFs from "@pid/tool-fs";
-import { Tools } from "@pid/tools";
+import { AgentLoop } from "@qianji/agent-loop";
+import { LlmService } from "@qianji/llm";
+import { ErrorCode, PROTOCOL_VERSION, clientSubprotocols, type SessionEventNotification } from "@qianji/protocol";
+import { Sessions } from "@qianji/session";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { ScriptedProvider, textReply, toolReply, useScriptedProvider } from "@qianji/testkit";
+import * as toolFs from "@qianji/tool-fs";
+import { Tools } from "@qianji/tools";
 import { startFakeProvider, type FakeProvider } from "../../llm/test/fake-server.ts";
 import { runHeadless } from "../src/headless.ts";
 import { RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
@@ -248,7 +248,7 @@ describe("deleting and exporting", () => {
 
     const destination = join(cwd, "out", "chat.md");
     expect((await client.call("session.export", { sessionId, destination })).result).toEqual({ path: destination });
-    expect(readFileSync(destination, "utf8")).toBe("# PIDesktop conversation\n\n## User\n\nHi\n\n## Assistant\n\nHello there.\n\n");
+    expect(readFileSync(destination, "utf8")).toBe("# Qianji conversation\n\n## User\n\nHi\n\n## Assistant\n\nHello there.\n\n");
     expect((await client.call("session.export", { sessionId, destination: "relative.md" })).error?.code).toBe(ErrorCode.InvalidParams);
 
     expect((await client.call("session.delete", { sessionId })).result).toEqual({});

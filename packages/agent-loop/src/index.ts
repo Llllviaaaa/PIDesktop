@@ -18,11 +18,11 @@ import {
   type AgentStatus,
   type Agents,
   type RunOutcome,
-} from "@pid/agent";
-import { BlockAssembler, type LlmRequest, type StreamChunk, type ToolCallBlock, type UserContent } from "@pid/llm";
-import { compactionPoint, deriveState, type EventOf, type ModelRef, type Session } from "@pid/session";
-import "@pid/system-prompt";
-import "@pid/tools";
+} from "@qianji/agent";
+import { BlockAssembler, type LlmRequest, type StreamChunk, type ToolCallBlock, type UserContent } from "@qianji/llm";
+import { compactionPoint, deriveState, type EventOf, type ModelRef, type Session } from "@qianji/session";
+import "@qianji/system-prompt";
+import "@qianji/tools";
 
 export interface AgentLoopConfig {
   /** Model calls per run before it stops with `max-turns`. */

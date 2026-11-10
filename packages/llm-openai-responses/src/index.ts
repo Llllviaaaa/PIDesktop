@@ -19,9 +19,9 @@ import {
   type ModelInfo,
   type SecretRef,
   type StreamChunk,
-} from "@pid/llm";
+} from "@qianji/llm";
 
-export const name = "pid-llm-openai-responses";
+export const name = "qianji-llm-openai-responses";
 export const inject = ["llm", "credentials"];
 
 export const DEFAULT_OPENAI_RESPONSES_BASE_URL = "https://api.openai.com/v1";

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ErrorCode, PROTOCOL_VERSION } from "@pid/protocol";
-import { RpcGateway, WebServer, createHost, type Host } from "@pid/host";
+import { ErrorCode, PROTOCOL_VERSION } from "@qianji/protocol";
+import { RpcGateway, WebServer, createHost, type Host } from "@qianji/host";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 

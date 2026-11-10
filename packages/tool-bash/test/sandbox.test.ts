@@ -31,9 +31,9 @@ describe("lightweight sandbox helpers", () => {
       expect(env.CUSTOM_DB_PASSWORD).toBeUndefined();
       expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
       expect(env.NODE_ENV).toBe("test");
-      expect(env.PID_SANDBOX).toBe("1");
-      expect(env.TMP).toBe(join(dir, ".pid", "sandbox-tmp"));
-      expect(env.TEMP).toBe(join(dir, ".pid", "sandbox-tmp"));
+      expect(env.QIANJI_SANDBOX).toBe("1");
+      expect(env.TMP).toBe(join(dir, ".qianji", "sandbox-tmp"));
+      expect(env.TEMP).toBe(join(dir, ".qianji", "sandbox-tmp"));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -58,7 +58,7 @@ describe("lightweight sandbox helpers", () => {
     try {
       const result = await runCommand(
         shell,
-        "printf '%s|%s' \"${OPENAI_API_KEY:-missing}\" \"${PID_SANDBOX:-0}\"",
+        "printf '%s|%s' \"${OPENAI_API_KEY:-missing}\" \"${QIANJI_SANDBOX:-0}\"",
         dir,
         10_000,
         new AbortController().signal,
@@ -87,7 +87,7 @@ describe("lightweight sandbox helpers", () => {
       name: string;
       image: string;
     };
-    expect(devcontainer.name).toBe("PI-Desktop (my-app)");
+    expect(devcontainer.name).toBe("Qianji (my-app)");
     expect(devcontainer.image).toContain("devcontainers/base");
   });
 });

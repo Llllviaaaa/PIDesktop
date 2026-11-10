@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Sessions, type Session } from "@pid/session";
-import { Tools, type ToolOutput } from "@pid/tools";
-import { Ui } from "@pid/ui";
+import { Sessions, type Session } from "@qianji/session";
+import { Tools, type ToolOutput } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
 import * as browserPlugin from "../src/index.ts";
 import { browserTools, keyEvent, normalizeUrl, parseElementRef, resolveWorkspacePath, type Browser, type Config, type PageSnapshot } from "../src/index.ts";
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Logger, type Context, type Exporter } from "@deepseek-ai/cordis";
-import { ErrorCode, PROTOCOL_VERSION, clientSubprotocols } from "@pid/protocol";
+import { ErrorCode, PROTOCOL_VERSION, clientSubprotocols } from "@qianji/protocol";
 import WebSocket from "ws";
 import { RpcError, RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
 
@@ -70,7 +70,7 @@ describe("RPC gateway", () => {
   it("refuses an upgrade without the right token", async () => {
     const port = await startHost();
     await expect(connect(port, clientSubprotocols(Buffer.alloc(32, 1).toString("base64url")))).rejects.toThrow("HTTP 401");
-    await expect(connect(port, ["pid.v1"])).rejects.toThrow("HTTP 401");
+    await expect(connect(port, ["qianji.v1"])).rejects.toThrow("HTTP 401");
   });
 
   it("refuses an upgrade from a foreign page", async () => {
@@ -78,10 +78,10 @@ describe("RPC gateway", () => {
     await expect(connect(port, clientSubprotocols(token), "https://evil.example")).rejects.toThrow();
   });
 
-  it("accepts Pi Desktop's page origin", async () => {
+  it("accepts Qianji's page origin", async () => {
     const port = await startHost();
     const client = await connect(port, clientSubprotocols(token), pageOrigin);
-    expect(client.socket.protocol).toBe("pid.v1");
+    expect(client.socket.protocol).toBe("qianji.v1");
     client.socket.close();
   });
 

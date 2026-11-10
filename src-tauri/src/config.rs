@@ -15,8 +15,18 @@ pub(crate) struct AppSettings {
     pub(crate) thinking_level: String,
     #[serde(default, alias = "custom_thinking_levels")]
     pub(crate) custom_thinking_levels: Vec<String>,
+    #[serde(default, alias = "model_thinking_levels")]
+    pub(crate) model_thinking_levels: HashMap<String, String>,
+    #[serde(default, alias = "model_custom_thinking_levels")]
+    pub(crate) model_custom_thinking_levels: HashMap<String, Vec<String>>,
     /// `provider/model` keys the user hid from the composer model picker.
     pub(crate) hidden_models: Vec<String>,
+    /// Settings presentation mode: "page" (full-window page) or "modal" (floating dialog).
+    #[serde(
+        alias = "settings_display_mode",
+        default = "default_settings_display_mode"
+    )]
+    pub(crate) settings_display_mode: String,
     pub(crate) agent_mode: String,
     #[serde(alias = "permission_mode")]
     pub(crate) permission_mode: String,
@@ -198,6 +208,10 @@ pub(crate) fn default_transcript_density() -> String {
     "normal".to_string()
 }
 
+pub(crate) fn default_settings_display_mode() -> String {
+    "page".to_string()
+}
+
 pub(crate) fn default_true() -> bool {
     true
 }
@@ -209,7 +223,10 @@ impl Default for AppSettings {
             model: String::new(),
             thinking_level: "medium".to_string(),
             custom_thinking_levels: Vec::new(),
+            model_thinking_levels: HashMap::new(),
+            model_custom_thinking_levels: HashMap::new(),
             hidden_models: Vec::new(),
+            settings_display_mode: "page".to_string(),
             agent_mode: "agent".to_string(),
             permission_mode: "ask".to_string(),
             always_confirm_shell: true,
@@ -266,7 +283,7 @@ impl Default for AppSettings {
             mcp_confirm_tools: true,
             mcp_servers: Vec::new(),
             review_delivery: "inline".to_string(),
-            branch_prefix: "pi/".to_string(),
+            branch_prefix: "qianji/".to_string(),
             allow_force_push: false,
             commit_message_instructions: String::new(),
             pull_request_instructions: String::new(),
@@ -299,10 +316,38 @@ pub(crate) struct ProjectConfig {
     pub(crate) hidden: bool,
 }
 
+pub(crate) fn copy_dir_recursive(source: &Path, target: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(target)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let dest = target.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest)?;
+        } else if file_type.is_file() && !dest.exists() {
+            let _ = fs::copy(entry.path(), dest);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn migrate_legacy_dir_if_needed(legacy: &Path, target: &Path) {
+    if !target.exists() && legacy.is_dir() {
+        let _ = copy_dir_recursive(legacy, target);
+    }
+}
+
 pub(crate) fn app_config_dir() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("pid-desktop")
+    static APP_CONFIG_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    APP_CONFIG_DIR
+        .get_or_init(|| {
+            let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+            let target = base.join("qianji");
+            let legacy = base.join("pid-desktop");
+            migrate_legacy_dir_if_needed(&legacy, &target);
+            target
+        })
+        .clone()
 }
 
 pub(crate) fn settings_path() -> PathBuf {
@@ -498,7 +543,7 @@ pub(crate) fn load_settings() -> AppSettings {
     let mut secrets = match load_mcp_secrets() {
         Ok(secrets) => secrets,
         Err(err) => {
-            log_line!("PIDesktop could not load protected MCP credentials: {err}");
+            log_line!("Qianji could not load protected MCP credentials: {err}");
             McpSecrets::new()
         }
     };
@@ -521,16 +566,16 @@ pub(crate) fn load_settings() -> AppSettings {
             Ok(()) => {
                 if let Err(err) = write_public_settings(&settings) {
                     log_line!(
-                        "PIDesktop could not remove migrated MCP credentials from settings: {err}"
+                        "Qianji could not remove migrated MCP credentials from settings: {err}"
                     );
                 }
             }
-            Err(err) => log_line!("PIDesktop could not migrate MCP credentials: {err}"),
+            Err(err) => log_line!("Qianji could not migrate MCP credentials: {err}"),
         }
     }
     if typography_migrated {
         if let Err(err) = write_public_settings(&settings) {
-            log_line!("PIDesktop could not migrate Codex typography defaults: {err}");
+            log_line!("Qianji could not migrate Codex typography defaults: {err}");
         }
     }
     let _ = fs::remove_file(app_config_dir().join("mcp-servers.json"));
@@ -607,5 +652,36 @@ mod tests {
         resolve_mcp_secret_placeholders(&mut incoming, &current)
             .expect("placeholder should resolve from current settings");
         assert_eq!(incoming.mcp_servers[0].env["TOKEN"], "existing-secret");
+    }
+
+    #[test]
+    fn migrates_legacy_directory_once_without_deleting_source() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "qianji-migrate-test-{}-{stamp}",
+            std::process::id()
+        ));
+        let legacy = root.join(".pid");
+        let target = root.join(".qianji");
+        fs::create_dir_all(legacy.join("sessions/2026-11")).expect("create legacy tree");
+        fs::write(legacy.join("providers.json"), r#"{"providers":[]}"#).expect("write providers");
+        fs::write(legacy.join("sessions/2026-11/s1.jsonl"), "{}\n").expect("write session");
+
+        migrate_legacy_dir_if_needed(&legacy, &target);
+        assert!(target.join("providers.json").is_file());
+        assert!(target.join("sessions/2026-11/s1.jsonl").is_file());
+        assert!(legacy.join("providers.json").is_file());
+
+        fs::write(legacy.join("providers.json"), "changed").expect("modify legacy");
+        migrate_legacy_dir_if_needed(&legacy, &target);
+        assert_eq!(
+            fs::read_to_string(target.join("providers.json")).expect("read target"),
+            r#"{"providers":[]}"#
+        );
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
     }
 }

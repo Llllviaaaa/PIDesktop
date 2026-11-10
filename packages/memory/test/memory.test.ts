@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { Permissions } from "@pid/permissions";
-import { Sessions } from "@pid/session";
-import { SystemPrompt } from "@pid/system-prompt";
-import { Tools } from "@pid/tools";
-import { Ui } from "@pid/ui";
+import { Permissions } from "@qianji/permissions";
+import { Sessions } from "@qianji/session";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { Tools } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
 import * as memory from "../src/index.ts";
 
 let dir = "";
@@ -42,8 +42,8 @@ describe("local memory", () => {
     await ctx.fiber.dispose();
   });
 
-  it("supports project scope (.pid/memory.md) with independent switches and trust gate", async () => {
-    dir = mkdtempSync(join(tmpdir(), "pid-memory-proj-"));
+  it("supports project scope (.qianji/memory.md) with independent switches and trust gate", async () => {
+    dir = mkdtempSync(join(tmpdir(), "qianji-memory-proj-"));
     const globalFile = join(dir, "global", "memory.md");
     const workspace = join(dir, "workspace");
     let trusted = true;
@@ -60,7 +60,7 @@ describe("local memory", () => {
 
     await call({ action: "append", scope: "user", content: "Global rule." });
     await call({ action: "append", scope: "project", content: "Use vitest for tests." });
-    expect(readFileSync(join(workspace, ".pid", "memory.md"), "utf8")).toBe("Use vitest for tests.\n");
+    expect(readFileSync(join(workspace, ".qianji", "memory.md"), "utf8")).toBe("Use vitest for tests.\n");
 
     const built = await prompt();
     expect(built).toContain("<memory>\nGlobal rule.\n</memory>");

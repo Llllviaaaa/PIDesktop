@@ -1,5 +1,5 @@
 /**
- * Pluggable asynchronous SQLite FTS5 full-text search index (`@pid/session-search-fts`).
+ * Pluggable asynchronous SQLite FTS5 full-text search index (`@qianji/session-search-fts`).
  *
  * Decouples expensive full-conversation text extraction, CJK/identifier segmentation,
  * and SQLite FTS5 writes from the synchronous `session.append()` hot path:
@@ -7,20 +7,20 @@
  *   and schedule a coalesced background flush;
  * - `session/flush` and `search()` drain pending dirty sessions immediately before
  *   reading so search queries never observe stale results;
- * - Disabling this plugin closes SQLite cleanly and falls back to `@pid/session`'s
+ * - Disabling this plugin closes SQLite cleanly and falls back to `@qianji/session`'s
  *   lightweight scan without affecting JSONL persistence.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
-import { summarize, type Session, type SessionSearchHit, type SessionSearchOptions } from "@pid/session";
+import { summarize, type Session, type SessionSearchHit, type SessionSearchOptions } from "@qianji/session";
 import {
   extractSessionSearchBody,
   parseLog,
   SessionSqliteIndex,
   walkJsonlFiles,
   type IndexedSessionInput,
-} from "@pid/session-jsonl";
+} from "@qianji/session-jsonl";
 
 declare module "@deepseek-ai/cordis" {
   interface Context {
@@ -28,7 +28,7 @@ declare module "@deepseek-ai/cordis" {
   }
 }
 
-export const name = "pid-session-search-fts";
+export const name = "qianji-session-search-fts";
 export const inject = ["sessions"];
 export const provide = ["sessionSearch"];
 

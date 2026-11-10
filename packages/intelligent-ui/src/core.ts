@@ -1,9 +1,10 @@
 /**
  * Schema validation, normalization, and session-branch version tracking for
- * `@pid/intelligent-ui`.
+ * `@qianji/intelligent-ui`.
  */
 
-export const NAMESPACE = "pid-intelligent-ui";
+export const NAMESPACE = "qianji-intelligent-ui";
+export const LEGACY_NAMESPACE = "pid-intelligent-ui";
 export const MAX_PAYLOAD_BYTES = 96 * 1024;
 export const MAX_WIDGET_ID_LEN = 80;
 export const MAX_TITLE_LEN = 120;

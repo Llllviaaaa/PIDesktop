@@ -10,10 +10,10 @@ import { arch, platform, release } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import type { Context } from "@deepseek-ai/cordis";
-import { ErrorCode, redactSensitiveText } from "@pid/protocol";
+import { ErrorCode, redactSensitiveText } from "@qianji/protocol";
 import { RpcError } from "./rpc.ts";
 
-export const name = "pid-diagnostics";
+export const name = "qianji-diagnostics";
 export const inject = ["rpc", "hostInfo"];
 
 export interface DiagnosticsLogsResult {

@@ -1,4 +1,4 @@
-# @pid/llm-anthropic
+# @qianji/llm-anthropic
 
 Anthropic Messages API 的适配器插件，见 [ADR 0007](../../docs/adr/0007-llm-layer.md)。也适用于提供同一接口的网关。
 

@@ -1,4 +1,4 @@
-# @pid/session
+# @qianji/session
 
 事件溯源的会话日志，见 [ADR 0004](../../docs/adr/0004-session-format.md) 和 [ADR 0008](../../docs/adr/0008-agent-loop-and-sessions.md)。
 

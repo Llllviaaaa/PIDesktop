@@ -1,5 +1,5 @@
 {
-  "name": "@pid/checkpoints",
+  "name": "@qianji/checkpoints",
   "version": "0.0.0",
   "private": true,
   "description": "Git workspace checkpoints before each run (ADR 0009)",
@@ -9,9 +9,9 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/agent": "*",
-    "@pid/protocol": "*",
-    "@pid/rpc": "*",
-    "@pid/session": "*"
+    "@qianji/agent": "*",
+    "@qianji/protocol": "*",
+    "@qianji/rpc": "*",
+    "@qianji/session": "*"
   }
 }

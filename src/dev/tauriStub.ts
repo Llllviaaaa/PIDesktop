@@ -30,7 +30,7 @@ const params = new URLSearchParams(window.location.search);
 const baseUrl = params.get("host") ?? "";
 const token = params.get("token") ?? "";
 const workspace = params.get("workspace") ?? "";
-if (workspace !== "") window.localStorage.setItem("pid-desktop:last-workspace", workspace);
+if (workspace !== "") window.localStorage.setItem("qianji:last-workspace", workspace);
 
 let settings: AppSettings = { ...DEFAULTS };
 const projects: ProjectConfig[] = workspace === "" ? [] : [{ path: workspace, name: workspace.split(/[\\/]/).pop() ?? workspace, pinned: false, hidden: false }];

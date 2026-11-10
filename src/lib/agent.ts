@@ -4,7 +4,7 @@ import type {
   SandboxGenerateConfigResult,
   UsageSummaryResult,
   WorkbenchPreviewUrlResult,
-} from "@pid/protocol";
+} from "@qianji/protocol";
 import type {
   AppSettings,
   AttachmentPayload,

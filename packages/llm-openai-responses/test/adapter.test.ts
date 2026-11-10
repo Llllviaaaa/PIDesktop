@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { Credentials, LlmService, assemble } from "@pid/llm";
+import { Credentials, LlmService, assemble } from "@qianji/llm";
 import * as openaiResponses from "../src/index.ts";
 
 let server: ReturnType<typeof createServer> | undefined;
@@ -26,7 +26,7 @@ async function openMockServer(handler: (req: IncomingMessage, res: ServerRespons
   return `http://127.0.0.1:${address.port}/v1`;
 }
 
-describe("@pid/llm-openai-responses adapter", () => {
+describe("@qianji/llm-openai-responses adapter", () => {
   it("builds Responses API request payload with reasoning effort, instructions, tools, and function_call_output", () => {
     const body = openaiResponses.buildRequestBody({
       provider: "openai",

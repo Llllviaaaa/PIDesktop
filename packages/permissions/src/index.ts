@@ -9,12 +9,12 @@
  * they follow the branch and survive restarts.
  */
 import { Context, Service } from "@deepseek-ai/cordis";
-import { ErrorCode, type AppendResult, type PermissionGetResult } from "@pid/protocol";
-import { RpcError } from "@pid/rpc";
-import { latestCustom, type Session } from "@pid/session";
-import { SectionOrder } from "@pid/system-prompt";
-import "@pid/tools";
-import "@pid/ui";
+import { ErrorCode, type AppendResult, type PermissionGetResult } from "@qianji/protocol";
+import { RpcError } from "@qianji/rpc";
+import { latestCustom, type Session } from "@qianji/session";
+import { SectionOrder } from "@qianji/system-prompt";
+import "@qianji/tools";
+import "@qianji/ui";
 import {
   agentModeSystemInstructions,
   applyDesktopToolDefaults,
@@ -37,7 +37,8 @@ declare module "@deepseek-ai/cordis" {
   }
 }
 
-export const NAMESPACE = "pid-permissions";
+export const NAMESPACE = "qianji-permissions";
+export const LEGACY_NAMESPACE = "pid-permissions";
 
 const PERMISSION_MODES: readonly PermissionMode[] = ["read-only", "ask", "workspace-write", "full-access"];
 const AGENT_MODES: readonly AgentMode[] = ["agent", "plan", "ask"];
@@ -147,7 +148,7 @@ export class Permissions extends Service {
 
   modes(session: Session): SessionModes {
     const defaults = this.defaultModes();
-    const stored = latestCustom<{ permission?: string; agentMode?: string }>(session.events, NAMESPACE);
+    const stored = latestCustom<{ permission?: string; agentMode?: string }>(session.events, [NAMESPACE, LEGACY_NAMESPACE]);
     const permission = stored?.permission === undefined ? defaults.permission : normalizePermissionMode(stored.permission);
     const agentMode = stored?.agentMode === undefined ? defaults.agentMode : normalizeAgentMode(stored.agentMode);
     return { permission, agentMode, effective: permissionForAgentMode(agentMode, permission) };

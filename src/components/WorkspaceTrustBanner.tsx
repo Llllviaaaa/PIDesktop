@@ -8,7 +8,7 @@ import { useAppStore } from "../store";
 
 /**
  * Prompts the user before executing untrusted workspace-local plugins under
- * `<workspace>/.pid/plugins/*` (ADR 0016 Workspace Trust Gate).
+ * `<workspace>/.qianji/plugins/*` (ADR 0016 Workspace Trust Gate).
  */
 export function WorkspaceTrustBanner({
   workspace,
@@ -68,7 +68,7 @@ export function WorkspaceTrustBanner({
 
   const summary = current.pluginIds.length > 0
     ? `检测到当前项目包含 ${current.pluginIds.length} 个项目级插件（${current.pluginIds.join("、")}），出于安全保护默认暂未运行。`
-    : "检测到当前项目包含项目级插件配置（.pid/plugins.json），出于安全保护默认暂未生效。";
+    : "检测到当前项目包含项目级插件配置（.qianji/harness.json），出于安全保护默认暂未生效。";
 
   return (
     <div className="workspace-trust-banner" role="region" aria-label="工作区插件信任提示">

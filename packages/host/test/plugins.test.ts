@@ -12,12 +12,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ErrorCode, type PluginChangedNotification, type WorkspaceTrustChangedNotification } from "@pid/protocol";
-import { Sessions } from "@pid/session";
-import { SystemPrompt } from "@pid/system-prompt";
-import { Tools } from "@pid/tools";
-import { Ui } from "@pid/ui";
-import * as plan from "@pid/plan";
+import { ErrorCode, type PluginChangedNotification, type WorkspaceTrustChangedNotification } from "@qianji/protocol";
+import { Sessions } from "@qianji/session";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { Tools } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
+import * as plan from "@qianji/plan";
 import { builtinPluginDefinitions, corePlugins } from "../src/agent-plugins.ts";
 import { applyDesktopMessage } from "../src/control.ts";
 import { readHarnessConfig } from "../src/harness-config.ts";
@@ -141,7 +141,7 @@ describe("dynamic plugin kernel (ADR 0016)", () => {
 
     writeFileSync(join(extDir, "src", "index.ts"), `
       import { Context } from "@deepseek-ai/cordis";
-      import { textOutput } from "@pid/tools";
+      import { textOutput } from "@qianji/tools";
 
       export const name = "demo-fullstack";
       export const inject = ["tools"];
@@ -237,7 +237,7 @@ describe("dynamic plugin kernel (ADR 0016)", () => {
     }));
     writeFileSync(join(overrideDir, "index.ts"), `
       import type { Context } from "@deepseek-ai/cordis";
-      import { textOutput } from "@pid/tools";
+      import { textOutput } from "@qianji/tools";
       export const name = "custom-plan";
       export const inject = ["tools"];
       export function apply(ctx: Context) {
@@ -318,7 +318,7 @@ describe("dynamic plugin kernel (ADR 0016)", () => {
 
     writePluginVersion(`
       import type { Context } from "@deepseek-ai/cordis";
-      import { textOutput } from "@pid/tools";
+      import { textOutput } from "@qianji/tools";
       export const name = "watched-plugin";
       export const inject = ["tools"];
       export function apply(ctx: Context) {
@@ -343,7 +343,7 @@ describe("dynamic plugin kernel (ADR 0016)", () => {
     // Edit to v2 -> fs.watch triggers debounced HMR.
     writePluginVersion(`
       import type { Context } from "@deepseek-ai/cordis";
-      import { textOutput } from "@pid/tools";
+      import { textOutput } from "@qianji/tools";
       export const name = "watched-plugin";
       export const inject = ["tools"];
       export function apply(ctx: Context) {
@@ -441,16 +441,16 @@ describe("dynamic plugin kernel (ADR 0016)", () => {
   it("gates workspace plugins behind Workspace Trust and unloads them immediately when revoked", async () => {
     const env = await setupPluginHost();
     const workspace = join(tempRoot, "team-repo");
-    const wsPluginDir = join(workspace, ".pid", "plugins", "team-helper");
+    const wsPluginDir = join(workspace, ".qianji", "plugins", "team-helper");
     mkdirSync(wsPluginDir, { recursive: true });
     writeFileSync(join(wsPluginDir, "package.json"), JSON.stringify({
       name: "team-helper",
       version: "0.1.0",
-      pid: { id: "team-helper", name: "团队工作区插件", host: "./index.ts" },
+      qianji: { id: "team-helper", name: "团队工作区插件", host: "./index.ts" },
     }));
     writeFileSync(join(wsPluginDir, "index.ts"), `
       import type { Context } from "@deepseek-ai/cordis";
-      import { textOutput } from "@pid/tools";
+      import { textOutput } from "@qianji/tools";
       export const name = "team-helper";
       export const inject = ["tools"];
       export function apply(ctx: Context) {
@@ -507,7 +507,7 @@ describe("dynamic plugin kernel (ADR 0016)", () => {
     }));
     writeFileSync(join(consumerDir, "index.ts"), `
       import type { Context } from "@deepseek-ai/cordis";
-      import { textOutput } from "@pid/tools";
+      import { textOutput } from "@qianji/tools";
       export const name = "a-consumer";
       export const inject = ["tools", "customAlpha"];
       export function apply(ctx: Context) {
@@ -583,16 +583,16 @@ describe("dynamic plugin kernel (ADR 0016)", () => {
     const env = await setupPluginHost();
     const createWsPlugin = (wsName: string, toolName: string) => {
       const wsDir = join(tempRoot, wsName);
-      const pluginDir = join(wsDir, ".pid", "plugins", `${wsName}-plug`);
+      const pluginDir = join(wsDir, ".qianji", "plugins", `${wsName}-plug`);
       mkdirSync(pluginDir, { recursive: true });
       writeFileSync(join(pluginDir, "package.json"), JSON.stringify({
         name: `${wsName}-plug`,
         version: "0.1.0",
-        pid: { id: `${wsName}-plug`, host: "./index.ts" },
+        qianji: { id: `${wsName}-plug`, host: "./index.ts" },
       }));
       writeFileSync(join(pluginDir, "index.ts"), `
         import type { Context } from "@deepseek-ai/cordis";
-        import { textOutput } from "@pid/tools";
+        import { textOutput } from "@qianji/tools";
         export const name = "${wsName}-plug";
         export const inject = ["tools"];
         export function apply(ctx: Context) {

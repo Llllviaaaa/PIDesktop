@@ -1,6 +1,6 @@
-# @pid/agent
+# @qianji/agent
 
-agent 的接口，见 [ADR 0008](../../docs/adr/0008-agent-loop-and-sessions.md)。唯一的实现是 `@pid/agent-loop`。
+agent 的接口，见 [ADR 0008](../../docs/adr/0008-agent-loop-and-sessions.md)。唯一的实现是 `@qianji/agent-loop`。
 
 ## 服务
 

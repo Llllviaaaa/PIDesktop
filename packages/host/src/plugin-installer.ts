@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import type { PluginInstallOrigin, PluginInstallParams } from "@pid/protocol";
+import type { PluginInstallOrigin, PluginInstallParams } from "@qianji/protocol";
 import { HOST_SHARED_MODULES } from "./plugin-bridge.ts";
 import { canonicalPath, readPluginManifest, type DiscoveredPluginManifest } from "./plugin-manifest.ts";
 import { readPluginsStore, updatePluginsStore } from "./plugin-store.ts";
@@ -310,7 +310,7 @@ function installFromNpm(dataDir: string, spec: string, watchFlag?: boolean, prev
   try {
     const wrapperDir = join(staging, "wrapper");
     mkdirSync(wrapperDir, { recursive: true });
-    writeFileSync(join(wrapperDir, "package.json"), `${JSON.stringify({ name: "pid-plugin-stage", private: true }, null, 2)}\n`, "utf8");
+    writeFileSync(join(wrapperDir, "package.json"), `${JSON.stringify({ name: "qianji-plugin-stage", private: true }, null, 2)}\n`, "utf8");
 
     const bun = resolveBunCommand();
     runChecked(bun.command, ["add", "--ignore-scripts", trimmed], {

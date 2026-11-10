@@ -26,10 +26,10 @@ export function permissionForAgentMode(agentMode: AgentMode, permissionMode: Per
 
 export function agentModeSystemInstructions(mode: AgentMode): string {
   if (mode === "ask") {
-    return "PIDesktop mode: Ask. Investigate with read-only tools and answer the user's question. Do not edit files, run shell commands, or perform side-effecting actions.";
+    return "Qianji mode: Ask. Investigate with read-only tools and answer the user's question. Do not edit files, run shell commands, or perform side-effecting actions.";
   }
   if (mode === "plan") {
-    return "PIDesktop mode: Plan. Investigate with read-only tools, record the proposed ordered steps with update_plan, then produce an implementation-ready plan with affected files, key symbols, risks, and verification. Do not edit files, run shell commands, or perform side-effecting actions.";
+    return "Qianji mode: Plan. Investigate with read-only tools, record the proposed ordered steps with update_plan, then produce an implementation-ready plan with affected files, key symbols, risks, and verification. Do not edit files, run shell commands, or perform side-effecting actions.";
   }
   return "";
 }
@@ -342,15 +342,15 @@ export function evaluateToolPermission(options: {
   }
 
   if (mode === "read-only" && (isWrite || isShell || isInteractiveBrowser || isInteractiveComputer || isMcpTool || isMemoryWrite)) {
-    return { action: "block", reason: "Pi Desktop is in read-only mode" };
+    return { action: "block", reason: "Qianji is in read-only mode" };
   }
 
   if (mode === "read-only" && isSubagent && subagentPermission !== "read-only") {
-    return { action: "block", reason: "Pi Desktop read-only mode only permits read-only subagents" };
+    return { action: "block", reason: "Qianji read-only mode only permits read-only subagents" };
   }
 
   if (mode === "read-only" && !isKnownTool) {
-    return { action: "block", reason: `Pi Desktop read-only mode blocks unclassified tool: ${tool}` };
+    return { action: "block", reason: `Qianji read-only mode blocks unclassified tool: ${tool}` };
   }
 
   // Workspace confinement is a hard cap, like read-only mode. A broad custom

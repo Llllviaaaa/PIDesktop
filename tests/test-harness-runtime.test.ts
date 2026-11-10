@@ -6,25 +6,25 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentLoop } from "@pid/agent-loop";
-import * as checkpoints from "@pid/checkpoints";
-import { LlmService } from "@pid/llm";
-import { Permissions } from "@pid/permissions";
-import * as plan from "@pid/plan";
-import { Sessions } from "@pid/session";
-import * as sessionJsonl from "@pid/session-jsonl";
-import { SystemPrompt } from "@pid/system-prompt";
-import { ScriptedProvider, textReply, toolReply, useScriptedProvider } from "@pid/testkit";
-import * as toolFs from "@pid/tool-fs";
-import { Tools } from "@pid/tools";
-import { Ui } from "@pid/ui";
+import { AgentLoop } from "@qianji/agent-loop";
+import * as checkpoints from "@qianji/checkpoints";
+import { LlmService } from "@qianji/llm";
+import { Permissions } from "@qianji/permissions";
+import * as plan from "@qianji/plan";
+import { Sessions } from "@qianji/session";
+import * as sessionJsonl from "@qianji/session-jsonl";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { ScriptedProvider, textReply, toolReply, useScriptedProvider } from "@qianji/testkit";
+import * as toolFs from "@qianji/tool-fs";
+import { Tools } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
 import { RpcGateway, WebServer, createHost, type Host } from "../packages/host/src/index";
 import * as sessionsRpc from "../packages/host/src/sessions-rpc";
 import * as uiRpc from "../packages/host/src/ui-rpc";
-import { Mcp } from "@pid/mcp";
-import { Schedule } from "@pid/schedule";
+import { Mcp } from "@qianji/mcp";
+import { Schedule } from "@qianji/schedule";
 import { runFromHost, taskFromHost, taskToHost } from "../src/lib/scheduleClient";
-import type { ScheduledRunInfo } from "@pid/protocol";
+import type { ScheduledRunInfo } from "@qianji/protocol";
 import { connectHarness, type HarnessConnection } from "../src/lib/harnessClient";
 import { HarnessRuntimes, type HostStatus } from "../src/lib/harnessRuntime";
 import { sessionInfoFromHost } from "../src/lib/hostSessions";
@@ -194,10 +194,15 @@ describe("harness runtimes", () => {
     expect(historyToUi(logged).map((message) => message.role)).toEqual(["user", "assistant", "assistant", "assistant"]);
   });
 
-  it("switch modes and refuse a runtime that has stopped", async () => {
-    const { runtimes } = await start(new ScriptedProvider([]));
+  it("switch modes without creating a ghost session until the first prompt, and refuse a runtime that has stopped", async () => {
+    const { runtimes, until } = await start(new ScriptedProvider([textReply("Planned.")]));
     const { runtimeId } = await runtimes.start(dir);
     await runtimes.setPermission(runtimeId, { agentMode: "plan" });
+    expect((await runtimes.state(runtimeId)).sessionId).toBeUndefined();
+    expect(await runtimes.listSessions()).toEqual([]);
+
+    await runtimes.prompt(runtimeId, { message: "Outline steps", images: [] });
+    await until((event) => event.type === "turn-end");
     const sessionId = String((await runtimes.state(runtimeId)).sessionId);
     const session = await host?.ctx.sessions.get(sessionId);
     expect(session === undefined ? undefined : host?.ctx.permissions.modes(session).agentMode).toBe("plan");

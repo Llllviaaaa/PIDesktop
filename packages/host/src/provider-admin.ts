@@ -10,13 +10,13 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
-import { LlmError, type ModelInfo, type SecretRef } from "@pid/llm";
-import { ErrorCode } from "@pid/protocol";
+import { LlmError, type ModelInfo, type SecretRef } from "@qianji/llm";
+import { ErrorCode } from "@qianji/protocol";
 import { entryProblem, resolveActiveProtocolMap, type Api, type ProviderEntry } from "./providers.ts";
 import { RpcError } from "./rpc.ts";
 import { readSecretFile, writeSecretFile, type SecretCodec } from "./secrets.ts";
 
-export const name = "pid-provider-admin";
+export const name = "qianji-provider-admin";
 export const inject = ["rpc", "credentials"];
 
 export interface Config {

@@ -4,23 +4,23 @@
  * broadcast notifications (ADR 0002, 0003).
  */
 import type { Context } from "@deepseek-ai/cordis";
-import "@pid/agent";
-import "@pid/commands";
-import "@pid/llm";
-import "@pid/mcp";
+import "@qianji/agent";
+import "@qianji/commands";
+import "@qianji/llm";
+import "@qianji/mcp";
 import {
   ErrorCode,
   PROTOCOL_VERSION,
   type CommandListResult,
   type CommandRunResult,
-} from "@pid/protocol";
-import "@pid/session";
-import "@pid/tools";
+} from "@qianji/protocol";
+import "@qianji/session";
+import "@qianji/tools";
 import "./host-info.ts";
 import type { PluginManager } from "./plugin-manager.ts";
 import { RpcError, type RpcCall } from "./rpc.ts";
 
-export const name = "pid-commands-rpc";
+export const name = "qianji-commands-rpc";
 export const inject = ["rpc", "commands", "sessions", "agents", "llm", "tools", "hostInfo"];
 
 export interface Config {
@@ -92,7 +92,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           const mcpStatuses = mcpService?.statuses() ?? [];
 
           const lines = [
-            "### PI-Desktop 宿主诊断报告",
+            "### 千机 宿主诊断报告",
             `- **Host 版本**: \`${ctx.hostInfo.version}\`（协议 \`v${PROTOCOL_VERSION}\`）`,
             `- **当前工作目录**: \`${env.cwd}\``,
             `- **模型服务商**: 已加载 ${providers.length} 个${providers.length > 0 ? `（${providers.map((item) => `\`${item.id}\``).join("、")}）` : ""}`,

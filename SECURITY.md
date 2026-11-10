@@ -1,6 +1,6 @@
 # Security Policy
 
-Pi Desktop runs local tools with the permissions of the desktop user. Its approval modes reduce accidental tool use, but they are not an operating-system sandbox.
+Qianji runs local tools with the permissions of the desktop user. Its approval modes reduce accidental tool use, but they are not an operating-system sandbox.
 
 ## Supported versions
 
@@ -36,4 +36,4 @@ Please report suspected problems involving:
 
 ## Deployment boundary
 
-`full-access` grants Pi the permissions of the desktop user. Run untrusted prompts, repositories, extensions, skills, MCP servers, and unattended tasks inside a VM, container, Windows Sandbox, or another policy-controlled environment.
+`full-access` grants Qianji the permissions of the desktop user. Run untrusted prompts, repositories, extensions, skills, MCP servers, and unattended tasks inside a VM, container, Windows Sandbox, or another policy-controlled environment.

@@ -1,6 +1,6 @@
-# `@pid/intelligent-ui`
+# `@qianji/intelligent-ui`
 
-Built-in Intelligent UI plugin (`intelligent-ui`) for Pi Desktop, inspired by `dsh-intelligent-ui` and modern Generative UI architectures.
+Built-in Intelligent UI plugin (`intelligent-ui`) for Qianji, inspired by `dsh-intelligent-ui` and modern Generative UI architectures.
 
 ## Features
 

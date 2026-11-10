@@ -292,7 +292,7 @@ export class WorkspacePluginScope {
 
     let capturedCtx: Context | undefined;
     const scopePlugin = {
-      name: `pid-workspace-scope:${workspaceKey}`,
+      name: `qianji-workspace-scope:${workspaceKey}`,
       apply(innerCtx: Context) {
         capturedCtx = innerCtx;
       },

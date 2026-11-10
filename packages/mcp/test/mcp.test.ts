@@ -1,9 +1,9 @@
 import { fileURLToPath } from "node:url";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { Sessions } from "@pid/session";
-import { Tools, type ToolOutput } from "@pid/tools";
-import { Ui } from "@pid/ui";
+import { Sessions } from "@qianji/session";
+import { Tools, type ToolOutput } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
 import { Mcp, type Config, type McpServerConfig } from "../src/index.ts";
 
 const fixture = fileURLToPath(new URL("./fake-server.mjs", import.meta.url));

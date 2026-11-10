@@ -1,5 +1,5 @@
 import { Context } from "@deepseek-ai/cordis";
-import { ErrorCode } from "@pid/protocol";
+import { ErrorCode } from "@qianji/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { agent } from "../src/lib/agent";
 import {

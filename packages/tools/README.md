@@ -1,4 +1,4 @@
-# @pid/tools
+# @qianji/tools
 
 工具注册表和执行管线，见 [ADR 0008](../../docs/adr/0008-agent-loop-and-sessions.md)。
 

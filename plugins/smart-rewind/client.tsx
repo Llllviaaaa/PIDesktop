@@ -24,7 +24,7 @@ import {
   type RewindTargetSummary,
   type RewindTurnSummary,
   type UiMessage,
-} from "@pid/client";
+} from "@qianji/client";
 import {
   Check,
   FileCode2,
@@ -46,7 +46,7 @@ export interface SmartRewindPluginConfig {
   doubleEscShortcut?: boolean;
 }
 
-const INSTANT_PREF_STORAGE_KEY = "pid-plugin:smart-rewind:instant-when-clean";
+const INSTANT_PREF_STORAGE_KEY = "qianji-plugin:smart-rewind:instant-when-clean";
 
 interface DialogState {
   open: boolean;

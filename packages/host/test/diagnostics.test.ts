@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { inflateRawSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { PROTOCOL_VERSION, clientSubprotocols } from "@pid/protocol";
+import { PROTOCOL_VERSION, clientSubprotocols } from "@qianji/protocol";
 import * as diagnostics from "../src/diagnostics.ts";
 import { crc32, zip } from "../src/diagnostics.ts";
 import { RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";

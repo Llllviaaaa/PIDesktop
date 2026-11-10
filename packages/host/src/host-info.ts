@@ -1,5 +1,5 @@
 import { Context, Service } from "@deepseek-ai/cordis";
-import { PROTOCOL_VERSION } from "@pid/protocol";
+import { PROTOCOL_VERSION } from "@qianji/protocol";
 
 declare module "@deepseek-ai/cordis" {
   interface Context {
@@ -8,7 +8,7 @@ declare module "@deepseek-ai/cordis" {
 }
 
 export interface HostInfoConfig {
-  /** The Pi Desktop build this host ships with. */
+  /** The Qianji build this host ships with. */
   version: string;
   dataDir: string;
 }

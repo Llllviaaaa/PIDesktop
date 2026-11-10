@@ -6,7 +6,7 @@
 import { createWriteStream, mkdirSync, readdirSync, rmSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
 import { Logger, type Exporter } from "@deepseek-ai/cordis";
-import { redactSensitiveText } from "@pid/protocol";
+import { redactSensitiveText } from "@qianji/protocol";
 
 export const LOG_KEEP_DAYS = 7;
 const DEBUG = 3;

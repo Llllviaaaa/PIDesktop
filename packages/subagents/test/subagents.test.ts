@@ -1,11 +1,11 @@
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentLoop } from "@pid/agent-loop";
-import { LlmService, type LlmRequest } from "@pid/llm";
-import { Sessions } from "@pid/session";
-import { SystemPrompt } from "@pid/system-prompt";
-import { ScriptedProvider, textReply, toolReply, useScriptedProvider } from "@pid/testkit";
-import { Tools, textOutput } from "@pid/tools";
+import { AgentLoop } from "@qianji/agent-loop";
+import { LlmService, type LlmRequest } from "@qianji/llm";
+import { Sessions } from "@qianji/session";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { ScriptedProvider, textReply, toolReply, useScriptedProvider } from "@qianji/testkit";
+import { Tools, textOutput } from "@qianji/tools";
 import * as subagents from "../src/index.ts";
 
 let ctx: Context | undefined;

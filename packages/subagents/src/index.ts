@@ -7,15 +7,15 @@
  * final answer; progress goes out live as a `{ type: "subagents" }` delta.
  */
 import type { Context } from "@deepseek-ai/cordis";
-import "@pid/agent";
-import type { Effort } from "@pid/llm";
-import type { Session } from "@pid/session";
-import { textOutput, type ToolDefinition, type ToolEnv } from "@pid/tools";
+import "@qianji/agent";
+import type { Effort } from "@qianji/llm";
+import type { Session } from "@qianji/session";
+import { textOutput, type ToolDefinition, type ToolEnv } from "@qianji/tools";
 import { normalizeSubagentTasks, subagentPrompt, type SubagentPermission, type SubagentRole, type SubagentTask } from "./core.ts";
 
 export * from "./core.ts";
 
-export const name = "pid-subagents";
+export const name = "qianji-subagents";
 export const inject = ["sessions", "tools", "agents"];
 
 export interface Config {

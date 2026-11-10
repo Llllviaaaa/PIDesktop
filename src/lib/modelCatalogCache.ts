@@ -1,6 +1,6 @@
 import type { ModelInfo } from "../types";
 
-const MODEL_CATALOG_STORAGE_KEY = "pid-desktop:model-catalog:v1";
+const MODEL_CATALOG_STORAGE_KEY = "qianji:model-catalog:v1";
 const MAX_CACHED_MODELS = 1_000;
 
 export interface CachedModelCatalog {

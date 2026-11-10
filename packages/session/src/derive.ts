@@ -2,7 +2,7 @@
  * Derivation rules of ADR 0004. Everything here is a pure function of the
  * event list, so tests can assert on JSONL fixtures directly.
  */
-import type { AssistantMessage, Effort, Message, ToolResultMessage } from "@pid/llm";
+import type { AssistantMessage, Effort, Message, ToolResultMessage } from "@qianji/llm";
 import type { ModelRef, SessionEvent, SessionHeader, SessionModelUsage, SessionSummary } from "./types.ts";
 
 /** The note a compaction summary is sent to the model under. */
@@ -213,19 +213,21 @@ export function compactionPoint(events: readonly SessionEvent[], keepLatestTurn 
   return branch[lastUser - 1]?.seq;
 }
 
-/** The data of the latest `custom` event of `ns` on the current branch: a plugin's session state. */
-export function latestCustom<T = unknown>(events: readonly SessionEvent[], ns: string): T | undefined {
+/** The data of the latest `custom` event of `ns` (or any in `ns`) on the current branch: a plugin's session state. */
+export function latestCustom<T = unknown>(events: readonly SessionEvent[], ns: string | readonly string[]): T | undefined {
+  const allowed = typeof ns === "string" ? new Set([ns]) : new Set(ns);
   const branch = currentBranch(events);
   for (let index = branch.length - 1; index >= 0; index -= 1) {
     const event = branch[index];
-    if (event?.type === "custom" && event.data.ns === ns) return event.data.data as T;
+    if (event?.type === "custom" && allowed.has(event.data.ns)) return event.data.data as T;
   }
   return undefined;
 }
 
-/** Every `custom` event of `ns` on the current branch, oldest first. */
-export function customEvents(events: readonly SessionEvent[], ns: string): Array<Extract<SessionEvent, { type: "custom" }>> {
-  return currentBranch(events).filter((event): event is Extract<SessionEvent, { type: "custom" }> => event.type === "custom" && event.data.ns === ns);
+/** Every `custom` event of `ns` (or any in `ns`) on the current branch, oldest first. */
+export function customEvents(events: readonly SessionEvent[], ns: string | readonly string[]): Array<Extract<SessionEvent, { type: "custom" }>> {
+  const allowed = typeof ns === "string" ? new Set([ns]) : new Set(ns);
+  return currentBranch(events).filter((event): event is Extract<SessionEvent, { type: "custom" }> => event.type === "custom" && allowed.has(event.data.ns));
 }
 
 /**
@@ -233,7 +235,7 @@ export function customEvents(events: readonly SessionEvent[], ns: string): Array
  * under a heading, the format the desktop has always exported.
  */
 export function sessionMarkdown(events: readonly SessionEvent[]): string {
-  let output = "# PIDesktop conversation\n\n";
+  let output = "# Qianji conversation\n\n";
   for (const event of currentBranch(events)) {
     if (event.type !== "user" && event.type !== "assistant") continue;
     const text = event.data.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("").trim();

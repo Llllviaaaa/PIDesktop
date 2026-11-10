@@ -9,10 +9,10 @@
  * Runs whose effective permission is read-only take no checkpoint.
  */
 import type { Context } from "@deepseek-ai/cordis";
-import "@pid/agent";
-import { ErrorCode, type CheckpointDiffResult, type CheckpointListResult } from "@pid/protocol";
-import { RpcError } from "@pid/rpc";
-import { customEvents, type Session } from "@pid/session";
+import "@qianji/agent";
+import { ErrorCode, type CheckpointDiffResult, type CheckpointListResult } from "@qianji/protocol";
+import { RpcError } from "@qianji/rpc";
+import { customEvents, type Session } from "@qianji/session";
 import {
   createWorkspaceCheckpoint,
   diffWorkspaceCheckpoint,
@@ -24,9 +24,10 @@ import {
 
 export * from "./git.ts";
 
-export const name = "pid-checkpoints";
+export const name = "qianji-checkpoints";
 export const inject = ["sessions", "agents"];
-export const NAMESPACE = "pid-checkpoints";
+export const NAMESPACE = "qianji-checkpoints";
+export const LEGACY_NAMESPACE = "pid-checkpoints";
 
 export interface CheckpointRecord {
   /** The user message whose run this snapshot precedes. */
@@ -36,7 +37,7 @@ export interface CheckpointRecord {
 
 /** The checkpoints recorded on the session's current branch, oldest first. */
 export function checkpointsOf(session: Session): CheckpointRecord[] {
-  return customEvents(session.events, NAMESPACE).flatMap((event) => {
+  return customEvents(session.events, [NAMESPACE, LEGACY_NAMESPACE]).flatMap((event) => {
     const data = event.data.data as Partial<CheckpointRecord> | undefined;
     return typeof data?.userSeq === "number" && isWorkspaceCheckpoint(data.checkpoint) ? [{ userSeq: data.userSeq, checkpoint: data.checkpoint }] : [];
   });

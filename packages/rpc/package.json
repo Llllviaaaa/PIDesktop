@@ -1,5 +1,5 @@
 {
-  "name": "@pid/rpc",
+  "name": "@qianji/rpc",
   "version": "0.0.0",
   "private": true,
   "description": "Shared JSON-RPC service contract for self-registering Host plugins",
@@ -9,6 +9,6 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/protocol": "*"
+    "@qianji/protocol": "*"
   }
 }

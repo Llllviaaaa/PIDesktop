@@ -1,4 +1,13 @@
-import type { ModelInfo } from "../types";
+import type { AppSettings, ModelInfo } from "../types";
+
+export type ThinkingSettingsSlice = Pick<
+  AppSettings,
+  "provider" | "model" | "thinkingLevel" | "customThinkingLevels" | "modelThinkingLevels" | "modelCustomThinkingLevels"
+>;
+
+export function modelThinkingKey(provider: string, modelId: string): string {
+  return `${provider.trim()}/${modelId.trim()}`;
+}
 
 export const THINKING_LABELS: Record<string, string> = {
   off: "关闭",
@@ -122,4 +131,138 @@ export function fallbackThinkingLevel(raw: string | null | undefined, available:
     if (available.includes(fallback)) return fallback;
   }
   return available.find((lvl) => lvl !== "off") ?? null;
+}
+
+function sanitizeCustomLevelList(rawList: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of rawList) {
+    const normalized = normalizeThinkingLevelId(raw);
+    if (!normalized || normalized === "off" || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+/**
+ * Custom thinking levels defined specifically for `provider/model`.
+ * Falls back to legacy global `customThinkingLevels` ONLY for the currently configured default model
+ * before that model has its own entry in `modelCustomThinkingLevels`, so custom tiers never leak across models.
+ */
+export function customThinkingLevelsForModel(
+  settings: Partial<ThinkingSettingsSlice> | null | undefined,
+  provider?: string | null,
+  modelId?: string | null,
+): string[] {
+  const p = provider?.trim();
+  const m = modelId?.trim();
+  if (!settings || !p || !m) return [];
+  const key = modelThinkingKey(p, m);
+  const perModel = settings.modelCustomThinkingLevels?.[key];
+  if (Array.isArray(perModel)) {
+    return sanitizeCustomLevelList(perModel);
+  }
+  if (
+    settings.provider === p
+    && settings.model === m
+    && Array.isArray(settings.customThinkingLevels)
+    && settings.customThinkingLevels.length > 0
+  ) {
+    return sanitizeCustomLevelList(settings.customThinkingLevels);
+  }
+  return [];
+}
+
+/**
+ * Preferred thinking level for a specific model (`provider/model`), respecting:
+ * 1. Non-reasoning models -> `"off"`
+ * 2. Per-model user preference in `settings.modelThinkingLevels[provider/model]`
+ * 3. Model's own `thinkingLevel` from `providers.json` or catalog
+ * 4. Legacy `settings.thinkingLevel` when `provider/model` matches `settings.provider/model`
+ * 5. Nearest supported default (`"medium"`)
+ */
+export function preferredThinkingLevelForModel(
+  model: {
+    provider?: string;
+    id: string;
+    reasoning?: boolean;
+    thinkingLevel?: string | null;
+    thinkingLevels?: readonly string[] | null;
+  } | null | undefined,
+  settings: Partial<ThinkingSettingsSlice> | null | undefined,
+  providerOverride?: string,
+  reportedLevels: readonly string[] = [],
+): string {
+  if (!model || model.reasoning === false) return "off";
+  const provider = (providerOverride ?? model.provider ?? "").trim();
+  const custom = customThinkingLevelsForModel(settings, provider, model.id);
+  const available = resolveThinkingLevels(
+    reportedLevels,
+    {
+      id: model.id,
+      name: model.id,
+      provider,
+      reasoning: model.reasoning ?? true,
+      ...(model.thinkingLevels && model.thinkingLevels.length > 0 ? { thinkingLevels: [...model.thinkingLevels] } : {}),
+    },
+    custom,
+  );
+  if (available.length === 0) return "off";
+
+  const saved = provider ? settings?.modelThinkingLevels?.[modelThinkingKey(provider, model.id)]?.trim() : undefined;
+  if (saved) {
+    return fallbackThinkingLevel(saved, available) ?? saved;
+  }
+  const modelDefault = model.thinkingLevel?.trim();
+  if (modelDefault && modelDefault !== "off") {
+    return fallbackThinkingLevel(modelDefault, available) ?? modelDefault;
+  }
+  if (provider && settings?.provider === provider && settings?.model === model.id && settings?.thinkingLevel?.trim()) {
+    return fallbackThinkingLevel(settings.thinkingLevel, available) ?? "medium";
+  }
+  return fallbackThinkingLevel("medium", available) ?? "medium";
+}
+
+export function withModelThinkingLevel(
+  settings: AppSettings,
+  provider: string,
+  modelId: string,
+  level: string,
+  alsoSetDefaultModel = false,
+): AppSettings {
+  const p = provider.trim();
+  const m = modelId.trim();
+  if (!p || !m) {
+    return { ...settings, thinkingLevel: level };
+  }
+  const key = modelThinkingKey(p, m);
+  const nextMap = { ...(settings.modelThinkingLevels ?? {}), [key]: level };
+  const isDefaultModel = alsoSetDefaultModel || (settings.provider === p && settings.model === m);
+  return {
+    ...settings,
+    ...(alsoSetDefaultModel ? { provider: p, model: m } : {}),
+    ...(isDefaultModel ? { thinkingLevel: level } : {}),
+    modelThinkingLevels: nextMap,
+  };
+}
+
+export function withModelCustomThinkingLevels(
+  settings: AppSettings,
+  provider: string,
+  modelId: string,
+  levels: readonly string[],
+): AppSettings {
+  const p = provider.trim();
+  const m = modelId.trim();
+  if (!p || !m) return settings;
+  const key = modelThinkingKey(p, m);
+  const cleaned = sanitizeCustomLevelList(levels);
+  const nextCustomMap = { ...(settings.modelCustomThinkingLevels ?? {}), [key]: cleaned };
+  const clearLegacy = settings.provider === p && settings.model === m && (settings.customThinkingLevels?.length ?? 0) > 0;
+  return {
+    ...settings,
+    ...(clearLegacy ? { customThinkingLevels: [] } : {}),
+    modelCustomThinkingLevels: nextCustomMap,
+  };
 }

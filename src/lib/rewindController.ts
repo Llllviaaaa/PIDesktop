@@ -1,9 +1,9 @@
 /**
  * Client-side Checkpoint Rewind & Composer Draft SDK (`rewindController`).
  *
- * Bridges PI-Desktop's live Composer input/attachments, `useAppStore` session
+ * Bridges Qianji's live Composer input/attachments, `useAppStore` session
  * rewind actions, and Host Git checkpoints (`checkpoint.list` / `checkpoint.diff` /
- * `checkpoint.restore`), and is exposed to dynamic client plugins via `@pid/client`.
+ * `checkpoint.restore`), and is exposed to dynamic client plugins via `@qianji/client`.
  */
 import type { AttachmentPayload, UiMessage } from "../types";
 import { useAppStore } from "../store";

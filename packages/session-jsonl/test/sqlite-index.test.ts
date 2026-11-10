@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { Sessions, type SessionEvent } from "@pid/session";
+import { Sessions, type SessionEvent } from "@qianji/session";
 import * as sessionJsonl from "../src/index.ts";
 
 let dir = "";

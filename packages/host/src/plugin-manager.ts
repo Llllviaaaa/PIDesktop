@@ -1,13 +1,12 @@
 /**
  * Coordinates built-in plugins, user global plugins (`<dataDir>/plugins`),
- * and active workspace-trusted project plugins (`<workspace>/.pid/plugins`) with:
- * - dependency-aware topological mount & reverse-topological teardown (`@pid/kernel`),
+ * and active workspace-trusted project plugins (`<workspace>/.qianji/plugins`) with:
+ * - dependency-aware topological mount & reverse-topological teardown (`@qianji/kernel`),
  * - true Cordis `FiberState` readiness reporting (`active` vs `pending` on unmet `inject`),
  * - isolated child Cordis scopes per active workspace (`WorkspacePluginScope`), and
  * - fiber-isolated fault tolerance with transactional HMR rollback (ADR 0016).
  */
 import { existsSync, watch as fsWatch, type FSWatcher } from "node:fs";
-import { join } from "node:path";
 import type { Context, Plugin } from "@deepseek-ai/cordis";
 import {
   WorkspacePluginScope,
@@ -16,7 +15,7 @@ import {
   onCordisFiberStatusChange,
   reverseTopologicalOrder,
   topologicalSortPlugins,
-} from "@pid/kernel";
+} from "@qianji/kernel";
 import type {
   PluginChangedNotification,
   PluginClientBundleResult,
@@ -28,8 +27,8 @@ import type {
   PluginTier,
   WorkspaceTrustChangedNotification,
   WorkspaceTrustListResult,
-} from "@pid/protocol";
-import "@pid/ui";
+} from "@qianji/protocol";
+import "@qianji/ui";
 import type { BuiltinPluginDefinition } from "./agent-plugins.ts";
 import { ClientBundleRegistry, createPluginsHttpHandler, type ClientRouteTarget } from "./client-bundles.ts";
 import { importExternalModule, installHostModuleBridge } from "./plugin-bridge.ts";
@@ -43,6 +42,7 @@ import {
 } from "./plugin-manifest.ts";
 import {
   inspectWorkspaceTrust,
+  resolveWorkspacePluginsDir,
   isWorkspaceTrusted,
   readPluginsStore,
   setWorkspaceTrust,
@@ -185,7 +185,7 @@ export class PluginManager {
   ) {
     this.workspaceScope = new WorkspacePluginScope(ctx);
     const httpBridgePlugin = {
-      name: "pid-plugins-http-bridge",
+      name: "qianji-plugins-http-bridge",
       inject: ["webServer"],
       apply: (innerCtx: Context) => {
         innerCtx.effect(
@@ -486,7 +486,7 @@ export class PluginManager {
         trusted,
         trustedList,
       });
-      const scanned = scanPluginsDirectory(join(normalized, ".pid", "plugins"), "workspace", normalized);
+      const scanned = scanPluginsDirectory(resolveWorkspacePluginsDir(normalized), "workspace", normalized);
       const affectedIds = new Set(scanned.manifests.map((item) => item.id));
       await this.syncNow({ workspace: normalized, reason: "trust", forceIds: affectedIds });
     });
@@ -523,7 +523,7 @@ export class PluginManager {
     if (isWorkspaceTrusted(this.options.dataDir, workspacePath)) {
       return [...base];
     }
-    const pluginsDir = join(workspacePath, ".pid", "plugins");
+    const pluginsDir = resolveWorkspacePluginsDir(workspacePath);
     const scanned = scanPluginsDirectory(pluginsDir, "workspace", workspacePath);
     if (scanned.manifests.length === 0) return [...base];
     const builtins = new Set(this.options.builtins(undefined).map((item) => item.id));
@@ -655,7 +655,7 @@ export class PluginManager {
       // 2. Discover workspace plugins strictly from the SINGLE active trusted workspace.
       const workspaceById = new Map<string, DiscoveredPluginManifest>();
       if (activeTrustedWs !== undefined) {
-        const scanned = scanPluginsDirectory(join(activeTrustedWs, ".pid", "plugins"), "workspace", activeTrustedWs);
+        const scanned = scanPluginsDirectory(resolveWorkspacePluginsDir(activeTrustedWs), "workspace", activeTrustedWs);
         for (const manifest of scanned.manifests) {
           workspaceById.set(manifest.id, manifest);
         }

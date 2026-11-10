@@ -1,4 +1,4 @@
-# @pid/session-jsonl
+# @qianji/session-jsonl
 
 把会话日志存成 JSONL 文件：`<dir>/<YYYY-MM>/<sessionId>.jsonl`，第一行是头部，之后每行一条事件（[ADR 0004](../../docs/adr/0004-session-format.md)）。
 

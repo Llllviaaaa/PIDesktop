@@ -1,9 +1,9 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, it } from "vitest";
-import { Sessions } from "@pid/session";
-import { SystemPrompt } from "@pid/system-prompt";
-import { Tools, textOutput, type ToolEnv } from "@pid/tools";
-import { Ui } from "@pid/ui";
+import { Sessions } from "@qianji/session";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { Tools, textOutput, type ToolEnv } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
 import { evaluateToolPermission, isForcePush, Permissions, rulesFromConfig, type Config } from "../src/index.ts";
 
 async function setup(config: Config = {}, withUi = true) {
@@ -55,9 +55,9 @@ describe("permissions", () => {
     expect(await run("write", { path: "D:/elsewhere/a.ts", content: "" })).toMatch(/^Denied: Write outside workspace blocked by rule/);
     ctx.permissions.set(session, { agentMode: "plan" });
     expect(ctx.permissions.modes(session)).toEqual({ permission: "workspace-write", agentMode: "plan", effective: "read-only" });
-    expect(await run("bash", { command: "ls" })).toBe("Denied: Pi Desktop is in read-only mode");
+    expect(await run("bash", { command: "ls" })).toBe("Denied: Qianji is in read-only mode");
     expect(asked).toEqual([]);
-    expect(await ctx.systemPrompt.build({ sessionId: session.id, cwd: "D:/repo", model: { provider: "p", model: "m" }, tools: [] })).toContain("PIDesktop mode: Plan.");
+    expect(await ctx.systemPrompt.build({ sessionId: session.id, cwd: "D:/repo", model: { provider: "p", model: "m" }, tools: [] })).toContain("Qianji mode: Plan.");
   });
 
   it("denies what needs confirmation when no UI can answer", async () => {

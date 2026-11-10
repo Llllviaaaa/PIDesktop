@@ -5,24 +5,25 @@
  * `{ type: "plan", plan }` delta for the UI.
  */
 import type { Context } from "@deepseek-ai/cordis";
-import "@pid/commands";
-import { ErrorCode, type PlanGetResult } from "@pid/protocol";
-import { RpcError } from "@pid/rpc";
-import { latestCustom, type Session } from "@pid/session";
-import { textOutput, type ToolDefinition } from "@pid/tools";
+import "@qianji/commands";
+import { ErrorCode, type PlanGetResult } from "@qianji/protocol";
+import { RpcError } from "@qianji/rpc";
+import { latestCustom, type Session } from "@qianji/session";
+import { textOutput, type ToolDefinition } from "@qianji/tools";
 import { validatePlanState, type PlanItemStatus, type PlanState } from "./core.ts";
 
 export * from "./core.ts";
 
-export const name = "pid-plan";
+export const name = "qianji-plan";
 export const inject = ["sessions", "tools"];
-export const NAMESPACE = "pid-plan";
+export const NAMESPACE = "qianji-plan";
+export const LEGACY_NAMESPACE = "pid-plan";
 
 const EMPTY: PlanState = { explanation: "", items: [] };
 
 /** The session's plan on its current branch; an unreadable one counts as empty. */
 export function planOf(session: Session): PlanState {
-  const stored = latestCustom<PlanState>(session.events, NAMESPACE);
+  const stored = latestCustom<PlanState>(session.events, [NAMESPACE, LEGACY_NAMESPACE]);
   if (stored === undefined) return EMPTY;
   try {
     return validatePlanState({ explanation: stored.explanation ?? "", items: stored.items ?? [] });

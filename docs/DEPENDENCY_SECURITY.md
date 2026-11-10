@@ -26,7 +26,7 @@ directly rather than restoring the patch.
 
 GitHub advisory `GHSA-wrw7-89jp-8q8g` / RustSec `RUSTSEC-2024-0429` affects
 `glib >=0.15.0, <0.20.0`. The lockfile contains `glib 0.18.5` through Tauri's
-Linux-only `gtk 0.18.2` dependency graph. Pi Desktop is a Windows application,
+Linux-only `gtk 0.18.2` dependency graph. Qianji is a Windows application,
 and the vulnerable crate is absent from the `x86_64-pc-windows-msvc` graph.
 
 The Windows CI job checks that `cargo tree` contains no `glib` package for the

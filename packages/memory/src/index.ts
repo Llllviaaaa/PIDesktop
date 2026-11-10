@@ -1,24 +1,24 @@
 /**
  * Local memory 2.0 (ADR 0009, M3): dual-layer Markdown memory (`<dataDir>/memory.md`
- * for global user preferences + `<cwd>/.pid/memory.md` for project conventions),
+ * for global user preferences + `<cwd>/.qianji/memory.md` for project conventions),
  * independent injection switches, and unified-diff confirmation before Agent writes.
  */
 import { existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
-import "@pid/permissions";
-import { ErrorCode, type MemoryExportResult, type MemoryGetResult } from "@pid/protocol";
-import { RpcError } from "@pid/rpc";
-import "@pid/session";
-import { SectionOrder } from "@pid/system-prompt";
-import { textOutput, type ToolDefinition, type ToolEnv } from "@pid/tools";
-import "@pid/ui";
+import "@qianji/permissions";
+import { ErrorCode, type MemoryExportResult, type MemoryGetResult } from "@qianji/protocol";
+import { RpcError } from "@qianji/rpc";
+import "@qianji/session";
+import { SectionOrder } from "@qianji/system-prompt";
+import { textOutput, type ToolDefinition, type ToolEnv } from "@qianji/tools";
+import "@qianji/ui";
 import { buildMemoryDiff, nextMemoryContent, type MemoryScope, type MemoryWriteAction } from "./core.ts";
 
 export * from "./core.ts";
 
-export const name = "pid-memory";
+export const name = "qianji-memory";
 export const inject = ["tools", "systemPrompt"];
 
 export interface Config {
@@ -28,14 +28,21 @@ export interface Config {
   userEnabled?: boolean;
   /** Inject workspace `<project-memory>` section into the system prompt. Default `true`. */
   projectEnabled?: boolean;
-  /** Optional workspace trust gate for `<cwd>/.pid/memory.md`. */
+  /** Optional workspace trust gate for `<cwd>/.qianji/memory.md`. */
   isTrusted?: (cwd: string) => boolean;
 }
 
 export const MAX_MEMORY_BYTES = 256 * 1024;
 
 export function projectMemoryPath(cwd: string): string {
-  return join(cwd, ".pid", "memory.md");
+  return join(cwd, ".qianji", "memory.md");
+}
+
+function readableProjectMemoryPath(cwd: string): string {
+  const primary = projectMemoryPath(cwd);
+  if (existsSync(primary)) return primary;
+  const legacy = join(cwd, ".pid", "memory.md");
+  return existsSync(legacy) ? legacy : primary;
 }
 
 export async function readMemory(path: string): Promise<string> {
@@ -66,7 +73,7 @@ export function memoryTool(
   return {
     name: "desktop_memory",
     description: [
-      "Read or update the user's explicit local Pi Desktop memory Markdown file (`scope: 'user'` for global preferences, or `scope: 'project'` for `<workspace>/.pid/memory.md` project conventions).",
+      "Read or update the user's explicit local Qianji memory Markdown file (`scope: 'user'` for global preferences, or `scope: 'project'` for `<workspace>/.qianji/memory.md` project conventions).",
       "Use append or replace only when the user explicitly asks you to remember something, or states a stable preference/convention that will clearly help future tasks.",
       "Do not store secrets, credentials, transient task details, guesses, or sensitive personal data.",
       "Use read before replacing. Prefer append for a new independent entry and keep entries concise.",
@@ -78,7 +85,7 @@ export function memoryTool(
         scope: {
           type: "string",
           enum: ["user", "project"],
-          description: "Target memory layer: 'user' (global preferences, default) or 'project' (<workspace>/.pid/memory.md)",
+          description: "Target memory layer: 'user' (global preferences, default) or 'project' (<workspace>/.qianji/memory.md)",
         },
         content: { type: "string", description: "Markdown content for append or replace" },
       },
@@ -90,7 +97,8 @@ export function memoryTool(
         return textOutput("Project memory is disabled because the current workspace is not trusted.", true);
       }
       const targetPath = scope === "project" ? projectMemoryPath(env.cwd) : options.file;
-      const current = await readMemory(targetPath);
+      const readPath = scope === "project" ? readableProjectMemoryPath(env.cwd) : options.file;
+      const current = await readMemory(readPath);
       if (action === "read") {
         return textOutput(current || (scope === "project" ? "Project memory is empty." : "Local memory is empty."));
       }
@@ -112,7 +120,7 @@ export function memoryTool(
           const session = sessions !== undefined && env.sessionId ? await sessions.get(env.sessionId) : undefined;
           const effective = session !== undefined ? permissions.modes(session).effective : permissions.defaultModes().effective;
           if (effective === "read-only") {
-            return textOutput("Denied: Pi Desktop is in read-only mode", true);
+            return textOutput("Denied: Qianji is in read-only mode", true);
           }
           needsConfirm = effective !== "full-access";
         } else if (ui !== undefined && ui.canAsk(env.sessionId)) {
@@ -124,7 +132,7 @@ export function memoryTool(
             return textOutput("Denied: Confirmation required to update memory, but no UI is available", true);
           }
           const title = scope === "project" ? "更新当前项目记忆？" : "更新全局本地记忆？";
-          const label = scope === "project" ? ".pid/memory.md" : "memory.md";
+          const label = scope === "project" ? ".qianji/memory.md" : "memory.md";
           const scopeLabel = scope === "project" ? "当前项目记忆" : "全局本地记忆";
           const summary = action === "clear"
             ? `清空${scopeLabel}（${label}）`
@@ -236,9 +244,9 @@ export function apply(ctx: Context, config: Config): void {
           "project-memory",
           async ({ cwd }) => {
             if (config.isTrusted?.(cwd) === false) return undefined;
-            const memory = (await readMemory(projectMemoryPath(cwd))).trim();
+            const memory = (await readMemory(readableProjectMemoryPath(cwd))).trim();
             if (memory === "") return undefined;
-            return `Project-specific conventions saved in .pid/memory.md for this workspace. Follow them unless the user says otherwise:\n<project-memory>\n${memory}\n</project-memory>`;
+            return `Project-specific conventions saved in .qianji/memory.md for this workspace. Follow them unless the user says otherwise:\n<project-memory>\n${memory}\n</project-memory>`;
           },
           { order: SectionOrder.contextFiles + 60 },
         ),
@@ -259,7 +267,7 @@ export function apply(ctx: Context, config: Config): void {
           }
           const path = resolve(projectMemoryPath(cwd));
           const trusted = config.isTrusted ? config.isTrusted(cwd) : true;
-          return { scope: "project", path, content: await readMemory(path), trusted };
+          return { scope: "project", path, content: await readMemory(readableProjectMemoryPath(cwd)), trusted };
         }
         const path = globalMemoryPath();
         return { scope: "user", path, content: await readMemory(path), trusted: true };

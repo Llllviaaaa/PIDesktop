@@ -3,14 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import * as browser from "@pid/browser";
+import * as browser from "@qianji/browser";
 import { Commands, parseSlashCommand } from "../src/index.ts";
-import * as plan from "@pid/plan";
-import * as promptContext from "@pid/prompt-context";
-import { Sessions } from "@pid/session";
-import { SystemPrompt } from "@pid/system-prompt";
-import { Tools } from "@pid/tools";
-import { Ui } from "@pid/ui";
+import * as plan from "@qianji/plan";
+import * as promptContext from "@qianji/prompt-context";
+import { Sessions } from "@qianji/session";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { Tools } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
 
 let tempDir = "";
 let ctx: Context | undefined;
@@ -24,7 +24,7 @@ afterEach(async () => {
   }
 });
 
-describe("@pid/commands service", () => {
+describe("@qianji/commands service", () => {
   it("parses leading slash commands and arguments", () => {
     expect(parseSlashCommand("hello /plan")).toBeUndefined();
     expect(parseSlashCommand("/doctor")).toEqual({ name: "doctor", rawArgs: "" });

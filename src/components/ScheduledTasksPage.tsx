@@ -266,7 +266,7 @@ export function ScheduledTasksPage({
       {loading && tasks.length === 0 ? (
         <div className="work-center-empty"><LoaderCircle className="spinner-icon" size={21} /><strong>正在加载计划任务</strong></div>
       ) : tasks.length === 0 ? (
-        <div className="work-center-empty"><CalendarClock size={23} /><strong>还没有计划任务</strong><span>新建后，PIDesktop 会在应用运行期间由本地后台 Runner 执行。</span><button type="button" className="primary-button" onClick={openCreate}><Plus size={15} />新建任务</button></div>
+        <div className="work-center-empty"><CalendarClock size={23} /><strong>还没有计划任务</strong><span>新建后，千机会在应用运行期间由本地后台 Runner 执行。</span><button type="button" className="primary-button" onClick={openCreate}><Plus size={15} />新建任务</button></div>
       ) : (
         <div className="scheduled-task-list">
           {tasks.map((task) => (

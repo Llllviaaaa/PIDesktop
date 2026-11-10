@@ -10,12 +10,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import * as browser from "@pid/browser";
-import * as computer from "@pid/computer";
-import { Mcp } from "@pid/mcp";
-import { Sessions } from "@pid/session";
-import { Tools } from "@pid/tools";
-import { Ui } from "@pid/ui";
+import * as browser from "@qianji/browser";
+import * as computer from "@qianji/computer";
+import { Mcp } from "@qianji/mcp";
+import { Sessions } from "@qianji/session";
+import { Tools } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
 import { ReloadablePlugins } from "../src/reloadable.ts";
 
 const fakeServer = fileURLToPath(new URL("../../mcp/test/fake-server.mjs", import.meta.url));

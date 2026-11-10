@@ -1,6 +1,6 @@
 # Codex UI reference
 
-Pi Desktop uses publicly documented Codex interaction patterns as design references. Third-party screenshots are not redistributed in this repository; follow the source links to inspect the current upstream UI.
+Qianji uses publicly documented Codex interaction patterns as design references. Third-party screenshots are not redistributed in this repository; follow the source links to inspect the current upstream UI.
 
 Primary references:
 
@@ -32,7 +32,7 @@ From the documented inline code review UI:
 - [Beginner’s guide](https://getpushtoprod.substack.com/p/complete-beginners-guide-to-openais): “IDE-like” — project sidebar, threads, terminal, code review panel; worktrees visible in sidebar.
 - [Medium UI review](https://medium.com/@ariaxhan/i-tested-openais-new-codex-desktop-app-the-ui-is-the-real-product-c2c59bdcb5f6): top-right **Changes / Terminal / IDE** toggles; run control with environment.
 
-## Implication for Pi Desktop
+## Implication for Qianji
 
 Match **structure and restraint**, not every Codex feature (no Cloud tab product).
 
@@ -45,7 +45,7 @@ Match **structure and restraint**, not every Codex feature (no Cloud tab product
 
 ### Layout alignment shipped
 
-| Region | Codex pattern | Pi Desktop |
+| Region | Codex pattern | Qianji |
 | --- | --- | --- |
 | Shell | Near-black, quiet chrome | `#0a0a0b` stage + slim topbar |
 | Sidebar | Projects → threads, New chat | Project groups + thread rows, 新对话 |

@@ -10,9 +10,9 @@
  */
 import { spawn } from "node:child_process";
 import type { Context } from "@deepseek-ai/cordis";
-import type { Session } from "@pid/session";
-import { textOutput, type ToolDefinition, type ToolEnv, type ToolOutput } from "@pid/tools";
-import "@pid/ui";
+import type { Session } from "@qianji/session";
+import { textOutput, type ToolDefinition, type ToolEnv, type ToolOutput } from "@qianji/tools";
+import "@qianji/ui";
 import {
   IDLE_SESSION,
   assertSessionAllows,
@@ -28,7 +28,7 @@ import {
 
 export * from "./core.ts";
 
-export const name = "pid-computer";
+export const name = "qianji-computer";
 export const inject = ["sessions", "tools", "ui"];
 
 export interface Config {
@@ -66,7 +66,7 @@ export type HelperRunner = <T>(payload: Record<string, unknown>, signal?: AbortS
 export function helperRunner(helper: string | undefined, platform: NodeJS.Platform = process.platform): HelperRunner {
   return <T>(payload: Record<string, unknown>, signal?: AbortSignal, timeoutMs = 30_000) => {
     if (platform !== "win32") return Promise.reject(new Error("Computer Use currently supports Windows only"));
-    if (!helper) return Promise.reject(new Error("Pi Desktop did not provide its computer helper path"));
+    if (!helper) return Promise.reject(new Error("Qianji did not provide its computer helper path"));
     return new Promise<T>((resolve, reject) => {
       const child = spawn(helper, ["--computer-helper"], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
       let stdout = "";
@@ -214,7 +214,7 @@ export function computerTools(ctx: Context, config: Config, run: HelperRunner = 
         const permission = await effective(env);
         if (mode === "control" && permission === "read-only") return textOutput("Interactive computer control is disabled in read-only mode", true);
         if (mode === "control" && config.confirmActions !== false && permission !== "full-access") {
-          const allowed = await ctx.ui.confirm(env.sessionId, "允许操控电脑？", `操控 ${source.title}。Pi Desktop 会发送鼠标和键盘输入，调用 computer_stop 结束操控。不会输入密码、恢复码或支付信息。`, env.signal);
+          const allowed = await ctx.ui.confirm(env.sessionId, "允许操控电脑？", `操控 ${source.title}。千机会发送鼠标和键盘输入，调用 computer_stop 结束操控。不会输入密码、恢复码或支付信息。`, env.signal);
           if (!allowed) return textOutput("User denied computer control", true);
         }
         state.session = { mode, sourceId: source.id, sourceKind: source.kind, ...(source.kind === "window" ? { windowTitle: source.title } : {}) };

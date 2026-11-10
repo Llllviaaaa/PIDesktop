@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   reconcileSidebarOrder,
   reconcileSidebarSessionOrder,
+  reorderSidebarWorkspaces,
   sortSidebarProjectGroups,
   sortSidebarSessions,
   type SidebarOrder,
@@ -124,14 +125,47 @@ test("archiving a session does not reorder projects", () => {
   const afterNewChat = reconcileSidebarOrder(afterArchive, [betaNew, beta, alphaOld]);
   assert.deepEqual(
     projectOrder(afterNewChat, [betaNew, beta, alphaOld]),
-    ["D:\\beta", "D:\\alpha"],
-    "a new chat should still bring its project to the top",
+    ["D:\\alpha", "D:\\beta"],
+    "a new chat in an existing workspace must keep workspace group order fixed",
+  );
+  assert.deepEqual(
+    sortSidebarSessions([beta, betaNew], [], afterNewChat.sessions).map((item) => item.file),
+    [betaNew.file, beta.file],
+    "the new chat still moves to the top inside its own workspace",
+  );
+
+  // Opening a new empty workspace appends it at the bottom and keeps it there across refreshes and new chats.
+  const withGammaOpened = reconcileSidebarOrder(
+    afterNewChat,
+    [betaNew, beta, alphaOld],
+    ["D:\\alpha", "D:\\beta", "D:\\gamma"],
+  );
+  assert.deepEqual(
+    projectOrder(withGammaOpened, [betaNew, beta, alphaOld], ["D:\\gamma"]),
+    ["D:\\alpha", "D:\\beta", "D:\\gamma"],
+    "a newly opened workspace should append at the end",
+  );
+  const gammaChat = session("gamma-1", "D:\\gamma");
+  const afterGammaChat = reconcileSidebarOrder(
+    withGammaOpened,
+    [gammaChat, betaNew, beta, alphaOld],
+    ["D:\\alpha", "D:\\beta", "D:\\gamma"],
+  );
+  assert.deepEqual(
+    projectOrder(afterGammaChat, [gammaChat, betaNew, beta, alphaOld]),
+    ["D:\\alpha", "D:\\beta", "D:\\gamma"],
+    "starting a session in the newly opened workspace must not jump it to the top",
   );
 
   assert.equal(
     reconcileSidebarOrder(afterNewChat, []),
     afterNewChat,
     "an empty list (sessions not loaded yet) must not wipe the remembered order",
+  );
+  assert.equal(
+    reconcileSidebarOrder(withGammaOpened, [], ["D:\\alpha", "D:\\beta", "D:\\gamma"]),
+    withGammaOpened,
+    "registered projects arriving before sessions load must not churn an already-remembered order",
   );
 
   const fresh = reconcileSidebarOrder({ sessions: [], workspaces: [] }, listed);
@@ -140,4 +174,23 @@ test("archiving a session does not reorder projects", () => {
 
   const caseShifted = reconcileSidebarOrder(afterArchive, [session("BETA", "d:\\BETA"), session("ALPHA-OLD", "d:\\ALPHA")]);
   assert.deepEqual(caseShifted.workspaces, afterArchive.workspaces, "paths should match case-insensitively");
+});
+
+test("manual workspace drag-and-drop reorder", () => {
+  const initial = ["d:/alpha", "d:/beta", "d:/gamma"];
+  assert.deepEqual(
+    reorderSidebarWorkspaces(initial, "D:\\gamma", "D:\\alpha", "before"),
+    ["d:/gamma", "d:/alpha", "d:/beta"],
+    "moving before the first workspace places it at the top",
+  );
+  assert.deepEqual(
+    reorderSidebarWorkspaces(initial, "D:\\alpha", "D:\\beta", "after"),
+    ["d:/beta", "d:/alpha", "d:/gamma"],
+    "moving after a middle workspace inserts right after it",
+  );
+  assert.deepEqual(
+    reorderSidebarWorkspaces(initial, "D:\\alpha", "D:\\alpha", "before"),
+    initial,
+    "dropping onto itself is a no-op",
+  );
 });

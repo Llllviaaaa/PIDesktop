@@ -38,12 +38,12 @@ jobs:
           }
           "version=$version" >> $env:GITHUB_OUTPUT
       - run: npm ci
-      # beforeBuildCommand compiles harness/pid-harness.exe and the frontend.
+      # beforeBuildCommand compiles harness/qianji-harness.exe and the frontend.
       - run: npx tauri build
       - name: Check the bundled Harness Host
         shell: pwsh
         run: |
-          foreach ($file in 'pid-harness.exe', 'build-manifest.json') {
+          foreach ($file in 'qianji-harness.exe', 'build-manifest.json') {
             if (-not (Test-Path "src-tauri/resources/harness/$file")) { Write-Error "Missing harness/$file"; exit 1 }
           }
           Get-Content src-tauri/resources/harness/build-manifest.json
@@ -52,7 +52,7 @@ jobs:
         run: |
           $out = New-Item -ItemType Directory -Force release
           $bundle = 'src-tauri/target/release/bundle'
-          Copy-Item "$bundle/nsis/*.exe", "$bundle/msi/*.msi", src-tauri/target/release/pid-desktop.exe $out
+          Copy-Item "$bundle/nsis/*.exe", "$bundle/msi/*.msi", src-tauri/target/release/qianji.exe $out
           Get-ChildItem $out -File | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
             "$hash  $($_.Name)"
@@ -61,7 +61,7 @@ jobs:
           Get-ChildItem $out -File | Format-Table Name, @{ n = 'MB'; e = { [math]::Round($_.Length / 1MB, 1) } }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: pi-desktop-${{ steps.version.outputs.version }}-unsigned
+          name: qianji-${{ steps.version.outputs.version }}-unsigned
           path: release/
           if-no-files-found: error
 
@@ -84,5 +84,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >
           gh release create "$GITHUB_REF_NAME" release/*
-          --draft --verify-tag --title "Pi Desktop ${GITHUB_REF_NAME#v}"
+          --draft --verify-tag --title "Qianji ${GITHUB_REF_NAME#v}"
           --notes-file docs/RELEASE_${GITHUB_REF_NAME#v}.md

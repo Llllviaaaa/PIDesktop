@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { LlmCompleteResult } from "@pid/protocol";
+import type { LlmCompleteResult } from "@qianji/protocol";
 import { harnessRuntimes } from "./harnessRuntime";
 import type {
   GitBranchInfo,

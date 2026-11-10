@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import type { ToolEnv } from "@pid/tools";
+import type { ToolEnv } from "@qianji/tools";
 import { bashTool, findShell } from "../src/index.ts";
 
 const shell = findShell();

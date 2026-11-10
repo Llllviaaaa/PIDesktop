@@ -1,9 +1,9 @@
 {
-  "name": "pid-desktop",
+  "name": "qianji",
   "private": true,
   "version": "0.3.0",
   "license": "Apache-2.0",
-  "description": "A local-first Windows desktop client for the Pi coding agent",
+  "description": "Qianji (千机) — A local-first desktop environment fusing Agent Workbench, autonomous Bot, and IDE",
   "type": "module",
   "repository": {
     "type": "git",

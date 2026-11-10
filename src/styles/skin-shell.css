@@ -1,5 +1,5 @@
 /*
- * Pi Desktop — Cool-Gray Minimalist Shell (`skin-shell.css`)
+ * Qianji — Cool-Gray Minimalist Shell (`skin-shell.css`)
  *
  * Spatial architecture:
  * - De-bordered, flush split between the cool-gray sidebar (`--sidebar-bg`) and pure main canvas (`--app`).
@@ -130,11 +130,16 @@ body.sidebar-is-resizing .codex-shot .sidebar-resizer::after {
 /* ── Window menu bar (Seamless Chassis Header) ─────────────────────── */
 
 .codex-shot .window-menubar {
+  z-index: 200;
   height: 34px;
   min-height: 34px;
   background: var(--dsh-claude-sidebar-canvas, var(--sidebar-bg));
   border-bottom: 0;
   color: var(--text-2);
+}
+
+.codex-shot .toast-stack {
+  z-index: 300;
 }
 
 .codex-shot .window-nav-button,
@@ -704,8 +709,43 @@ body.sidebar-is-resizing .codex-shot .sidebar-resizer::after {
   padding: 0 0 8px;
 }
 
+.codex-shot .project-block {
+  position: relative;
+}
+
 .codex-shot .project-block + .project-block {
   margin-top: 8px;
+}
+
+.codex-shot .codex-sidebar.is-reordering-projects,
+.codex-shot .codex-sidebar.is-reordering-projects * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+.codex-shot .project-block.is-dragging {
+  opacity: 0.45;
+}
+
+.codex-shot .project-block[data-drop-position="before"]::before,
+.codex-shot .project-block[data-drop-position="after"]::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent, #6e9fff);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.codex-shot .project-block[data-drop-position="before"]::before {
+  top: -4px;
+}
+
+.codex-shot .project-block[data-drop-position="after"]::after {
+  bottom: -4px;
 }
 
 .codex-shot .project-header-row {

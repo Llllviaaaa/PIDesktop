@@ -8,7 +8,7 @@ import {
   isResponse,
   type InitializeResult,
   type JsonRpcErrorObject,
-} from "@pid/protocol";
+} from "@qianji/protocol";
 
 /** Where the desktop app's Harness Host listens, and the token its RPC gateway expects. */
 export interface HarnessEndpoint {

@@ -135,12 +135,12 @@ fn show_main_window(app: &AppHandle) {
 }
 
 fn initialize_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "tray_show", "打开 Pi Desktop", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "tray_show", "打开 千机", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "tray_quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
     let mut tray = TrayIconBuilder::with_id("main-tray")
-        .tooltip("Pi Desktop")
+        .tooltip("千机")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -313,7 +313,7 @@ pub fn run() {
             create_worktree
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Pi Desktop");
+        .expect("error while running Qianji");
 }
 
 pub fn run_computer_helper() -> i32 {

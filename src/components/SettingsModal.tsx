@@ -2,10 +2,13 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import {
+  ArrowLeft,
   Boxes,
   Check,
   ChevronDown,
   Cpu,
+  Maximize2,
+  Minimize2,
   Monitor,
   Moon,
   Palette,
@@ -18,15 +21,22 @@ import { BUILTIN_APPEARANCE_CATALOG, type AppearanceCatalog, type AppearanceThem
 import { queryKeys } from "../lib/queries";
 import { ModelsPage } from "./ModelsPage";
 import { PluginsSettingsPanel } from "./PluginsSettingsPanel";
-import type { AppSettings } from "../types";
+import type { AppSettings, SettingsDisplayMode } from "../types";
 
 export type SettingsPage = "general" | "appearance" | "providers" | "plugins";
+
+export function normalizeSettingsDisplayMode(value?: string | null): SettingsDisplayMode {
+  return value === "modal" ? "modal" : "page";
+}
 
 export const DEFAULTS: AppSettings = {
   provider: "",
   model: "",
   thinkingLevel: "medium",
   customThinkingLevels: [],
+  modelThinkingLevels: {},
+  modelCustomThinkingLevels: {},
+  settingsDisplayMode: "page",
   agentMode: "agent",
   permissionMode: "ask",
   alwaysConfirmShell: true,
@@ -80,7 +90,7 @@ export const DEFAULTS: AppSettings = {
   mcpConfirmTools: true,
   mcpServers: [],
   reviewDelivery: "inline",
-  branchPrefix: "pi/",
+  branchPrefix: "qianji/",
   allowForcePush: false,
   commitMessageInstructions: "",
   logLevel: "info",
@@ -101,7 +111,7 @@ const NAV_ITEMS: ReadonlyArray<{
 }> = [
   { id: "general", label: "通用", heading: "通用", subtitle: "管理对话发送习惯、外部代码编辑器与桌面通知偏好", icon: SlidersHorizontal },
   { id: "appearance", label: "外观", heading: "外观", subtitle: "定制工作台明暗主题、阅读排版字号与窗口显示比例", icon: Palette },
-  { id: "providers", label: "模型", heading: "模型与密钥", subtitle: "配置默认推理偏好，按需展开服务商填写本机加密 API Key", icon: Cpu },
+  { id: "providers", label: "模型", heading: "模型与密钥", subtitle: "配置默认对话模型与各模型专属思考等级，按需展开服务商填写本机加密 API Key", icon: Cpu },
   { id: "plugins", label: "插件", heading: "连接器与插件", subtitle: "连接 MCP 工具服务、智能体核心能力与本地热更新扩展模块", icon: Boxes },
 ];
 
@@ -132,7 +142,12 @@ export function SettingsModal({
   const saveTimerRef = useRef<number | null>(null);
   const saveStatusTimerRef = useRef<number | null>(null);
   const inFlightSaveRef = useRef<Promise<void> | null>(null);
+  const onSaveRef = useRef(onSave);
   const pageScrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
 
   useEffect(() => {
     if (pageScrollRef.current) pageScrollRef.current.scrollTop = 0;
@@ -151,6 +166,11 @@ export function SettingsModal({
   useEffect(() => () => {
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     if (saveStatusTimerRef.current !== null) window.clearTimeout(saveStatusTimerRef.current);
+    if (pendingSaveRef.current) {
+      const unsaved = pendingSaveRef.current;
+      pendingSaveRef.current = null;
+      void Promise.resolve(onSaveRef.current({ ...unsaved, language: "zh-CN" })).catch(() => undefined);
+    }
   }, []);
 
   const flushSettings = useCallback(async () => {
@@ -188,10 +208,15 @@ export function SettingsModal({
     setForm((current) => {
       const next = { ...current, [key]: value };
       editedRef.current = true;
-      scheduleSave(next);
+      if (key === "settingsDisplayMode") {
+        pendingSaveRef.current = next;
+        void flushSettings();
+      } else {
+        scheduleSave(next);
+      }
       return next;
     });
-  }, [scheduleSave]);
+  }, [flushSettings, scheduleSave]);
 
   const closeSettings = useCallback(() => {
     void flushSettings().finally(onClose);
@@ -209,31 +234,49 @@ export function SettingsModal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeSettings]);
 
+  const displayMode = normalizeSettingsDisplayMode(form.settingsDisplayMode);
+  const isPage = displayMode === "page";
+  const toggleDisplayMode = useCallback(() => {
+    update("settingsDisplayMode", isPage ? "modal" : "page");
+  }, [isPage, update]);
   const activeMeta = NAV_ITEMS.find((item) => item.id === active) ?? NAV_ITEMS[0];
   const isWideGrid = active === "plugins";
 
   return (
     <motion.div
-      className="settings-backdrop"
+      className={`settings-backdrop ${isPage ? "is-page" : "is-modal"}`}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: isPage ? 0.14 : 0.16, ease: [0.16, 1, 0.3, 1] }}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) closeSettings();
+        if (!isPage && event.target === event.currentTarget) closeSettings();
       }}
     >
       <motion.div
-        className="settings-center"
-        role="dialog"
-        aria-modal="true"
+        className={`settings-center ${isPage ? "is-page" : "is-modal"}`}
+        data-settings-mode={displayMode}
+        role={isPage ? "region" : "dialog"}
+        aria-modal={isPage ? undefined : "true"}
         aria-label="设置"
-        initial={{ opacity: 0, scale: 0.965, y: 10 }}
+        initial={isPage ? { opacity: 0 } : { opacity: 0, scale: 0.965, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.975, y: 6 }}
-        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        exit={isPage ? { opacity: 0 } : { opacity: 0, scale: 0.975, y: 6 }}
+        transition={{ duration: isPage ? 0.14 : 0.2, ease: [0.16, 1, 0.3, 1] }}
       >
         <aside className="settings-navigation">
+          {isPage && (
+            <button
+              type="button"
+              className="settings-back-btn"
+              onClick={closeSettings}
+              title="返回应用 (Esc)"
+              aria-label="返回应用"
+            >
+              <ArrowLeft size={15} strokeWidth={1.9} />
+              <span>返回应用</span>
+            </button>
+          )}
           <div className="settings-modal-brand">设置</div>
 
           <LayoutGroup id="settings-sidebar-nav">
@@ -264,34 +307,50 @@ export function SettingsModal({
           </LayoutGroup>
 
           <div className="settings-nav-footer">
-            <span className="settings-nav-app">Pi Desktop · v0.3.0</span>
-            <kbd>Ctrl+,</kbd>
+            <span className="settings-nav-app">千机 · v0.3.0</span>
+            <kbd>{form.shortcutSettings || "Ctrl+,"}</kbd>
           </div>
         </aside>
 
         <main className="settings-content">
           <header className="settings-stage-header">
-            <div className="settings-header-titles">
-              <h1>{activeMeta.heading}</h1>
-              <span className={`settings-save-status ${saveState}`} aria-live="polite">
-                {saveState === "pending" || saveState === "saving"
-                  ? "正在保存…"
-                  : saveState === "saved"
-                    ? "已保存"
-                    : saveState === "error"
-                      ? "保存失败"
-                      : ""}
-              </span>
+            <div className={`settings-stage-header-inner ${isWideGrid ? "is-wide" : ""}`}>
+              <div className="settings-header-titles">
+                <h1>{activeMeta.heading}</h1>
+                <span className={`settings-save-status ${saveState}`} aria-live="polite">
+                  {saveState === "pending" || saveState === "saving"
+                    ? "正在保存…"
+                    : saveState === "saved"
+                      ? "已保存"
+                      : saveState === "error"
+                        ? "保存失败"
+                        : ""}
+                </span>
+              </div>
+              <div className="settings-header-actions">
+                <button
+                  type="button"
+                  className="settings-mode-toggle-btn"
+                  onClick={toggleDisplayMode}
+                  title={isPage ? "切换为居中弹窗展示" : "切换为独立页面展示"}
+                  aria-label={isPage ? "切换为居中弹窗" : "切换为独立页面"}
+                >
+                  {isPage ? <Minimize2 size={13} strokeWidth={1.9} /> : <Maximize2 size={13} strokeWidth={1.9} />}
+                  <span>{isPage ? "弹窗视图" : "页面视图"}</span>
+                </button>
+                {!isPage && (
+                  <button
+                    type="button"
+                    className="settings-close-circle"
+                    onClick={closeSettings}
+                    title="返回应用 (Esc)"
+                    aria-label="返回应用"
+                  >
+                    <X size={15} strokeWidth={2} />
+                  </button>
+                )}
+              </div>
             </div>
-            <button
-              type="button"
-              className="settings-close-circle"
-              onClick={closeSettings}
-              title="返回应用 (Esc)"
-              aria-label="返回应用"
-            >
-              <X size={15} strokeWidth={2} />
-            </button>
           </header>
 
           <div ref={pageScrollRef} className="settings-page-scroll">
@@ -590,6 +649,37 @@ function AppearancePage({
           })}
         </div>
       </section>
+
+      <Section title="界面布局">
+        <Row
+          title="设置页面展示方式"
+          description="默认以全窗口独立页面展开设置，也可切换为居中悬浮弹窗叠加在当前对话上方"
+        >
+          <LayoutGroup id="appearance-settings-mode-seg">
+            <div className="settings-segmented" role="radiogroup" aria-label="设置页面展示方式">
+              {([
+                ["page", "独立页面"],
+                ["modal", "居中弹窗"],
+              ] as const).map(([val, label]) => {
+                const active = normalizeSettingsDisplayMode(form.settingsDisplayMode) === val;
+                return (
+                  <button
+                    key={val}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={active ? "active" : ""}
+                    onClick={() => update("settingsDisplayMode", val)}
+                  >
+                    {active && <motion.span layoutId="settings-mode-seg-thumb" className="settings-segmented-thumb" transition={NAV_SPRING} />}
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </LayoutGroup>
+        </Row>
+      </Section>
 
       <Section title="排版与缩放">
         <Row title="对话阅读字号" description="消息正文、列表与代码片段的基准字号">

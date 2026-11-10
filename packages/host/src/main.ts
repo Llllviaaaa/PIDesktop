@@ -1,10 +1,10 @@
 /**
  * Process entry of the Harness Host (ADR 0001).
  *
- * Usage: pid-harness --data-dir <dir> [--port <n>] [--page-origin <origin>]... [--exit-with-stdin]
- *        pid-harness run [options] <prompt>   (headless, see headless.ts)
+ * Usage: qianji-harness --data-dir <dir> [--port <n>] [--page-origin <origin>]... [--exit-with-stdin]
+ *        qianji-harness run [options] <prompt>   (headless, see headless.ts)
  *
- * The RPC token comes from PID_HARNESS_TOKEN, never the command line, so it
+ * The RPC token comes from QIANJI_HARNESS_TOKEN, never the command line, so it
  * does not show in process listings. Without it (a host started by hand for
  * browser-only development) a token is generated and written to stderr.
  * Once listening, the host prints one JSON line `{"port": n}` on stdout and
@@ -25,9 +25,9 @@ import * as pluginsRpc from "./plugins-rpc.ts";
 import { readDefaultModel } from "./providers.ts";
 import { dpapiCodec } from "./secrets.ts";
 
-declare const PID_HOST_VERSION: string | undefined;
+declare const QIANJI_HOST_VERSION: string | undefined;
 
-export const HOST_VERSION = typeof PID_HOST_VERSION === "string" ? PID_HOST_VERSION : "0.0.0-dev";
+export const HOST_VERSION = typeof QIANJI_HOST_VERSION === "string" ? QIANJI_HOST_VERSION : "0.0.0-dev";
 
 export interface MainOptions {
   dataDir: string;
@@ -70,10 +70,10 @@ export async function main(argv: readonly string[]): Promise<void> {
     return;
   }
   const options = parseOptions(argv);
-  let token = process.env.PID_HARNESS_TOKEN;
+  let token = process.env.QIANJI_HARNESS_TOKEN || process.env.PID_HARNESS_TOKEN;
   if (token === undefined || token === "") {
     token = randomBytes(32).toString("base64url");
-    process.stderr.write(`[harness] PID_HARNESS_TOKEN not set; generated ${token}\n`);
+    process.stderr.write(`[harness] QIANJI_HARNESS_TOKEN not set; generated ${token}\n`);
   }
 
   const { dataDir } = options;
@@ -88,7 +88,7 @@ export async function main(argv: readonly string[]): Promise<void> {
     plugins: corePlugins(),
   });
   host.ctx.logger.exporter(stderrExporter);
-  // ~/.pid/logs: the desktop writes its own log beside this one. Its level follows
+  // ~/.qianji/logs: the desktop writes its own log beside this one. Its level follows
   // Settings → 日志等级, which every desktop message (the first arrives at start) carries.
   const fileLog = logFileExporter(join(dataDir, "logs"));
   host.ctx.logger.exporter(fileLog);
@@ -96,6 +96,7 @@ export async function main(argv: readonly string[]): Promise<void> {
 
   // Built-in plugins + dynamic user/workspace plugins managed uniformly by PluginManager.
   const logger = host.ctx.logger("harness");
+  const computerHelper = process.env.QIANJI_COMPUTER_HELPER || process.env.PID_COMPUTER_HELPER;
   const pluginManager = new PluginManager(host.ctx, {
     dataDir,
     version: HOST_VERSION,
@@ -104,7 +105,7 @@ export async function main(argv: readonly string[]): Promise<void> {
       for (const problem of problems) logger.warn("%s", problem);
       return builtinPluginDefinitions(dataDir, config, {
         scheduler: { defaultModel },
-        ...(process.env.PID_COMPUTER_HELPER ? { computerHelper: process.env.PID_COMPUTER_HELPER } : {}),
+        ...(computerHelper ? { computerHelper } : {}),
         ...(codec === undefined ? {} : { codec }),
         gateway: {
           pageOrigins: options.pageOrigins,

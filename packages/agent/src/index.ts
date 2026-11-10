@@ -1,10 +1,10 @@
 /**
  * The agent interface (ADR 0003, 0008): what a run looks like from outside.
- * The only implementation is `@pid/agent-loop`; everything else extends a
+ * The only implementation is `@qianji/agent-loop`; everything else extends a
  * run through these events, never by changing the loop.
  */
-import type { StreamChunk, UserContent } from "@pid/llm";
-import type { EventOf, Session } from "@pid/session";
+import type { StreamChunk, UserContent } from "@qianji/llm";
+import type { EventOf, Session } from "@qianji/session";
 
 declare module "@deepseek-ai/cordis" {
   interface Context {

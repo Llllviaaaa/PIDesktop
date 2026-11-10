@@ -16,15 +16,15 @@
  */
 import { spawn } from "node:child_process";
 import type { Context } from "@deepseek-ai/cordis";
-import "@pid/agent";
-import type { Session } from "@pid/session";
-import "@pid/tools";
-import "@pid/ui";
+import "@qianji/agent";
+import type { Session } from "@qianji/session";
+import "@qianji/tools";
+import "@qianji/ui";
 import { validateDesktopHooks, type DesktopHookConfig, type DesktopHookEvent } from "./core.ts";
 
 export * from "./core.ts";
 
-export const name = "pid-hooks";
+export const name = "qianji-hooks";
 export const inject = ["sessions", "tools", "ui"];
 
 export interface Config {

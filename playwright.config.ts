@@ -5,9 +5,9 @@ import { defineConfig } from "@playwright/test";
  * with `vite build --mode e2e`, which fakes Tauri (src/dev/tauriStub.ts),
  * against a real Harness Host each test starts in this process
  * (packages/host/test/e2e-host.ts). It drives the installed Edge or Chrome,
- * so no browser download is needed: PID_E2E_CHANNEL picks one (default msedge).
+ * so no browser download is needed: QIANJI_E2E_CHANNEL picks one (default msedge).
  */
-const port = Number(process.env.PID_E2E_PORT ?? 4173);
+const port = Number(process.env.QIANJI_E2E_PORT ?? process.env.PID_E2E_PORT ?? 4173);
 export const E2E_ORIGIN = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
@@ -22,7 +22,7 @@ export default defineConfig({
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: E2E_ORIGIN,
-    channel: process.env.PID_E2E_CHANNEL ?? "msedge",
+    channel: process.env.QIANJI_E2E_CHANNEL ?? process.env.PID_E2E_CHANNEL ?? "msedge",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     viewport: { width: 1280, height: 800 },

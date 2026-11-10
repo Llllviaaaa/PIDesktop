@@ -3,7 +3,7 @@
  *
  * Plugins inject `rpc` (either directly or optionally via `ctx.inject(["rpc"], ...)`)
  * to register and dispose their own JSON-RPC methods and broadcast notifications
- * without coupling to `@pid/host` or a monolithic router.
+ * without coupling to `@qianji/host` or a monolithic router.
  */
 import type {} from "@deepseek-ai/cordis";
 

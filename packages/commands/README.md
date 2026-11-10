@@ -1,4 +1,4 @@
-# `@pid/commands`
+# `@qianji/commands`
 
 Slash command registry (`ctx.commands`) for the Harness Host (ADR 0002, 0003).
 

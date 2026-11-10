@@ -1,4 +1,4 @@
-# @pid/permissions
+# @qianji/permissions
 
 权限模式（`read-only`、`ask`、`workspace-write`、`full-access`）、agent 模式（`agent`、`plan`、`ask`）和工具规则，挂在 `tools/pre-execute` 上。见 [ADR 0009](../../docs/adr/0009-feature-plugins.md)。
 

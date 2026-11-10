@@ -19,9 +19,9 @@ import {
   type ModelInfo,
   type SecretRef,
   type StreamChunk,
-} from "@pid/llm";
+} from "@qianji/llm";
 
-export const name = "pid-llm-openai-compat";
+export const name = "qianji-llm-openai-compat";
 export const inject = ["llm", "credentials"];
 
 export interface ProviderConfig {

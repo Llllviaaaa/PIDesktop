@@ -1,4 +1,4 @@
-# @pid/mcp
+# @qianji/mcp
 
 把 MCP 服务器提供的能力注册为工具，见 [ADR 0010](../../docs/adr/0010-subagents-mcp-usage.md)。
 

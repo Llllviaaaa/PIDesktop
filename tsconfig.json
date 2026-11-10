@@ -23,7 +23,7 @@
     /* Curated renderer declarations and unified client plugin SDK entry */
     "paths": {
       "@deepseek-ai/cordis": ["./src/types/cordis.d.ts"],
-      "@pid/client": ["./src/lib/clientPluginBootstrap.ts"]
+      "@qianji/client": ["./src/lib/clientPluginBootstrap.ts"]
     }
   },
   "include": ["src", "plugins/*/client.tsx"],

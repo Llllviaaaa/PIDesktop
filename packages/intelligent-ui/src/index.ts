@@ -1,5 +1,5 @@
 /**
- * Built-in Intelligent UI plugin (`@pid/intelligent-ui`).
+ * Built-in Intelligent UI plugin (`@qianji/intelligent-ui`).
  *
  * Registers:
  * - `render_ui` and `update_ui` tools so models compose live, interactive UI
@@ -10,13 +10,14 @@
  * - `/ui` slash command and `intelligentUi.list` RPC endpoint.
  */
 import type { Context } from "@deepseek-ai/cordis";
-import "@pid/commands";
-import { ErrorCode } from "@pid/protocol";
-import { RpcError } from "@pid/rpc";
-import { currentBranch, type Session } from "@pid/session";
-import { SectionOrder } from "@pid/system-prompt";
-import { textOutput, type ToolDefinition } from "@pid/tools";
+import "@qianji/commands";
+import { ErrorCode } from "@qianji/protocol";
+import { RpcError } from "@qianji/rpc";
+import { currentBranch, type Session } from "@qianji/session";
+import { SectionOrder } from "@qianji/system-prompt";
+import { textOutput, type ToolDefinition } from "@qianji/tools";
 import {
+  LEGACY_NAMESPACE,
   NAMESPACE,
   buildRenderedArtifact,
   buildUpdatedArtifact,
@@ -28,7 +29,7 @@ import {
 
 export * from "./core.ts";
 
-export const name = "pid-intelligent-ui";
+export const name = "qianji-intelligent-ui";
 export const inject = ["sessions", "tools", "systemPrompt"];
 
 export const INTELLIGENT_UI_PROMPT_SECTION = `Interactive UI (Intelligent UI):
@@ -40,7 +41,7 @@ export function widgetsOf(session: Session): Map<string, IntelligentUiArtifact[]
   for (const event of currentBranch(session.events)) {
     if (event.type !== "custom") continue;
     const payload = event.data as { ns?: unknown; data?: unknown };
-    if (payload.ns !== NAMESPACE || typeof payload.data !== "object" || payload.data === null) continue;
+    if ((payload.ns !== NAMESPACE && payload.ns !== LEGACY_NAMESPACE) || typeof payload.data !== "object" || payload.data === null) continue;
     const record = payload.data as Record<string, unknown>;
     if (record.action === "clear") {
       byId.clear();

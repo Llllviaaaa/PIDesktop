@@ -1,6 +1,6 @@
-# @pid/llm
+# @qianji/llm
 
-与厂商无关的 LLM 词汇和 `llm` 服务，见 [ADR 0007](../../docs/adr/0007-llm-layer.md)。只包含接口和通用机制，具体厂商由适配器包实现（`@pid/llm-openai-compat`、`@pid/llm-anthropic`）。
+与厂商无关的 LLM 词汇和 `llm` 服务，见 [ADR 0007](../../docs/adr/0007-llm-layer.md)。只包含接口和通用机制，具体厂商由适配器包实现（`@qianji/llm-openai-compat`、`@qianji/llm-anthropic`）。
 
 ## 服务
 

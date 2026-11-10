@@ -24,7 +24,7 @@
     "opener:default",
     {
       "identifier": "opener:allow-open-path",
-      "allow": [{ "path": "$HOME/.pid/logs" }]
+      "allow": [{ "path": "$HOME/.qianji/logs" }, { "path": "$HOME/.pid/logs" }]
     },
     "dialog:default"
   ]

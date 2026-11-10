@@ -6,9 +6,9 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
-import { AgentBusyError, NoModelError } from "@pid/agent";
-import type { Effort, UserContent } from "@pid/llm";
-import "@pid/pricing";
+import { AgentBusyError, NoModelError } from "@qianji/agent";
+import type { Effort, UserContent } from "@qianji/llm";
+import "@qianji/pricing";
 import {
   ErrorCode,
   type AgentStatusInfo,
@@ -26,11 +26,11 @@ import {
   type SessionSearchResult,
   type SessionSubscribeResult,
   type UsageSummaryResult,
-} from "@pid/protocol";
-import { sessionMarkdown, settledSeq, type Session, type SessionSummary } from "@pid/session";
+} from "@qianji/protocol";
+import { sessionMarkdown, settledSeq, type Session, type SessionSummary } from "@qianji/session";
 import { RpcError, type RpcCall } from "./rpc.ts";
 
-export const name = "pid-sessions-rpc";
+export const name = "qianji-sessions-rpc";
 export const inject = ["rpc", "sessions", "agents", "llm"];
 
 export interface Config {

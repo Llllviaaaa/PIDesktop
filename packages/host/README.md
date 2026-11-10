@@ -1,4 +1,4 @@
-# @pid/host
+# @qianji/host
 
 Harness Host 的 cordis 根，见 [ADR 0001](../../docs/adr/0001-harness-host-process.md) 和 [ADR 0003](../../docs/adr/0003-plugin-model-and-events.md)。
 
@@ -20,17 +20,17 @@ Harness Host 的 cordis 根，见 [ADR 0001](../../docs/adr/0001-harness-host-pr
 
 - 内置兜底层：由 `builtinFeatureDefinitions` 提供默认实现（拓扑依赖排序加载，逆序卸载），随安装包更新；
 - 用户全局层：`<dataDir>/plugins/<dir>/` 与 `<dataDir>/plugins.json`（支持 `local` 目录关联/复制、`.tgz`/`.zip` 归档、`git` 仓库与内嵌 `BUN_BE_BUN=1` 的 `npm` 包安装；同 `id` 自动覆盖内置版本，移除后回退至内置版本）；
-- 工作区项目层：`<workspace>/.pid/plugins/<dir>/`，受 `<dataDir>/trusted-workspaces.json` 显式信任门禁保护，并在独立子作用域 `WorkspacePluginScope` 中按工作区隔离挂载；
+- 工作区项目层：`<workspace>/.qianji/plugins/<dir>/`，受 `<dataDir>/trusted-workspaces.json` 显式信任门禁保护，并在独立子作用域 `WorkspacePluginScope` 中按工作区隔离挂载；
 - 客户端脚本与静态资源：通过 `/plugins/<id>/client.js`、`plugin.clientBundle` 与 `/plugins/<id>/assets/*` 按内容哈希 `ETag` 分发，并支持 `watch` 模式下的 Fiber 级故障回滚热重载（`plugin/changed`）。
 
 ## 进程
 
-`src/bin.ts` 是可执行文件的入口，`scripts/prepare-harness-host.mjs` 把它打包成 `src-tauri/resources/harness/pid-harness.exe`：
+`src/bin.ts` 是可执行文件的入口，`scripts/prepare-harness-host.mjs` 把它打包成 `src-tauri/resources/harness/qianji-harness.exe`：
 
 ```text
-pid-harness --data-dir <dir> [--port <n>] [--page-origin <origin>]... [--exit-with-stdin]
+qianji-harness --data-dir <dir> [--port <n>] [--page-origin <origin>]... [--exit-with-stdin]
 ```
 
-- token 从环境变量 `PID_HARNESS_TOKEN` 读取。没有设置时（例如为纯浏览器开发手动启动）会自动生成一个并打印到 stderr。
+- token 从环境变量 `QIANJI_HARNESS_TOKEN` 读取。没有设置时（例如为纯浏览器开发手动启动）会自动生成一个并打印到 stderr。
 - 开始监听后，stdout 只输出一行 `{"port": n}`，日志全部写到 stderr。
-- 浏览器开发时，用 `node scripts/prepare-harness-host.mjs --bundle-only` 打包，然后执行 `node node_modules/.cache/pidesktop-harness-host/host.mjs --data-dir <dir> --port 47100 --page-origin http://localhost:1420`。
+- 浏览器开发时，用 `node scripts/prepare-harness-host.mjs --bundle-only` 打包，然后执行 `node node_modules/.cache/qianji-harness-host/host.mjs --data-dir <dir> --port 47100 --page-origin http://localhost:1420`。

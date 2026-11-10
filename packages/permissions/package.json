@@ -1,5 +1,5 @@
 {
-  "name": "@pid/permissions",
+  "name": "@qianji/permissions",
   "version": "0.0.0",
   "private": true,
   "description": "Permission modes, agent modes and tool rules on tools/pre-execute (ADR 0009)",
@@ -9,11 +9,11 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/protocol": "*",
-    "@pid/rpc": "*",
-    "@pid/session": "*",
-    "@pid/system-prompt": "*",
-    "@pid/tools": "*",
-    "@pid/ui": "*"
+    "@qianji/protocol": "*",
+    "@qianji/rpc": "*",
+    "@qianji/session": "*",
+    "@qianji/system-prompt": "*",
+    "@qianji/tools": "*",
+    "@qianji/ui": "*"
   }
 }

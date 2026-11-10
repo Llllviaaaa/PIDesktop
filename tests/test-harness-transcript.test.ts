@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { PersistedEvent } from "@pid/protocol";
+import type { PersistedEvent } from "@qianji/protocol";
 import { effortForLevel, forkPointsOf, sessionTreeOf } from "../src/lib/hostSessions";
 import { TranscriptTranslator, currentBranch, historyToUi, planWidgetLines, resetStreamingAssistant, streamAssistant } from "../src/lib/transcript";
 

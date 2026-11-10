@@ -3,10 +3,13 @@ import { Check, ChevronDown, ChevronRight, Image as ImageIcon, Plus, Search, X }
 import type { ModelInfo } from "../types";
 import { useAppStore } from "../store";
 import {
+  customThinkingLevelsForModel,
   effectiveThinkingLevel,
+  modelThinkingKey,
   normalizeThinkingLevelId,
   resolveThinkingLevels,
   thinkingLabel,
+  withModelCustomThinkingLevels,
 } from "../lib/thinkingLevels";
 
 interface ModelPickerProps {
@@ -44,13 +47,15 @@ export function ModelPicker({
 }: ModelPickerProps) {
   const settings = useAppStore((state) => state.settings);
   const saveSettings = useAppStore((state) => state.saveSettings);
-  const [localCustomLevels, setLocalCustomLevels] = useState<string[]>([]);
+  const [localCustomByModel, setLocalCustomByModel] = useState<Record<string, string[]>>({});
+  const activeModelKey = model ? modelThinkingKey(model.provider, model.id) : "";
 
   const customLevels = useMemo(() => {
-    const merged = new Set<string>(settings?.customThinkingLevels ?? []);
-    for (const item of localCustomLevels) merged.add(item);
+    if (!model) return [];
+    const merged = new Set<string>(customThinkingLevelsForModel(settings, model.provider, model.id));
+    for (const item of localCustomByModel[activeModelKey] ?? []) merged.add(item);
     return [...merged];
-  }, [localCustomLevels, settings?.customThinkingLevels]);
+  }, [activeModelKey, localCustomByModel, model, settings]);
 
   const baseLevels = useMemo(
     () => new Set(resolveThinkingLevels(thinkingLevels, model, null)),
@@ -73,16 +78,19 @@ export function ModelPicker({
 
   const handleAddCustomLevel = (raw: string) => {
     const normalized = normalizeThinkingLevelId(raw);
-    if (!normalized) return;
-    setLocalCustomLevels((prev) => (prev.includes(normalized) ? prev : [...prev, normalized]));
+    if (!normalized || !model) return;
+    setLocalCustomByModel((prev) => {
+      const existing = prev[activeModelKey] ?? [];
+      if (existing.includes(normalized)) return prev;
+      return { ...prev, [activeModelKey]: [...existing, normalized] };
+    });
     const latestSettings = useAppStore.getState().settings;
     if (latestSettings) {
-      const existing = latestSettings.customThinkingLevels ?? [];
+      const existing = customThinkingLevelsForModel(latestSettings, model.provider, model.id);
       if (!existing.includes(normalized)) {
-        void saveSettings({
-          ...latestSettings,
-          customThinkingLevels: [...existing, normalized],
-        });
+        void saveSettings(
+          withModelCustomThinkingLevels(latestSettings, model.provider, model.id, [...existing, normalized]),
+        );
       }
     }
     onClose();
@@ -92,14 +100,23 @@ export function ModelPicker({
   };
 
   const handleRemoveCustomLevel = (target: string) => {
-    setLocalCustomLevels((prev) => prev.filter((item) => item !== target));
+    if (!model) return;
+    setLocalCustomByModel((prev) => {
+      const existing = prev[activeModelKey];
+      if (!existing) return prev;
+      return { ...prev, [activeModelKey]: existing.filter((item) => item !== target) };
+    });
     const latestSettings = useAppStore.getState().settings;
     if (latestSettings) {
-      const existing = latestSettings.customThinkingLevels ?? [];
-      void saveSettings({
-        ...latestSettings,
-        customThinkingLevels: existing.filter((item) => item !== target),
-      });
+      const existing = customThinkingLevelsForModel(latestSettings, model.provider, model.id);
+      void saveSettings(
+        withModelCustomThinkingLevels(
+          latestSettings,
+          model.provider,
+          model.id,
+          existing.filter((item) => item !== target),
+        ),
+      );
     }
     if (currentLevel === target) {
       const remaining = levels.filter((item) => item !== target);

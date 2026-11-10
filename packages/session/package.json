@@ -1,5 +1,5 @@
 {
-  "name": "@pid/session",
+  "name": "@qianji/session",
   "version": "0.0.0",
   "private": true,
   "description": "Event-sourced session logs: format, derivation and the sessions service (ADR 0004)",
@@ -9,6 +9,6 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/llm": "*"
+    "@qianji/llm": "*"
   }
 }

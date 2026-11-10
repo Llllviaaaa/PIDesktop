@@ -2,7 +2,7 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { harnessRuntimes, isRpcMethodNotFound } from "./harnessRuntime";
 
-/** `~/.pid/logs`, where the Host and the desktop write their logs. */
+/** `~/.qianji/logs`, where the Host and the desktop write their logs. */
 export async function logsDir(): Promise<string> {
   try {
     return (await harnessRuntimes.call<{ dir: string }>("diagnostics.logs")).dir;

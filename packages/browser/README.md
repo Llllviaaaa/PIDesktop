@@ -1,4 +1,4 @@
-# @pid/browser
+# @qianji/browser
 
 内置浏览器工具：通过 Chrome DevTools 协议驱动 Edge、Chrome 或 Chromium，见 [ADR 0012](../../docs/adr/0012-browser.md)。
 

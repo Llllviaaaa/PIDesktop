@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { Credentials, LlmService, assemble } from "@pid/llm";
+import { Credentials, LlmService, assemble } from "@qianji/llm";
 import * as gemini from "../src/index.ts";
 
 let server: ReturnType<typeof createServer> | undefined;
@@ -26,7 +26,7 @@ async function openMockServer(handler: (req: IncomingMessage, res: ServerRespons
   return `http://127.0.0.1:${address.port}/v1beta`;
 }
 
-describe("@pid/llm-gemini adapter", () => {
+describe("@qianji/llm-gemini adapter", () => {
   it("builds Gemini contents with thinkingConfig, inlineData, sanitized tool schemas, and functionResponse names", () => {
     const body = gemini.buildRequestBody(
       {

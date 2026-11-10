@@ -1,10 +1,10 @@
 import { Context } from "@deepseek-ai/cordis";
 import { describe, expect, it } from "vitest";
-import { LlmService } from "@pid/llm";
-import { summarize } from "@pid/session";
+import { LlmService } from "@qianji/llm";
+import { summarize } from "@qianji/session";
 import { Pricing, estimateUsageCost, lookupBuiltinPricing } from "../src/index.ts";
 
-describe("@pid/pricing", () => {
+describe("@qianji/pricing", () => {
   it("matches frontier models across vendor prefixes, date stamps, and variant suffixes", () => {
     expect(lookupBuiltinPricing("anthropic/claude-sonnet-4-5-20250929")).toEqual({
       input: 3,

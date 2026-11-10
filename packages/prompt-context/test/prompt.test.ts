@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { SystemPrompt } from "@pid/system-prompt";
+import { SystemPrompt } from "@qianji/system-prompt";
 import * as promptContext from "../src/index.ts";
 import { GUIDELINES, IDENTITY, contextFiles, findSkills, readFrontMatter } from "../src/index.ts";
 
@@ -11,20 +11,20 @@ let root = "";
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 function layout() {
-  root = mkdtempSync(join(tmpdir(), "pid-prompt-"));
+  root = mkdtempSync(join(tmpdir(), "qianji-prompt-"));
   const dataDir = join(root, "data");
   const repo = join(root, "repo");
   const pkg = join(repo, "pkg");
   mkdirSync(join(dataDir, "skills", "deploy"), { recursive: true });
-  mkdirSync(join(pkg, ".pid", "skills", "deploy"), { recursive: true });
-  mkdirSync(join(pkg, ".pid", "skills", "nodesc"), { recursive: true });
+  mkdirSync(join(pkg, ".qianji", "skills", "deploy"), { recursive: true });
+  mkdirSync(join(pkg, ".qianji", "skills", "nodesc"), { recursive: true });
   writeFileSync(join(dataDir, "AGENTS.md"), "global rules");
   writeFileSync(join(repo, "AGENTS.md"), "repo rules");
   writeFileSync(join(repo, "CLAUDE.md"), "ignored next to AGENTS.md");
   writeFileSync(join(pkg, "CLAUDE.md"), "package rules");
   writeFileSync(join(dataDir, "skills", "deploy", "SKILL.md"), "---\nname: deploy\ndescription: global deploy\n---\nbody");
-  writeFileSync(join(pkg, ".pid", "skills", "deploy", "SKILL.md"), "---\nname: deploy\ndescription: \"project deploy\"\n---\nbody");
-  writeFileSync(join(pkg, ".pid", "skills", "nodesc", "SKILL.md"), "no front matter");
+  writeFileSync(join(pkg, ".qianji", "skills", "deploy", "SKILL.md"), "---\nname: deploy\ndescription: \"project deploy\"\n---\nbody");
+  writeFileSync(join(pkg, ".qianji", "skills", "nodesc", "SKILL.md"), "no front matter");
   return { dataDir, repo, pkg };
 }
 
@@ -36,8 +36,8 @@ describe("context files and skills", () => {
 
   it("lets a project skill replace a global one and skips skills without a description", () => {
     const { dataDir, pkg } = layout();
-    expect(findSkills([join(dataDir, "skills"), join(pkg, ".pid", "skills")])).toEqual([
-      { name: "deploy", description: "project deploy", path: join(pkg, ".pid", "skills", "deploy", "SKILL.md") },
+    expect(findSkills([join(dataDir, "skills"), join(pkg, ".qianji", "skills")])).toEqual([
+      { name: "deploy", description: "project deploy", path: join(pkg, ".qianji", "skills", "deploy", "SKILL.md") },
     ]);
     expect(readFrontMatter("---\r\nname: x\r\ndescription: y: z\r\n---")).toEqual({ name: "x", description: "y: z" });
   });

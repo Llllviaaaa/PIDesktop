@@ -1,4 +1,4 @@
-# @pid/plan
+# @qianji/plan
 
 `update_plan` 工具：模型为多步骤的工作维护一份可见的计划。见 [ADR 0009](../../docs/adr/0009-feature-plugins.md)。
 

@@ -5,6 +5,7 @@ import {
   resolveAppearanceTheme,
   type AppearanceThemeDefinition,
 } from "../src/lib/appearanceCatalog";
+import { DEFAULTS, normalizeSettingsDisplayMode } from "../src/components/SettingsModal";
 import { test } from "vitest";
 
 test("minimalist appearance catalog and theme resolution", () => {
@@ -51,4 +52,13 @@ test("minimalist appearance catalog and theme resolution", () => {
   const catalog = mergeAppearanceCatalog([userTheme, projectTheme]);
   assert.equal(catalog.themes.find((theme) => theme.id === "slate-custom")?.label, "Project Slate");
   assert.equal(resolveAppearanceTheme(catalog, "missing", false).id, "light");
+});
+
+test("settings display mode defaults to page and normalizes modal/page", () => {
+  assert.equal(DEFAULTS.settingsDisplayMode, "page");
+  assert.equal(normalizeSettingsDisplayMode(undefined), "page");
+  assert.equal(normalizeSettingsDisplayMode(null), "page");
+  assert.equal(normalizeSettingsDisplayMode("page"), "page");
+  assert.equal(normalizeSettingsDisplayMode("modal"), "modal");
+  assert.equal(normalizeSettingsDisplayMode("invalid"), "page");
 });

@@ -1,15 +1,14 @@
-# Contributing to Pi Desktop
+# Contributing to Qianji
 
-Thank you for helping improve Pi Desktop. Keep changes focused, explain behavioral tradeoffs, and add tests in proportion to risk.
+Thank you for helping improve Qianji (千机). Keep changes focused, explain behavioral tradeoffs, and add tests in proportion to risk.
 
 ## Development setup
 
-Pi Desktop currently targets Windows. You need:
+Qianji currently targets Windows. You need:
 
 - Node.js 22 or later and npm;
 - a stable Rust MSVC toolchain;
-- WebView2;
-- Pi on `PATH`, or an absolute Pi executable configured in the app.
+- WebView2.
 
 Install dependencies and run the desktop app:
 
@@ -56,7 +55,7 @@ more:
 | --- | --- | --- |
 | Renderer (`src/**/*.tsx`) | ~1,220 | Where interface copy belongs. |
 | Tauri commands (`src-tauri/src/**`) | ~62 | Error text the renderer shows verbatim. |
-| Pi extensions (`src-tauri/resources/pidesktop-*.ts`) | ~81 | Approval prompts and tool output. |
+| Harness Host plugins (`packages/*/src/**`) | ~80 | Approval prompts and tool output. |
 
 Prefer keeping new copy in the renderer. A command that needs to explain a
 failure should return the right `AppError` kind (see `src-tauri/src/error.rs`)

@@ -44,13 +44,13 @@ test("save native Gemini provider with custom pricing and approve desktop_memory
   await expect(diffDialog).toBeVisible();
   const diffPreview = diffDialog.locator(".question-diff-preview");
   await expect(diffPreview).toBeVisible();
-  await expect(diffPreview.locator(".diff-meta").first()).toContainText("--- a/.pid/memory.md");
+  await expect(diffPreview.locator(".diff-meta").first()).toContainText("--- a/.qianji/memory.md");
   await expect(diffPreview.locator(".diff-add", { hasText: "+新增约定：使用 Vitest" })).toBeVisible();
 
   await diffDialog.getByRole("button", { name: "允许一次" }).click();
   await settled(app);
   await expect(answer(app, "已写入项目记忆。")).toBeVisible();
 
-  const updatedProjectMemory = readFileSync(join(harness.workspace, ".pid", "memory.md"), "utf8");
+  const updatedProjectMemory = readFileSync(join(harness.workspace, ".qianji", "memory.md"), "utf8");
   expect(updatedProjectMemory).toContain("新增约定：使用 Vitest");
 });

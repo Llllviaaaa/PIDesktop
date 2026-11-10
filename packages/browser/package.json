@@ -1,5 +1,5 @@
 {
-  "name": "@pid/browser",
+  "name": "@qianji/browser",
   "version": "0.0.0",
   "private": true,
   "description": "Built-in browser tools over the DevTools protocol, one browser per session (ADR 0012)",
@@ -9,9 +9,9 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/commands": "*",
-    "@pid/session": "*",
-    "@pid/tools": "*",
-    "@pid/ui": "*"
+    "@qianji/commands": "*",
+    "@qianji/session": "*",
+    "@qianji/tools": "*",
+    "@qianji/ui": "*"
   }
 }

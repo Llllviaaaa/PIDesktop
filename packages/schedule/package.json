@@ -1,5 +1,5 @@
 {
-  "name": "@pid/schedule",
+  "name": "@qianji/schedule",
   "version": "0.0.0",
   "private": true,
   "description": "Scheduled tasks run by the host as unattended sessions (ADR 0011)",
@@ -9,17 +9,17 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/agent": "*",
-    "@pid/protocol": "*",
-    "@pid/rpc": "*",
-    "@pid/session": "*",
-    "@pid/ui": "*"
+    "@qianji/agent": "*",
+    "@qianji/protocol": "*",
+    "@qianji/rpc": "*",
+    "@qianji/session": "*",
+    "@qianji/ui": "*"
   },
   "devDependencies": {
-    "@pid/agent-loop": "*",
-    "@pid/llm": "*",
-    "@pid/system-prompt": "*",
-    "@pid/testkit": "*",
-    "@pid/tools": "*"
+    "@qianji/agent-loop": "*",
+    "@qianji/llm": "*",
+    "@qianji/system-prompt": "*",
+    "@qianji/testkit": "*",
+    "@qianji/tools": "*"
   }
 }

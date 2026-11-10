@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AnimatePresence, LayoutGroup, motion } from "motion/react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queries";
@@ -43,7 +44,17 @@ import {
   type EnrichedModel,
   type ModelCatalog,
 } from "../lib/modelProviders";
-import { normalizeThinkingLevelId, STANDARD_THINKING_LEVELS, thinkingLabel } from "../lib/thinkingLevels";
+import {
+  customThinkingLevelsForModel,
+  mergeThinkingLevels,
+  modelThinkingKey,
+  normalizeThinkingLevelId,
+  preferredThinkingLevelForModel,
+  resolveThinkingLevels,
+  STANDARD_THINKING_LEVELS,
+  thinkingLabel,
+  withModelCustomThinkingLevels,
+} from "../lib/thinkingLevels";
 import {
   BUILTIN_PROVIDER_PRESETS,
   ProviderBrandIcon,
@@ -60,16 +71,6 @@ import type {
 
 type Update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
 
-const PRIMARY_THINKING_LEVELS: ReadonlyArray<readonly [string, string]> = [
-  ["off", "关"],
-  ["minimal", "最少"],
-  ["low", "低"],
-  ["medium", "中"],
-  ["high", "高"],
-  ["xhigh", "极高"],
-  ["max", "最高"],
-];
-
 const ALL_THINKING_LABELS: Record<string, string> = {
   off: "关",
   none: "无",
@@ -81,8 +82,6 @@ const ALL_THINKING_LABELS: Record<string, string> = {
   max: "最高",
   auto: "自动",
 };
-
-const PILL_SPRING = { type: "spring" as const, stiffness: 520, damping: 38, mass: 0.7 };
 
 interface CheckState {
   providerId: string;
@@ -364,6 +363,41 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
     update("hiddenModels", [...next].sort());
   };
 
+  const setModelThinking = useCallback(
+    (providerId: string, modelId: string, level: string) => {
+      const key = modelThinkingKey(providerId, modelId);
+      update("modelThinkingLevels", {
+        ...(form.modelThinkingLevels ?? {}),
+        [key]: level,
+      });
+      if (form.provider === providerId && form.model === modelId) {
+        update("thinkingLevel", level);
+      }
+    },
+    [form.model, form.modelThinkingLevels, form.provider, update],
+  );
+
+  const setModelCustomLevels = useCallback(
+    (providerId: string, modelId: string, nextLevels: readonly string[], nextSelectedLevel?: string) => {
+      const patched = withModelCustomThinkingLevels(form, providerId, modelId, nextLevels);
+      update("modelCustomThinkingLevels", patched.modelCustomThinkingLevels);
+      if (patched.customThinkingLevels !== form.customThinkingLevels) {
+        update("customThinkingLevels", patched.customThinkingLevels);
+      }
+      if (nextSelectedLevel !== undefined) {
+        const key = modelThinkingKey(providerId, modelId);
+        update("modelThinkingLevels", {
+          ...(form.modelThinkingLevels ?? {}),
+          [key]: nextSelectedLevel,
+        });
+        if (form.provider === providerId && form.model === modelId) {
+          update("thinkingLevel", nextSelectedLevel);
+        }
+      }
+    },
+    [form, update],
+  );
+
   const afterConfigChange = async (text: string, nextSelected?: string) => {
     await refresh();
     if (nextSelected) setExpandedId(nextSelected);
@@ -531,6 +565,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
                             provider={provider}
                             custom={isCustomProvider(provider, modelsJsonIds)}
                             config={config}
+                            form={form}
                             connecting={connecting === provider.id}
                             check={check?.providerId === provider.id ? check : null}
                             hidden={hidden}
@@ -538,7 +573,11 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
                             onDisconnect={() => void disconnect(provider)}
                             onCheck={() => void runCheck(provider)}
                             onVisibility={(modelIds, visible) => setModelsVisible(provider, modelIds, visible)}
-                            onEdit={() => config && setEditor(draftFromConfig(config))}
+                            onModelThinkingChange={(modelId, level) => setModelThinking(provider.id, modelId, level)}
+                            onModelCustomLevelsChange={(modelId, levels, selected) =>
+                              setModelCustomLevels(provider.id, modelId, levels, selected)
+                            }
+                            onEdit={() => config && setEditor(draftFromConfig(config, form))}
                             onDelete={() => void deleteCustom(provider)}
                           />
                         </motion.div>
@@ -585,6 +624,7 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
                       >
                         <PresetAccordionBody
                           preset={preset}
+                          form={form}
                           busy={connecting === preset.id}
                           hasHost={hasHost}
                           onActivate={(apiKey, baseUrl, selectedIds) => void activatePreset(preset, apiKey, baseUrl, selectedIds)}
@@ -622,6 +662,28 @@ export function ModelsPage({ form, update }: { form: AppSettings; update: Update
             catalog={catalog}
             onClose={() => setEditor(null)}
             onSaved={async (saved) => {
+              const nextMap = { ...(form.modelThinkingLevels ?? {}) };
+              if (saved.originalId && saved.originalId !== saved.id) {
+                for (const existingKey of Object.keys(nextMap)) {
+                  if (existingKey.startsWith(`${saved.originalId}/`)) {
+                    delete nextMap[existingKey];
+                  }
+                }
+              }
+              for (const m of saved.models) {
+                const key = modelThinkingKey(saved.id, m.id);
+                nextMap[key] = m.reasoning ? effectiveModelThinking(true, m.thinkingLevel) : "off";
+              }
+              update("modelThinkingLevels", nextMap);
+              if (form.provider === saved.id) {
+                const matchingDefault = saved.models.find((m) => m.id === form.model);
+                if (matchingDefault) {
+                  update(
+                    "thinkingLevel",
+                    matchingDefault.reasoning ? effectiveModelThinking(true, matchingDefault.thinkingLevel) : "off",
+                  );
+                }
+              }
               setEditor(null);
               await afterConfigChange(saved.originalId ? `已更新 ${saved.name || saved.id}` : `已添加 ${saved.name || saved.id}`, saved.id);
             }}
@@ -658,7 +720,6 @@ function DefaultPreferencesCard({
   form: AppSettings;
   update: Update;
 }) {
-  const [customDraft, setCustomDraft] = useState("");
   const connected = providers.filter((provider) => provider.configured);
   const options = connected
     .map((provider) => ({
@@ -669,45 +730,7 @@ function DefaultPreferencesCard({
     }))
     .filter((group) => group.models.length > 0);
   const currentProvider = providers.find((provider) => provider.id === form.provider);
-  const selectedDefaultModel = currentProvider?.models.find((model) => model.id === form.model);
   const staleDefault = Boolean(form.provider && form.model && providers.length > 0 && !currentProvider?.configured);
-
-  const customLevels = useMemo(() => form.customThinkingLevels ?? [], [form.customThinkingLevels]);
-
-  const thinkingOptions = useMemo(() => {
-    const entries = new Map<string, string>(PRIMARY_THINKING_LEVELS);
-    const appendLevel = (raw: string | null | undefined) => {
-      if (!raw) return;
-      const trimmed = raw.trim();
-      if (!trimmed || entries.has(trimmed)) return;
-      entries.set(trimmed, ALL_THINKING_LABELS[trimmed] ?? thinkingLabel(trimmed));
-    };
-    for (const lvl of selectedDefaultModel?.thinkingLevels ?? []) appendLevel(lvl);
-    for (const lvl of customLevels) appendLevel(lvl);
-    appendLevel(form.thinkingLevel);
-    return [...entries.entries()];
-  }, [customLevels, form.thinkingLevel, selectedDefaultModel?.thinkingLevels]);
-
-  const addCustomLevel = (event?: FormEvent) => {
-    event?.preventDefault();
-    const normalized = normalizeThinkingLevelId(customDraft);
-    if (!normalized) return;
-    if (!customLevels.includes(normalized)) {
-      update("customThinkingLevels", [...customLevels, normalized]);
-    }
-    update("thinkingLevel", normalized);
-    setCustomDraft("");
-  };
-
-  const removeCustomLevel = (target: string) => {
-    const next = customLevels.filter((item) => item !== target);
-    update("customThinkingLevels", next);
-    if (form.thinkingLevel === target) {
-      update("thinkingLevel", "medium");
-    }
-  };
-
-  const normalizedDraft = normalizeThinkingLevelId(customDraft);
 
   return (
     <section className="settings-layered-section">
@@ -716,7 +739,7 @@ function DefaultPreferencesCard({
         <div className="setting-row">
           <span>
             <strong>默认对话模型</strong>
-            <small>新对话与后台自动化任务默认选用的模型</small>
+            <small>新对话与后台自动化任务默认选用的模型；思考等级按模型在下方独立配置</small>
           </span>
           <div>
             <ModelCombobox
@@ -730,97 +753,17 @@ function DefaultPreferencesCard({
                 const picked = options
                   .find((g) => g.provider.id === provider)
                   ?.models.find((m) => m.id === model);
-                if (picked?.thinkingLevel) {
-                  update("thinkingLevel", picked.thinkingLevel);
-                } else if (picked && !picked.reasoning) {
-                  update("thinkingLevel", "off");
+                if (picked) {
+                  const resolved = preferredThinkingLevelForModel(
+                    picked,
+                    form,
+                    provider,
+                    inferModelThinkingLevels(picked.id, picked.reasoning),
+                  );
+                  update("thinkingLevel", resolved);
                 }
               }}
             />
-          </div>
-        </div>
-
-        <div className="setting-row">
-          <span>
-            <strong>默认推理强度</strong>
-            <small>深度思考（Reasoning）模型的默认推理预算</small>
-          </span>
-          <div>
-            <LayoutGroup id="models-thinking-seg">
-              <div className="settings-segmented models-thinking-segmented" role="radiogroup" aria-label="推理等级">
-                {thinkingOptions.map(([value, label]) => {
-                  const active = form.thinkingLevel === value;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      className={active ? "active" : ""}
-                      onClick={() => update("thinkingLevel", value)}
-                    >
-                      {active && <motion.span layoutId="models-thinking-thumb" className="settings-segmented-thumb" transition={PILL_SPRING} />}
-                      <span>{label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </LayoutGroup>
-          </div>
-        </div>
-
-        <div className="setting-row models-custom-thinking-row">
-          <span>
-            <strong>自定义思考等级</strong>
-            <small>补充模型专属档位或 Token 预算（如 auto、16384、budget:32k、ultra）</small>
-          </span>
-          <div className="models-custom-thinking-controls">
-            {customLevels.length > 0 && (
-              <div className="models-custom-thinking-chips">
-                {customLevels.map((lvl) => (
-                  <span
-                    key={lvl}
-                    className={`models-custom-thinking-chip ${form.thinkingLevel === lvl ? "is-active" : ""}`}
-                  >
-                    <button
-                      type="button"
-                      className="models-custom-thinking-chip-select"
-                      onClick={() => update("thinkingLevel", lvl)}
-                      title={`设为默认推理强度 (${lvl})`}
-                    >
-                      {thinkingLabel(lvl)}
-                      {thinkingLabel(lvl) !== lvl && <code>{lvl}</code>}
-                    </button>
-                    <button
-                      type="button"
-                      className="models-custom-thinking-chip-remove"
-                      aria-label={`移除自定义思考等级 ${lvl}`}
-                      onClick={() => removeCustomLevel(lvl)}
-                    >
-                      <X size={11} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <form className="models-custom-thinking-form" onSubmit={addCustomLevel}>
-              <input
-                value={customDraft}
-                onChange={(event) => setCustomDraft(event.target.value)}
-                placeholder="新增档位，如 auto / 16384"
-                aria-label="新增自定义思考等级"
-                spellCheck={false}
-              />
-              <button
-                type="button"
-                className="secondary-button models-custom-thinking-add"
-                disabled={!normalizedDraft}
-                onClick={() => addCustomLevel()}
-              >
-                <Plus size={12} />
-                <span>添加</span>
-              </button>
-            </form>
           </div>
         </div>
       </div>
@@ -956,12 +899,14 @@ function ModelCombobox({
 
 function PresetAccordionBody({
   preset,
+  form,
   busy,
   hasHost,
   onActivate,
   onOpenAdvanced,
 }: {
   preset: BuiltinProviderPreset;
+  form: AppSettings;
   busy: boolean;
   hasHost: boolean;
   onActivate: (apiKey: string, baseUrl: string, selectedIds: ReadonlySet<string>) => void;
@@ -1069,7 +1014,10 @@ function PresetAccordionBody({
       <div className="models-mini-list">
         {preset.models.map((model) => {
           const checked = selectedIds.has(model.id);
-          const badges = modelTraitBadges(model.reasoning, model.thinkingLevel, model.input, model.contextWindow);
+          const resolvedLevel = model.reasoning
+            ? preferredThinkingLevelForModel(model, form, preset.id, inferModelThinkingLevels(model.id, model.reasoning))
+            : "off";
+          const badges = modelTraitBadges(model.reasoning, resolvedLevel, model.input, model.contextWindow);
           return (
             <label key={model.id} className={`models-mini-row is-checkable ${checked ? "" : "is-muted"}`}>
               <span className="models-mini-name">
@@ -1098,6 +1046,7 @@ function ProviderAccordionBody({
   provider,
   custom,
   config,
+  form,
   connecting,
   check,
   hidden,
@@ -1105,12 +1054,15 @@ function ProviderAccordionBody({
   onDisconnect,
   onCheck,
   onVisibility,
+  onModelThinkingChange,
+  onModelCustomLevelsChange,
   onEdit,
   onDelete,
 }: {
   provider: ProviderSummary;
   custom: boolean;
   config: ModelProviderConfig | undefined;
+  form: AppSettings;
   connecting: boolean;
   check: CheckState | null;
   hidden: ReadonlySet<string>;
@@ -1118,6 +1070,8 @@ function ProviderAccordionBody({
   onDisconnect: () => void;
   onCheck: () => void;
   onVisibility: (modelIds: readonly string[], visible: boolean) => void;
+  onModelThinkingChange: (modelId: string, level: string) => void;
+  onModelCustomLevelsChange: (modelId: string, levels: readonly string[], nextSelected?: string) => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -1204,7 +1158,8 @@ function ProviderAccordionBody({
         <div className="models-mini-list">
           {provider.models.map((model) => {
             const visible = !hidden.has(modelKey(provider.id, model.id));
-            const badges = modelTraitBadges(model.reasoning, model.thinkingLevel, model.input, model.contextWindow);
+            const ctxBadge = formatTokenCount(model.contextWindow ?? null);
+            const hasVision = model.input.includes("image");
             return (
               <div key={model.id} className={`models-mini-row ${visible ? "" : "is-muted"}`}>
                 <span className="models-mini-name">
@@ -1212,11 +1167,25 @@ function ProviderAccordionBody({
                   {model.name !== model.id && <code>{model.id}</code>}
                 </span>
                 <span className="models-mini-right">
-                  {badges.length > 0 && (
+                  {(ctxBadge || model.reasoning || hasVision) && (
                     <span className="models-capability-badges">
-                      {badges.map((badge) => (
-                        <span key={badge.key} className={`models-cap-pill is-${badge.tone}`}>{badge.label}</span>
-                      ))}
+                      {ctxBadge && (
+                        <span className="models-cap-pill is-ctx">上下文 {ctxBadge}</span>
+                      )}
+                      {model.reasoning && (
+                        <ModelThinkingBadgeControl
+                          providerId={provider.id}
+                          model={model}
+                          form={form}
+                          onSelectLevel={(level) => onModelThinkingChange(model.id, level)}
+                          onUpdateCustomLevels={(levels, nextSelected) =>
+                            onModelCustomLevelsChange(model.id, levels, nextSelected)
+                          }
+                        />
+                      )}
+                      {hasVision && (
+                        <span className="models-cap-pill is-vision">支持图片</span>
+                      )}
                     </span>
                   )}
                   <Toggle
@@ -1231,6 +1200,246 @@ function ProviderAccordionBody({
         </div>
       )}
     </div>
+  );
+}
+
+function ModelThinkingBadgeControl({
+  providerId,
+  model,
+  form,
+  onSelectLevel,
+  onUpdateCustomLevels,
+}: {
+  providerId: string;
+  model: ProviderModelSummary;
+  form: AppSettings;
+  onSelectLevel: (level: string) => void;
+  onUpdateCustomLevels: (levels: readonly string[], nextSelected?: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [customDraft, setCustomDraft] = useState("");
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  const inferred = useMemo(
+    () => inferModelThinkingLevels(model.id, model.reasoning),
+    [model.id, model.reasoning],
+  );
+  const customLevels = useMemo(
+    () => customThinkingLevelsForModel(form, providerId, model.id),
+    [form, model.id, providerId],
+  );
+  const baseLevels = useMemo(
+    () =>
+      resolveThinkingLevels(
+        inferred,
+        {
+          id: model.id,
+          name: model.name,
+          provider: providerId,
+          reasoning: model.reasoning,
+          ...(model.thinkingLevels && model.thinkingLevels.length > 0
+            ? { thinkingLevels: model.thinkingLevels }
+            : {}),
+        },
+        null,
+      ),
+    [inferred, model.id, model.name, model.reasoning, model.thinkingLevels, providerId],
+  );
+  const levels = useMemo(
+    () => mergeThinkingLevels(baseLevels, customLevels),
+    [baseLevels, customLevels],
+  );
+  const baseSet = useMemo(() => new Set(baseLevels), [baseLevels]);
+
+  const currentLevel = preferredThinkingLevelForModel(model, form, providerId, inferred);
+  const shortLabel = ALL_THINKING_LABELS[currentLevel] ?? thinkingLabel(currentLevel);
+  const normalizedDraft = normalizeThinkingLevelId(customDraft);
+
+  const updatePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const hostRoot = document.getElementById("root");
+    const viewW = hostRoot?.clientWidth || window.innerWidth;
+    const viewH = hostRoot?.clientHeight || window.innerHeight;
+    const rect = trigger.getBoundingClientRect();
+    const popWidth = popoverRef.current?.offsetWidth || 236;
+    const popHeight = popoverRef.current?.offsetHeight || 260;
+    const left = Math.min(
+      Math.max(12, rect.right - popWidth),
+      Math.max(12, viewW - popWidth - 12),
+    );
+    const spaceBelow = viewH - rect.bottom - 12;
+    const top = spaceBelow >= popHeight || rect.top < popHeight
+      ? rect.bottom + 6
+      : Math.max(12, rect.top - popHeight - 6);
+    setCoords({ top, left });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updatePosition();
+  }, [levels.length, open, updatePosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && (triggerRef.current?.contains(target) || popoverRef.current?.contains(target))) {
+        return;
+      }
+      setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        event.preventDefault();
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    const onScroll = (event: Event) => {
+      if (popoverRef.current?.contains(event.target as Node | null)) return;
+      updatePosition();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open, updatePosition]);
+
+  const handleAddCustom = (event: FormEvent) => {
+    event.preventDefault();
+    if (!normalizedDraft) return;
+    if (normalizedDraft === "off") {
+      onSelectLevel("off");
+      setCustomDraft("");
+      setOpen(false);
+      return;
+    }
+    const nextCustom = customLevels.includes(normalizedDraft)
+      ? customLevels
+      : [...customLevels, normalizedDraft];
+    onUpdateCustomLevels(nextCustom, normalizedDraft);
+    setCustomDraft("");
+    setOpen(false);
+  };
+
+  const handleRemoveCustom = (target: string) => {
+    const nextCustom = customLevels.filter((item) => item !== target);
+    if (currentLevel === target) {
+      const remaining = levels.filter((item) => item !== target);
+      const fallback = remaining.includes("medium")
+        ? "medium"
+        : (remaining.find((item) => item !== "off") ?? "off");
+      onUpdateCustomLevels(nextCustom, fallback);
+    } else {
+      onUpdateCustomLevels(nextCustom);
+    }
+  };
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`models-cap-pill models-think-trigger ${currentLevel === "off" ? "is-think-off" : "is-think"} ${open ? "is-open" : ""}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`${model.name} 思考等级：${thinkingLabel(currentLevel)}`}
+        title={`点击配置 ${model.name} 的思考等级`}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span>思考·{shortLabel}</span>
+        <ChevronDown size={11} strokeWidth={2} />
+      </button>
+
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="models-think-popover"
+            role="dialog"
+            aria-label={`${model.name} 思考等级设置`}
+            data-escape-layer
+            style={{
+              top: coords?.top ?? -9999,
+              left: coords?.left ?? -9999,
+              visibility: coords ? "visible" : "hidden",
+            }}
+          >
+            <div className="models-think-popover-head">
+              <strong>{model.name}</strong>
+              <small>模型思考等级</small>
+            </div>
+
+            <div className="models-think-popover-list" role="radiogroup" aria-label={`${model.name} 思考等级`}>
+              {levels.map((lvl) => {
+                const active = lvl === currentLevel;
+                const removable = !baseSet.has(lvl) && customLevels.includes(lvl);
+                const label = thinkingLabel(lvl);
+                return (
+                  <div
+                    key={lvl}
+                    className={`models-think-option-row ${active ? "is-active" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className="models-think-option-btn"
+                      onClick={() => {
+                        onSelectLevel(lvl);
+                        setOpen(false);
+                      }}
+                    >
+                      <span className="models-think-option-label">
+                        <span>{label}</span>
+                        {label !== lvl && <code>{lvl}</code>}
+                      </span>
+                      {active && <Check size={13} strokeWidth={2.2} />}
+                    </button>
+                    {removable && (
+                      <button
+                        type="button"
+                        className="models-think-option-remove"
+                        aria-label={`移除 ${model.name} 自定义思考等级 ${lvl}`}
+                        title={`移除自定义档位 ${lvl}`}
+                        onClick={() => handleRemoveCustom(lvl)}
+                      >
+                        <X size={11} strokeWidth={2} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <form className="models-think-popover-custom" onSubmit={handleAddCustom}>
+              <input
+                value={customDraft}
+                onChange={(event) => setCustomDraft(event.target.value)}
+                placeholder="新增档位，如 auto / 16384"
+                aria-label={`${model.name} 新增自定义思考等级`}
+                spellCheck={false}
+              />
+              <button type="submit" disabled={!normalizedDraft}>
+                <Plus size={12} strokeWidth={2} />
+                <span>添加</span>
+              </button>
+            </form>
+          </div>,
+          document.getElementById("root") ?? document.body,
+        )}
+    </>
   );
 }
 
@@ -1304,7 +1513,7 @@ function emptyDraft(): ModelProviderInput {
   };
 }
 
-function draftFromConfig(config: ModelProviderConfig): ModelProviderInput {
+function draftFromConfig(config: ModelProviderConfig, form?: AppSettings): ModelProviderInput {
   return {
     originalId: config.id,
     id: config.id,
@@ -1314,7 +1523,23 @@ function draftFromConfig(config: ModelProviderConfig): ModelProviderInput {
     apiKey: "",
     keepExistingApiKey: config.hasApiKey,
     authHeader: config.authHeader,
-    models: config.models.map((model) => ({ ...model, input: [...model.input] })),
+    models: config.models.map((model) => {
+      const resolvedThinking = model.reasoning && form
+        ? preferredThinkingLevelForModel(model, form, config.id, inferModelThinkingLevels(model.id, true))
+        : model.thinkingLevel;
+      const extraCustom = model.reasoning && form
+        ? customThinkingLevelsForModel(form, config.id, model.id)
+        : [];
+      const mergedLevels = model.thinkingLevels && model.thinkingLevels.length > 0
+        ? mergeThinkingLevels(model.thinkingLevels, extraCustom)
+        : model.thinkingLevels;
+      return {
+        ...model,
+        ...(resolvedThinking ? { thinkingLevel: resolvedThinking } : {}),
+        ...(mergedLevels ? { thinkingLevels: mergedLevels } : {}),
+        input: [...model.input],
+      };
+    }),
   };
 }
 
@@ -1900,7 +2125,7 @@ function CustomProviderEditor({
               <span>{error}</span>
             </span>
           ) : (
-            <span className="models-hint">配置将持久化保存至 ~/.pid/providers.json</span>
+            <span className="models-hint">配置将持久化保存至 ~/.qianji/providers.json</span>
           )}
           <button type="button" className="secondary-button" onClick={onClose} disabled={busy}>
             取消

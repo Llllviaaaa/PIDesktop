@@ -1,11 +1,11 @@
 # Appearance extensions
 
-PIDesktop loads theme files and desktop pet manifests from both user and project scopes:
+Qianji loads theme files and desktop pet manifests from both user and project scopes:
 
-- User themes: `~/.pid/themes/*.json`
-- Project themes: `<workspace>/.pid/themes/*.json`
-- User pets: `~/.pid/pets/<pet>/pet.json`
-- Project pets: `<workspace>/.pid/pets/<pet>/pet.json`
+- User themes: `~/.qianji/themes/*.json`
+- Project themes: `<workspace>/.qianji/themes/*.json`
+- User pets: `~/.qianji/pets/<pet>/pet.json`
+- Project pets: `<workspace>/.qianji/pets/<pet>/pet.json`
 
 The same locations are available from **Settings > Appearance > Appearance extensions**. Choose the user or project scope, then import an extension, open its directory, or rescan after editing files. Imported definitions become available in the theme and pet pickers immediately.
 
@@ -23,7 +23,7 @@ A pet directory contains a `pet.json` manifest and a local image. PNG, WebP, GIF
 }
 ```
 
-The saved pet ID is `pet:<id>`. The asset path must stay inside the pet directory. Animated GIF or WebP files retain their animation; PIDesktop also applies the standard working-state motion.
+The saved pet ID is `pet:<id>`. The asset path must stay inside the pet directory. Animated GIF or WebP files retain their animation; Qianji also applies the standard working-state motion.
 
 ## Interactive spritesheet pets
 
@@ -55,6 +55,6 @@ For state-aware interaction, a pet can use the 8-by-9 spritesheet contract inste
 
 Rows map to these states in order: `idle`, `running-right`, `running-left`, `waving`, `jumping`, `failed`, `waiting`, `running`, and `review`. Their default frame counts are 6, 8, 8, 4, 5, 8, 6, 6, and 6. Unused cells must be transparent.
 
-PIDesktop selects states from task activity and direct interaction: dragging or arrow keys use directional movement, a click waves, a double click jumps, approval prompts wait, active tasks work, failures react, and the review workspace reviews. State rows can override `row`, `frames`, `frameDurationMs`, and `loop` under `spritesheet.states` when a compatible custom layout is needed.
+Qianji selects states from task activity and direct interaction: dragging or arrow keys use directional movement, a click waves, a double click jumps, approval prompts wait, active tasks work, failures react, and the review workspace reviews. State rows can override `row`, `frames`, `frameDurationMs`, and `loop` under `spritesheet.states` when a compatible custom layout is needed.
 
 Right-clicking the pet opens its action menu. Touch users can long-press instead. The optional `behavior` block controls autonomous idle animation timing and state-aware speech. Set `idleAnimations` to an empty array to disable autonomous actions for a pet. It accepts `waving` and `jumping`; delays range from 5 seconds to 5 minutes, and each state supports up to eight messages of 80 characters each.

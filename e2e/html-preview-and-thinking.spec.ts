@@ -69,9 +69,9 @@ test("clicking generated .html in chat opens dynamic interactive HTML preview wi
 
   // 2. Add a reasoning model (`gpt-5.4`) via Settings -> 模型, then verify expanded & custom thinking levels in Composer!
   await app.getByRole("button", { name: "设置" }).click();
-  const settingsDialog = app.getByRole("dialog", { name: "设置" });
-  await settingsDialog.locator(".settings-nav-scroll").getByRole("button", { name: "模型" }).click();
-  await settingsDialog.getByRole("button", { name: "添加自定义提供商" }).click();
+  const settingsView = app.getByRole("region", { name: "设置" });
+  await settingsView.locator(".settings-nav-scroll").getByRole("button", { name: "模型" }).click();
+  await settingsView.getByRole("button", { name: "添加自定义提供商" }).click();
 
   const editor = app.getByRole("dialog", { name: "添加自定义提供商" });
   await editor.getByPlaceholder("例如 公司网关 或 本地 Ollama").fill("xAI Gateway");
@@ -79,12 +79,29 @@ test("clicking generated .html in chat opens dynamic interactive HTML preview wi
   await editor.getByLabel("API 密钥").fill("$PATH");
   await editor.getByPlaceholder("手动输入模型 ID，回车添加").fill("gpt-5.4");
   await editor.getByPlaceholder("手动输入模型 ID，回车添加").press("Enter");
+  await editor.getByPlaceholder("手动输入模型 ID，回车添加").fill("o4-mini");
+  await editor.getByPlaceholder("手动输入模型 ID，回车添加").press("Enter");
   await editor.getByRole("button", { name: "添加", exact: true }).click();
   await expect(editor).toHaveCount(0);
 
-  // Close settings modal
-  await settingsDialog.getByRole("button", { name: "返回应用" }).click();
-  await expect(settingsDialog).toHaveCount(0);
+  // Global thinking controls should no longer exist in 默认偏好; instead each reasoning model row has its own trigger.
+  await expect(settingsView.getByText("默认推理强度")).toHaveCount(0);
+  const gpt54ThinkBtn = settingsView.getByRole("button", { name: /gpt-5\.4 思考等级/ });
+  const o4MiniThinkBtn = settingsView.getByRole("button", { name: /o4-mini 思考等级/ });
+  await expect(gpt54ThinkBtn).toHaveText(/思考·中/);
+  await expect(o4MiniThinkBtn).toHaveText(/思考·高/);
+
+  // Set o4-mini's thinking level to 低 right from the model row popover ( notice o4-mini does NOT offer 极高)
+  await o4MiniThinkBtn.click();
+  const o4Popover = app.getByRole("dialog", { name: "o4-mini 思考等级设置" });
+  await expect(o4Popover.getByRole("radio", { name: /极高/ })).toHaveCount(0);
+  await o4Popover.getByRole("radio", { name: /^低/ }).click();
+  await expect(o4MiniThinkBtn).toHaveText(/思考·低/);
+  await expect(gpt54ThinkBtn).toHaveText(/思考·中/);
+
+  // Return from settings page
+  await settingsView.getByRole("button", { name: "返回应用" }).click();
+  await expect(settingsView).toHaveCount(0);
 
   // Open Composer's ModelPicker and select `gpt-5.4`
   const modelCombo = app.locator(".composer-card .model-combo");
@@ -105,4 +122,14 @@ test("clicking generated .html in chat opens dynamic interactive HTML preview wi
   await levelsMenu.getByRole("button", { name: "添加", exact: true }).click();
 
   await expect(modelCombo.locator(".model-combo-level")).toHaveText("ultra");
+
+  // Switch to `o4-mini`: it restores its own `低` level and does NOT inherit `gpt-5.4`'s `ultra` custom tier!
+  await modelCombo.click();
+  await app.getByRole("dialog", { name: "选择模型和思考等级" }).getByRole("menuitemradio", { name: /o4-mini/i }).click();
+  await expect(modelCombo).toContainText("o4-mini");
+  await expect(modelCombo.locator(".model-combo-level")).toHaveText("低");
+
+  await modelCombo.click();
+  await app.locator(".model-picker-thinking-row").click();
+  await expect(app.getByRole("menu", { name: "思考等级" }).getByRole("menuitemradio", { name: /ultra/i })).toHaveCount(0);
 });

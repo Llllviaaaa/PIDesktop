@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   Archive,
@@ -33,7 +34,7 @@ import {
   X,
 } from "lucide-react";
 import type { SettingsPage } from "./SettingsModal";
-import { PI_BRAND_MARK_SVG } from "../lib/claudeCrabSheets";
+import { QIANJI_BRAND_MARK_SVG } from "../lib/claudeCrabSheets";
 import { agent } from "../lib/agent";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queries";
@@ -42,6 +43,7 @@ import type { AppNotification, ProjectConfig, SessionInfo } from "../types";
 import { sessionTitle } from "../lib/sessionTitle";
 import {
   reconcileSidebarOrder,
+  reorderSidebarWorkspaces,
   sortSidebarProjectGroups,
   sortSidebarSessions,
   type SidebarOrder,
@@ -97,16 +99,21 @@ interface PositionedThreadPreview {
   top: number;
 }
 
-const PINNED_SESSIONS_KEY = "pid-desktop:pinned-sessions";
+interface ProjectDropTarget {
+  workspace: string;
+  position: "before" | "after";
+}
+
+const PINNED_SESSIONS_KEY = "qianji:pinned-sessions";
 const NO_PROJECTS: ProjectConfig[] = [];
 
 function sameOrder(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((file, index) => file === right[index]);
 }
 
-const COLLAPSED_PROJECTS_KEY = "pid-desktop:collapsed-projects";
-const SIDEBAR_SESSION_ORDER_KEY = "pid-desktop:sidebar-session-order";
-const SIDEBAR_PROJECT_ORDER_KEY = "pid-desktop:sidebar-project-order";
+const COLLAPSED_PROJECTS_KEY = "qianji:collapsed-projects";
+const SIDEBAR_SESSION_ORDER_KEY = "qianji:sidebar-session-order";
+const SIDEBAR_PROJECT_ORDER_KEY = "qianji:sidebar-project-order";
 
 function readStringList(key: string): string[] {
   try {
@@ -173,7 +180,7 @@ const VISIBLE_RECENT_THREADS = 15;
 
 type SidebarGroupMode = "project" | "recent";
 
-const GROUP_MODE_KEY = "pid-desktop:sidebar-group-mode";
+const GROUP_MODE_KEY = "qianji:sidebar-group-mode";
 
 function readGroupMode(): SidebarGroupMode {
   try {
@@ -294,9 +301,23 @@ export function Sidebar({
   );
   // The session whose project was last auto-expanded; see the sync further down.
   const [expandedForSession, setExpandedForSession] = useState<string | null>(null);
+  const [draggingWorkspace, setDraggingWorkspace] = useState<string | null>(null);
+  const [projectDropTarget, setProjectDropTarget] = useState<ProjectDropTarget | null>(null);
+  const suppressProjectClickRef = useRef(false);
+  const projectDragCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => {
+    projectDragCleanupRef.current?.();
+  }, []);
+
+  const visibleProjectPaths = useMemo(
+    () => projectConfigs
+      .filter((config) => !config.hidden && Boolean(config.path.trim()))
+      .map((config) => config.path),
+    [projectConfigs],
+  );
   const sidebarOrder = useMemo(
-    () => reconcileSidebarOrder(persistedOrder, sessions),
-    [persistedOrder, sessions],
+    () => reconcileSidebarOrder(persistedOrder, sessions, visibleProjectPaths),
+    [persistedOrder, sessions, visibleProjectPaths],
   );
   const stableSessionOrder = sidebarOrder.sessions;
 
@@ -333,6 +354,14 @@ export function Sidebar({
     const normalizedQuery = query.trim().toLowerCase();
     const result = new Map<string, SessionInfo[]>();
     const seenFiles = new Set<string>();
+    const canonicalKey = (rawWorkspace: string): string => {
+      if (!rawWorkspace) return "未知项目";
+      for (const existing of result.keys()) {
+        if (pathsEqual(existing, rawWorkspace)) return existing;
+      }
+      const configured = projectConfigs.find((project) => pathsEqual(project.path, rawWorkspace));
+      return configured?.path.trim() || rawWorkspace;
+    };
     for (const session of sessions) {
       seenFiles.add(session.file);
       const config = projectConfigs.find((project) => pathsEqual(project.path, session.cwd));
@@ -341,7 +370,7 @@ export function Sidebar({
       const projectName = config?.name.trim() || repoName(session.cwd);
       const haystack = `${title} ${projectName} ${session.cwd}`.toLowerCase();
       if (normalizedQuery && !haystack.includes(normalizedQuery) && !snippetByFile.has(session.file)) continue;
-      const key = session.cwd || "未知项目";
+      const key = canonicalKey(session.cwd);
       result.set(key, [...(result.get(key) ?? []), session]);
     }
     if (normalizedQuery && workspaceView === "active") {
@@ -349,12 +378,13 @@ export function Sidebar({
         if (seenFiles.has(hit.session.file)) continue;
         const config = projectConfigs.find((project) => pathsEqual(project.path, hit.session.cwd));
         if (config?.hidden) continue;
-        const key = hit.session.cwd || "未知项目";
+        const key = canonicalKey(hit.session.cwd);
         result.set(key, [...(result.get(key) ?? []), hit.session]);
       }
     }
     for (const config of projectConfigs) {
-      if (config.hidden || !config.path.trim() || result.has(config.path)) continue;
+      if (config.hidden || !config.path.trim()) continue;
+      if ([...result.keys()].some((existing) => pathsEqual(existing, config.path))) continue;
       const projectName = config.name.trim() || repoName(config.path);
       const haystack = `${projectName} ${config.path}`.toLowerCase();
       if (normalizedQuery && !haystack.includes(normalizedQuery)) continue;
@@ -479,6 +509,114 @@ export function Sidebar({
     }
   };
 
+  const startProjectDrag = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    workspace: string,
+    pinned: boolean,
+  ) => {
+    if (event.button !== 0 || Boolean(trimmedQuery) || groups.length < 2) return;
+    if ((event.target as Element | null)?.closest(".project-actions, .project-collapse-toggle, .project-rename-editor")) return;
+    projectDragCleanupRef.current?.();
+    const startY = event.clientY;
+    const baselineGroupOrder = groups
+      .filter(([candidate]) => projectConfig(candidate).pinned === pinned)
+      .map(([candidate]) => candidate);
+    if (baselineGroupOrder.length < 2) return;
+
+    let started = false;
+    let latestDrop: ProjectDropTarget | null = null;
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+      window.removeEventListener("keydown", onKeyDown, true);
+      if (projectDragCleanupRef.current === cleanup) projectDragCleanupRef.current = null;
+      setDraggingWorkspace(null);
+      setProjectDropTarget(null);
+    };
+
+    const computeDropTarget = (clientY: number): ProjectDropTarget | null => {
+      const container = sidebarRef.current;
+      if (!container) return null;
+      const blocks = Array.from(container.querySelectorAll<HTMLElement>(".project-block[data-workspace]"))
+        .filter((block) => (block.dataset.pinned === "true") === pinned && Boolean(block.dataset.workspace));
+      if (blocks.length < 2) return null;
+
+      let candidate: ProjectDropTarget | null = null;
+      for (const block of blocks) {
+        const rect = block.getBoundingClientRect();
+        const blockWorkspace = block.dataset.workspace ?? "";
+        if (clientY <= rect.top + rect.height / 2) {
+          candidate = { workspace: blockWorkspace, position: "before" };
+          break;
+        }
+      }
+      if (!candidate) {
+        const lastWorkspace = blocks[blocks.length - 1]?.dataset.workspace ?? "";
+        candidate = lastWorkspace ? { workspace: lastWorkspace, position: "after" } : null;
+      }
+      if (!candidate || pathsEqual(candidate.workspace, workspace)) return null;
+      const reordered = reorderSidebarWorkspaces(baselineGroupOrder, workspace, candidate.workspace, candidate.position);
+      const baselineNormalized = reorderSidebarWorkspaces(baselineGroupOrder, workspace, workspace, "before");
+      return sameOrder(reordered, baselineNormalized) ? null : candidate;
+    };
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      if (!started) {
+        if (Math.abs(moveEvent.clientY - startY) < 5) return;
+        started = true;
+        suppressProjectClickRef.current = true;
+        setDraggingWorkspace(workspace);
+        setNotificationsOpen(false);
+        setSearchOpen(false);
+        setProjectMenu(null);
+        setThreadPreview(null);
+        setFilterMenuOpen(false);
+      }
+      moveEvent.preventDefault();
+      const nextDrop = computeDropTarget(moveEvent.clientY);
+      latestDrop = nextDrop;
+      setProjectDropTarget((current) => (
+        current?.workspace === nextDrop?.workspace && current?.position === nextDrop?.position
+          ? current
+          : nextDrop
+      ));
+    };
+
+    const finishDrag = (commit: boolean) => {
+      const shouldCommit = commit && started && latestDrop !== null;
+      const drop = latestDrop;
+      cleanup();
+      if (started) {
+        window.setTimeout(() => {
+          suppressProjectClickRef.current = false;
+        }, 0);
+      }
+      if (shouldCommit && drop) {
+        const allWorkspaces = [...sidebarOrder.workspaces, ...groups.map(([item]) => item)];
+        const nextWorkspaces = reorderSidebarWorkspaces(allWorkspaces, workspace, drop.workspace, drop.position);
+        setPersistedOrder((current) => ({ ...current, workspaces: nextWorkspaces }));
+      }
+    };
+
+    const onPointerUp = () => finishDrag(true);
+    const onPointerCancel = () => finishDrag(false);
+    const onKeyDown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === "Escape" && started) {
+        keyEvent.preventDefault();
+        keyEvent.stopPropagation();
+        finishDrag(false);
+      }
+    };
+
+    projectDragCleanupRef.current = cleanup;
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+    window.addEventListener("keydown", onKeyDown, true);
+  };
+
   useEffect(() => {
     const hasOpenPopover = notificationsOpen || searchOpen || projectMenu || editingProject || filterMenuOpen;
     if (!hasOpenPopover) return;
@@ -519,8 +657,8 @@ export function Sidebar({
 
   useEffect(() => {
     const reload = () => void loadProjectConfigs();
-    window.addEventListener("pid-desktop:projects-changed", reload);
-    return () => window.removeEventListener("pid-desktop:projects-changed", reload);
+    window.addEventListener("qianji:projects-changed", reload);
+    return () => window.removeEventListener("qianji:projects-changed", reload);
   }, [loadProjectConfigs]);
 
   useSyncOnChange([currentSessionFile, sessions], () => {
@@ -609,7 +747,7 @@ export function Sidebar({
 
   return (
     <aside
-      className={`sidebar codex-sidebar${hoverPreview ? " sidebar-hover-preview" : ""}`}
+      className={`sidebar codex-sidebar${hoverPreview ? " sidebar-hover-preview" : ""}${draggingWorkspace ? " is-reordering-projects" : ""}`}
       data-slot="sidebar"
       data-sidebar-mode={hoverPreview ? "preview" : "pinned"}
       onMouseEnter={onHoverEnter}
@@ -623,14 +761,14 @@ export function Sidebar({
           onClick={() => {
             onNewSession();
           }}
-          title="Pi Desktop"
+          title="千机"
         >
           <span
             className="dsh-claude-brand-mark"
-            style={{ backgroundImage: `url("${PI_BRAND_MARK_SVG}")` }}
+            style={{ backgroundImage: `url("${QIANJI_BRAND_MARK_SVG}")` }}
             aria-hidden="true"
           />
-          <span className="codex-brand-name">Pi Desktop</span>
+          <span className="codex-brand-name">千机</span>
         </button>
 
         <div className="sidebar-brand-actions">
@@ -852,7 +990,7 @@ export function Sidebar({
                         void agent.restoreSession(session.file).then(() => {
                           void archivedSessionsQuery.refetch();
                           onSessionRestored();
-                          window.dispatchEvent(new Event("pid-desktop:projects-changed"));
+                          window.dispatchEvent(new Event("qianji:projects-changed"));
                         });
                       }}
                     >
@@ -906,9 +1044,22 @@ export function Sidebar({
             : chats.some((session) => runningSessionFiles.some((file) => sameLocalPath(file, session.file)))
               ? "running"
               : null;
+          const isDragging = draggingWorkspace !== null && pathsEqual(draggingWorkspace, workspace);
+          const dropPosition = projectDropTarget && pathsEqual(projectDropTarget.workspace, workspace)
+            ? projectDropTarget.position
+            : undefined;
           return (
-            <section className={`project-block ${cwd && pathsEqual(workspace, cwd) ? "is-current" : ""}`} key={workspace}>
-              <div className="project-header-row">
+            <section
+              className={`project-block${cwd && pathsEqual(workspace, cwd) ? " is-current" : ""}${isDragging ? " is-dragging" : ""}`}
+              data-workspace={workspace}
+              data-pinned={projectPinned ? "true" : "false"}
+              data-drop-position={dropPosition}
+              key={workspace}
+            >
+              <div
+                className="project-header-row"
+                onPointerDown={(event) => startProjectDrag(event, workspace, projectPinned)}
+              >
                 {isEditing ? (
                   <form className="project-rename-editor" onSubmit={(event) => { event.preventDefault(); finishProjectRename(); }}>
                     <input
@@ -929,7 +1080,13 @@ export function Sidebar({
                       type="button"
                       className="project-header"
                       title={workspace}
-                      onClick={() => {
+                      onClick={(event) => {
+                        if (suppressProjectClickRef.current) {
+                          suppressProjectClickRef.current = false;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          return;
+                        }
                         closePopovers();
                         setProjectCollapsed(workspace, false);
                         onOpenProject(workspace);

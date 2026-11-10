@@ -2,12 +2,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Commands } from "@pid/commands";
-import * as memory from "@pid/memory";
-import { ErrorCode } from "@pid/protocol";
-import * as promptContext from "@pid/prompt-context";
-import { SystemPrompt } from "@pid/system-prompt";
-import { Tools } from "@pid/tools";
+import { Commands } from "@qianji/commands";
+import * as memory from "@qianji/memory";
+import { ErrorCode } from "@qianji/protocol";
+import * as promptContext from "@qianji/prompt-context";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { Tools } from "@qianji/tools";
 import { RpcGateway, WebServer, createHost, type Host } from "../src/index.ts";
 
 let host: Host | undefined;
@@ -58,10 +58,10 @@ describe("memory & skills RPC", () => {
 
     expect((await call<{ content: string }>(host, "memory.get", { scope: "user" })).content).toContain("Prefer concise output");
     expect((await call<{ content: string }>(host, "memory.get", { scope: "project", cwd: workspace })).content).toContain("Use vitest");
-    expect(readFileSync(join(workspace, ".pid", "memory.md"), "utf8")).toContain("Use vitest");
+    expect(readFileSync(join(workspace, ".qianji", "memory.md"), "utf8")).toContain("Use vitest");
 
     await call(host, "memory.delete", { scope: "project", cwd: workspace });
-    expect(existsSync(join(workspace, ".pid", "memory.md"))).toBe(false);
+    expect(existsSync(join(workspace, ".qianji", "memory.md"))).toBe(false);
 
     // 2. Skill create / read / save / toggle / delete + slash command sync
     const created = await call<{ skill: { name: string; path: string; enabled: boolean } }>(host, "skill.create", {

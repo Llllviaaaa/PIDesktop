@@ -1,5 +1,5 @@
 {
-  "name": "@pid/agent-loop",
+  "name": "@qianji/agent-loop",
   "version": "0.0.0",
   "private": true,
   "description": "The agent loop: the only package that drives model calls and tools (ADR 0003, 0008)",
@@ -9,13 +9,13 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/agent": "*",
-    "@pid/llm": "*",
-    "@pid/session": "*",
-    "@pid/system-prompt": "*",
-    "@pid/tools": "*"
+    "@qianji/agent": "*",
+    "@qianji/llm": "*",
+    "@qianji/session": "*",
+    "@qianji/system-prompt": "*",
+    "@qianji/tools": "*"
   },
   "devDependencies": {
-    "@pid/testkit": "*"
+    "@qianji/testkit": "*"
   }
 }

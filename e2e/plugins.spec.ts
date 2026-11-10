@@ -134,7 +134,7 @@ test("install a local full-stack plugin, hot-reload its TSX UI, configure it, an
 });
 
 test("gate untrusted workspace plugins behind the trust banner until approved", async ({ page, harness }) => {
-  const wsPluginDir = join(harness.workspace, ".pid", "plugins", "repo-local-ui");
+  const wsPluginDir = join(harness.workspace, ".qianji", "plugins", "repo-local-ui");
   mkdirSync(wsPluginDir, { recursive: true });
   writeFileSync(
     join(wsPluginDir, "package.json"),
@@ -142,7 +142,7 @@ test("gate untrusted workspace plugins behind the trust banner until approved", 
       {
         name: "repo-local-ui",
         version: "0.1.0",
-        pid: {
+        qianji: {
           name: "仓库内置工作台插件",
           client: "./client.tsx",
         },

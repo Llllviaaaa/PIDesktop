@@ -12,10 +12,10 @@ import { build } from "esbuild";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const hostDir = join(repoRoot, "packages", "host");
-const bundleDir = join(repoRoot, "node_modules", ".cache", "pidesktop-harness-host");
+const bundleDir = join(repoRoot, "node_modules", ".cache", "qianji-harness-host");
 const bundleFile = join(bundleDir, "host.mjs");
 const outputDir = join(repoRoot, "src-tauri", "resources", "harness");
-const executable = join(outputDir, "pid-harness.exe");
+const executable = join(outputDir, "qianji-harness.exe");
 const manifestFile = join(outputDir, "build-manifest.json");
 const bunExecutable = join(repoRoot, "node_modules", "bun", "bin", "bun.exe");
 const bundleOnly = process.argv.includes("--bundle-only");
@@ -29,11 +29,11 @@ await build({
   format: "esm",
   target: "node22",
   tsconfig: join(hostDir, "tsconfig.build.json"),
-  define: { PID_HOST_VERSION: JSON.stringify(appVersion) },
+  define: { QIANJI_HOST_VERSION: JSON.stringify(appVersion) },
   // ws loads these optional accelerators inside try/catch.
   external: ["bufferutil", "utf-8-validate"],
   // CommonJS dependencies bundled into ESM still call require() for Node built-ins.
-  banner: { js: "import { createRequire as __pidCreateRequire } from 'node:module'; const require = __pidCreateRequire(import.meta.url);" },
+  banner: { js: "import { createRequire as __qianjiCreateRequire } from 'node:module'; const require = __qianjiCreateRequire(import.meta.url);" },
   legalComments: "eof",
   logLevel: "warning",
 });
@@ -49,7 +49,7 @@ if (existsSync(bundledPluginsSource)) {
 }
 
 if (process.platform !== "win32" || process.arch !== "x64") {
-  throw new Error(`Pi Desktop currently builds a Windows x64 Harness Host, not ${process.platform}/${process.arch}`);
+  throw new Error(`Qianji currently builds a Windows x64 Harness Host, not ${process.platform}/${process.arch}`);
 }
 if (!existsSync(bunExecutable)) throw new Error(`Bun compiler is missing: ${bunExecutable}`);
 
@@ -65,7 +65,7 @@ if (existsSync(executable) && existsSync(manifestFile)) {
 
 mkdirSync(outputDir, { recursive: true });
 // Bun appends `.exe` to an outfile without it, so the staging name keeps the extension.
-const staging = join(outputDir, "pid-harness.staging.exe");
+const staging = join(outputDir, "qianji-harness.staging.exe");
 rmSync(staging, { force: true });
 const result = spawnSync(bunExecutable, ["build", "--compile", bundleFile, "--outfile", staging], {
   cwd: repoRoot,
@@ -74,6 +74,7 @@ const result = spawnSync(bunExecutable, ["build", "--compile", bundleFile, "--ou
 if (result.error) throw result.error;
 if (result.status !== 0) throw new Error(`bun build --compile exited with ${result.status}`);
 rmSync(executable, { force: true });
+rmSync(join(outputDir, "pid-harness.exe"), { force: true });
 renameSync(staging, executable);
 writeFileSync(manifestFile, `${JSON.stringify({ buildKey, compiler: "bun", compilerVersion: bunVersion }, null, 2)}\n`);
 console.log(`Prepared Harness Host: ${executable}`);

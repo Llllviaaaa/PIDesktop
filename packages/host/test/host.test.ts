@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Context } from "@deepseek-ai/cordis";
-import { PROTOCOL_VERSION } from "@pid/protocol";
+import { PROTOCOL_VERSION } from "@qianji/protocol";
 import { createHost } from "../src/index.ts";
 
 const options = { version: "0.0.0-test", dataDir: "/tmp/pid-test" };

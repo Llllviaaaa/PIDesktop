@@ -1,4 +1,4 @@
-/** Executable entry: what scripts/prepare-harness-host.mjs bundles into pid-harness.exe. */
+/** Executable entry: what scripts/prepare-harness-host.mjs bundles into qianji-harness.exe. */
 import { main } from "./main.ts";
 
 main(process.argv.slice(2)).catch((error: unknown) => {

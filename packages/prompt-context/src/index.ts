@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
-import type { CommandDefinition } from "@pid/commands";
+import type { CommandDefinition } from "@qianji/commands";
 import {
   ErrorCode,
   type MemoryScope,
@@ -14,15 +14,15 @@ import {
   type SkillInfo,
   type SkillListResult,
   type SkillReadResult,
-} from "@pid/protocol";
-import { RpcError } from "@pid/rpc";
-import { SectionOrder, type PromptEnv } from "@pid/system-prompt";
+} from "@qianji/protocol";
+import { RpcError } from "@qianji/rpc";
+import { SectionOrder, type PromptEnv } from "@qianji/system-prompt";
 
-export const name = "pid-prompt-context";
+export const name = "qianji-prompt-context";
 export const inject = ["systemPrompt"];
 
 export interface Config {
-  /** The user's data directory (`~/.pid`): its AGENTS.md and skills/ apply everywhere. */
+  /** The user's data directory (`~/.qianji`): its AGENTS.md and skills/ apply everywhere. */
   dataDir: string;
   /** Override for "today", for tests. */
   now?: () => Date;
@@ -32,7 +32,7 @@ export interface Config {
   instructions?: string;
 }
 
-export const IDENTITY = `You are a coding agent running in Pi Desktop on the user's computer. You help with software tasks by reading and changing files and running commands with the tools you are given.`;
+export const IDENTITY = `You are a coding agent running in Qianji (千机) on the user's computer. You help with software tasks by reading and changing files and running commands with the tools you are given.`;
 
 export const GUIDELINES = `Guidelines:
 - Read the relevant code before changing it; prefer small, focused edits with the edit tool over rewriting files.
@@ -166,6 +166,7 @@ export function discoverSkillEntries(dataDir: string, cwd?: string): ManagedSkil
   ];
   const trimmedCwd = cwd?.trim();
   if (trimmedCwd) {
+    roots.push({ dir: join(trimmedCwd, ".qianji", "skills"), scope: "project" });
     roots.push({ dir: join(trimmedCwd, ".pid", "skills"), scope: "project" });
     roots.push({ dir: join(trimmedCwd, ".agents", "skills"), scope: "project" });
   }
@@ -195,7 +196,7 @@ export function discoverSkillEntries(dataDir: string, cwd?: string): ManagedSkil
 }
 
 export function skillDirs(dataDir: string, cwd: string): string[] {
-  return [join(dataDir, "skills"), join(cwd, ".pid", "skills"), join(cwd, ".agents", "skills")];
+  return [join(dataDir, "skills"), join(cwd, ".pid", "skills"), join(cwd, ".qianji", "skills"), join(cwd, ".agents", "skills")];
 }
 
 type RpcParams = Record<string, unknown>;
@@ -234,6 +235,7 @@ function scopeOf(p: RpcParams): MemoryScope {
 function allowedSkillRoots(dataDir: string, cwd?: string): string[] {
   const roots = [resolve(join(dataDir, "skills"))];
   if (cwd !== undefined) {
+    roots.push(resolve(join(cwd, ".qianji", "skills")));
     roots.push(resolve(join(cwd, ".pid", "skills")));
     roots.push(resolve(join(cwd, ".agents", "skills")));
   }
@@ -411,7 +413,7 @@ export function apply(ctx: Context, config: Config): void {
         }
         const cwd = scope === "project" ? requiredExistingCwd(p) : optionalCwd(p);
         const rootDir = scope === "project" && cwd !== undefined
-          ? join(cwd, ".pid", "skills")
+          ? join(cwd, ".qianji", "skills")
           : join(dataDir, "skills");
         const skillFile = resolve(join(rootDir, slug, "SKILL.md"));
         if (existsSync(skillFile)) {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { Sessions } from "@pid/session";
+import { Sessions } from "@qianji/session";
 import * as checkpoints from "../src/index.ts";
 import { checkpointFor, checkpointsOf, diffCheckpoint, restoreCheckpoint, takeCheckpoint } from "../src/index.ts";
 
@@ -47,8 +47,8 @@ describe("checkpoints", () => {
     expect(readFileSync(join(cwd, "a.txt"), "utf8")).toBe("one\n");
     expect((await diffCheckpoint(found)).changed).toBe(false);
 
-    // The ref lives in the repository, under the namespace the Pi engine uses.
-    expect(execFileSync("git", ["for-each-ref", "refs/pidesktop/checkpoints"], { cwd, encoding: "utf8" })).toContain(found.checkpoint.ref);
+    // The ref lives in the repository under Qianji's checkpoint namespace.
+    expect(execFileSync("git", ["for-each-ref", "refs/qianji/checkpoints"], { cwd, encoding: "utf8" })).toContain(found.checkpoint.ref);
     await ctx.fiber.dispose();
   });
 

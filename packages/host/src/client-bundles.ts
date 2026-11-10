@@ -20,6 +20,8 @@ export const CLIENT_SHARED_EXTERNALS: readonly string[] = [
   "@deepseek-ai/cordis",
   "@deepseek-ai/schemastery",
   "schemastery",
+  "@qianji/client",
+  "@qianji/protocol",
   "@pid/client",
   "@pid/protocol",
   "lucide-react",
@@ -115,7 +117,7 @@ function wrapInModuleLoader(pluginId: string, cjsBody: string, sourceLabel: stri
     cjsBody,
     "return module.exports;",
     "} });",
-    `//# sourceURL=pid-plugin://${encodeURIComponent(pluginId)}/${encodeURIComponent(sourceLabel)}`,
+    `//# sourceURL=qianji-plugin://${encodeURIComponent(pluginId)}/${encodeURIComponent(sourceLabel)}`,
   ].join("\n");
 }
 

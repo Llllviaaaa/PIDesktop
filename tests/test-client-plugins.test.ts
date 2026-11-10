@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
 import * as React from "react";
 import * as jsxRuntime from "react/jsx-runtime";
-import type { PluginClientBundleParams, PluginClientBundleResult, PluginInfo } from "@pid/protocol";
+import type { PluginClientBundleParams, PluginClientBundleResult, PluginInfo } from "@qianji/protocol";
 import {
   createClientPluginRuntime,
   getClientPluginErrors,

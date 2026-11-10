@@ -1,8 +1,8 @@
 /**
- * Unified Client Contribution Registry (`ctx.contributions` / `@pid/client`).
+ * Unified Client Contribution Registry (`ctx.contributions` / `@qianji/client`).
  *
  * Replaces DSH's multi-tree slot bridge with a single reactive contribution
- * registry shared by PI-Desktop's own React tree and dynamic UI/theme plugins.
+ * registry shared by Qianji's own React tree and dynamic UI/theme plugins.
  * All contribution types (`pages`, `leftSidebar`, `rightWorkbenchTabs`,
  * `bottomPanelTabs`, `topbarActions`, `composerToolbar`, `themes`) are
  * equal, flat registrations returning a clean disposer `() => void` for HMR.

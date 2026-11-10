@@ -1,5 +1,5 @@
 {
-  "name": "@pid/prompt-context",
+  "name": "@qianji/prompt-context",
   "version": "0.0.0",
   "private": true,
   "description": "Built-in system prompt sections: identity, guidelines, AGENTS.md/CLAUDE.md, skills, environment",
@@ -9,12 +9,12 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
-    "@pid/commands": "*",
-    "@pid/protocol": "*",
-    "@pid/rpc": "*",
-    "@pid/system-prompt": "*"
+    "@qianji/commands": "*",
+    "@qianji/protocol": "*",
+    "@qianji/rpc": "*",
+    "@qianji/system-prompt": "*"
   },
   "devDependencies": {
-    "@pid/system-prompt": "*"
+    "@qianji/system-prompt": "*"
   }
 }

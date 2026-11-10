@@ -7,7 +7,7 @@ import type {
   McpResourcesResult,
   McpServerStatus,
   McpStatusResult,
-} from "@pid/protocol";
+} from "@qianji/protocol";
 import { harnessRuntimes, isRpcMethodNotFound } from "./harnessRuntime";
 
 export const mcpClient = {

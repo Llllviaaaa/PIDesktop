@@ -8,11 +8,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context } from "@deepseek-ai/cordis";
 import { afterEach, describe, expect, it } from "vitest";
-import { Credentials, LlmService } from "@pid/llm";
-import { Sessions } from "@pid/session";
-import { SystemPrompt } from "@pid/system-prompt";
-import { Tools, textOutput } from "@pid/tools";
-import { Ui } from "@pid/ui";
+import { Credentials, LlmService } from "@qianji/llm";
+import { Sessions } from "@qianji/session";
+import { SystemPrompt } from "@qianji/system-prompt";
+import { Tools, textOutput } from "@qianji/tools";
+import { Ui } from "@qianji/ui";
 import { featureEntries, withMcpSecrets } from "../src/agent-plugins.ts";
 import { applyDesktopMessage, importDesktopTasks, parseControlLine } from "../src/control.ts";
 import { effortFromThinking, harnessFromDesktop, personalInstructions } from "../src/desktop-settings.ts";
@@ -142,8 +142,8 @@ describe("control channel", () => {
     expect(providers.defaultModel).toEqual({ provider: "deepseek", model: "deepseek-reasoner" });
   });
 
-  it("reconciles DesktopMessage toggle flips with plugins.json without clobbering untouched plugin toggles, and overlays trusted .pid/harness.json", () => {
-    dir = mkdtempSync(join(tmpdir(), "pid-control-reconcile-"));
+  it("reconciles DesktopMessage toggle flips with plugins.json without clobbering untouched plugin toggles, and overlays trusted .qianji/harness.json", () => {
+    dir = mkdtempSync(join(tmpdir(), "qianji-control-reconcile-"));
     const dataDir = join(dir, "data");
     const cfgDir = join(dir, "cfg");
 
@@ -168,10 +168,10 @@ describe("control channel", () => {
     expect(readPluginsStore(dataDir).plugins.plan).toEqual({ config: { custom: 1 } });
     expect(readPluginsStore(dataDir).plugins.mcp).toBeUndefined();
 
-    // 5. Workspace `.pid/harness.json` overlays only explicitly provided sections when trustedWorkspace is supplied.
+    // 5. Workspace `.qianji/harness.json` overlays only explicitly provided sections when trustedWorkspace is supplied.
     const workspace = join(dir, "trusted-proj");
-    mkdirSync(join(workspace, ".pid"), { recursive: true });
-    writeFileSync(join(workspace, ".pid", "harness.json"), JSON.stringify({
+    mkdirSync(join(workspace, ".qianji"), { recursive: true });
+    writeFileSync(join(workspace, ".qianji", "harness.json"), JSON.stringify({
       permissions: { defaultPermission: "read-only" },
       plan: { enabled: true },
     }));
@@ -216,7 +216,7 @@ describe("reloadable plugins", () => {
     const run = () => ctx.tools.execute({ id: "1", name: "bash", args: { command: "ls" } }, { sessionId: session.id, cwd: dir, signal: new AbortController().signal });
 
     await reloadable.apply(featureEntries(dir, { ...config, permissions: { defaultPermission: "read-only" } }));
-    expect(await run()).toEqual(textOutput("Denied: Pi Desktop is in read-only mode", true));
+    expect(await run()).toEqual(textOutput("Denied: Qianji is in read-only mode", true));
     const changed = await reloadable.apply(featureEntries(dir, { ...config, permissions: { defaultPermission: "full-access" } }));
     expect(changed).toEqual(["permissions"]);
     expect(await run()).toEqual(textOutput("ran"));

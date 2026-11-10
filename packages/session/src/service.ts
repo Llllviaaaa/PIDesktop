@@ -274,7 +274,7 @@ export class Sessions extends Service {
     };
   }
 
-  /** Register an external search provider (such as `@pid/session-search-fts`). Returns the disposer. */
+  /** Register an external search provider (such as `@qianji/session-search-fts`). Returns the disposer. */
   registerSearcher(searcher: SessionSearcher): () => void {
     this.searchers.push(searcher);
     return () => {

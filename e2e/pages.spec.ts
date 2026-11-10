@@ -40,3 +40,31 @@ test("save a custom provider in minimalist 4-module settings", async ({ app, har
   await expect(editor).toHaveCount(0);
   await expect.poll(() => readFileSync(join(harness.dataDir, "providers.json"), "utf8")).toContain("gateway-model");
 });
+
+test("switch settings between standalone page and centered modal", async ({ app }) => {
+  await app.getByRole("button", { name: "设置" }).click();
+
+  // Defaults to standalone full-window page mode
+  const pageRegion = app.getByRole("region", { name: "设置" });
+  await expect(pageRegion).toHaveAttribute("data-settings-mode", "page");
+  await expect(pageRegion.locator(".settings-back-btn")).toBeVisible();
+
+  // Switch live to centered modal via the header quick-toggle button
+  await pageRegion.getByRole("button", { name: "切换为居中弹窗" }).click();
+  const modalDialog = app.getByRole("dialog", { name: "设置" });
+  await expect(modalDialog).toHaveAttribute("data-settings-mode", "modal");
+  await expect(modalDialog.locator(".settings-close-circle")).toBeVisible();
+
+  // Close and reopen: choice persists in settings
+  await modalDialog.getByRole("button", { name: "返回应用" }).click();
+  await expect(modalDialog).toHaveCount(0);
+  await app.getByRole("button", { name: "设置" }).click();
+  await expect(app.getByRole("dialog", { name: "设置" })).toHaveAttribute("data-settings-mode", "modal");
+
+  // Switch back to standalone page from Appearance -> 设置页面展示方式
+  await app.locator(".settings-nav-scroll").getByRole("button", { name: "外观" }).click();
+  const modeGroup = app.getByRole("radiogroup", { name: "设置页面展示方式" });
+  await expect(modeGroup.getByRole("radio", { name: "居中弹窗" })).toHaveAttribute("aria-checked", "true");
+  await modeGroup.getByRole("radio", { name: "独立页面" }).click();
+  await expect(app.getByRole("region", { name: "设置" })).toHaveAttribute("data-settings-mode", "page");
+});

@@ -134,14 +134,22 @@ export type ExtensionUIRequest =
   | { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
   | { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string };
 
+export type SettingsDisplayMode = "page" | "modal";
+
 export interface AppSettings {
   provider: string;
   model: string;
   thinkingLevel: string;
-  /** User-defined custom thinking/reasoning effort tiers (e.g. `xhigh`, `ultra`, `16384`). */
+  /** Legacy global custom thinking tiers; superseded by `modelCustomThinkingLevels`. */
   customThinkingLevels?: string[];
+  /** Per-model preferred thinking level keyed by `provider/model`. */
+  modelThinkingLevels?: Record<string, string>;
+  /** Per-model user-defined custom thinking levels keyed by `provider/model`. */
+  modelCustomThinkingLevels?: Record<string, string[]>;
   /** `provider/model` keys hidden from the composer model picker. */
   hiddenModels?: string[];
+  /** Whether Settings renders as a standalone full-window page or a centered modal. */
+  settingsDisplayMode?: SettingsDisplayMode;
   agentMode: "agent" | "plan" | "ask";
   permissionMode: "read-only" | "ask" | "workspace-write" | "full-access";
   /** Shell/bash/exec always requires confirmation (unless full-access). */

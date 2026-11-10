@@ -131,5 +131,5 @@ export function nextScheduledRun(task: Pick<ScheduledTask, "frequency" | "hour" 
 
 export function truncateOutput(value: string, limit: number): string {
   const chars = [...value];
-  return chars.length > limit ? `${chars.slice(0, limit).join("")}\n... output truncated by PIDesktop` : value;
+  return chars.length > limit ? `${chars.slice(0, limit).join("")}\n... output truncated by Qianji` : value;
 }

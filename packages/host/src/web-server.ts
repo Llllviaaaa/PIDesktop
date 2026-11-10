@@ -2,7 +2,7 @@
  * The host's loopback HTTP server and its route table (`webServer`), carried
  * over from the better-sidebar sidecar (ADR 0001).
  *
- * Pi Desktop's page is served from Tauri's origin (or the Vite dev server), so
+ * Qianji's page is served from Tauri's origin (or the Vite dev server), so
  * every browser request reaching this server is cross-origin. A request whose
  * Origin, or failing that Referer, is one of the configured page origins is
  * presented to the routes as a same-origin request and answered with CORS
@@ -32,7 +32,7 @@ export interface WebUpgradeRoute {
 }
 
 export interface WebServerConfig {
-  /** The origins Pi Desktop's own page is served from. */
+  /** The origins Qianji's own page is served from. */
   pageOrigins: readonly string[];
 }
 

@@ -94,8 +94,8 @@ describe("handshake subprotocols", () => {
 
   it("refuses malformed or repeated tokens", () => {
     expect(() => clientSubprotocols("short")).toThrow();
-    expect(readOfferedSubprotocols(`${SUBPROTOCOL}, pid.token.short`).token).toBeUndefined();
-    expect(readOfferedSubprotocols(`${SUBPROTOCOL}, pid.token.${sample}, pid.token.${sample}`).token).toBeUndefined();
+    expect(readOfferedSubprotocols(`${SUBPROTOCOL}, qianji.token.short`).token).toBeUndefined();
+    expect(readOfferedSubprotocols(`${SUBPROTOCOL}, qianji.token.${sample}, qianji.token.${sample}`).token).toBeUndefined();
     expect(readOfferedSubprotocols(undefined)).toEqual({ speaksProtocol: false, token: undefined });
   });
 });

@@ -1,4 +1,4 @@
-# @pid/ui
+# @qianji/ui
 
 `ui` 服务：插件通过 `confirm`、`select`、`input` 向用户提问，通过 `notify` 发送通知，不关心由谁回答。见 [ADR 0009](../../docs/adr/0009-feature-plugins.md)。
 

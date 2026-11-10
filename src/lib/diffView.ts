@@ -1,6 +1,6 @@
 /**
  * Unified diff parsing, hunk segmentation, and per-file statistics for
- * PI-Desktop's native review workbench and inline diff cards.
+ * Qianji's native review workbench and inline diff cards.
  */
 
 export const OVERSIZED_DIFF_THRESHOLD = 800;

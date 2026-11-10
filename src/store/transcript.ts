@@ -123,8 +123,9 @@ export function createTranscriptSlice(set: SetState, get: GetState, ctx: StoreCo
         case "plan":
           set((state) => {
             const widgets = { ...state.extensionWidgets };
-            if (event.lines.length > 0) widgets["pidesktop-plan"] = event.lines;
-            else delete widgets["pidesktop-plan"];
+            if (event.lines.length > 0) widgets["qianji-plan"] = event.lines;
+            else delete widgets["qianji-plan"];
+            delete widgets["pidesktop-plan"];
             return { extensionWidgets: widgets };
           });
           return;
@@ -212,6 +213,7 @@ export function createTranscriptSlice(set: SetState, get: GetState, ctx: StoreCo
                 set((state) => {
                   const widgets = { ...state.extensionWidgets };
                   if (slash.name === "plan" && slash.rawArgs.trim().toLowerCase() === "clear") {
+                    delete widgets["qianji-plan"];
                     delete widgets["pidesktop-plan"];
                   }
                   return {
