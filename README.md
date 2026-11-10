@@ -1,131 +1,208 @@
 # Qianji (千机)
 
-**Qianji (千机)** is a **local-only** Windows desktop environment fusing an **Agent Workbench**, an **autonomous Bot**, and an **IDE**. Its engine is the **Harness Host**, a local process built from the `packages/` in this repository: one host serves every task, with the agent loop, tools, permissions, sessions, MCP, browser, computer use, Intelligent UI, and scheduling as Cordis plugins. It is not a cloud agent platform.
+**A local-first Windows desktop creation environment fusing an Agent Workbench, an Autonomous Bot, and a Lightweight IDE.**
 
-Qianji (formerly known as *Pi Desktop* before v0.3) runs entirely on its own Harness Host with zero runtime dependency on external CLI agents. Existing `~/.pid` data and `%APPDATA%/pid-desktop` settings are migrated automatically to `~/.qianji` and `%APPDATA%/qianji` on first launch.
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Platform: Windows](https://img.shields.io/badge/Platform-Windows_10%2F11-0078D6.svg)](#quick-start)
+[![Engine: Harness Host](https://img.shields.io/badge/Engine-Harness_Host_(Cordis)-6E56CF.svg)](docs/SYSTEM_DESIGN.md)
+[![Runtime: Tauri 2 + React 19](https://img.shields.io/badge/Shell-Tauri_2_%2B_React_19-FFC131.svg)](#system-architecture)
 
-Qianji is an independent project. It is not affiliated with or endorsed by OpenAI or Anthropic. References to Codex or Claude Code describe interaction patterns, not product ownership.
+[Why Qianji?](#why-qianji) · [Capabilities](#capabilities) · [System Architecture](#system-architecture) · [Monorepo Packages](#monorepo-packages) · [Quick Start](#quick-start) · [Security Model](#security-model) · [Documentation](#documentation)
 
-## Current capabilities
+---
 
-- Local workspaces with cross-repository session history, FTS5 full-text search, rename, archive/restore, recoverable deletion, clone/fork, compaction, Markdown/HTML export, and message rewind with Git workspace restore
-- Execute/Plan/Ask modes, persistent step tracking, editable follow-up queues, lifecycle Hooks, and bounded local subagents
-- Ordered allow/confirm/block tool rules plus explicit dual-layer local memory CRUD (`~/.qianji/memory.md` and `<workspace>/.qianji/memory.md`) with approval-gated diff updates
-- Streaming text, reasoning, tool calls, tool output, retries, queue status, context usage, and cost/token metadata
-- Runtime model and thinking-level selection
-- Image inputs and local file references
-- Skills (`SKILL.md`) from `~/.qianji/skills`, a project's `.qianji/skills` and `.agents/skills`
-- Grok-style browser control (`browser_navigate`, `browser_inspect`, `browser_click`, …) over a local Chromium session with inspect refs, screenshots, and approval gates
-- Grok-style Windows computer use (`computer_start`, `computer_screenshot`, `computer_click`, …) with observe/control sessions, screen/window sources, and approval-gated input
-- MCP hosting for local STDIO and remote Streamable HTTP servers with dynamic tools, live resource subscriptions, prompt templates, diagnostics, and approval gates
-- Full-stack dynamic plugin architecture (`~/.qianji/plugins` and workspace-trusted `<workspace>/.qianji/plugins`) with zero-reload HMR and built-in Intelligent UI generative widgets
-- Extension UI requests: confirmation, selection, text input, editor input, notifications, status, and widgets
-- Codex-style permission modes enforced by the host's permissions plugin
-- Git index/worktree summary, unified diff review, file stage/unstage/revert, line feedback into chat, PR workflow, and configurable Git instructions
-- Managed Git worktrees and worktree-scoped new chats
-- Multi-tab local PTY terminal with streaming output, lifecycle status, and optional exclusion from model context
-- Local scheduled tasks with permission snapshots, pause/run-now controls, run history, and links back to generated sessions
-- Native completion/approval notifications, prevent-sleep support, local token/cost usage aggregation, and custom instructions
-- Full-screen settings center for appearance, notifications, personalization, shortcuts, archives, usage, models, skills, plugins, permissions, terminal, Git, worktrees, and advanced configuration
-- Persisted process, appearance, behavior, provider, permission, Git, notification, and session settings
+**Qianji (千机)** (formerly *Pi Desktop* before v0.3) is a **100% local-only** desktop environment engineered around its own microkernel engine, the **Harness Host** (`qianji-harness.exe`). One host process serves every concurrent task, subagent, and background schedule, wiring the agent loop, model adapters, tools, permissions, sessions, MCP, browser automation, computer use, and **Intelligent UI** as hot-reloadable [Cordis](https://github.com/cordiverse/cordis) plugins.
 
-UI parity does **not** include cloud environments, account/billing, or a built-in OS virtualization sandbox; those stay out of scope or optional user isolation.
+Qianji has **zero runtime dependency on external CLI agents or global Node.js installations** and **no cloud account or telemetry lock-in**. Existing `~/.pid` data and `%APPDATA%/pid-desktop` settings are migrated automatically to `~/.qianji` and `%APPDATA%/qianji` on first launch.
 
-## Architecture
+> [!NOTE]
+> Qianji is an independent open-source project. It is not affiliated with or endorsed by OpenAI, Anthropic, or Google. References to Codex, Claude Artifacts, or Grok describe interaction patterns, not product ownership.
+
+---
+
+## Why Qianji?
+
+| Dimension | Typical CLI / Cloud Agents | Qianji (千机) |
+| :--- | :--- | :--- |
+| **Execution Architecture** | Spawns a separate runtime process per task or routes code through remote cloud workers | **Single-Host Microkernel**: One compiled `qianji-harness.exe` hosts all concurrent sessions, subagents, and schedules in isolated Cordis fibers ([ADR 0001](docs/adr/0001-harness-host-process.md)) |
+| **Workspace Form Factor** | Terminal-only TUI or chat-only sidebar extension | **3-in-1 Native Workbench**: Unifies multi-turn Agent chat, a split-pane IDE (`Files` / `CodeMirror 6` / `Git Review` / `Preview` / `Intelligent UI Canvas` / `Side Chat`), and a multi-tab ConPTY terminal |
+| **Data & Secret Sovereignty** | Cloud-stored transcripts or plaintext API keys in config files | **100% Local & DPAPI-Encrypted**: Append-only JSONL session logs (`~/.qianji/sessions`), offline SQLite FTS5 search (`~/.qianji/index.sqlite`), and Windows DPAPI secret storage (`secrets.dat`) |
+| **Extensibility** | Static build-time tools or prompt-only skills | **Full-Stack Dynamic Plugins with HMR**: 3-tier override (`builtin` < `user` < `workspace`) with zero-reload TypeScript/TSX hot replacement across both Host and UI ([ADR 0016](docs/adr/0016-dynamic-plugins-and-hmr.md)) |
+| **Workspace Safety** | All-or-nothing file mutations | **Turn Checkpoints & Approval Gates**: Non-invasive Git snapshots (`refs/qianji/checkpoints`) before every writable turn, unified diff review, and lightweight Windows Job Object sandboxing |
+
+---
+
+## Capabilities
+
+### 1. Multi-Model Agent Core & Session Engine
+- **Native Multi-Provider Streaming**: First-class adapters for **Anthropic Messages** (`/v1/messages` with thinking budgets & prompt caching), **OpenAI Chat Completions** (`/v1/chat/completions` compatible with DeepSeek, OpenRouter, Ollama, vLLM), **OpenAI Responses** (`/v1/responses` for o-series / GPT-5 reasoning), and **Google Gemini** (`streamGenerateContent`) ([ADR 0007](docs/adr/0007-llm-layer.md)).
+- **Modes & Live Steering**: Switch dynamically between `Execute` (`agent`), `Plan`, and `Ask` modes; inject live `steer` corrections mid-run or curate an editable `followUp` queue; track step-by-step execution plans (`update_plan`).
+- **In-Process Subagents**: Delegate parallel exploration or bounded coding subtasks via `delegate_task` (`@qianji/subagents`) running in child session fibers with restricted toolsets (no recursive delegation or arbitrary shell execution) ([ADR 0010](docs/adr/0010-subagents-mcp-usage.md)).
+- **Event-Sourced Sessions & FTS5 Search**: Append-only JSONL logs with deterministic branch derivation, non-destructive `rewind` and `compaction`, session `fork`/`clone`, Markdown export, and asynchronous bilingual SQLite FTS5 full-text search ([ADR 0004](docs/adr/0004-session-format.md)).
+- **Offline Cost & Token Observability**: Tracks input, output, cache read/write, and `reasoningTokens` per turn, estimating session and cumulative USD cost locally via `@qianji/pricing`.
+
+### 2. Intelligent UI & Split-Pane Canvas
+- **Generative Interactive Widgets (`@qianji/intelligent-ui`)**: Models can invoke `render_ui` and `update_ui` (or users can trigger `/ui <request>`) to compose live interactive artifacts inline in the chat stream and expand them in a Claude Artifacts-style split-pane canvas.
+- **Dual Rendering Engines**:
+  - **Declarative Engine (`declarative`)**: Zero-JS schema for sliders, numeric/select/toggle controls, real-time `Math.*` formula metric cards, bar/line/area/donut charts, searchable tables, tabs, checklists, and prompt-submitting forms.
+  - **Isolated Sandbox Engine (`html`)**: Self-contained HTML/CSS/SVG/Canvas mini-apps served from an isolated loopback origin with strict CSP, theme token injection (`--pi-*`), version history switching, and `window.piUI.sendPrompt()` callback bridging.
+
+### 3. Browser Control, Computer Use & MCP Ecosystem
+- **Grok-Style Browser Automation (`@qianji/browser`)**: Drives local Edge, Chrome, or Chromium over CDP (`browser_navigate`, `browser_inspect`, `browser_click`, `browser_type`, `browser_screenshot`, …) with numbered inspect element refs, per-session browser isolation, workspace-scoped downloads, and idle auto-reclaiming ([ADR 0012](docs/adr/0012-browser.md)).
+- **Windows Computer Use (`@qianji/computer`)**: Native Win32 screen/window observation and SendInput mouse/keyboard automation (`computer_sources`, `computer_start`, `computer_screenshot`, `computer_click`, `computer_type`, …) with per-session observe/control isolation and approval gates ([ADR 0011](docs/adr/0011-computer-and-schedule.md)).
+- **Full MCP Host (`@qianji/mcp`)**: Connects to local newline-framed **STDIO** and remote **Streamable HTTP** MCP servers in the background; exposes dynamic `mcp__<server>__<tool>` tools with `list_changed` hot-refresh, exponential-backoff reconnect, live resource subscriptions (`/mcp-resources`, `/mcp-read`), prompt templates (`/mcp-prompts`), and DPAPI-encrypted secret headers/env.
+
+### 4. Integrated IDE, Git Review & Worktree Workflow
+- **Unified Right Workbench**: Docked, state-preserving tabs for **Workspace Files** (tree + streaming full-text search), **Code Editor** (CodeMirror 6 with syntax highlighting and `Ctrl+S`), **Review Diff**, **Browser Preview** (with one-click Agent visual verification), **Intelligent UI Canvas**, **Task Summary**, and **Side Chat** (temporary forked conversations from the latest settled checkpoint).
+- **Codex-Style Git Review & PR Loop**: Inspect uncommitted, staged, unstaged, last-turn checkpoint, branch comparison, or commit diffs; stage, unstage, or revert individual diff hunks; collect inline review comments to send to the Agent in batch; draft commit messages and create/inspect GitHub Pull Requests via local `gh` CLI with one-click CI failure / review comment autofix.
+- **Non-Invasive Checkpoints & Smart Rewind**: Automatically captures Git workspace snapshots under `refs/qianji/checkpoints` before writable turns without touching your real `.git/index`, enabling atomic rewind of both conversation history and workspace files ([ADR 0009](docs/adr/0009-feature-plugins.md)).
+- **Managed Git Worktrees & Multi-Tab ConPTY Terminal**: Start tasks in isolated Git worktrees; run persistent multi-tab shells (PowerShell 7, Windows PowerShell, CMD, Git Bash, WSL) in the bottom panel (`Ctrl+J`). Terminal output is **never** injected into model context unless you explicitly click "Send to Chat".
+
+### 5. Autonomous Bot, Memory 2.0 & Full-Stack Plugins
+- **Local Scheduled Tasks (`@qianji/schedule`)**: Run recurring `hourly`, `daily`, `weekdays`, or `weekly` tasks in unattended sessions (`read-only`, `ask`, or `workspace-write` — silent `full-access` is prohibited) with run history and direct links to generated sessions ([ADR 0011](docs/adr/0011-computer-and-schedule.md)).
+- **Dual-Layer Memory 2.0 (`@qianji/memory`) & Skills (`SKILL.md`)**: Separate toggles and editors for global (`~/.qianji/memory.md`) and workspace-trusted project memory (`<workspace>/.qianji/memory.md`) with unified diff approval gates before any agent write; built-in Skills Manager (`~/.qianji/skills`, `.qianji/skills`, `.agents/skills`) with live `/skill:<name>` slash command registration.
+- **3-Tier Dynamic Plugins (`PluginManager`)**: Install plugins from local folders (with live file-watch HMR), `.tgz`/`.zip` archives, Git repositories, or npm (via the embedded Bun package manager with `--ignore-scripts`) ([ADR 0016](docs/adr/0016-dynamic-plugins-and-hmr.md)).
+
+---
+
+## System Architecture
+
+> For the comprehensive architectural specification, sequence diagrams, data storage layout, and subsystem internals, see **[docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)** and the **[Architecture Decision Records (docs/adr)](docs/adr/README.md)**.
 
 ```text
-React UI + Zustand state
-        | JSON-RPC 2.0 over WebSocket (ADR 0002)      | Tauri invoke
-Harness Host (qianji-harness.exe, packages/host)    Rust desktop shell
-        | cordis plugins: agent loop, tools, sessions, permissions, MCP, ...
++-----------------------------------------------------------------------------------+
+|                        React 19 UI + Zustand 4-Slice Store                        |
+|   Sidebar | Conversation & Intelligent UI | Right IDE Workbench | Bottom Terminal |
++-----------------------------------+-----------------------------------------------+
+                                    |
+        JSON-RPC 2.0 over WebSocket |                           Tauri invoke & Events
+        ws://127.0.0.1:<port>/rpc   |                           (Native OS / Git / PTY)
+        (ADR 0002)                  v                                     v
++-------------------------------------------------------+   +-----------------------+
+|      Harness Host (qianji-harness.exe, Bun)           |   |  Rust Desktop Shell   |
+|  +-------------------------------------------------+  |   |  (src-tauri)          |
+|  | Pure Core Spine (corePlugins):                  |<-----+  - Process Guardian   |
+|  | Credentials | LlmService | Sessions | Ui        |stdin |  - Single Instance    |
+|  | Tools | Commands | SystemPrompt | AgentLoop     |ctrl  |  - Native Git & PRs   |
+|  +-------------------------------------------------+  |   |  - ConPTY Terminals   |
+|  | PluginManager (@qianji/kernel topological DAG): |  |   |  - Workspace Search   |
+|  | llm-* | pricing | session-jsonl | search-fts    |  |   |  - Computer Helper    |
+|  | tool-fs | tool-bash | permissions | checkpoints |  |   +-----------------------+
+|  | plan | intelligent-ui | memory | subagents      |  |
+|  | mcp | browser (CDP) | computer | schedule       |  |
+|  +-------------------------------------------------+  |
++-------------------------------------------------------+
 ```
 
-The Rust shell owns the window, settings, secrets at rest, Git, terminals, the workspace file browser and the Host's process; it hands the Host its settings on stdin. The frontend talks to the Host directly for everything an agent does. Sessions are append-only JSONL logs under `~/.qianji/sessions` (ADR 0004). Windows installers include the Host as one executable compiled with Bun, so end users need no Node.js. Design records: [docs/adr](docs/adr/README.md).
+- **The Rust Shell (`src-tauri`)** owns the application window, system tray, prevent-sleep thread, native Git diff/stage/PR commands, ConPTY terminal sessions, workspace file streaming search, the `--computer-helper` native bridge, and the lifecycle of the Harness Host child process. It passes desktop settings to the Host over `stdin` and automatically restarts the Host with exponential backoff if it crashes ([ADR 0001](docs/adr/0001-harness-host-process.md), [ADR 0013](docs/adr/0013-desktop-settings-and-secrets.md)).
+- **The Harness Host (`packages/host`)** is compiled into a standalone Windows executable (`qianji-harness.exe`) using `esbuild` and `bun build --compile`, so end users need no external runtime. The frontend talks directly to the Host over authenticated loopback WebSocket JSON-RPC 2.0 for all agent, session, model, MCP, schedule, and plugin operations ([ADR 0002](docs/adr/0002-client-protocol.md), [ADR 0014](docs/adr/0014-frontend-harness-adapter.md)).
 
-## Development
+---
 
-Prerequisites:
+## Monorepo Packages
 
-- Node.js 22 or later and npm
-- Rust stable with the MSVC toolchain
-- WebView2
+The repository is organized as an npm workspace (`packages/*`) with strict architectural import boundaries enforced by ESLint ([ADR 0005](docs/adr/0005-repository-layout.md)):
 
-`npm ci` installs the Host's packages and the pinned Bun compiler. Tauri dev/build commands build the Host executable automatically (`npm run prepare:harness-host`).
+| Package | Role | Description |
+| :--- | :--- | :--- |
+| `packages/protocol` | Shared Contract | JSON-RPC 2.0 wire types, method schemas, error codes, and secret redaction shared by UI and Host |
+| `packages/kernel` | Microkernel | Cordis dependency extraction, deterministic Kahn topological sort, fiber readiness inspection, and workspace scopes |
+| `packages/host` | Engine Entry | Process entrypoint, WebServer, PluginManager, client TSX bundler, DPAPI FFI secret store, and RPC services |
+| `packages/agent` & `packages/agent-loop` | Agent Core | Agent service contracts, streaming delta types, and the single deterministic multi-turn Agent Loop |
+| `packages/llm` & `packages/llm-*` | Model Layer | Unified streaming LLM interface, credential refs, and native adapters for OpenAI Compat, OpenAI Responses, Anthropic, and Gemini |
+| `packages/pricing` | Observability | Offline model pricing catalog and per-turn / cumulative USD cost estimation |
+| `packages/session`, `session-jsonl`, `session-search-fts` | Storage & Search | Event-sourced session state, branch derivation, append-only JSONL persistence, and SQLite FTS5 indexing |
+| `packages/tools`, `tool-fs`, `tool-bash` | Tooling & Sandbox | Three-stage tool execution pipeline (`pre-execute` → `execute` → `result`), filesystem tools, and sandboxed Git Bash execution |
+| `packages/permissions` & `packages/checkpoints` | Safety & Rewind | Ordered allow/confirm/block rule engine, permission modes, and non-invasive Git snapshot creation/restore |
+| `packages/system-prompt` & `packages/prompt-context` | Context Builder | Ordered system prompt assembly, `AGENTS.md`/`CLAUDE.md` discovery, and `SKILL.md` lifecycle management |
+| `packages/plan`, `memory`, `hooks`, `commands`, `ui` | Capabilities | Step plan tracking, dual-layer Memory 2.0 with diff approval, lifecycle shell hooks, slash commands, and UI request bus |
+| `packages/subagents`, `mcp`, `browser`, `computer`, `schedule`, `intelligent-ui` | Extensions | In-process subagents, STDIO/HTTP MCP client, CDP browser driver, Windows computer use, cron-like scheduler, and generative UI |
+| `src/` & `src-tauri/` | Desktop Client | React 19 + Zustand 4-slice frontend workbench (`src/`) and Tauri 2 Rust native shell (`src-tauri/`) |
+
+---
+
+## Quick Start
+
+### Prerequisites
+- **Windows 10 / 11 (x64)** with **WebView2** (pre-installed on modern Windows)
+- **Node.js >= 22** and `npm`
+- **Rust stable** with the `x86_64-pc-windows-msvc` toolchain
+
+### Development & Desktop Build
+
+`npm ci` installs workspace dependencies and the pinned Bun compiler. Tauri dev and build commands compile `qianji-harness.exe` automatically via [`scripts/prepare-harness-host.mjs`](scripts/prepare-harness-host.mjs).
 
 ```powershell
+# 1. Install dependencies
 npm ci
+
+# 2. Launch the desktop app in development mode (auto-builds Harness Host)
 npm run tauri -- dev
-```
 
-Required checks:
-
-```powershell
-npm run scan:secrets
-npm audit --audit-level=high
-npm run typecheck
-npm run lint
-npm run test:unit
-npm run test:stress
-npm run test:e2e
-npm run build
-```
-
-Unit suites run under Vitest (`npm test`, or `npm run test:watch` while
-working, `npm run test:coverage` for a report). `npm run test:unit` adds the
-repository and Harness Host executable checks that CI also runs.
-`npm run test:stress` is the Host's load and leak test, and `npm run test:e2e`
-drives the e2e build in the installed Edge against a real Harness Host; CI runs
-both on every pull request.
-
-Desktop build:
-
-```powershell
+# 3. Build production Windows installers (NSIS / MSI)
 npm run tauri -- build
 ```
 
-Rust tests:
+### Headless CLI Mode
+
+The compiled Harness Host also supports standalone headless execution for scripting and CI workflows:
 
 ```powershell
-Set-Location src-tauri
-cargo test
+npm run prepare:harness-host
+.\src-tauri\resources\harness\qianji-harness.exe run --cwd . --model anthropic/claude-sonnet-4-20250514 "Summarize the repository architecture"
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution requirements, [docs/DEPENDENCY_SECURITY.md](docs/DEPENDENCY_SECURITY.md) for the current audit baseline, and [docs/RELEASING.md](docs/RELEASING.md) for the release checklist.
+### Quality & Verification Gates
 
-## Security model
+Every pull request must pass all 7 verification gates:
 
-Qianji does not provide an operating-system virtualization sandbox. Its `read-only`, `ask`, and `workspace-write` modes are enforced by the host's permissions plugin, which blocks or confirms model-initiated tools before they run.
+```powershell
+npm run scan:secrets            # Scan working tree and Git history for leaked credentials
+npm audit --audit-level=high    # Verify npm dependency security baseline
+npm run typecheck               # Type-check UI, build scripts, packages/*, and E2E suites
+npm run lint                    # Enforce code quality and ADR 0005 module boundary rules
+npm run test:unit               # Run Vitest unit/golden tests, exe smoke tests, hygiene & doc-link checks
+npm run test:stress             # Run Host concurrency, high-frequency delta, and HMR memory leak stress tests
+npm run test:e2e                # Run Playwright E2E tests in Edge against a real Harness Host
 
-These approval gates are not an isolation boundary. Run untrusted or unattended work inside a container, VM, Windows Sandbox, or another policy-controlled environment. `full-access` gives the agent the permissions of the desktop user.
+# Run Rust unit tests
+Push-Location src-tauri
+cargo test
+Pop-Location
+```
 
-The bundled Grok-style `computer_*` tools use a native helper in the Qianji executable. Observation (`computer_sources`, `computer_screenshot`, `computer_inspect`) is read-only. Interactive input requires `computer_start` in control mode, uses a separate approval gate by default, and is blocked by `read-only` mode. Windows UIPI still prevents input into higher-integrity or protected windows, and Qianji does not attempt to bypass it. Desktop screenshots can contain sensitive information.
+---
 
-The bundled MCP host supports newline-framed STDIO servers and Streamable HTTP servers using the current stable MCP protocol revision. Discovered server tools become first-class agent tools. Servers that only expose resources or prompts are supported too; the agent can list/read and subscribe to resources, receive STDIO or HTTP SSE change notifications, and list/resolve prompt templates, while users can inspect them with `/mcp-resources`, `/mcp-read`, and `/mcp-prompts`. STDIO inherits a credential-filtered environment by default, HTTP supports explicit request headers, and MCP calls can require approval. Server commands, environment values, and HTTP headers are stored locally; use a restricted account or external secret manager for higher-assurance deployments.
+## Security Model
 
-Scheduled tasks are intentionally local. The Harness Host runs them only while the computer and Qianji are running, never accepts silent `full-access`, and stores tasks and runs in `~/.qianji/schedules.json` and `~/.qianji/schedule-runs.jsonl`.
+1. **Permission Modes & Lightweight Sandbox**:
+   - `read-only`, `ask`, `workspace-write`, and `full-access` modes are enforced by `@qianji/permissions` on `tools/pre-execute` before any model-initiated tool runs.
+   - In non-`full-access` modes, `@qianji/tool-bash` applies a lightweight Windows sandbox (credential environment scrubbing, `.qianji/sandbox-tmp` redirection, static high-risk command blocking, and Windows Job Object process limits).
+   - Approval gates and process-level guards are **not** a kernel or hypervisor virtualization boundary. For untrusted or unattended workloads, export a `.wsb` (Windows Sandbox) or `.devcontainer` configuration directly from Settings (`sandbox.generateConfig`).
+2. **Encrypted Credentials at Rest (Windows DPAPI)**:
+   - Model provider API keys (`~/.qianji/secrets.dat`) and MCP server secrets (`%APPDATA%/qianji/mcp-secrets.dat`) are encrypted on disk using Windows `CryptProtectData` (DPAPI) bound to the current OS user. Configuration files store only opaque `SecretRef` pointers or `$ENV_VAR` names ([ADR 0013](docs/adr/0013-desktop-settings-and-secrets.md)).
+3. **Workspace Trust Gate**:
+   - Project-scoped plugins (`<workspace>/.qianji/plugins`), project configurations (`<workspace>/.qianji/harness.json`), and project memory are **never** loaded until the user explicitly grants trust to the canonical workspace path in `~/.qianji/trusted-workspaces.json`. Revoking trust immediately disposes the workspace's isolated Cordis fiber ([ADR 0016](docs/adr/0016-dynamic-plugins-and-hmr.md)).
+4. **Browser, Computer Use & Scheduled Tasks**:
+   - Observation tools (`computer_sources`, `computer_screenshot`, `computer_inspect`) are read-only; interactive input requires `computer_start` in control mode and an approval gate. Windows UIPI still prevents input into higher-integrity windows.
+   - Scheduled tasks execute only while the computer and Qianji are running, mark their sessions as unattended (auto-denying any confirmation prompt), and prohibit `full-access` mode.
 
-Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Do not include credentials, private workspace content, or exploit details in public issues.
+Report security vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
-## Important files
+---
 
-- `src/App.tsx` - desktop workspace composition
-- `src/store/` - app state in four slices (runtime, sessions, transcript, ui) with their actions; `selectors.ts` reads them by slice
-- `src/lib/harnessRuntime.ts` - the frontend's link to the Harness Host's sessions (ADR 0014)
-- `src/lib/agent.ts` - typed client for the Rust shell and the Host
-- `src/lib/transcript.ts` - the conversation from the Host's session events
-- `src/components/` - chat, composer, sessions, review, terminal, settings, and permission UI
-- `src-tauri/src/lib.rs` - Tauri commands and persisted settings
-- `src-tauri/src/harness_host.rs` - starting the Harness Host and handing it the settings
-- `src-tauri/src/computer.rs` - native Windows screenshot, window, mouse, and keyboard bridge
-- `packages/host` - the Harness Host process: RPC, plugin wiring, settings and imports
-- `packages/agent-loop`, `packages/session`, `packages/llm*` - the agent loop, session logs and model adapters
-- `packages/permissions`, `packages/browser`, `packages/computer`, `packages/mcp` - permission gates, browser_*, computer_* and MCP
-- `scripts/prepare-harness-host.mjs` - builds the Host executable
+## Documentation
 
-## Known platform boundary
+- **[System Design Document (`docs/SYSTEM_DESIGN.md`)](docs/SYSTEM_DESIGN.md)** — Complete architecture, sequence diagrams, subsystem breakdown, state management, and data directory specification.
+- **[Architecture Decision Records (`docs/adr/README.md`)](docs/adr/README.md)** — ADR 0001 through ADR 0016 covering the V2 Harness Host architecture.
+- **[Local Capabilities Boundary (`docs/LOCAL_CAPABILITIES.md`)](docs/LOCAL_CAPABILITIES.md)** — Scope baseline, completed local capabilities, and explicit non-goals.
+- **[Codex UI Reference (`docs/CODEX_UI_REFERENCE.md`)](docs/CODEX_UI_REFERENCE.md)** — Design restraint and interaction references for the workbench, composer, and diff review UI.
+- **[Appearance Extensions (`docs/appearance-extensions.md`)](docs/appearance-extensions.md)** — Custom themes and appearance package format.
+- **[Dependency Security Baseline (`docs/DEPENDENCY_SECURITY.md`)](docs/DEPENDENCY_SECURITY.md)** — RustSec and npm audit baseline and license inventory.
+- **[Release Checklist (`docs/RELEASING.md`)](docs/RELEASING.md)** & **[Contributing Guide (`CONTRIBUTING.md`)](CONTRIBUTING.md)**.
 
-The implemented scope covers the core local Codex-style coding workflow, including managed worktrees, local scheduling, multi-tab terminal sessions, Grok-style browser control, approval-gated Windows computer use, and MCP tools/resources/prompts/subscriptions. Cross-device handoff, true OS sandbox enforcement, remote/cloud execution, account/billing features, MCP OAuth discovery, and experimental MCP task flows remain out of scope or optional follow-up work. See [docs/LOCAL_CAPABILITIES.md](docs/LOCAL_CAPABILITIES.md) for the complete local boundary.
+---
 
 ## License
 
-Qianji is licensed under the [Apache License 2.0](LICENSE).
+Qianji is licensed under the [Apache License 2.0](LICENSE). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for bundled third-party software notices.
