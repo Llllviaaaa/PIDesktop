@@ -21,6 +21,7 @@ declare module "@deepseek-ai/cordis" {
 export interface WorkbenchSlotContext {
   cwd: string;
   sessionFile: string | null;
+  variant?: "task-start" | "follow-up";
 }
 
 export interface ClientPageContribution {
@@ -51,6 +52,13 @@ export interface ClientActionContribution {
   render: (context: WorkbenchSlotContext) => ReactNode;
 }
 
+export interface ClientComposerStatusContribution {
+  id: string;
+  position?: "before-model" | "after-model";
+  order?: number;
+  render: (context: WorkbenchSlotContext) => ReactNode;
+}
+
 export interface ClientRewindHandlerContribution {
   id: string;
   order?: number;
@@ -71,6 +79,7 @@ export interface ClientContributionsSnapshot {
   readonly bottomPanelTabs: readonly ClientWorkbenchTabContribution[];
   readonly topbarActions: readonly ClientActionContribution[];
   readonly composerToolbar: readonly ClientActionContribution[];
+  readonly composerStatus: readonly ClientComposerStatusContribution[];
   readonly composerBanners: readonly ClientActionContribution[];
   readonly overlays: readonly ClientActionContribution[];
   readonly rewindHandlers: readonly ClientRewindHandlerContribution[];
@@ -89,6 +98,7 @@ export class ClientContributionRegistry {
   private readonly bottomPanelTabs = new Map<string, ClientWorkbenchTabContribution>();
   private readonly topbarActions = new Map<string, ClientActionContribution>();
   private readonly composerToolbar = new Map<string, ClientActionContribution>();
+  private readonly composerStatus = new Map<string, ClientComposerStatusContribution>();
   private readonly composerBanners = new Map<string, ClientActionContribution>();
   private readonly overlays = new Map<string, ClientActionContribution>();
   private readonly rewindHandlers = new Map<string, ClientRewindHandlerContribution>();
@@ -105,6 +115,7 @@ export class ClientContributionRegistry {
       bottomPanelTabs: sortByOrder(this.bottomPanelTabs.values()),
       topbarActions: sortByOrder(this.topbarActions.values()),
       composerToolbar: sortByOrder(this.composerToolbar.values()),
+      composerStatus: sortByOrder(this.composerStatus.values()),
       composerBanners: sortByOrder(this.composerBanners.values()),
       overlays: sortByOrder(this.overlays.values()),
       rewindHandlers: sortByOrder(this.rewindHandlers.values()),
@@ -151,6 +162,10 @@ export class ClientContributionRegistry {
 
   registerComposerToolbar(item: ClientActionContribution): () => void {
     return this.insert(this.composerToolbar, item);
+  }
+
+  registerComposerStatus(item: ClientComposerStatusContribution): () => void {
+    return this.insert(this.composerStatus, item);
   }
 
   registerComposerBanner(item: ClientActionContribution): () => void {
@@ -218,6 +233,7 @@ export class ClientContributionRegistry {
     this.bottomPanelTabs.clear();
     this.topbarActions.clear();
     this.composerToolbar.clear();
+    this.composerStatus.clear();
     this.composerBanners.clear();
     this.overlays.clear();
     this.rewindHandlers.clear();
@@ -263,6 +279,10 @@ export class ClientContributionService extends Service {
 
   registerComposerToolbar(item: ClientActionContribution): () => void {
     return this.track(this.registry.registerComposerToolbar(item));
+  }
+
+  registerComposerStatus(item: ClientComposerStatusContribution): () => void {
+    return this.track(this.registry.registerComposerStatus(item));
   }
 
   registerComposerBanner(item: ClientActionContribution): () => void {

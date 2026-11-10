@@ -1,0 +1,41 @@
+{
+  "name": "session-usage",
+  "version": "1.0.0",
+  "description": "官方会话用量与上下文统计插件（对标 DSH）：在输入框右下角实时展示上下文窗口占比与构成（系统提示词 / 工具定义 / 对话消息）、累计活跃用时、首 Token 平均延迟 (TTFT)、输出速度 (TPS)、缓存命中率与费用。",
+  "qianji": {
+    "id": "session-usage",
+    "name": "会话用量与上下文统计",
+    "description": "在输入框右下角提供 DSH 风格实时用量胶囊与悬浮详情卡片：拆解上下文占用（系统提示词 / 工具定义 / 对话消息），统计总用时、首 Token 平均 (TTFT)、输出速度 (TPS)、缓存命中率与会话/子代理费用，并支持 /usage 快捷查询。",
+    "host": "./host.ts",
+    "client": "./client.tsx",
+    "defaultConfig": {
+      "currency": "CNY",
+      "usdToCnyRate": 7.25,
+      "showCostInToolbar": true,
+      "triggerMode": "hover"
+    },
+    "configSchema": {
+      "type": "object",
+      "properties": {
+        "currency": {
+          "type": "string",
+          "enum": ["CNY", "USD"],
+          "description": "默认费用显示币种：CNY（人民币 ¥）或 USD（美元 $）"
+        },
+        "usdToCnyRate": {
+          "type": "number",
+          "description": "美元兑人民币换算汇率（默认 7.25）"
+        },
+        "showCostInToolbar": {
+          "type": "boolean",
+          "description": "是否在输入框右下角模型选择器旁直接显示会话累计费用"
+        },
+        "triggerMode": {
+          "type": "string",
+          "enum": ["hover", "click"],
+          "description": "详情悬浮卡片触发方式：hover（悬停或点击展开）或 click（仅点击展开）"
+        }
+      }
+    }
+  }
+}

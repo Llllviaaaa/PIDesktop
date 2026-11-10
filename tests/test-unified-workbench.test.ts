@@ -86,6 +86,18 @@ describe("Unified Client Contribution Registry & Cordis Service", () => {
           id: "prompt-chip",
           render: () => null,
         }));
+        pluginCtx.contributions.registerComposerStatus({
+          id: "status-after",
+          position: "after-model",
+          order: 20,
+          render: () => null,
+        });
+        pluginCtx.contributions.registerComposerStatus({
+          id: "status-before",
+          position: "before-model",
+          order: 10,
+          render: () => null,
+        });
         pluginCtx.effect(() => pluginCtx.contributions.registerLeftSidebar({
           id: "nav-card",
           render: () => null,
@@ -120,6 +132,10 @@ describe("Unified Client Contribution Registry & Cordis Service", () => {
     expect(registry.getSnapshot().bottomPanelTabs.map((t) => t.id)).toEqual(["inspector"]);
     expect(registry.getSnapshot().topbarActions.map((a) => a.id)).toEqual(["quick-btn"]);
     expect(registry.getSnapshot().composerToolbar.map((a) => a.id)).toEqual(["prompt-chip"]);
+    expect(registry.getSnapshot().composerStatus.map((s) => [s.id, s.position])).toEqual([
+      ["status-before", "before-model"],
+      ["status-after", "after-model"],
+    ]);
     expect(registry.getSnapshot().leftSidebar.map((s) => s.id)).toEqual(["nav-card"]);
     expect(registry.getSnapshot().themes.map((t) => t.id)).toEqual(["solar-plugin"]);
 
@@ -128,6 +144,7 @@ describe("Unified Client Contribution Registry & Cordis Service", () => {
     expect(registry.getSnapshot().bottomPanelTabs).toEqual([]);
     expect(registry.getSnapshot().topbarActions).toEqual([]);
     expect(registry.getSnapshot().composerToolbar).toEqual([]);
+    expect(registry.getSnapshot().composerStatus).toEqual([]);
     expect(registry.getSnapshot().leftSidebar).toEqual([]);
     expect(registry.getSnapshot().themes).toEqual([]);
 

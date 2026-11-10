@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -11,6 +12,11 @@ import { defineConfig } from "vitest/config";
  * bundled runtime rather than this codebase's units.
  */
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@qianji/client": resolve(import.meta.dirname, "src/lib/clientPluginBootstrap.ts"),
+    },
+  },
   test: {
     // packages/ holds the Harness packages of the V2 refactor (docs/adr/0005).
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "packages/*/test/**/*.test.ts"],
