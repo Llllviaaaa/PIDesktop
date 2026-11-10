@@ -41,6 +41,9 @@ pub(crate) struct AppSettings {
     pub(crate) tool_rules: Vec<ToolPermissionRule>,
     /// Default new-task environment: "local" or "worktree".
     pub(crate) default_task_environment: String,
+    /// Optional custom default workspace directory; falls back to `<appConfigDir>/quick-chat` when empty.
+    #[serde(default, alias = "default_workspace")]
+    pub(crate) default_workspace: String,
     #[serde(alias = "show_thinking")]
     pub(crate) show_thinking: bool,
     #[serde(alias = "transcript_density", default = "default_transcript_density")]
@@ -235,6 +238,7 @@ impl Default for AppSettings {
             sandbox_enabled: false,
             tool_rules: Vec::new(),
             default_task_environment: "local".to_string(),
+            default_workspace: String::new(),
             show_thinking: true,
             transcript_density: "normal".to_string(),
             auto_connect: false,

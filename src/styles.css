@@ -200,9 +200,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .main-stage { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; background: var(--app); }
 .conversation-scroll { width: 100%; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
-.conversation { width: 100%; max-width: 720px; min-height: 100%; margin: 0 auto; padding: 28px 24px 20px; }
+.conversation { width: 100%; max-width: 720px; margin: 0 auto; padding: 28px 24px 20px; }
 .new-task-scroll { overflow-y: auto; }
-.new-task-conversation { max-width: none; padding: 0; display: flex; }
+.new-task-conversation { max-width: none; min-height: 100%; padding: 0; display: flex; }
 .new-task-screen { width: 100%; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px 56px; }
 .new-task-heading { max-width: 640px; margin: 0 0 28px; text-align: center; font-size: 28px; line-height: 1.2; font-weight: 560; letter-spacing: -.03em; color: var(--text); }
 .new-task-error { max-width: 560px; margin: -12px 0 16px; color: var(--red); font-size: 12px; text-align: center; }
@@ -996,6 +996,10 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .setting-row > span strong { font-size: 11.5px; font-weight: 590; }
 .setting-row > span small { max-width: 520px; color: var(--text-3); font-size: 10px; line-height: 1.4; }
 .setting-row > div { flex: 0 0 auto; display: flex; align-items: center; }
+.settings-default-workspace-control { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: min(460px, 52vw); }
+.settings-workspace-path { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--app); color: var(--text-2); font: 11px var(--code-font); }
+.settings-workspace-actions { display: inline-flex; align-items: center; gap: 6px; }
+.settings-inline-btn { min-height: 28px; padding: 0 10px; font-size: 11.5px; }
 .setting-row input:not([type="checkbox"]):not([type="color"]):not([type="range"]), .setting-row select { width: min(280px, 30vw); height: 32px; border: 1px solid var(--border); border-radius: 7px; background: var(--app); color: var(--text); outline: 0; padding: 0 9px; font-size: 10.5px; }
 .setting-row input:focus, .setting-row select:focus { border-color: var(--accent-custom); }
 .settings-switch { width: 36px; height: 20px; border: 0; border-radius: 10px; padding: 2px; background: #8b8d92; cursor: pointer; transition: background .16s; }
@@ -1950,6 +1954,9 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .schedule-editor select:focus,
 .schedule-editor textarea:focus { border-color: color-mix(in srgb, var(--text-3) 65%, var(--border)); }
 .schedule-editor-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.schedule-cwd-picker { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.schedule-cwd-picker select { flex: 1 1 auto; }
+.schedule-cwd-browse-btn { flex: 0 0 auto; min-height: 34px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .schedule-editor > footer { display: flex; justify-content: flex-end; gap: 7px; padding-top: 13px; border-top: 1px solid var(--border); }
 .schedule-editor > footer button { min-height: 31px; display: inline-flex; align-items: center; gap: 6px; }
 

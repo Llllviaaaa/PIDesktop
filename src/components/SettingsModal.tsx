@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import {
   ArrowLeft,
@@ -44,6 +45,7 @@ export const DEFAULTS: AppSettings = {
   shellAllowPrefixes: "",
   toolRules: [],
   defaultTaskEnvironment: "local",
+  defaultWorkspace: "",
   showThinking: true,
   transcriptDensity: "normal",
   autoConnect: false,
@@ -496,8 +498,28 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
     enabled: inTauri,
     staleTime: Infinity,
   });
+  const defaultWorkspaceQuery = useQuery({
+    queryKey: ["default-workspace-dir", form.defaultWorkspace ?? ""],
+    queryFn: () => agent.quickChatDir(),
+    enabled: inTauri,
+    staleTime: Infinity,
+  });
   const editors = editorsQuery.data ?? [];
   const savedMissing = form.defaultFileOpener !== "system" && !editors.some((editor) => editor.id === form.defaultFileOpener);
+  const customDefaultWorkspace = form.defaultWorkspace?.trim() ?? "";
+  const resolvedDefaultWorkspace = customDefaultWorkspace || defaultWorkspaceQuery.data || "";
+
+  const pickDefaultWorkspace = async () => {
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+      title: "选择默认工作目录",
+      ...(resolvedDefaultWorkspace ? { defaultPath: resolvedDefaultWorkspace } : {}),
+    });
+    if (typeof selected === "string" && selected.trim()) {
+      update("defaultWorkspace", selected.trim());
+    }
+  };
 
   const editorOptions = [
     { value: "system", label: "自动选择已安装编辑器" },
@@ -550,6 +572,42 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
       </Section>
 
       <Section title="工作区与系统">
+        <Row title="默认工作目录" description="新建会话未选项目或创建通用定时任务时使用的默认目录">
+          <div className="settings-default-workspace-control">
+            <code className="settings-workspace-path" title={resolvedDefaultWorkspace || "内置默认工作目录"}>
+              {customDefaultWorkspace || (resolvedDefaultWorkspace ? `${resolvedDefaultWorkspace}（内置默认）` : "内置默认工作目录")}
+            </code>
+            <div className="settings-workspace-actions">
+              {inTauri && resolvedDefaultWorkspace && (
+                <button
+                  type="button"
+                  className="secondary-button settings-inline-btn"
+                  onClick={() => void agent.openWorkspaceInFileManager(resolvedDefaultWorkspace)}
+                >
+                  打开
+                </button>
+              )}
+              {inTauri && (
+                <button
+                  type="button"
+                  className="secondary-button settings-inline-btn"
+                  onClick={() => void pickDefaultWorkspace()}
+                >
+                  更改…
+                </button>
+              )}
+              {Boolean(customDefaultWorkspace) && (
+                <button
+                  type="button"
+                  className="secondary-button settings-inline-btn"
+                  onClick={() => update("defaultWorkspace", "")}
+                >
+                  恢复默认
+                </button>
+              )}
+            </div>
+          </div>
+        </Row>
         <Row title="默认外部编辑器" description="点击工作区文件跳转源码行号或外部打开项目时优先调用的编辑器">
           <SettingsSelect
             label="默认外部编辑器"

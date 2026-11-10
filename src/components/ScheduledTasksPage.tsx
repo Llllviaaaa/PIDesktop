@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { queryKeys } from "../lib/queries";
 import { describeError } from "../lib/errors";
+import { sameLocalPath } from "../lib/pathIdentity";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { scheduleClient } from "../lib/scheduleClient";
 import {
@@ -13,6 +15,7 @@ import {
   ChevronRight,
   CircleDashed,
   Clock3,
+  FolderOpen,
   LoaderCircle,
   MessageSquare,
   Pencil,
@@ -29,6 +32,7 @@ import type { ScheduledFrequency, ScheduledPermissionMode, ScheduledRunRecord, S
 
 interface ScheduledTasksPageProps {
   workspaces: string[];
+  defaultWorkspace?: string;
   onTasksChanged: () => void;
   onOpenSession: (workspace: string, file: string) => void;
   onError: (message: string) => void;
@@ -62,7 +66,16 @@ function uniqueWorkspaces(workspaces: string[]): string[] {
   });
 }
 
-function workspaceName(path: string): string {
+function isDefaultWorkspace(path: string, defaultWorkspace?: string): boolean {
+  const trimmed = path.trim().replace(/[\\/]+$/, "");
+  if (!trimmed) return false;
+  if (trimmed.toLowerCase().endsWith("quick-chat")) return true;
+  if (defaultWorkspace && sameLocalPath(trimmed, defaultWorkspace)) return true;
+  return false;
+}
+
+function workspaceName(path: string, defaultWorkspace?: string): string {
+  if (isDefaultWorkspace(path, defaultWorkspace)) return "默认工作区";
   return path.split(/[\\/]/).filter(Boolean).pop() || path;
 }
 
@@ -114,11 +127,22 @@ const NO_RUNS: ScheduledRunRecord[] = [];
 
 export function ScheduledTasksPage({
   workspaces,
+  defaultWorkspace,
   onTasksChanged,
   onOpenSession,
   onError,
 }: ScheduledTasksPageProps) {
-  const workspaceOptions = useMemo(() => uniqueWorkspaces(workspaces), [workspaces]);
+  const defaultDirQuery = useQuery({
+    queryKey: ["default-workspace-dir", defaultWorkspace ?? ""],
+    queryFn: () => agent.quickChatDir(),
+    enabled: !defaultWorkspace && "__TAURI_INTERNALS__" in window,
+    staleTime: Infinity,
+  });
+  const effectiveDefaultWorkspace = (defaultWorkspace?.trim() || defaultDirQuery.data || "").trim();
+  const workspaceOptions = useMemo(
+    () => uniqueWorkspaces([effectiveDefaultWorkspace, ...workspaces]),
+    [effectiveDefaultWorkspace, workspaces],
+  );
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [draft, setDraft] = useState<ScheduledTask>(EMPTY_TASK);
@@ -182,9 +206,26 @@ export function ScheduledTasksPage({
   }, [reload]);
 
   const openCreate = () => {
-    setDraft({ ...EMPTY_TASK, cwd: workspaceOptions[0] || "" });
+    setDraft({ ...EMPTY_TASK, cwd: effectiveDefaultWorkspace || workspaceOptions[0] || "" });
     setEditorOpen(true);
   };
+
+  const pickTaskDirectory = async () => {
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+      title: "选择计划任务工作目录",
+      ...(draft.cwd ? { defaultPath: draft.cwd } : {}),
+    });
+    if (typeof selected === "string" && selected.trim()) {
+      setDraft((current) => ({ ...current, cwd: selected.trim() }));
+    }
+  };
+
+  const selectableWorkspaces = useMemo(
+    () => uniqueWorkspaces([...workspaceOptions, draft.cwd]),
+    [draft.cwd, workspaceOptions],
+  );
 
   const openEdit = (task: ScheduledTask) => {
     setDraft({ ...task });
@@ -275,7 +316,7 @@ export function ScheduledTasksPage({
               <div className="scheduled-task-copy">
                 <div><strong title={task.name}>{task.name}</strong><span className={`run-status ${task.lastStatus || "idle"}`}>{task.lastStatus === "running" ? "运行中" : task.lastStatus ? `上次${runStatusLabel(task.lastStatus)}` : "未运行"}</span></div>
                 <p title={task.prompt}>{task.prompt}</p>
-                <small>{workspaceName(task.cwd)} · {permissionLabel(task.permissionMode)} · 超时 {task.timeoutMinutes ?? 30} 分钟 · {scheduleSummary(task)} · 下次 {formatScheduleTime(task.nextRunAt)}</small>
+                <small>{workspaceName(task.cwd, effectiveDefaultWorkspace)} · {permissionLabel(task.permissionMode)} · 超时 {task.timeoutMinutes ?? 30} 分钟 · {scheduleSummary(task)} · 下次 {formatScheduleTime(task.nextRunAt)}</small>
               </div>
               <div className="scheduled-task-actions">
                 {deleteConfirmId === task.id ? (
@@ -317,7 +358,7 @@ export function ScheduledTasksPage({
                   </button>
                   {expanded && (
                     <div className="scheduled-run-detail">
-                      <div className="scheduled-run-path"><span>{workspaceName(run.cwd)}</span><code>{run.cwd}</code>{run.exitCode != null && <em>退出码 {run.exitCode}</em>}</div>
+                      <div className="scheduled-run-path"><span>{workspaceName(run.cwd, effectiveDefaultWorkspace)}</span><code>{run.cwd}</code>{run.exitCode != null && <em>退出码 {run.exitCode}</em>}</div>
                       <pre>{run.output || (run.status === "running" ? "Agent 正在执行任务..." : "运行完成，没有文本输出。")}</pre>
                       {sessionFile && <button type="button" className="secondary-button" onClick={() => onOpenSession(run.cwd, sessionFile)}><MessageSquare size={14} />打开会话</button>}
                     </div>
@@ -334,7 +375,24 @@ export function ScheduledTasksPage({
           <form className="schedule-editor" onSubmit={(event) => { event.preventDefault(); void save(); }}>
             <header><div><strong>{draft.id ? "编辑计划任务" : "新建计划任务"}</strong><small>任务在本机执行，并固定使用下面选择的权限。</small></div><button type="button" className="icon-button" title="关闭" onClick={() => setEditorOpen(false)}><X size={17} /></button></header>
             <label><span>名称</span><input autoFocus value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：每日检查未提交更改" required /></label>
-            <label><span>工作目录</span><select value={draft.cwd} onChange={(event) => setDraft((current) => ({ ...current, cwd: event.target.value }))} required><option value="" disabled>选择项目</option>{workspaceOptions.map((workspace) => <option key={workspace} value={workspace}>{workspaceName(workspace)} — {workspace}</option>)}</select></label>
+            <label>
+              <span>工作目录</span>
+              <div className="schedule-cwd-picker">
+                <select value={draft.cwd} onChange={(event) => setDraft((current) => ({ ...current, cwd: event.target.value }))} required>
+                  <option value="" disabled>选择工作目录</option>
+                  {selectableWorkspaces.map((workspace) => (
+                    <option key={workspace} value={workspace}>
+                      {isDefaultWorkspace(workspace, effectiveDefaultWorkspace) ? "默认工作区（快速对话）" : workspaceName(workspace, effectiveDefaultWorkspace)} — {workspace}
+                    </option>
+                  ))}
+                </select>
+                {"__TAURI_INTERNALS__" in window && (
+                  <button type="button" className="secondary-button schedule-cwd-browse-btn" onClick={() => void pickTaskDirectory()} title="选择其他文件夹">
+                    <FolderOpen size={14} />浏览…
+                  </button>
+                )}
+              </div>
+            </label>
             <label><span>要完成的任务</span><textarea value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder="描述每次运行时要完成的工作" required rows={5} /></label>
             <label><span>运行权限</span><select value={draft.permissionMode} onChange={(event) => setDraft((current) => ({ ...current, permissionMode: event.target.value as ScheduledPermissionMode }))}><option value="read-only">只读</option><option value="ask">先询问（无界面确认时阻止操作）</option><option value="workspace-write">工作区写入</option></select><small className="schedule-field-help">计划任务不会使用完全访问；需要交互确认的工具会被权限守卫阻止并写入运行记录。</small></label>
             <div className="schedule-editor-grid">

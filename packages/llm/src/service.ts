@@ -251,6 +251,7 @@ export class LlmService extends Service {
         !errorInfo.retryable
         || attempts >= this.maxAttempts
         || (!producedContent && attemptElapsedMs >= this.maxRetryableAttemptMs)
+        || (producedContent && attemptElapsedMs >= this.longStreamStepDownMs && attempts >= 3)
       ) {
         finish = { type: "finish", reason: "error", error: errorInfo };
         break;

@@ -3,8 +3,18 @@
 use crate::*;
 
 #[tauri::command(async)]
-pub(crate) fn quick_chat_dir() -> Result<String, AppError> {
-    let path = app_config_dir().join("quick-chat");
+pub(crate) fn quick_chat_dir(state: State<'_, AppState>) -> Result<String, AppError> {
+    let configured = state
+        .settings
+        .lock()
+        .ok()
+        .map(|guard| guard.default_workspace.trim().to_string())
+        .unwrap_or_default();
+    let path = if configured.is_empty() {
+        app_config_dir().join("quick-chat")
+    } else {
+        PathBuf::from(configured)
+    };
     fs::create_dir_all(&path)
         .map_err(|err| AppError::Io(format!("failed to create quick chat directory: {err}")))?;
     Ok(path.to_string_lossy().to_string())

@@ -440,7 +440,10 @@ export const Composer = memo(function Composer({
       .filter((item) => !normalized || item.toLowerCase().includes(normalized))
       .slice(0, 8);
   }, [workspaceOptions, workspaceQuery]);
-  const workspaceName = workspace.split(/[\\/]/).filter(Boolean).pop() || "选择项目";
+  const isDefaultWorkspaceMode = quickChat || !workspace;
+  const workspaceName = isDefaultWorkspaceMode
+    ? "默认工作区"
+    : (workspace.split(/[\\/]/).filter(Boolean).pop() || "默认工作区");
   const activePermission = PERMISSION_OPTIONS.find((option) => option.value === permissionMode) ?? PERMISSION_OPTIONS[1];
   const activeStreamingBehavior = STREAMING_BEHAVIOR_OPTIONS.find((option) => option.value === streamingBehavior) ?? STREAMING_BEHAVIOR_OPTIONS[0];
   // The placeholder says what Enter will do now, and only offers @ where it works.
@@ -469,7 +472,7 @@ export const Composer = memo(function Composer({
 
   // Codex/Claude home: project/local chips on the soft shell.
   // Conversation: NO chips — only + / permission segments / model / send.
-  const showWorkspaceChips = variant === "task-start" && !quickChat;
+  const showWorkspaceChips = variant === "task-start";
   const isInlineVariant = variant === "follow-up";
   const sendDisabled = disabled || isSwitchingModel || (!text.trim() && attachments.length === 0);
 
@@ -499,7 +502,7 @@ export const Composer = memo(function Composer({
               type="button"
               className="chip chip-project"
               onClick={() => { setEnvironmentOpen(false); setActionsOpen(false); setWorkspaceOpen((v) => !v); }}
-              title={workspace || "选择项目"}
+              title={isDefaultWorkspaceMode ? "默认工作区（快速对话）" : workspace}
             >
               <Folder size={13} strokeWidth={1.75} />
               <span>{workspaceName}</span>
@@ -512,7 +515,7 @@ export const Composer = memo(function Composer({
                   {visibleWorkspaces.map((item) => (
                     <button key={item} type="button" onClick={() => { onWorkspaceSelect?.(item); setWorkspaceOpen(false); setWorkspaceQuery(""); }} title={item}>
                       <span>{item.split(/[\\/]/).filter(Boolean).pop()}</span>
-                      {item === workspace && <Check size={13} />}
+                      {!isDefaultWorkspaceMode && item === workspace && <Check size={13} />}
                     </button>
                   ))}
                   {visibleWorkspaces.length === 0 && <small>没有已知项目</small>}
@@ -521,41 +524,44 @@ export const Composer = memo(function Composer({
                   打开其他文件夹…
                 </button>
                 <button type="button" className="workspace-context-new" onClick={() => { setWorkspaceOpen(false); onQuickChat?.(); }}>
-                  不在项目中工作
+                  <span>默认工作区（快速对话）</span>
+                  {isDefaultWorkspaceMode && <Check size={13} />}
                 </button>
               </div>
             )}
           </div>
-          <div className="environment-context-wrap">
-            <button
-              type="button"
-              className={`chip chip-env ${environment === "worktree" ? "worktree" : "local"}`}
-              onClick={() => { setWorkspaceOpen(false); setActionsOpen(false); setEnvironmentOpen((value) => !value); }}
-              title={environment === "worktree" ? "Worktree 隔离检出" : "本地工作区"}
-              aria-haspopup="menu"
-              aria-expanded={environmentOpen}
-            >
-              {environment === "worktree" ? <GitBranch size={13} /> : <Monitor size={13} />}
-              <span>{environment === "worktree" ? "Worktree" : "本地"}</span>
-              <ChevronDown size={11} strokeWidth={1.75} />
-            </button>
-            {environmentOpen && (
-              <div className="workspace-context-menu environment-context-menu" role="menu">
-                <div className="workspace-context-list">
-                  <button type="button" role="menuitem" onClick={() => { onEnvironmentChange?.("local"); setEnvironmentOpen(false); }}>
-                    <Monitor size={13} />
-                    <span>本地</span>
-                    {environment === "local" && <Check size={13} />}
-                  </button>
-                  <button type="button" role="menuitem" onClick={() => { onEnvironmentChange?.("worktree"); setEnvironmentOpen(false); }}>
-                    <GitBranch size={13} />
-                    <span>Worktree</span>
-                    {environment === "worktree" && <Check size={13} />}
-                  </button>
+          {!isDefaultWorkspaceMode && (
+            <div className="environment-context-wrap">
+              <button
+                type="button"
+                className={`chip chip-env ${environment === "worktree" ? "worktree" : "local"}`}
+                onClick={() => { setWorkspaceOpen(false); setActionsOpen(false); setEnvironmentOpen((value) => !value); }}
+                title={environment === "worktree" ? "Worktree 隔离检出" : "本地工作区"}
+                aria-haspopup="menu"
+                aria-expanded={environmentOpen}
+              >
+                {environment === "worktree" ? <GitBranch size={13} /> : <Monitor size={13} />}
+                <span>{environment === "worktree" ? "Worktree" : "本地"}</span>
+                <ChevronDown size={11} strokeWidth={1.75} />
+              </button>
+              {environmentOpen && (
+                <div className="workspace-context-menu environment-context-menu" role="menu">
+                  <div className="workspace-context-list">
+                    <button type="button" role="menuitem" onClick={() => { onEnvironmentChange?.("local"); setEnvironmentOpen(false); }}>
+                      <Monitor size={13} />
+                      <span>本地</span>
+                      {environment === "local" && <Check size={13} />}
+                    </button>
+                    <button type="button" role="menuitem" onClick={() => { onEnvironmentChange?.("worktree"); setEnvironmentOpen(false); }}>
+                      <GitBranch size={13} />
+                      <span>Worktree</span>
+                      {environment === "worktree" && <Check size={13} />}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
           {branchLabel ? (
             <span className="chip chip-branch" title="当前分支">
               <GitBranch size={13} strokeWidth={1.75} />

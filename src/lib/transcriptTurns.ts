@@ -23,13 +23,16 @@ function normalizedMessages(messages: UiMessage[]): UiMessage[] {
   });
 }
 
-function lastContent(messages: UiMessage[]): string {
-  const rich = [...messages].reverse().find((message) => /```(?:qianji-rich|pidesktop-rich)/.test(message.content || ""));
-  if (rich) return rich.content;
+function findFinalContentIndex(messages: UiMessage[]): number {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].content?.trim()) return messages[index].content;
+    if (/```(?:qianji-rich|pidesktop-rich)/.test(messages[index].content || "")) return index;
   }
-  return "";
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    // Any text on or before a tool-calling message is narration that preceded those tool calls.
+    if ((messages[index].toolCalls?.length ?? 0) > 0) return -1;
+    if (messages[index].content?.trim()) return index;
+  }
+  return -1;
 }
 
 function turnDurationMs(messages: UiMessage[]): number | undefined {
@@ -40,15 +43,21 @@ function turnDurationMs(messages: UiMessage[]): number | undefined {
   return Math.max(0, timestamps[timestamps.length - 1] - timestamps[0]);
 }
 
-export function workStepsFromMessages(messages: UiMessage[], finalContent: string): WorkStep[] {
+export function workStepsFromMessages(
+  messages: UiMessage[],
+  finalContent: string,
+  finalContentIndex?: number,
+): WorkStep[] {
   const normalized = normalizedMessages(messages);
   const final = finalContent.trim();
   const steps: WorkStep[] = [];
-  for (const message of normalized) {
+  for (let index = 0; index < normalized.length; index += 1) {
+    const message = normalized[index];
     const thinking = foldThinking(message.thinking, finalContent);
     if (thinking) steps.push({ kind: "thinking", text: thinking });
     const note = message.content.trim();
-    if (note && note !== final) steps.push({ kind: "note", text: note });
+    const isFinalMessage = finalContentIndex !== undefined ? index === finalContentIndex : note === final;
+    if (note && !isFinalMessage) steps.push({ kind: "note", text: note });
     for (const call of message.toolCalls ?? []) steps.push({ kind: "tool", call });
   }
   return steps;
@@ -57,8 +66,9 @@ export function workStepsFromMessages(messages: UiMessage[], finalContent: strin
 export function mergeAssistantTurn(messages: UiMessage[]): UiMessage {
   const normalized = normalizedMessages(messages);
   const last = normalized[normalized.length - 1];
-  const content = lastContent(normalized);
-  const steps = workStepsFromMessages(normalized, content);
+  const finalIndex = findFinalContentIndex(normalized);
+  const content = finalIndex >= 0 ? normalized[finalIndex].content : "";
+  const steps = workStepsFromMessages(normalized, content, finalIndex);
   const thinking = steps.filter((step) => step.kind === "thinking").map((step) => step.text).join("\n\n") || undefined;
   return {
     ...last,

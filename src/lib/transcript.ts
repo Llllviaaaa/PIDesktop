@@ -320,11 +320,11 @@ export function planWidgetLines(plan: PlanInfo): string[] {
 
 /**
  * Turns one runtime's Host notifications into transcript events. Stateful
- * only for the model call in progress: a tool call streams in pieces and
- * the transcript shows it once its arguments are complete.
+ * only for the model call in progress: tool calls are announced as soon as
+ * they start streaming and updated as their header arguments arrive.
  */
 export class TranscriptTranslator {
-  private toolCalls = new Map<number, { id: string; name: string; json: string }>();
+  private toolCalls = new Map<number, { id: string; name: string; json: string; previewSig: string }>();
 
   event(event: PersistedEvent): TranscriptEvent[] {
     switch (event.type) {
@@ -374,13 +374,20 @@ export class TranscriptTranslator {
         return [{ type: "assistant-delta", text: String(chunk.text ?? ""), thinking: "" }];
       case "thinking-delta":
         return [{ type: "assistant-delta", text: "", thinking: String(chunk.text ?? "") }];
-      case "tool-call-start":
-        this.toolCalls.set(Number(chunk.index), { id: String(chunk.id), name: String(chunk.name), json: "" });
-        return [];
+      case "tool-call-start": {
+        const entry = { id: String(chunk.id), name: String(chunk.name), json: "", previewSig: "{}" };
+        this.toolCalls.set(Number(chunk.index), entry);
+        return [{ type: "assistant-tool-calls", calls: [{ id: entry.id, name: entry.name, args: {}, running: true }] }];
+      }
       case "tool-call-delta": {
         const call = this.toolCalls.get(Number(chunk.index));
-        if (call !== undefined) call.json += String(chunk.argumentsDelta ?? "");
-        return [];
+        if (call === undefined) return [];
+        call.json += String(chunk.argumentsDelta ?? "");
+        const previewArgs = parsePartialArguments(call.json);
+        const sig = JSON.stringify(previewArgs);
+        if (sig === "{}" || sig === call.previewSig) return [];
+        call.previewSig = sig;
+        return [{ type: "assistant-tool-calls", calls: [{ id: call.id, name: call.name, args: previewArgs, running: true }] }];
       }
       case "retry": {
         this.toolCalls.clear();
@@ -405,12 +412,33 @@ export class TranscriptTranslator {
 
 const count = (value: unknown): number => (typeof value === "number" ? value : 0);
 
+const STREAMING_HEADER_KEY_RE =
+  /"(path|file|filename|filePath|file_path|target|target_file|command|cmd|intent|description|query|pattern|q|search|search_query|glob|regex|url|href|title|id)"\s*:\s*"((?:\\.|[^"\\])*)"/g;
+
+function parsePartialArguments(json: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const head = json.slice(0, 4096);
+  STREAMING_HEADER_KEY_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = STREAMING_HEADER_KEY_RE.exec(head)) !== null) {
+    const key = match[1];
+    const rawValue = match[2];
+    if (!key || rawValue === undefined || key in out) continue;
+    try {
+      out[key] = JSON.parse(`"${rawValue}"`);
+    } catch {
+      out[key] = rawValue;
+    }
+  }
+  return out;
+}
+
 function parseArguments(json: string): Record<string, unknown> {
   if (json.trim() === "") return {};
   try {
     const value: unknown = JSON.parse(json);
     return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   } catch {
-    return {};
+    return parsePartialArguments(json);
   }
 }

@@ -60,6 +60,32 @@ describe("permissions", () => {
     expect(await ctx.systemPrompt.build({ sessionId: session.id, cwd: "D:/repo", model: { provider: "p", model: "m" }, tools: [] })).toContain("Qianji mode: Plan.");
   });
 
+  it("defaults side-chat forks to read-only ask mode regardless of parent write permissions, while allowing explicit side overrides", async () => {
+    const { ctx, session, asked } = await setup();
+    ctx.permissions.set(session, { permission: "full-access", agentMode: "agent" });
+    expect(ctx.permissions.modes(session)).toEqual({ permission: "full-access", agentMode: "agent", effective: "full-access" });
+
+    const side = ctx.sessions.fork(session, session.lastSeq, { side: true });
+    expect(ctx.permissions.modes(side)).toEqual({ permission: "read-only", agentMode: "ask", effective: "read-only" });
+
+    const sideEnv = (): ToolEnv => ({ sessionId: side.id, cwd: "D:/repo", signal: new AbortController().signal });
+    const runSide = async (name: string, args: Record<string, unknown>) => {
+      const output = await ctx.tools.execute({ id: "side-1", name, args }, sideEnv());
+      return output.content[0]?.type === "text" ? output.content[0].text : "";
+    };
+
+    expect(await runSide("read", { path: "a.ts" })).toBe("read ran");
+    expect(await runSide("write", { path: "a.ts", content: "x" })).toBe("Denied: Qianji is in read-only mode");
+    expect(await runSide("bash", { command: "echo hi" })).toBe("Denied: Qianji is in read-only mode");
+    expect(asked).toEqual([]);
+    expect(await ctx.systemPrompt.build({ sessionId: side.id, cwd: "D:/repo", model: { provider: "p", model: "m" }, tools: [] })).toContain("Qianji mode: Ask.");
+
+    // Explicit mode change on the side session itself takes effect.
+    ctx.permissions.set(side, { permission: "workspace-write", agentMode: "agent" });
+    expect(ctx.permissions.modes(side)).toEqual({ permission: "workspace-write", agentMode: "agent", effective: "workspace-write" });
+    expect(await runSide("write", { path: "a.ts", content: "x" })).toBe("write ran");
+  });
+
   it("denies what needs confirmation when no UI can answer", async () => {
     const { run } = await setup({}, false);
     expect(await run("bash", { command: "ls" })).toBe("Denied: Confirmation required but no UI is available");
