@@ -1730,9 +1730,10 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .repository-strip small { overflow: hidden; color: var(--text-3); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .repository-strip em { color: var(--text-3); font-size: 10px; font-style: normal; }
 .pull-request-list,
-.scheduled-task-list { display: grid; gap: 7px; }
+.scheduled-task-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
 .pull-request-row,
 .scheduled-task-row {
+  min-width: 0;
   min-height: 68px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1748,9 +1749,9 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .pull-request-copy,
 .scheduled-task-copy { min-width: 0; flex: 1; }
 .pull-request-copy > div,
-.scheduled-task-copy > div { display: flex; align-items: center; gap: 7px; }
+.scheduled-task-copy > div { min-width: 0; display: flex; align-items: center; gap: 7px; }
 .pull-request-copy strong,
-.scheduled-task-copy strong { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.scheduled-task-copy strong { min-width: 0; overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .pull-request-copy small,
 .scheduled-task-copy small { display: block; margin-top: 5px; overflow: hidden; color: var(--text-3); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .status-chip,
@@ -1864,14 +1865,15 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
 .scheduled-run-row.timed-out .scheduled-run-status-icon { color: #b2660d; }
 .scheduled-run-row.cancelled .scheduled-run-status-icon { color: var(--text-3); }
 .scheduled-run-row.running .scheduled-run-status-icon { color: #2f65b7; }
-.scheduled-run-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.scheduled-run-copy { min-width: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .scheduled-run-copy strong { overflow: hidden; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.scheduled-run-copy small { color: var(--text-3); font-size: 9px; }
+.scheduled-run-copy small { overflow: hidden; color: var(--text-3); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .scheduled-run-summary > svg { flex: 0 0 auto; color: var(--text-3); }
 .scheduled-run-detail {
   border-top: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
   background: color-mix(in srgb, var(--hover) 36%, transparent);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 12px 13px 13px 40px;
 }
@@ -1922,17 +1924,18 @@ textarea.question-field { min-height: 132px; resize: vertical; font-family: var(
   padding: 17px;
 }
 .schedule-editor > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 17px; }
-.schedule-editor > header > div { display: grid; gap: 5px; }
+.schedule-editor > header > div { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; }
 .schedule-editor > header strong { font-size: 15px; }
 .schedule-editor > header small { color: var(--text-3); font-size: 10px; }
 .schedule-editor > label,
-.schedule-editor-grid label { display: grid; gap: 6px; margin-bottom: 13px; }
+.schedule-editor-grid label { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-bottom: 13px; }
 .schedule-editor label > span { color: var(--text-2); font-size: 10px; font-weight: 600; }
 .schedule-editor .schedule-field-help { color: var(--text-3); font-size: 9px; line-height: 1.5; }
 .schedule-editor input,
 .schedule-editor select,
 .schedule-editor textarea {
   width: 100%;
+  min-width: 0;
   min-height: 34px;
   border: 1px solid var(--border);
   border-radius: 7px;

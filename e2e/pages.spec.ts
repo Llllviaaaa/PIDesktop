@@ -24,6 +24,41 @@ test("run a scheduled task now", async ({ app, harness }) => {
   expect(harness.provider.requests).toHaveLength(1);
 });
 
+test("long text scheduled task does not overflow row or page layout", async ({ app, harness }) => {
+  const longName = "每日全量代码审查与安全漏洞扫描以及依赖更新检查和性能基准测试自动汇总报告生成任务-超长标题测试".repeat(3);
+  const longPrompt = "请仔细检查当前工作区中的所有最近提交记录、未提交的变更、依赖项更新情况、单元测试覆盖率、构建产物大小变化以及潜在的性能退化问题，然后生成一份详细的中文分析报告，包含关键风险点、修复建议、负责人模块划分以及后续跟进计划。".repeat(6);
+  harness.host.host.ctx.schedule.save({
+    name: longName,
+    prompt: longPrompt,
+    cwd: harness.workspace,
+    frequency: "daily",
+    hour: 9,
+    minute: 30,
+    permissionMode: "read-only",
+    model: E2E_MODEL,
+    enabled: true,
+  });
+  await app.getByRole("button", { name: "定时任务" }).click();
+  await expect(app.locator(".scheduled-task-row")).toHaveCount(1);
+
+  const metrics = await app.evaluate(() => {
+    const page = document.querySelector(".scheduled-tasks-page") as HTMLElement;
+    const list = document.querySelector(".scheduled-task-list") as HTMLElement;
+    const row = document.querySelector(".scheduled-task-row") as HTMLElement;
+    return {
+      pageClientWidth: page.clientWidth,
+      pageScrollWidth: page.scrollWidth,
+      listWidth: list.getBoundingClientRect().width,
+      rowClientWidth: row.clientWidth,
+      rowScrollWidth: row.scrollWidth,
+      rowWidth: row.getBoundingClientRect().width,
+    };
+  });
+  expect(metrics.pageScrollWidth).toBeLessThanOrEqual(metrics.pageClientWidth);
+  expect(metrics.rowScrollWidth).toBeLessThanOrEqual(metrics.rowClientWidth);
+  expect(metrics.rowWidth).toBeLessThanOrEqual(metrics.listWidth + 1);
+});
+
 test("save a custom provider in minimalist 4-module settings", async ({ app, harness }) => {
   await app.getByRole("button", { name: "设置" }).click();
   const nav = app.locator(".settings-nav-scroll");
