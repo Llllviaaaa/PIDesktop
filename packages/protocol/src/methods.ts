@@ -255,6 +255,14 @@ export interface UiPendingResult {
   requests: UiRequestNotification[];
 }
 
+export interface UiSandboxUrlParams {
+  html: string;
+}
+
+export interface UiSandboxUrlResult {
+  url: string | null;
+}
+
 // Feature plugins (ADR 0009).
 
 export type PermissionModeName = "read-only" | "ask" | "workspace-write" | "full-access";

@@ -117,13 +117,17 @@ test("renders interactive declarative widgets inline with live formulas, version
   await expect(canvasCard.locator(".pi-iui-title")).toHaveText("复利收益模拟器");
 });
 
-test("manages built-in intelligent-ui toggle in Settings -> Plugins and supports sandboxed HTML widgets", async ({
+test("manages built-in intelligent-ui toggle in Settings -> Plugins and supports Claude-style HTML Artifacts", async ({
   app,
   harness,
 }) => {
-  // Composer shows the `交互组件` quick action chip by default
-  const composerChips = app.locator(".pi-iui-composer-chip");
-  await expect(composerChips.first()).toBeVisible();
+  // Composer bar stays clean without any permanent `交互组件` trigger button
+  await expect(app.locator(".pi-iui-composer-chip")).toHaveCount(0);
+
+  // Open Right Workbench and verify the `画布` tab is registered by default
+  await app.getByRole("button", { name: "切换右侧工作台 (Ctrl+Alt+B)" }).click();
+  const canvasTabBtn = app.locator('[data-wb-tab="intelligent-ui-canvas"]');
+  await expect(canvasTabBtn).toBeVisible();
 
   // Open Settings -> Plugins and verify built-in `intelligent-ui` card is active
   await app.getByRole("button", { name: "设置" }).click();
@@ -134,18 +138,21 @@ test("manages built-in intelligent-ui toggle in Settings -> Plugins and supports
   await expect(pluginCard).toContainText("Intelligent UI 交互式界面");
   await expect(pluginCard).toContainText("运行中");
 
-  // Disable `intelligent-ui` -> Composer chip unmounts cleanly
+  // Disable `intelligent-ui` -> Right Workbench `画布` tab unmounts cleanly
   await pluginCard.getByRole("switch").click();
   await expect(pluginCard).toContainText("已停用");
-  await expect(composerChips).toHaveCount(0);
+  await expect(canvasTabBtn).toHaveCount(0);
 
-  // Re-enable `intelligent-ui` -> Composer chip mounts back immediately
+  // Re-enable `intelligent-ui` -> `画布` tab mounts back immediately
   await pluginCard.getByRole("switch").click();
   await expect(pluginCard).toContainText("运行中");
-  await app.keyboard.press("Escape");
-  await expect(composerChips.first()).toBeVisible();
+  await app.getByRole("region", { name: "设置" }).getByRole("button", { name: "返回应用" }).click();
+  await expect(canvasTabBtn).toBeVisible();
 
-  // Render a sandboxed HTML widget and verify isolated script execution + prompt bridge
+  // Close Right Workbench first so we can verify HTML Artifact auto-opens it
+  await app.getByRole("button", { name: "隐藏工作台 (Ctrl+Alt+B)" }).click();
+
+  // Render a sandboxed HTML Artifact (800px tall + inline script)
   harness.provider.push(
     toolReply([
       {
@@ -156,10 +163,16 @@ test("manages built-in intelligent-ui toggle in Settings -> Plugins and supports
           title: "HTML 交互沙箱",
           engine: "html",
           html: `
-            <div>
-              <p id="status">沙箱就绪</p>
-              <button type="button" class="primary" data-pi-prompt="从 HTML 沙箱触发追问">发送沙箱结果</button>
+            <div style="height: 800px; display: flex; flex-direction: column; justify-content: space-between;">
+              <div>
+                <p id="status">加载中</p>
+                <button type="button" class="primary" data-pi-prompt="从 HTML 沙箱触发追问">发送沙箱结果</button>
+              </div>
+              <p id="footer-marker">底部完整可见</p>
             </div>
+            <script>
+              document.getElementById("status").textContent = "沙箱脚本已运行";
+            </script>
           `,
         },
       },
@@ -170,13 +183,34 @@ test("manages built-in intelligent-ui toggle in Settings -> Plugins and supports
   await send(app, "渲染一个 HTML 交互沙箱");
   await settled(app);
 
-  const htmlCard = app.locator('.pi-iui-card-inline[data-widget-id="wave-sandbox"]');
-  await expect(htmlCard).toBeVisible();
-  const frame = htmlCard.frameLocator("iframe.pi-iui-html-frame");
-  await expect(frame.locator("#status")).toHaveText("沙箱就绪");
+  // 1. In the chat stream, HTML Artifact renders as a compact entry card without stretching chat
+  const inlineCard = app.locator('.pi-iui-card-inline[data-widget-id="wave-sandbox"]');
+  await expect(inlineCard).toBeVisible();
+  await expect(inlineCard).toHaveClass(/is-artifact-collapsed/);
+  await expect(inlineCard.locator("iframe")).toHaveCount(0);
 
+  // 2. Right Workbench `画布` automatically opens and renders the full-height borderless stage
+  const canvasCard = app.locator('.pi-iui-card-canvas[data-widget-id="wave-sandbox"]');
+  await expect(canvasCard).toBeVisible();
+  const canvasIframe = canvasCard.locator("iframe.pi-iui-html-frame.is-canvas-stage");
+  await expect(canvasIframe).toHaveAttribute("src", /^http:\/\/127\.0\.0\.1:\d+\/ui-sandbox\//);
+
+  const canvasFrame = canvasCard.frameLocator("iframe.pi-iui-html-frame");
+  await expect(canvasFrame.locator("#status")).toHaveText("沙箱脚本已运行");
+
+  // 3. Optional `内联预览` on the chat entry card still supports `紧凑 / 适中 / 完整` height presets
+  await inlineCard.getByRole("button", { name: "内联预览" }).click();
+  const inlineIframe = inlineCard.locator("iframe.pi-iui-html-frame");
+  await expect.poll(async () => (await inlineIframe.boundingBox())?.height ?? 0).toBe(640);
+  const heightGroup = inlineCard.getByRole("group", { name: "沙箱高度档位" });
+  await heightGroup.getByRole("button", { name: "紧凑" }).click();
+  await expect.poll(async () => (await inlineIframe.boundingBox())?.height ?? 0).toBe(320);
+  await inlineCard.getByRole("button", { name: "收起" }).click();
+  await expect(inlineCard.locator("iframe")).toHaveCount(0);
+
+  // 4. Prompt bridge from the full-height Canvas stage dispatches into the conversation
   harness.provider.push(textReply("收到来自 HTML 沙箱的追问！"));
-  await frame.getByRole("button", { name: "发送沙箱结果" }).click();
+  await canvasFrame.getByRole("button", { name: "发送沙箱结果" }).click();
   await expect(userBubble(app, "从 HTML 沙箱触发追问")).toBeVisible();
   await settled(app);
 });

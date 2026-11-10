@@ -24,11 +24,11 @@ import {
 import { HARNESS_SESSION_PREFIX, harnessRuntimes, isHarnessSessionFile } from "./harnessRuntime";
 import { messageImagesToAttachments, rewindController } from "./rewindController";
 import {
+  deriveSessionIntelligentUis,
   INTELLIGENT_UI_CANVAS_TAB_ID,
-  INTELLIGENT_UI_COMPOSER_ACTION_ID,
 } from "./intelligentUi";
 import { pluginClient } from "./pluginClient";
-import { IntelligentUiComposerAction } from "../components/IntelligentUiComposerAction";
+import { groupTranscriptMessages } from "./transcriptTurns";
 import { IntelligentUiCanvasTab } from "../components/workbench/IntelligentUiCanvasTab";
 import { useAppStore } from "../store";
 import { useIntelligentUiStore } from "../stores/intelligentUiStore";
@@ -270,11 +270,6 @@ function mountBuiltinIntelligentUiSync(): void {
           order: 15,
           render: () => createElement(IntelligentUiCanvasTab),
         }),
-        clientContributions.registerComposerToolbar({
-          id: INTELLIGENT_UI_COMPOSER_ACTION_ID,
-          order: 20,
-          render: () => createElement(IntelligentUiComposerAction),
-        }),
       ];
     } else {
       for (const dispose of mountedDisposers) dispose();
@@ -309,10 +304,29 @@ function mountBuiltinIntelligentUiSync(): void {
       void syncFromHost();
     }
   });
+  const seenHtmlArtifacts = new Set<string>();
+  let trackedSessionFile: string | null = useAppStore.getState().sessionFile;
+
   useAppStore.subscribe((state, prev) => {
     if (state.cwd !== prev.cwd) {
       currentWorkspace = state.cwd || undefined;
       void syncFromHost();
+    }
+    if (state.messages !== prev.messages || state.sessionFile !== prev.sessionFile) {
+      const sessionChangedIdle = state.sessionFile !== trackedSessionFile && !state.isStreaming;
+      trackedSessionFile = state.sessionFile;
+      if (state.messages.length === 0) return;
+      const summary = deriveSessionIntelligentUis(groupTranscriptMessages(state.messages));
+      for (const grp of summary.orderedGroups) {
+        if (grp.latest.engine !== "html") continue;
+        const key = `${state.sessionFile ?? "draft"}::${grp.id}::v${grp.latest.version}`;
+        if (!seenHtmlArtifacts.has(key)) {
+          seenHtmlArtifacts.add(key);
+          if (!sessionChangedIdle && useIntelligentUiStore.getState().pluginEnabled) {
+            useIntelligentUiStore.getState().openInCanvas(grp.id, grp.latest.version);
+          }
+        }
+      }
     }
   });
 }
