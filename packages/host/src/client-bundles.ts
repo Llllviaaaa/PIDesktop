@@ -175,12 +175,12 @@ const RESOLVE_PROBE_SUFFIXES = [
 ] as const;
 
 function isPathInsidePluginRoot(pluginRootCanonical: string, pluginRootKey: string, candidatePath: string): boolean {
-  const lexicalTarget = resolve(candidatePath);
-  const lexicalRel = relative(pluginRootCanonical, lexicalTarget);
+  const canonicalTarget = canonicalPath(candidatePath);
+  const lexicalRel = relative(pluginRootCanonical, canonicalTarget);
   if (lexicalRel.startsWith("..") || isAbsolute(lexicalRel)) {
     return false;
   }
-  const realKey = pathComparisonKey(lexicalTarget);
+  const realKey = pathComparisonKey(canonicalTarget);
   return realKey === pluginRootKey || realKey.startsWith(`${pluginRootKey}/`);
 }
 
@@ -191,9 +191,16 @@ function assertImportInsidePluginRoot(
   specifier: string,
   baseDir: string,
 ): void {
-  const rawCandidate = resolve(baseDir, specifier);
+  const baseCanonical = canonicalPath(baseDir);
+  const rawCandidate = isAbsolute(specifier)
+    ? canonicalPath(specifier)
+    : resolve(baseCanonical, specifier);
   const lexicalRel = relative(pluginRootCanonical, rawCandidate);
   if (lexicalRel.startsWith("..") || isAbsolute(lexicalRel)) {
+    throw new Error(`Client import "${specifier}" escapes plugin directory "${pluginDir}"`);
+  }
+  const rawKey = pathComparisonKey(rawCandidate);
+  if (rawKey !== pluginRootKey && !rawKey.startsWith(`${pluginRootKey}/`)) {
     throw new Error(`Client import "${specifier}" escapes plugin directory "${pluginDir}"`);
   }
   for (const suffix of RESOLVE_PROBE_SUFFIXES) {
@@ -376,9 +383,10 @@ async function bundleClientEntryToCjs(
   if (!isPathInsidePluginRoot(pluginRootCanonical, pluginRootKey, entryFile)) {
     throw new Error(`Client entry "${entryFile}" escapes plugin directory "${pluginDir}"`);
   }
+  const entryCanonical = canonicalPath(entryFile);
 
   const externalSet = new Set<string>(CLIENT_SHARED_EXTERNALS);
-  const inputs = new Set<string>([canonicalPath(entryFile)]);
+  const inputs = new Set<string>([entryCanonical]);
   const boundaryAndCssPlugin: BundlerPlugin = {
     name: "qianji-client-boundary-and-css",
     setup(build) {
@@ -423,7 +431,7 @@ async function bundleClientEntryToCjs(
   const bun = (globalThis as { Bun?: BunGlobalWithBuild }).Bun;
   if (bun !== undefined) {
     const result = await bun.build({
-      entrypoints: [entryFile],
+      entrypoints: [entryCanonical],
       format: "cjs",
       target: "browser",
       define: { "process.env.NODE_ENV": JSON.stringify("production") },
@@ -448,7 +456,7 @@ async function bundleClientEntryToCjs(
   let built;
   try {
     built = await esbuild.build({
-      entryPoints: [entryFile],
+      entryPoints: [entryCanonical],
       bundle: true,
       write: false,
       format: "cjs",
@@ -478,11 +486,11 @@ export class ClientBundleRegistry {
 
   /** Bump the revision of `pluginDir` so multi-file edits invalidate cached client bundles. */
   invalidateDir(pluginDir: string): void {
-    const resolvedDir = resolve(pluginDir);
-    const next = (this.dirRevisions.get(resolvedDir) ?? 0) + 1;
-    this.dirRevisions.set(resolvedDir, next);
+    const dirKey = pathComparisonKey(pluginDir);
+    const next = (this.dirRevisions.get(dirKey) ?? 0) + 1;
+    this.dirRevisions.set(dirKey, next);
     for (const [key, cached] of this.cache) {
-      if (resolve(cached.pluginDir) === resolvedDir) this.cache.delete(key);
+      if (pathComparisonKey(cached.pluginDir) === dirKey) this.cache.delete(key);
     }
   }
 
@@ -493,9 +501,9 @@ export class ClientBundleRegistry {
 
   async compile(pluginId: string, pluginDir: string, entryFile: string): Promise<CompiledClientBundle> {
     await stat(entryFile);
-    const resolvedDir = resolve(pluginDir);
-    const revision = this.dirRevisions.get(resolvedDir) ?? 0;
-    const cacheKey = `${pluginId}::${resolve(entryFile)}`;
+    const dirKey = pathComparisonKey(pluginDir);
+    const revision = this.dirRevisions.get(dirKey) ?? 0;
+    const cacheKey = `${pluginId}::${pathComparisonKey(entryFile)}`;
     const existing = this.cache.get(cacheKey);
     if (existing !== undefined && existing.revision === revision && (await stampsMatch(existing.trackedFiles))) {
       return { code: existing.code, etag: existing.etag };
@@ -506,10 +514,10 @@ export class ClientBundleRegistry {
     let trackedPaths: Set<string>;
     if ((entryFile.endsWith(".js") || entryFile.endsWith(".cjs")) && raw.includes("__ModuleLoader__.load(")) {
       code = raw;
-      trackedPaths = new Set([resolve(entryFile)]);
+      trackedPaths = new Set([canonicalPath(entryFile)]);
     } else if (!looksLikeEsmSource(entryFile, raw)) {
       code = wrapInModuleLoader(pluginId, raw, "client.js");
-      trackedPaths = new Set([resolve(entryFile)]);
+      trackedPaths = new Set([canonicalPath(entryFile)]);
     } else {
       const bundled = await bundleClientEntryToCjs(pluginId, pluginDir, entryFile);
       code = wrapInModuleLoader(pluginId, bundled.cjs, "client.js");
@@ -519,8 +527,8 @@ export class ClientBundleRegistry {
     const etag = `"${shortSha1(code)}"`;
     const trackedFiles = await collectFileStamps(trackedPaths);
     this.cache.set(cacheKey, {
-      pluginDir: resolvedDir,
-      entryFile,
+      pluginDir: canonicalPath(pluginDir),
+      entryFile: canonicalPath(entryFile),
       trackedFiles,
       revision,
       code,

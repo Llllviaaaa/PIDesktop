@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -659,5 +659,35 @@ describe("Harness Host plugin resilience & microkernel isolation (Phase 1)", () 
       { sessionId: session.id, cwd: tempRoot, signal: new AbortController().signal },
     );
     expect(badToolOpenRes.isError).toBe(true);
+
+    // Regression: alias/junction/8.3 short-path directories where resolve(dir) !== realpathSync.native(dir)
+    const realTargetDir = join(tempRoot, "real-plugin-dir");
+    const aliasDir = join(tempRoot, "RUNNER~1-alias");
+    mkdirSync(join(realTargetDir, "sub"), { recursive: true });
+    writeFileSync(join(realTargetDir, "sub", "Part.tsx"), `export const Part = () => <span>alias-ok</span>;`);
+    writeFileSync(
+      join(realTargetDir, "client.tsx"),
+      `import { Part } from "./sub/Part";\nexport default function apply() { return Part; }`,
+    );
+    writeFileSync(
+      join(realTargetDir, "package.json"),
+      JSON.stringify({
+        name: "alias-plugin",
+        version: "1.0.0",
+        pid: { id: "alias-plugin", name: "Alias Plugin", host: "./index.ts", client: "./client.tsx" },
+      }),
+    );
+    writeFileSync(join(realTargetDir, "index.ts"), `export function apply() {}`);
+    symlinkSync(realTargetDir, aliasDir, process.platform === "win32" ? "junction" : "dir");
+
+    const aliasRegistry = new ClientBundleRegistry();
+    const aliasCompiled = await aliasRegistry.compile("alias-plugin", aliasDir, join(aliasDir, "client.tsx"));
+    expect(aliasCompiled.code).toContain("alias-ok");
+
+    await manager.install({ channel: "local", spec: realTargetDir, link: true });
+    const aliasStackErr = new Error("alias frame failure");
+    aliasStackErr.stack = `Error: alias frame failure\n    at Timeout._onTimeout (${join(aliasDir, "index.ts")}:9:3)`;
+    const attributed = manager.attributeExternalPluginError(aliasStackErr);
+    expect(attributed).toEqual({ pluginId: "alias-plugin", alreadyCircuitBroken: false });
   });
 });

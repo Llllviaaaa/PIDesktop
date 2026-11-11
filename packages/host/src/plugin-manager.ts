@@ -7,7 +7,7 @@
  * - fiber-isolated fault tolerance with transactional HMR rollback (ADR 0016).
  */
 import { existsSync, watch as fsWatch, type FSWatcher } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Context, Plugin } from "@deepseek-ai/cordis";
 import {
   WorkspacePluginScope,
@@ -298,6 +298,7 @@ export class PluginManager {
       ? `${reason.name}: ${reason.message}\n${reason.stack ?? ""}`
       : String(reason);
     const haystack = process.platform === "win32" ? stackText.toLowerCase() : stackText;
+    let frameKeys: string[] | undefined;
 
     let bestMatch: { id: string; len: number } | undefined;
     for (const candidate of this.latestCandidates) {
@@ -306,10 +307,23 @@ export class PluginManager {
       const slashDir = fsDir.replace(/\\/g, "/");
       const fileUrl = pathToFileURL(fsDir).href;
       const needles = [fsDir, slashDir, fileUrl].map((item) => (process.platform === "win32" ? item.toLowerCase() : item));
+      let matched = false;
       for (const needle of needles) {
         if (needle !== "" && haystack.includes(needle)) {
+          matched = true;
           if (bestMatch === undefined || needle.length > bestMatch.len) {
             bestMatch = { id: candidate.id, len: needle.length };
+          }
+        }
+      }
+      if (!matched) {
+        frameKeys ??= extractStackFrameComparisonKeys(stackText);
+        if (frameKeys.length > 0) {
+          const dirKey = pathComparisonKey(fsDir);
+          if (dirKey !== "" && frameKeys.some((fk) => fk === dirKey || fk.startsWith(`${dirKey}/`))) {
+            if (bestMatch === undefined || dirKey.length > bestMatch.len) {
+              bestMatch = { id: candidate.id, len: dirKey.length };
+            }
           }
         }
       }
@@ -1428,4 +1442,32 @@ export class PluginManager {
       }
     }
   }
+}
+
+function extractStackFrameComparisonKeys(stackText: string): string[] {
+  const keys = new Set<string>();
+  for (const match of stackText.matchAll(/file:\/\/\/[^\s):"'`]+/gi)) {
+    const cleaned = match[0].replace(/(?::\d+){1,2}$/, "");
+    try {
+      keys.add(pathComparisonKey(fileURLToPath(cleaned)));
+    } catch {
+      // Ignore malformed file URLs in user error messages.
+    }
+  }
+  for (const match of stackText.matchAll(/[a-zA-Z]:[\\/][^\r\n\t*?"<>|)]+/g)) {
+    const cleaned = match[0].replace(/[,;'"`]+$/, "").replace(/(?::\d+){1,2}$/, "");
+    if (cleaned.length > 3) {
+      keys.add(pathComparisonKey(cleaned));
+    }
+  }
+  for (const match of stackText.matchAll(/(?:^|[\s(])(\/[^\s):"'`]+)/gm)) {
+    const raw = match[1];
+    if (raw !== undefined) {
+      const cleaned = raw.replace(/[,;'"`]+$/, "").replace(/(?::\d+){1,2}$/, "");
+      if (cleaned.length > 1) {
+        keys.add(pathComparisonKey(cleaned));
+      }
+    }
+  }
+  return [...keys];
 }

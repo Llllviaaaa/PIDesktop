@@ -4,7 +4,7 @@
  * (ADR 0016).
  */
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { PluginTier } from "@qianji/protocol";
 
 export interface DiscoveredPluginManifest {
@@ -53,13 +53,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Normalize a directory path on disk so Windows casing and junctions compare consistently. */
+/**
+ * Normalize a filesystem path on disk so Windows casing, 8.3 short names
+ * (e.g. `RUNNER~1` -> `runneradmin`), and junctions compare consistently even
+ * when leaf segments do not exist yet.
+ */
 export function canonicalPath(input: string): string {
   const resolved = resolve(input);
   try {
     return realpathSync.native(resolved);
   } catch {
-    return resolved;
+    const tail: string[] = [];
+    let current = resolved;
+    while (true) {
+      const parent = dirname(current);
+      if (parent === current) {
+        return resolved;
+      }
+      tail.unshift(basename(current));
+      current = parent;
+      try {
+        const realParent = realpathSync.native(current);
+        return join(realParent, ...tail);
+      } catch {
+        // Keep walking up until an existing ancestor resolves.
+      }
+    }
   }
 }
 
@@ -72,13 +91,16 @@ export function pathComparisonKey(input: string): string {
 export function resolveInsideDir(rootDir: string, subpath: string): string | undefined {
   if (subpath.trim() === "") return undefined;
   const normalizedRoot = canonicalPath(rootDir);
-  const candidate = resolve(normalizedRoot, subpath);
-  const rel = relative(normalizedRoot, candidate);
+  const rootKey = pathComparisonKey(normalizedRoot);
+  const rawCandidate = isAbsolute(subpath)
+    ? canonicalPath(subpath)
+    : resolve(normalizedRoot, subpath);
+  const rel = relative(normalizedRoot, rawCandidate);
   if (rel.startsWith("..") || isAbsolute(rel)) return undefined;
-  if (!existsSync(candidate)) return undefined;
-  const realCandidate = canonicalPath(candidate);
-  const realRel = relative(normalizedRoot, realCandidate);
-  if (realRel.startsWith("..") || isAbsolute(realRel)) return undefined;
+  if (!existsSync(rawCandidate)) return undefined;
+  const realCandidate = canonicalPath(rawCandidate);
+  const realKey = pathComparisonKey(realCandidate);
+  if (realKey !== rootKey && !realKey.startsWith(`${rootKey}/`)) return undefined;
   return realCandidate;
 }
 
