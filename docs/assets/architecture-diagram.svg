@@ -1,193 +1,196 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" width="100%" height="100%">
   <defs>
     <linearGradient id="archBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0b0d14"/>
-      <stop offset="100%" stop-color="#111522"/>
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f8fafc"/>
     </linearGradient>
     <linearGradient id="uiLayerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#1e1b4b" stop-opacity="0.7"/>
-      <stop offset="100%" stop-color="#172554" stop-opacity="0.7"/>
+      <stop offset="0%" stop-color="#eff6ff"/>
+      <stop offset="100%" stop-color="#f5f3ff"/>
     </linearGradient>
     <linearGradient id="hostLayerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#141829"/>
-      <stop offset="100%" stop-color="#0f172a"/>
+      <stop offset="0%" stop-color="#f0fdf4"/>
+      <stop offset="100%" stop-color="#ecfeff"/>
     </linearGradient>
     <linearGradient id="rustLayerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1c1917"/>
-      <stop offset="100%" stop-color="#18181b"/>
+      <stop offset="0%" stop-color="#fff7ed"/>
+      <stop offset="100%" stop-color="#fefce8"/>
     </linearGradient>
-    <marker id="arrowPurple" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#818cf8"/>
+    <filter id="boxShadow" x="-2%" y="-2%" width="104%" height="108%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.04"/>
+    </filter>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#2563eb"/>
     </marker>
     <marker id="arrowAmber" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#fb923c"/>
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#ea580c"/>
     </marker>
     <marker id="arrowEmerald" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#34d399"/>
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#059669"/>
     </marker>
   </defs>
 
-  <rect width="1200" height="680" rx="18" fill="url(#archBg)" stroke="#262b40" stroke-width="1.5"/>
+  <rect width="1200" height="680" rx="18" fill="url(#archBg)" stroke="#e2e8f0" stroke-width="1.5"/>
 
   <!-- Header -->
-  <text x="40" y="42" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="20" font-weight="800" fill="#f8fafc">
+  <text x="40" y="42" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="20" font-weight="800" fill="#0f172a">
     千机 (Qianji) 三层双进程微内核架构全景图
   </text>
-  <text x="40" y="64" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" fill="#94a3b8">
+  <text x="40" y="64" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" fill="#475569">
     前端直连 Harness Host 执行全部 Agent 会话与动态插件调度 · Rust 桌面壳层专注原生 OS、Git、ConPTY 与进程守护
   </text>
 
   <!-- LAYER 1: React 19 UI + Zustand -->
   <g transform="translate(36, 84)">
-    <rect width="1128" height="142" rx="14" fill="url(#uiLayerGrad)" stroke="#4f46e5" stroke-width="1.5"/>
-    <rect x="18" y="14" width="230" height="24" rx="6" fill="#312e81"/>
-    <text x="30" y="30" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700" fill="#c7d2fe">
+    <rect width="1128" height="142" rx="14" fill="url(#uiLayerGrad)" stroke="#93c5fd" stroke-width="1.5"/>
+    <rect x="18" y="14" width="230" height="24" rx="6" fill="#dbeafe" stroke="#93c5fd" stroke-width="1"/>
+    <text x="30" y="30" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700" fill="#1d4ed8">
       LAYER 1 · WebView2 前端渲染层
     </text>
-    <text x="262" y="30" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="600" fill="#e2e8f0">
+    <text x="262" y="30" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="600" fill="#1e293b">
       React 19 + Tailwind CSS 4 + Zustand 四分片状态树 + 动态客户端插件容器
     </text>
 
     <!-- UI Boxes -->
     <g transform="translate(18, 48)">
-      <rect x="0" y="0" width="210" height="76" rx="10" fill="#0f172a" stroke="#3730a3" stroke-width="1"/>
-      <text x="14" y="24" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#f1f5f9">左侧导航与搜索 (Sidebar)</text>
-      <text x="14" y="44" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#94a3b8">• 跨仓库会话树与归档管理</text>
-      <text x="14" y="62" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#94a3b8">• SQLite FTS5 秒级全文检索</text>
+      <rect x="0" y="0" width="210" height="76" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1" filter="url(#boxShadow)"/>
+      <text x="14" y="24" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#0f172a">左侧导航与搜索 (Sidebar)</text>
+      <text x="14" y="44" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#475569">• 跨仓库会话树与归档管理</text>
+      <text x="14" y="62" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#475569">• SQLite FTS5 秒级全文检索</text>
 
-      <rect x="224" y="0" width="280" height="76" rx="10" fill="#0f172a" stroke="#3730a3" stroke-width="1"/>
-      <text x="238" y="24" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#f1f5f9">中央流式对话舞台 &amp; Composer</text>
-      <text x="238" y="44" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#94a3b8">• 纯函数 Transcript 归约 (historyToUi)</text>
-      <text x="238" y="62" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#94a3b8">• 内联 Intelligent UI · Steer/FollowUp 队列</text>
+      <rect x="224" y="0" width="280" height="76" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1" filter="url(#boxShadow)"/>
+      <text x="238" y="24" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#0f172a">中央流式对话舞台 &amp; Composer</text>
+      <text x="238" y="44" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#475569">• 纯函数 Transcript 归约 (historyToUi)</text>
+      <text x="238" y="62" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#475569">• 内联 Intelligent UI · Steer/FollowUp 队列</text>
 
-      <rect x="518" y="0" width="330" height="76" rx="10" fill="#0f172a" stroke="#3730a3" stroke-width="1"/>
-      <text x="532" y="24" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#f1f5f9">右侧七合一 IDE 工作台 &amp; 底部终端</text>
-      <text x="532" y="44" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#94a3b8">• 文件树 · CodeMirror 6 · Git Review · PR 闭环</text>
-      <text x="532" y="62" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#94a3b8">• 分屏 UI 画布 · 侧边聊天 · Xterm.js 多标签终端</text>
+      <rect x="518" y="0" width="330" height="76" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1" filter="url(#boxShadow)"/>
+      <text x="532" y="24" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#0f172a">右侧七合一 IDE 工作台 &amp; 底部终端</text>
+      <text x="532" y="44" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#475569">• 文件树 · CodeMirror 6 · Git Review · PR 闭环</text>
+      <text x="532" y="62" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#475569">• 分屏 UI 画布 · 侧边聊天 · Xterm.js 多标签终端</text>
 
-      <rect x="862" y="0" width="230" height="76" rx="10" fill="#0f172a" stroke="#3730a3" stroke-width="1"/>
-      <text x="876" y="24" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#f1f5f9">Zustand Store &amp; 插件容器</text>
-      <text x="876" y="44" font-family="'JetBrains Mono', monospace" font-size="11" fill="#a5b4fc">runtime / sessions / transcript / ui</text>
-      <text x="876" y="62" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#94a3b8">• 同源 Blob CSP 客户端 Fiber HMR</text>
+      <rect x="862" y="0" width="230" height="76" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1" filter="url(#boxShadow)"/>
+      <text x="876" y="24" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#0f172a">Zustand Store &amp; 插件容器</text>
+      <text x="876" y="44" font-family="'JetBrains Mono', monospace" font-size="11" font-weight="600" fill="#2563eb">runtime / sessions / transcript / ui</text>
+      <text x="876" y="62" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#475569">• 同源 Blob CSP 客户端 Fiber HMR</text>
     </g>
   </g>
 
   <!-- Protocol Arrows between UI and Host / Rust -->
   <g>
-    <line x1="380" y1="228" x2="380" y2="282" stroke="#818cf8" stroke-width="2.2" marker-start="url(#arrowPurple)" marker-end="url(#arrowPurple)"/>
-    <rect x="130" y="240" width="490" height="30" rx="8" fill="#1e1b4b" stroke="#6366f1" stroke-width="1"/>
-    <text x="375" y="259" text-anchor="middle" font-family="'JetBrains Mono', Consolas, monospace" font-size="11.5" font-weight="600" fill="#e0e7ff">
+    <line x1="380" y1="228" x2="380" y2="282" stroke="#2563eb" stroke-width="2.2" marker-start="url(#arrowBlue)" marker-end="url(#arrowBlue)"/>
+    <rect x="130" y="240" width="490" height="30" rx="8" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.2"/>
+    <text x="375" y="259" text-anchor="middle" font-family="'JetBrains Mono', Consolas, monospace" font-size="11.5" font-weight="600" fill="#1d4ed8">
       WebSocket JSON-RPC 2.0 (ws://127.0.0.1:&lt;port&gt;/rpc · seq &amp; liveSeq 断线续传)
     </text>
 
-    <line x1="940" y1="228" x2="940" y2="282" stroke="#fb923c" stroke-width="2.2" marker-start="url(#arrowAmber)" marker-end="url(#arrowAmber)"/>
-    <rect x="770" y="240" width="340" height="30" rx="8" fill="#431407" stroke="#f97316" stroke-width="1"/>
-    <text x="940" y="259" text-anchor="middle" font-family="'JetBrains Mono', Consolas, monospace" font-size="11.5" font-weight="600" fill="#ffedd5">
+    <line x1="940" y1="228" x2="940" y2="282" stroke="#ea580c" stroke-width="2.2" marker-start="url(#arrowAmber)" marker-end="url(#arrowAmber)"/>
+    <rect x="770" y="240" width="340" height="30" rx="8" fill="#fff7ed" stroke="#fdba74" stroke-width="1.2"/>
+    <text x="940" y="259" text-anchor="middle" font-family="'JetBrains Mono', Consolas, monospace" font-size="11.5" font-weight="600" fill="#c2410c">
       Tauri 2 IPC (invoke / Events 异步原生命令)
     </text>
   </g>
 
   <!-- LAYER 2: Harness Host (Left, Wide) -->
   <g transform="translate(36, 286)">
-    <rect width="716" height="358" rx="14" fill="url(#hostLayerGrad)" stroke="#10b981" stroke-width="1.5"/>
-    <rect x="18" y="14" width="286" height="24" rx="6" fill="#064e3b"/>
-    <text x="28" y="30" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700" fill="#a7f3d0">
+    <rect width="716" height="358" rx="14" fill="url(#hostLayerGrad)" stroke="#6ee7b7" stroke-width="1.5"/>
+    <rect x="18" y="14" width="286" height="24" rx="6" fill="#d1fae5" stroke="#6ee7b7" stroke-width="1"/>
+    <text x="28" y="30" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700" fill="#047857">
       LAYER 2A · Harness Host (qianji-harness.exe)
     </text>
-    <text x="318" y="30" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="600" fill="#d1fae5">
+    <text x="318" y="30" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="600" fill="#065f46">
       Bun 单文件编译可执行程序 · @deepseek-ai/cordis 微内核
     </text>
 
     <!-- Core Spine Box -->
-    <rect x="18" y="48" width="680" height="72" rx="10" fill="#090d16" stroke="#059669" stroke-width="1.2"/>
-    <text x="32" y="70" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#6ee7b7">
+    <rect x="18" y="48" width="680" height="72" rx="10" fill="#ffffff" stroke="#a7f3d0" stroke-width="1.2" filter="url(#boxShadow)"/>
+    <text x="32" y="70" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#047857">
       纯内存核心脊柱 (corePlugins) + @qianji/kernel 拓扑依赖编排器 (Kahn DAG)
     </text>
-    <text x="32" y="92" font-family="'JetBrains Mono', monospace" font-size="11.5" fill="#e2e8f0">
+    <text x="32" y="92" font-family="'JetBrains Mono', monospace" font-size="11.5" font-weight="600" fill="#0f172a">
       Credentials · LlmService · Sessions · Ui · Tools (3-Stage) · Commands · SystemPrompt · AgentLoop
     </text>
-    <text x="32" y="110" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11" fill="#94a3b8">
+    <text x="32" y="110" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11" fill="#475569">
       五种事件分发语义：waterfall (改写请求/包裹执行) · serial (权限审批/生命周期) · parallel (落盘) · emit (广播)
     </text>
 
     <!-- Plugin Grid inside Host -->
     <g transform="translate(18, 130)">
-      <rect x="0" y="0" width="218" height="100" rx="10" fill="#111827" stroke="#334155" stroke-width="1"/>
-      <text x="12" y="22" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#38bdf8">模型协议与计费插件</text>
-      <text x="12" y="42" font-family="'JetBrains Mono', monospace" font-size="11" fill="#cbd5e1">• llm-anthropic (Messages)</text>
-      <text x="12" y="58" font-family="'JetBrains Mono', monospace" font-size="11" fill="#cbd5e1">• llm-openai-compat / responses</text>
-      <text x="12" y="74" font-family="'JetBrains Mono', monospace" font-size="11" fill="#cbd5e1">• llm-gemini (GenerateContent)</text>
-      <text x="12" y="90" font-family="'JetBrains Mono', monospace" font-size="11" fill="#94a3b8">• @qianji/pricing + DPAPI</text>
+      <rect x="0" y="0" width="218" height="100" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1" filter="url(#boxShadow)"/>
+      <text x="12" y="22" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#0284c7">模型协议与计费插件</text>
+      <text x="12" y="42" font-family="'JetBrains Mono', monospace" font-size="11" fill="#334155">• llm-anthropic (Messages)</text>
+      <text x="12" y="58" font-family="'JetBrains Mono', monospace" font-size="11" fill="#334155">• llm-openai-compat / responses</text>
+      <text x="12" y="74" font-family="'JetBrains Mono', monospace" font-size="11" fill="#334155">• llm-gemini (GenerateContent)</text>
+      <text x="12" y="90" font-family="'JetBrains Mono', monospace" font-size="11" fill="#64748b">• @qianji/pricing + DPAPI</text>
 
-      <rect x="230" y="0" width="218" height="100" rx="10" fill="#111827" stroke="#334155" stroke-width="1"/>
-      <text x="242" y="22" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#a78bfa">会话存储、安全与基础工具</text>
-      <text x="242" y="42" font-family="'JetBrains Mono', monospace" font-size="11" fill="#cbd5e1">• session-jsonl (事件溯源)</text>
-      <text x="242" y="58" font-family="'JetBrains Mono', monospace" font-size="11" fill="#cbd5e1">• session-search-fts (SQLite)</text>
-      <text x="242" y="74" font-family="'JetBrains Mono', monospace" font-size="11" fill="#cbd5e1">• permissions &amp; checkpoints</text>
-      <text x="242" y="90" font-family="'JetBrains Mono', monospace" font-size="11" fill="#94a3b8">• tool-fs · tool-bash (Sandbox)</text>
+      <rect x="230" y="0" width="218" height="100" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1" filter="url(#boxShadow)"/>
+      <text x="242" y="22" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#4f46e5">会话存储、安全与基础工具</text>
+      <text x="242" y="42" font-family="'JetBrains Mono', monospace" font-size="11" fill="#334155">• session-jsonl (事件溯源)</text>
+      <text x="242" y="58" font-family="'JetBrains Mono', monospace" font-size="11" fill="#334155">• session-search-fts (SQLite)</text>
+      <text x="242" y="74" font-family="'JetBrains Mono', monospace" font-size="11" fill="#334155">• permissions &amp; checkpoints</text>
+      <text x="242" y="90" font-family="'JetBrains Mono', monospace" font-size="11" fill="#64748b">• tool-fs · tool-bash (Sandbox)</text>
 
-      <rect x="460" y="0" width="220" height="100" rx="10" fill="#111827" stroke="#334155" stroke-width="1"/>
-      <text x="472" y="22" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#f472b6">高阶 Agent 扩展插件</text>
-      <text x="472" y="42" font-family="'JetBrains Mono', monospace" font-size="11" fill="#cbd5e1">• intelligent-ui (声明式/HTML)</text>
-      <text x="472" y="58" font-family="'JetBrains Mono', monospace" font-size="11" fill="#cbd5e1">• subagents · mcp (STDIO/HTTP)</text>
-      <text x="472" y="74" font-family="'JetBrains Mono', monospace" font-size="11" fill="#cbd5e1">• browser (CDP) · computer</text>
-      <text x="472" y="90" font-family="'JetBrains Mono', monospace" font-size="11" fill="#94a3b8">• schedule · memory 2.0 · hooks</text>
+      <rect x="460" y="0" width="220" height="100" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1" filter="url(#boxShadow)"/>
+      <text x="472" y="22" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#db2777">高阶 Agent 扩展插件</text>
+      <text x="472" y="42" font-family="'JetBrains Mono', monospace" font-size="11" fill="#334155">• intelligent-ui (声明式/HTML)</text>
+      <text x="472" y="58" font-family="'JetBrains Mono', monospace" font-size="11" fill="#334155">• subagents · mcp (STDIO/HTTP)</text>
+      <text x="472" y="74" font-family="'JetBrains Mono', monospace" font-size="11" fill="#334155">• browser (CDP) · computer</text>
+      <text x="472" y="90" font-family="'JetBrains Mono', monospace" font-size="11" fill="#64748b">• schedule · memory 2.0 · hooks</text>
     </g>
 
     <!-- 3-Tier Dynamic Plugin Footer -->
-    <rect x="18" y="242" width="680" height="98" rx="10" fill="#090d16" stroke="#3b82f6" stroke-width="1.2"/>
-    <text x="32" y="264" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#93c5fd">
+    <rect x="18" y="242" width="680" height="98" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="1.2" filter="url(#boxShadow)"/>
+    <text x="32" y="264" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" font-weight="700" fill="#1d4ed8">
       PluginManager 三级动态插件覆盖与本地持久化 (~/.qianji)
     </text>
-    <text x="32" y="286" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12" fill="#cbd5e1">
+    <text x="32" y="286" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12" fill="#334155">
       优先级：1. 内置默认层 (builtin)  &lt;  2. 用户全局层 (~/.qianji/plugins)  &lt;  3. 受信任工作区层 (&lt;repo&gt;/.qianji/plugins)
     </text>
     <text x="32" y="308" font-family="'JetBrains Mono', monospace" font-size="11" fill="#64748b">
       磁盘布局：sessions/*.jsonl | index.sqlite | providers.json | secrets.dat (DPAPI) | plugins.json | schedules.json
     </text>
-    <text x="32" y="326" font-family="'JetBrains Mono', monospace" font-size="11" fill="#38bdf8">
+    <text x="32" y="326" font-family="'JetBrains Mono', monospace" font-size="11" font-weight="600" fill="#0284c7">
       多渠道安装器：local (fs.watch HMR) · archive (.tgz/.zip) · git · npm (内嵌 BUN_BE_BUN=1 --ignore-scripts)
     </text>
   </g>
 
   <!-- Stdin /Helper Bridge between Host and Rust -->
   <g>
-    <line x1="754" y1="360" x2="788" y2="360" stroke="#34d399" stroke-width="2" marker-start="url(#arrowEmerald)" marker-end="url(#arrowEmerald)"/>
-    <text x="771" y="348" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="10" fill="#6ee7b7">stdin</text>
-    <text x="771" y="376" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="10" fill="#6ee7b7">helper</text>
+    <line x1="754" y1="360" x2="788" y2="360" stroke="#059669" stroke-width="2" marker-start="url(#arrowEmerald)" marker-end="url(#arrowEmerald)"/>
+    <text x="771" y="348" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="600" fill="#047857">stdin</text>
+    <text x="771" y="376" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="600" fill="#047857">helper</text>
   </g>
 
   <!-- LAYER 2B: Rust Desktop Shell (Right) -->
   <g transform="translate(790, 286)">
-    <rect width="374" height="358" rx="14" fill="url(#rustLayerGrad)" stroke="#f97316" stroke-width="1.5"/>
-    <rect x="18" y="14" width="220" height="24" rx="6" fill="#431407"/>
-    <text x="28" y="30" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700" fill="#fdba74">
+    <rect width="374" height="358" rx="14" fill="url(#rustLayerGrad)" stroke="#fdba74" stroke-width="1.5"/>
+    <rect x="18" y="14" width="220" height="24" rx="6" fill="#ffedd5" stroke="#fdba74" stroke-width="1"/>
+    <text x="28" y="30" font-family="'JetBrains Mono', monospace" font-size="12" font-weight="700" fill="#c2410c">
       LAYER 2B · Tauri 2 Rust 壳层
     </text>
-    <text x="248" y="30" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12" font-weight="600" fill="#fed7aa">
+    <text x="248" y="30" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12" font-weight="600" fill="#9a3412">
       src-tauri (qianji.exe)
     </text>
 
     <g transform="translate(18, 48)">
-      <rect x="0" y="0" width="338" height="66" rx="9" fill="#0c0a09" stroke="#57534e" stroke-width="1"/>
-      <text x="14" y="22" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#fb923c">1. Harness Host 进程托管 (harness_host.rs)</text>
-      <text x="14" y="41" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#d6d3d1">• 随机 Token 注入 · Stdin 设置同步与防孤儿进程</text>
-      <text x="14" y="57" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#a8a29e">• 指数退避崩溃重启 (0.5s~8s) 与熔断通知</text>
+      <rect x="0" y="0" width="338" height="66" rx="9" fill="#ffffff" stroke="#fed7aa" stroke-width="1" filter="url(#boxShadow)"/>
+      <text x="14" y="22" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#ea580c">1. Harness Host 进程托管 (harness_host.rs)</text>
+      <text x="14" y="41" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#334155">• 随机 Token 注入 · Stdin 设置同步与防孤儿进程</text>
+      <text x="14" y="57" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#64748b">• 指数退避崩溃重启 (0.5s~8s) 与熔断通知</text>
 
-      <rect x="0" y="76" width="338" height="66" rx="9" fill="#0c0a09" stroke="#57534e" stroke-width="1"/>
-      <text x="14" y="98" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#fb923c">2. 原生 Git 与 GitHub PR 引擎 (commands/git.rs)</text>
-      <text x="14" y="117" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#d6d3d1">• 工作区/暂存区/分支快照 · Hunk 级 Stage/Revert</text>
-      <text x="14" y="133" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#a8a29e">• 受管 Worktree · gh PR 创建与 CI/评论回灌</text>
+      <rect x="0" y="76" width="338" height="66" rx="9" fill="#ffffff" stroke="#fed7aa" stroke-width="1" filter="url(#boxShadow)"/>
+      <text x="14" y="98" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#ea580c">2. 原生 Git 与 GitHub PR 引擎 (commands/git.rs)</text>
+      <text x="14" y="117" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#334155">• 工作区/暂存区/分支快照 · Hunk 级 Stage/Revert</text>
+      <text x="14" y="133" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#64748b">• 受管 Worktree · gh PR 创建与 CI/评论回灌</text>
 
-      <rect x="0" y="152" width="338" height="66" rx="9" fill="#0c0a09" stroke="#57534e" stroke-width="1"/>
-      <text x="14" y="174" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#fb923c">3. 多标签真实 ConPTY 终端 (terminal.rs)</text>
-      <text x="14" y="193" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#d6d3d1">• PowerShell 7 / CMD / Git Bash / WSL 多标签保持</text>
-      <text x="14" y="209" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#a8a29e">• 跨块 UTF-8 CJK 防乱码 · 默认零上下文污染</text>
+      <rect x="0" y="152" width="338" height="66" rx="9" fill="#ffffff" stroke="#fed7aa" stroke-width="1" filter="url(#boxShadow)"/>
+      <text x="14" y="174" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#ea580c">3. 多标签真实 ConPTY 终端 (terminal.rs)</text>
+      <text x="14" y="193" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#334155">• PowerShell 7 / CMD / Git Bash / WSL 多标签保持</text>
+      <text x="14" y="209" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#64748b">• 跨块 UTF-8 CJK 防乱码 · 默认零上下文污染</text>
 
-      <rect x="0" y="228" width="338" height="68" rx="9" fill="#0c0a09" stroke="#57534e" stroke-width="1"/>
-      <text x="14" y="250" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#fb923c">4. 工作区文件检索与系统桥接 (computer.rs)</text>
-      <text x="14" y="269" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#d6d3d1">• 可取消多线程全文搜索 · 外部 IDE 行号跳转</text>
-      <text x="14" y="285" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#a8a29e">• Win32 截图/SendInput 助手 · 单实例锁与防休眠</text>
+      <rect x="0" y="228" width="338" height="68" rx="9" fill="#ffffff" stroke="#fed7aa" stroke-width="1" filter="url(#boxShadow)"/>
+      <text x="14" y="250" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="12.5" font-weight="700" fill="#ea580c">4. 工作区文件检索与系统桥接 (computer.rs)</text>
+      <text x="14" y="269" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#334155">• 可取消多线程全文搜索 · 外部 IDE 行号跳转</text>
+      <text x="14" y="285" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#64748b">• Win32 截图/SendInput 助手 · 单实例锁与防休眠</text>
     </g>
   </g>
 </svg>
