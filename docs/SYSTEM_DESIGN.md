@@ -1,9 +1,21 @@
 # 千机（Qianji / PI-Desktop）完整系统设计文档
 
+![千机 (Qianji) 品牌与三大核心定位](assets/hero-banner.svg)
+
 > [!NOTE]
 > **文档版本**：v0.3.0（V2 Harness Host 架构基线）  
 > **项目主页**：[README.md](../README.md) · **架构决策记录**：[docs/adr/README.md](adr/README.md) · **本地能力边界**：[docs/LOCAL_CAPABILITIES.md](LOCAL_CAPABILITIES.md)  
 > **技术栈概览**：React 19 + TypeScript 5.9 + Zustand 5 + Tailwind CSS 4 | Tauri 2 (Rust) | Bun 单文件编译运行时 + `@deepseek-ai/cordis` 微内核
+
+---
+
+## 0. 核心界面实机预览
+
+| 新会话工作台首页 (Home & Composer) | Intelligent UI 交互组件与分屏画布 |
+| :---: | :---: |
+| ![新会话工作台首页](assets/screenshot-home.png) | ![Intelligent UI 与分屏画布](assets/screenshot-intelligent-ui.png) |
+| **右侧原生 IDE 工作台与 Git 审查 (Review Diff)** | **连接器与全栈动态插件中心 (Plugins & MCP)** |
+| ![右侧 IDE 工作台与代码审查](assets/screenshot-workbench.png) | ![连接器与动态插件中心](assets/screenshot-settings.png) |
 
 ---
 
@@ -27,6 +39,8 @@
 
 ### 2.1 三层双进程架构全景
 系统在运行时由 **两个本地进程** 组成：**Tauri Rust 主进程（含 WebView2 渲染进程）** 与 **Harness Host 引擎子进程**。单实例 Harness Host 同时承载所有工作区与并发任务的会话作用域（[ADR 0001](adr/0001-harness-host-process.md)）。
+
+![千机三层双进程微内核架构全景图](assets/architecture-diagram.svg)
 
 ```mermaid
 flowchart TB

@@ -1,5 +1,7 @@
 # Qianji (千机)
 
+![Qianji Banner](docs/assets/hero-banner.svg)
+
 **A local-first Windows desktop creation environment fusing an Agent Workbench, an Autonomous Bot, and a Lightweight IDE.**
 
 [**简体中文**](README.md) · [**English**](README.en.md)
@@ -9,7 +11,7 @@
 [![Engine: Harness Host](https://img.shields.io/badge/Engine-Harness_Host_(Cordis)-6E56CF.svg)](docs/SYSTEM_DESIGN.md)
 [![Runtime: Tauri 2 + React 19](https://img.shields.io/badge/Shell-Tauri_2_%2B_React_19-FFC131.svg)](#system-architecture)
 
-[Why Qianji?](#why-qianji) · [Capabilities](#capabilities) · [System Architecture](#system-architecture) · [Monorepo Packages](#monorepo-packages) · [Quick Start](#quick-start) · [Security Model](#security-model) · [Documentation](#documentation)
+[Screenshots](#screenshots) · [Why Qianji?](#why-qianji) · [Capabilities](#capabilities) · [System Architecture](#system-architecture) · [Monorepo Packages](#monorepo-packages) · [Quick Start](#quick-start) · [Security Model](#security-model) · [Documentation](#documentation)
 
 ---
 
@@ -19,6 +21,16 @@ Qianji has **zero runtime dependency on external CLI agents or global Node.js in
 
 > [!NOTE]
 > Qianji is an independent open-source project. It is not affiliated with or endorsed by OpenAI, Anthropic, or Google. References to Codex, Claude Artifacts, or Grok describe interaction patterns, not product ownership.
+
+---
+
+## Screenshots
+
+| New Session Home & Composer | Intelligent UI & Split-Pane Canvas |
+| :---: | :---: |
+| ![Home & Composer](docs/assets/screenshot-home.png)<br/><sub>Workspace & Local/Worktree selector, model/thinking picker, and quick starters</sub> | ![Intelligent UI & Split-Pane Canvas](docs/assets/screenshot-intelligent-ui.png)<br/><sub>Live interactive calculators, charts, and sandboxed apps inline and side-by-side</sub> |
+| **Unified Right IDE Workbench & Git Review** | **Connectors & Dynamic Plugin Center** |
+| ![Right IDE Workbench & Review Diff](docs/assets/screenshot-workbench.png)<br/><sub>Workspace files, CodeMirror 6 editor, hunk-level Git stage/revert, and side chat</sub> | ![Connectors & Plugin Center](docs/assets/screenshot-settings.png)<br/><sub>Manage MCP servers, CDP browser, desktop control, subagents, and hot-reloadable plugins</sub> |
 
 ---
 
@@ -71,30 +83,7 @@ Qianji has **zero runtime dependency on external CLI agents or global Node.js in
 
 > For the comprehensive architectural specification, sequence diagrams, data storage layout, and subsystem internals, see **[docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)** and the **[Architecture Decision Records (docs/adr)](docs/adr/README.md)**.
 
-```text
-+-----------------------------------------------------------------------------------+
-|                        React 19 UI + Zustand 4-Slice Store                        |
-|   Sidebar | Conversation & Intelligent UI | Right IDE Workbench | Bottom Terminal |
-+-----------------------------------+-----------------------------------------------+
-                                    |
-        JSON-RPC 2.0 over WebSocket |                           Tauri invoke & Events
-        ws://127.0.0.1:<port>/rpc   |                           (Native OS / Git / PTY)
-        (ADR 0002)                  v                                     v
-+-------------------------------------------------------+   +-----------------------+
-|      Harness Host (qianji-harness.exe, Bun)           |   |  Rust Desktop Shell   |
-|  +-------------------------------------------------+  |   |  (src-tauri)          |
-|  | Pure Core Spine (corePlugins):                  |<-----+  - Process Guardian   |
-|  | Credentials | LlmService | Sessions | Ui        |stdin |  - Single Instance    |
-|  | Tools | Commands | SystemPrompt | AgentLoop     |ctrl  |  - Native Git & PRs   |
-|  +-------------------------------------------------+  |   |  - ConPTY Terminals   |
-|  | PluginManager (@qianji/kernel topological DAG): |  |   |  - Workspace Search   |
-|  | llm-* | pricing | session-jsonl | search-fts    |  |   |  - Computer Helper    |
-|  | tool-fs | tool-bash | permissions | checkpoints |  |   +-----------------------+
-|  | plan | intelligent-ui | memory | subagents      |  |
-|  | mcp | browser (CDP) | computer | schedule       |  |
-|  +-------------------------------------------------+  |
-+-------------------------------------------------------+
-```
+![Qianji System Architecture](docs/assets/architecture-diagram.svg)
 
 - **The Rust Shell (`src-tauri`)** owns the application window, system tray, prevent-sleep thread, native Git diff/stage/PR commands, ConPTY terminal sessions, workspace file streaming search, the `--computer-helper` native bridge, and the lifecycle of the Harness Host child process. It passes desktop settings to the Host over `stdin` and automatically restarts the Host with exponential backoff if it crashes ([ADR 0001](docs/adr/0001-harness-host-process.md), [ADR 0013](docs/adr/0013-desktop-settings-and-secrets.md)).
 - **The Harness Host (`packages/host`)** is compiled into a standalone Windows executable (`qianji-harness.exe`) using `esbuild` and `bun build --compile`, so end users need no external runtime. The frontend talks directly to the Host over authenticated loopback WebSocket JSON-RPC 2.0 for all agent, session, model, MCP, schedule, and plugin operations ([ADR 0002](docs/adr/0002-client-protocol.md), [ADR 0014](docs/adr/0014-frontend-harness-adapter.md)).

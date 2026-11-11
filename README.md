@@ -1,5 +1,7 @@
 # 千机 (Qianji)
 
+![千机 (Qianji) 品牌横幅](docs/assets/hero-banner.svg)
+
 **融合 Agent 工作台、自主运行 Bot 与轻量级 IDE 的本地优先（Local-First）Windows 桌面创造环境。**
 
 [**简体中文**](README.md) · [**English**](README.en.md)
@@ -9,7 +11,7 @@
 [![Engine: Harness Host](https://img.shields.io/badge/Engine-Harness_Host_(Cordis)-6E56CF.svg)](docs/SYSTEM_DESIGN.md)
 [![Runtime: Tauri 2 + React 19](https://img.shields.io/badge/Shell-Tauri_2_%2B_React_19-FFC131.svg)](#系统架构)
 
-[为什么选择千机？](#为什么选择千机) · [核心能力](#核心能力) · [系统架构](#系统架构) · [Monorepo 模块矩阵](#monorepo-模块矩阵) · [快速开始](#快速开始) · [安全与隐私模型](#安全与隐私模型) · [文档导航](#文档导航)
+[界面预览](#界面预览) · [为什么选择千机？](#为什么选择千机) · [核心能力](#核心能力) · [系统架构](#系统架构) · [Monorepo 模块矩阵](#monorepo-模块矩阵) · [快速开始](#快速开始) · [安全与隐私模型](#安全与隐私模型) · [文档导航](#文档导航)
 
 ---
 
@@ -19,6 +21,16 @@
 
 > [!NOTE]
 > 千机是独立的开源项目，与 OpenAI、Anthropic 或 Google 无隶属或背书关系。文档中提及的 Codex、Claude Artifacts 或 Grok 仅用于说明交互范式参考。
+
+---
+
+## 界面预览
+
+| 新会话工作台首页 (Home & Composer) | Intelligent UI 交互组件与右侧分屏画布 |
+| :---: | :---: |
+| ![新会话工作台首页](docs/assets/screenshot-home.png)<br/><sub>支持本地/Worktree 环境切换、分组模型与推理等级选择、快捷启动卡片</sub> | ![Intelligent UI 与分屏画布](docs/assets/screenshot-intelligent-ui.png)<br/><sub>在对话流内实时生成可交互计算器/图表卡片，并在右侧画布并排展开</sub> |
+| **右侧七合一原生 IDE 工作台与 Git 审查** | **连接器与全栈动态插件管理中心** |
+| ![右侧 IDE 工作台与代码审查](docs/assets/screenshot-workbench.png)<br/><sub>内置文件树、CodeMirror 6、Hunk 级 Git Stage/Revert 审查与侧边聊天</sub> | ![连接器与动态插件中心](docs/assets/screenshot-settings.png)<br/><sub>统一管理 MCP 服务桥接、CDP 自动化浏览器、桌面控制与热重载扩展模块</sub> |
 
 ---
 
@@ -71,30 +83,7 @@
 
 > 完整的系统架构设计、序列图、状态树设计与数据落盘规范请参阅 **[系统设计文档 (`docs/SYSTEM_DESIGN.md`)](docs/SYSTEM_DESIGN.md)** 与 **[架构决策记录 (`docs/adr`)](docs/adr/README.md)**。
 
-```text
-+-----------------------------------------------------------------------------------+
-|                        React 19 UI + Zustand 四分片状态树                          |
-|   左侧项目会话栏 | 中央对话与 Intelligent UI | 右侧 IDE 工作台 | 底部多标签终端    |
-+-----------------------------------+-----------------------------------------------+
-                                    |
-        JSON-RPC 2.0 over WebSocket |                           Tauri invoke & Events
-        ws://127.0.0.1:<port>/rpc   |                           (原生窗口 / Git / PTY)
-        (ADR 0002)                  v                                     v
-+-------------------------------------------------------+   +-----------------------+
-|      Harness Host (qianji-harness.exe, Bun)           |   |  Rust 桌面壳层         |
-|  +-------------------------------------------------+  |   |  (src-tauri)          |
-|  | 纯内存核心脊柱 (corePlugins):                    |<-----+  - 进程守护与自愈      |
-|  | Credentials | LlmService | Sessions | Ui        |stdin |  - 单实例进程锁        |
-|  | Tools | Commands | SystemPrompt | AgentLoop     |控制流 |  - 原生 Git 与 PR     |
-|  +-------------------------------------------------+  |   |  - ConPTY 真实终端     |
-|  | PluginManager (@qianji/kernel 拓扑依赖编排):     |  |   |  - 工作区流式搜索      |
-|  | llm-* | pricing | session-jsonl | search-fts    |  |   |  - Computer 原生助手   |
-|  | tool-fs | tool-bash | permissions | checkpoints |  |   +-----------------------+
-|  | plan | intelligent-ui | memory | subagents      |  |
-|  | mcp | browser (CDP) | computer | schedule       |  |
-|  +-------------------------------------------------+  |
-+-------------------------------------------------------+
-```
+![千机三层双进程微内核架构全景图](docs/assets/architecture-diagram.svg)
 
 - **Rust 桌面壳层（`src-tauri`）**：负责主窗口与系统托盘、防休眠后台线程、原生 Git 状态/Hunk 暂存/PR 命令、ConPTY 终端会话、工作区文件流式检索、`--computer-helper` 原生桥接以及 Harness Host 进程托管。Rust 通过 `stdin` 向 Host 下发配置，并在 Host 异常退出时按指数退避策略自动拉起恢复（[ADR 0001](docs/adr/0001-harness-host-process.md)、[ADR 0013](docs/adr/0013-desktop-settings-and-secrets.md)）。
 - **Harness Host 引擎（`packages/host`）**：通过 `esbuild` 与 `bun build --compile` 编译为独立单文件可执行程序 `qianji-harness.exe`，终端用户无需安装 Node.js。前端通过本地回环 WebSocket 上的 JSON-RPC 2.0 协议直连 Host 完成所有 Agent、会话、模型、MCP、定时任务与插件操作（[ADR 0002](docs/adr/0002-client-protocol.md)、[ADR 0014](docs/adr/0014-frontend-harness-adapter.md)）。
