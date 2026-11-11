@@ -242,3 +242,65 @@ test("expanding a short turn process does not trigger spurious scrollbars", asyn
   expect(metrics.groupScrollable).toBe(false);
   expect(metrics.groupOverflows).toBe(false);
 });
+
+test("requireCtrlEnter toggle switches Enter and Ctrl+Enter across composer and message edit", async ({ app, harness }) => {
+  harness.provider.push(
+    textReply("Default mode reply."),
+    textReply("Ctrl+Enter mode reply."),
+    textReply("Edited reply."),
+  );
+
+  // 1. Default OFF: Ctrl+Enter inserts a newline instead of sending; plain Enter sends.
+  const input = composer(app);
+  await input.click();
+  await input.type("line 1");
+  await input.press("Control+Enter");
+  await input.type("line 2");
+  await expect(input).toHaveValue("line 1\nline 2");
+  expect(harness.provider.requests).toHaveLength(0);
+
+  await input.press("Enter");
+  await expect(userBubble(app, "line 1\nline 2")).toBeVisible();
+  await expect(answer(app, "Default mode reply.")).toBeVisible();
+  await settled(app);
+
+  // 2. Enable "使用 Ctrl + Enter 发送消息" in General settings.
+  await app.getByRole("button", { name: "设置" }).click();
+  const ctrlEnterSwitch = app.getByRole("switch", { name: "使用 Ctrl+Enter 发送" });
+  await expect(ctrlEnterSwitch).toHaveAttribute("aria-checked", "false");
+  await ctrlEnterSwitch.click();
+  await expect(ctrlEnterSwitch).toHaveAttribute("aria-checked", "true");
+  await app.locator(".settings-back-btn").click();
+  await expect(app.getByRole("region", { name: "设置" })).toHaveCount(0);
+
+  // Composer reflects the active shortcut in both placeholder and send tooltip.
+  await expect(input).toHaveAttribute("placeholder", /Ctrl\+Enter 发送/);
+  await expect(app.locator(".send-button")).toHaveAttribute("title", "发送 (Ctrl+Enter)");
+
+  // Plain Enter now inserts a newline; Ctrl+Enter submits.
+  await input.click();
+  await input.type("ctrl line 1");
+  await input.press("Enter");
+  await input.type("ctrl line 2");
+  await expect(input).toHaveValue("ctrl line 1\nctrl line 2");
+  expect(harness.provider.requests).toHaveLength(1);
+
+  await input.press("Control+Enter");
+  await expect(userBubble(app, "ctrl line 1\nctrl line 2")).toBeVisible();
+  await expect(answer(app, "Ctrl+Enter mode reply.")).toBeVisible();
+  await settled(app);
+
+  // 3. Inline message edit also respects requireCtrlEnter.
+  await userRow(app, "ctrl line 1").hover();
+  await userRow(app, "ctrl line 1").getByRole("button", { name: "编辑消息" }).click();
+  const editInput = app.getByRole("textbox", { name: "编辑消息" });
+  await editInput.fill("edited 1");
+  await editInput.press("Enter");
+  await app.keyboard.type("edited 2");
+  await expect(editInput).toHaveValue("edited 1\nedited 2");
+  expect(harness.provider.requests).toHaveLength(2);
+
+  await editInput.press("Control+Enter");
+  await expect(userBubble(app, "edited 1\nedited 2")).toBeVisible();
+  await expect(answer(app, "Edited reply.")).toBeVisible();
+});

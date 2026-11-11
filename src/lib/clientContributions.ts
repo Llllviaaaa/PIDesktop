@@ -309,5 +309,5 @@ export class ClientContributionService extends Service {
 export const clientContributions = new ClientContributionRegistry();
 
 export function useClientContributions(): ClientContributionsSnapshot {
-  return useSyncExternalStore(clientContributions.subscribe, clientContributions.getSnapshot);
+  return useSyncExternalStore(clientContributions.subscribe, clientContributions.getSnapshot, clientContributions.getSnapshot);
 }
