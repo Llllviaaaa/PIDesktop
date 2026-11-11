@@ -307,6 +307,11 @@ export class PluginManager {
       : [...this.latestSnapshot];
   }
 
+  private isProtectedBuiltin(id: string): boolean {
+    const builtinDef = this.options.builtins(this.currentTrustedWorkspace).find((entry) => entry.id === id);
+    return builtinDef?.canDisable === false;
+  }
+
   async setEnabled(id: string, enabled: boolean, options: { workspace?: string; watch?: boolean } = {}): Promise<PluginMutationResult> {
     await this.enqueue(async () => {
       if (options.workspace !== undefined && options.workspace.trim() !== "") {
@@ -325,15 +330,8 @@ export class PluginManager {
         });
         this.activeWorkspace = ws;
       } else {
-        if (!enabled) {
-          const currentEntry = this.latestCandidates.find((entry) => entry.id === id);
-          const builtinDef = this.options.builtins(this.currentTrustedWorkspace).find((entry) => entry.id === id);
-          const protectedBuiltin = currentEntry !== undefined
-            ? (currentEntry.tier === "builtin" && !currentEntry.canDisable)
-            : (builtinDef?.canDisable === false);
-          if (protectedBuiltin) {
-            throw new Error(`Plugin "${id}" is an essential host transport gateway and cannot be disabled`);
-          }
+        if (!enabled && this.isProtectedBuiltin(id)) {
+          throw new Error(`Plugin "${id}" is an essential host transport gateway and cannot be disabled`);
         }
         updatePluginsStore(this.options.dataDir, (store) => {
           const prev = store.plugins[id];
@@ -370,6 +368,9 @@ export class PluginManager {
         });
         this.activeWorkspace = ws;
       } else {
+        if (this.isProtectedBuiltin(id)) {
+          throw new Error(`Plugin "${id}" is an essential host transport gateway and cannot be reconfigured`);
+        }
         updatePluginsStore(this.options.dataDir, (store) => {
           const prev = store.plugins[id];
           store.plugins[id] = {
@@ -391,11 +392,20 @@ export class PluginManager {
       if (id !== undefined) {
         const existing = this.latestSnapshot.find((entry) => entry.id === id);
         if (existing?.dir !== undefined) this.bundles.invalidateDir(existing.dir);
-        await this.syncNow({ reason: "reloaded", forceIds: new Set([id]), ...(workspace === undefined ? {} : { workspace }) });
+        const forceIds = this.isProtectedBuiltin(id) ? undefined : new Set([id]);
+        await this.syncNow({
+          reason: "reloaded",
+          ...(forceIds === undefined ? {} : { forceIds }),
+          ...(workspace === undefined ? {} : { workspace }),
+        });
       } else {
         this.bundles.clear();
-        const allIds = new Set(this.latestSnapshot.map((entry) => entry.id));
-        await this.syncNow({ reason: "reloaded", forceIds: allIds, ...(workspace === undefined ? {} : { workspace }) });
+        const reloadableIds = new Set(
+          this.latestSnapshot
+            .filter((entry) => entry.canDisable !== false)
+            .map((entry) => entry.id),
+        );
+        await this.syncNow({ reason: "reloaded", forceIds: reloadableIds, ...(workspace === undefined ? {} : { workspace }) });
       }
     });
     const plugins = await this.list(workspace);
@@ -679,6 +689,33 @@ export class PluginManager {
 
       const candidates: ResolvedCandidate[] = [];
       for (const id of allIds) {
+        const protectedBuiltin = builtinsById.get(id);
+        if (protectedBuiltin !== undefined && protectedBuiltin.canDisable === false) {
+          const depMeta = extractPluginDependencyMeta(protectedBuiltin.plugin, {
+            ...(protectedBuiltin.inject === undefined ? {} : { inject: protectedBuiltin.inject }),
+            ...(protectedBuiltin.provides === undefined ? {} : { provides: protectedBuiltin.provides }),
+          });
+          candidates.push({
+            id: protectedBuiltin.id,
+            name: protectedBuiltin.name,
+            version: this.options.version,
+            description: protectedBuiltin.description,
+            tier: "builtin",
+            enabled: true,
+            canDisable: false,
+            overridesBuiltin: false,
+            removable: false,
+            hasHost: protectedBuiltin.hasHost,
+            hasClient: protectedBuiltin.hasClient,
+            watch: false,
+            builtinPlugin: protectedBuiltin.plugin,
+            effectiveConfig: protectedBuiltin.config,
+            inject: depMeta.inject,
+            provides: depMeta.provides,
+          });
+          continue;
+        }
+
         const wsManifest = workspaceById.get(id);
         if (wsManifest !== undefined && wsManifest.workspace !== undefined) {
           const wsPatch = store.workspacePlugins[workspacePluginKey(wsManifest.workspace, id)];
@@ -846,10 +883,11 @@ export class PluginManager {
 
         const sourceKey = `${candidate.tier}:${candidate.dir ?? "builtin"}:${candidate.hostEntry ?? ""}:${candidate.clientEntry ?? ""}`;
         const sig = signatureOf(candidate.effectiveConfig);
-        const force = params.forceIds?.has(candidate.id) === true;
+        const pinnedGateway = candidate.tier === "builtin" && !candidate.canDisable;
+        const force = !pinnedGateway && params.forceIds?.has(candidate.id) === true;
         const current = this.mounted.get(candidate.id);
 
-        if (current !== undefined && !force && current.sourceKey === sourceKey && current.signature === sig) {
+        if (current !== undefined && (pinnedGateway || (!force && current.sourceKey === sourceKey && current.signature === sig))) {
           candidate.inject = current.inject;
           candidate.provides = current.provides;
           preparedList.push({
