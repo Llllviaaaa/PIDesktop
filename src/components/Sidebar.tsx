@@ -33,9 +33,12 @@ export function Sidebar({
   onPickFolder,
   settingsShortcut,
   newChatShortcut,
+  toggleSidebarShortcut,
   searchRequested = false,
   onSearchRequestHandled,
   hoverPreview = false,
+  onPinSidebar,
+  onCloseSidebar,
   onHoverEnter,
   onHoverLeave,
 }: SidebarProps) {
@@ -57,7 +60,7 @@ export function Sidebar({
       data-slot="sidebar"
       data-sidebar-mode={hoverPreview ? "preview" : "pinned"}
       onMouseEnter={onHoverEnter}
-      onMouseLeave={onHoverLeave}
+      onMouseLeave={state.searchOpen ? undefined : onHoverLeave}
       ref={sidebarRef}
     >
       <SidebarHeaderAndPopovers
@@ -87,6 +90,9 @@ export function Sidebar({
         closePopovers={state.closePopovers}
         clearProjectMenu={() => state.setProjectMenu(null)}
         onPickFolder={onPickFolder}
+        toggleSidebarShortcut={toggleSidebarShortcut}
+        onPinSidebar={hoverPreview ? onPinSidebar : undefined}
+        onCloseSidebar={hoverPreview ? onCloseSidebar : undefined}
       />
 
       <SidebarThreadAndProjectLists

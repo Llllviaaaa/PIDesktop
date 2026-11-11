@@ -154,9 +154,9 @@ export default function App() {
 
   useAppearanceAndShellEffects({
     isTauri, anyTaskStreaming, workspaceCwd: ws.workspaceCwd, cwd, moreOpen, setMoreOpen, appMenu, setAppMenu,
-    settingsOpen, setSettingsOpen, setSidebarVisible: ws.setSidebarVisible, appearanceCatalog, settings, connection,
+    settingsOpen, setSettingsOpen, appearanceCatalog, settings, connection,
     canOpenWorkspace: ws.canOpenWorkspace, openWorkspaceInPreferredApp: ws.openWorkspaceInPreferredApp,
-    pinPrimarySidebar: ws.pinPrimarySidebar, setSidebarSearchRequested, cycleTranscriptDensity, toggleBottomPanel,
+    showSidebarHoverPreview: ws.showSidebarHoverPreview, setSidebarSearchRequested, cycleTranscriptDensity, toggleBottomPanel,
     toggleWorkspaceSidebar, openBrowserAt, openReview, togglePrimarySidebar: ws.togglePrimarySidebar,
     prepareNewTask, setDraftMode, setQuickChat: ws.setQuickChat, setHubView,
   });
@@ -240,10 +240,10 @@ export default function App() {
   return (
     <div className="app-shell codex-shot" style={{ ["--sidebar-width" as string]: `${sidebarWidth}px` }}>
       <WindowMenubar
-        appWindow={appWindow} sidebarVisible={ws.sidebarVisible} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen}
+        appWindow={appWindow} sidebarVisible={ws.sidebarVisible} sidebarRendered={ws.sidebarRendered}
+        isNarrowViewport={ws.isNarrowViewport} toggleSidebarShortcut={settings?.shortcutToggleSidebar || "Ctrl+B"} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen}
         canNavigateBack={nav.canNavigateBack} canNavigateForward={nav.canNavigateForward} navigateBack={nav.navigateBack}
         navigateForward={nav.navigateForward} navigateTo={nav.navigateTo} togglePrimarySidebar={ws.togglePrimarySidebar}
-        showSidebarHoverPreview={ws.showSidebarHoverPreview} scheduleSidebarHoverClose={ws.scheduleSidebarHoverClose}
         appMenu={appMenu} setAppMenu={setAppMenu} draftWorkspace={draftWorkspace} cwd={cwd} canOpenWorkspace={ws.canOpenWorkspace}
         preferredWorkspaceEditor={ws.preferredWorkspaceEditor} openWorkspaceInPreferredApp={ws.openWorkspaceInPreferredApp}
         pickFolder={ws.pickFolder} connected={connected} sessionFile={sessionFile}
@@ -257,8 +257,10 @@ export default function App() {
         style={{ ["--sidebar-width" as string]: `${sidebarWidth}px`, ["--workspace-panel-width" as string]: `${workspacePanelWidth}px` }}
       >
         <PrimarySidebarShell
-          sidebarVisible={ws.sidebarVisible} sidebarHoverPreview={ws.sidebarHoverPreview} sidebarRendered={ws.sidebarRendered}
-          sidebarWidth={sidebarWidth} settingsOpen={settingsOpen} showSidebarHoverPreview={ws.showSidebarHoverPreview}
+          sidebarVisible={ws.sidebarVisible} isNarrowViewport={ws.isNarrowViewport}
+          sidebarHoverPreview={ws.sidebarHoverPreview} sidebarRendered={ws.sidebarRendered}
+          sidebarWidth={sidebarWidth} settingsOpen={settingsOpen} pinPrimarySidebar={ws.pinPrimarySidebar}
+          closeSidebarHoverPreview={ws.closeSidebarHoverPreview} showSidebarHoverPreview={ws.showSidebarHoverPreview}
           cancelSidebarHoverClose={ws.cancelSidebarHoverClose} scheduleSidebarHoverClose={ws.scheduleSidebarHoverClose}
           onResizePointerDown={sidebarResize.beginResize} onResizeKeyDown={sidebarResize.resizeWithKeyboard}
           sessions={sessions} sessionFile={sessionFile} runningSessionFiles={runningSessionFiles}
@@ -279,8 +281,8 @@ export default function App() {
             <div className="work-surface">
               <div className="stage-canvas">
                 <StageTopbar
-                  newTask={newTask} hubView={hubView} sidebarVisible={ws.sidebarVisible} pinPrimarySidebar={ws.pinPrimarySidebar}
-                  showSidebarHoverPreview={ws.showSidebarHoverPreview} scheduleSidebarHoverClose={ws.scheduleSidebarHoverClose}
+                  newTask={newTask} hubView={hubView} sidebarVisible={ws.sidebarVisible} sidebarRendered={ws.sidebarRendered}
+                  isNarrowViewport={ws.isNarrowViewport} toggleSidebarShortcut={settings?.shortcutToggleSidebar || "Ctrl+B"} togglePrimarySidebar={ws.togglePrimarySidebar}
                   connected={connected} isStreaming={isStreaming} editingTitle={editingTitle} setEditingTitle={setEditingTitle}
                   titleDraft={titleDraft} setTitleDraft={setTitleDraft} resolvedThreadTitle={resolvedThreadTitle}
                   setSessionName={store.setSessionName} moreOpen={moreOpen} setMoreOpen={setMoreOpen} navigateTo={nav.navigateTo}

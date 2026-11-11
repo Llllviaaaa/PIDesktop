@@ -1,5 +1,6 @@
-import { Children, createContext, isValidElement, useContext, useMemo, useState, type ComponentPropsWithoutRef, type MouseEvent, type ReactElement, type ReactNode } from "react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import { Children, createContext, isValidElement, memo, useContext, useMemo, useState, type ComponentPropsWithoutRef, type MouseEvent, type ReactElement, type ReactNode } from "react";
+import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
+import type { PluggableList } from "unified";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
@@ -57,10 +58,12 @@ function openFileRef(event: MouseEvent, href: string) {
   event.preventDefault();
   const path = decodeURIComponent(href.slice(FILE_SCHEME.length).split("#")[0]);
   const cwd = useAppStore.getState().cwd;
+  const sep = cwd.includes("\\") ? "\\" : "/";
+  const normalizedChild = sep === "\\" ? path.replace(/\//g, "\\") : path.replace(/\\/g, "/");
   const absolute = /^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)
     ? path
     : cwd
-      ? `${cwd.replace(/[\\/]+$/, "")}\\${path.replace(/\//g, "\\")}`
+      ? `${cwd.replace(/[\\/]+$/, "")}${sep}${normalizedChild}`
       : path;
   const fallback = () => {
     void navigator.clipboard.writeText(absolute).catch(() => undefined);
@@ -266,58 +269,69 @@ function FileRef({ href, children }: { href: string; children?: ReactNode }) {
   );
 }
 
+const REMARK_PLUGINS: PluggableList = [remarkGfm];
+const REHYPE_PLUGINS: PluggableList = [[rehypeHighlight, { detect: false, ignoreMissing: true }]];
+const markdownUrlTransform = (url: string) =>
+  url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url);
+
 interface MarkdownProps {
   content: string;
   allowRichContent?: boolean;
 }
 
-export function Markdown({ content, allowRichContent = false }: MarkdownProps) {
-  const visibleContent = stripCodeReviewDirectives(content);
+export const Markdown = memo(function Markdown({ content, allowRichContent = false }: MarkdownProps) {
+  const visibleContent = useMemo(() => stripCodeReviewDirectives(content), [content]);
+  const linkedMarkdown = useMemo(() => linkifyFilePaths(visibleContent), [visibleContent]);
   const richContentEnabled = useMemo(
     () => allowRichContent && richContentFenceCount(visibleContent) === 1,
     [allowRichContent, visibleContent],
   );
+  const components = useMemo<Components>(
+    () => ({
+      pre: ({ children }) => <MarkdownPre allowRichContent={richContentEnabled}>{children}</MarkdownPre>,
+      table: ({ children, node: _node, ...props }) => <MarkdownTable {...props}>{children}</MarkdownTable>,
+      a: ({ href, children }) => {
+        if (href?.startsWith(FILE_SCHEME)) return <FileRef href={href}>{children}</FileRef>;
+        return (
+          <a
+            href={href}
+            onClick={(event) => {
+              if (!href) return;
+              event.preventDefault();
+              void openUrl(href);
+            }}
+          >
+            {children}
+          </a>
+        );
+      },
+      code: ({ className, children, ...rest }) => {
+        const text = typeof children === "string"
+          ? children
+          : Array.isArray(children) && children.length === 1 && typeof children[0] === "string"
+            ? children[0]
+            : null;
+        if (!className && text) {
+          const match = INLINE_FILE_RE.exec(text.trim());
+          // A path in inline code stays a code chip whose text is the file link (dsh-claude-style file mentions).
+          if (match) return <code className="file-mention"><FileRef href={fileHref(match[1], match[2])}>{text.trim()}</FileRef></code>;
+        }
+        return <code className={className} {...rest}>{children}</code>;
+      },
+    }),
+    [richContentEnabled],
+  );
+
   return (
     <div className="markdown-body">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
-        urlTransform={(url) => url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url)}
-        components={{
-          pre: ({ children }) => <MarkdownPre allowRichContent={richContentEnabled}>{children}</MarkdownPre>,
-          table: ({ children, node: _node, ...props }) => <MarkdownTable {...props}>{children}</MarkdownTable>,
-          a: ({ href, children }) => {
-            if (href?.startsWith(FILE_SCHEME)) return <FileRef href={href}>{children}</FileRef>;
-            return (
-              <a
-                href={href}
-                onClick={(event) => {
-                  if (!href) return;
-                  event.preventDefault();
-                  void openUrl(href);
-                }}
-              >
-                {children}
-              </a>
-            );
-          },
-          code: ({ className, children, ...rest }) => {
-            const text = typeof children === "string"
-              ? children
-              : Array.isArray(children) && children.length === 1 && typeof children[0] === "string"
-                ? children[0]
-                : null;
-            if (!className && text) {
-              const match = INLINE_FILE_RE.exec(text.trim());
-              // A path in inline code stays a code chip whose text is the file link (dsh-claude-style file mentions).
-              if (match) return <code className="file-mention"><FileRef href={fileHref(match[1], match[2])}>{text.trim()}</FileRef></code>;
-            }
-            return <code className={className} {...rest}>{children}</code>;
-          },
-        }}
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
+        urlTransform={markdownUrlTransform}
+        components={components}
       >
-        {linkifyFilePaths(visibleContent)}
+        {linkedMarkdown}
       </ReactMarkdown>
     </div>
   );
-}
+});

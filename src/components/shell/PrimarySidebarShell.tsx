@@ -10,10 +10,13 @@ import type { HubView, NavigationTarget } from "./shellTypes";
 
 export interface PrimarySidebarShellProps {
   sidebarVisible: boolean;
+  isNarrowViewport: boolean;
   sidebarHoverPreview: boolean;
   sidebarRendered: boolean;
   sidebarWidth: number;
   settingsOpen: boolean;
+  pinPrimarySidebar: () => void;
+  closeSidebarHoverPreview: () => void;
   showSidebarHoverPreview: () => void;
   cancelSidebarHoverClose: () => void;
   scheduleSidebarHoverClose: () => void;
@@ -51,10 +54,13 @@ export interface PrimarySidebarShellProps {
 
 export function PrimarySidebarShell({
   sidebarVisible,
+  isNarrowViewport,
   sidebarHoverPreview,
   sidebarRendered,
   sidebarWidth,
   settingsOpen,
+  pinPrimarySidebar,
+  closeSidebarHoverPreview,
   showSidebarHoverPreview,
   cancelSidebarHoverClose,
   scheduleSidebarHoverClose,
@@ -85,6 +91,11 @@ export function PrimarySidebarShell({
   pickFolder,
   contributions,
 }: PrimarySidebarShellProps) {
+  const navigateFromSidebar = (target: NavigationTarget) => {
+    navigateTo(target);
+    if (!sidebarVisible) closeSidebarHoverPreview();
+  };
+
   return (
     <>
       {!sidebarVisible && !settingsOpen && (
@@ -112,25 +123,25 @@ export function PrimarySidebarShell({
                 cwd={newTask ? draftWorkspace : cwd}
                 newTaskActive={newTask && hubView === null}
                 activeHub={hubView === "scheduled" ? "scheduled" : null}
-                onNewSession={() => navigateTo({ kind: "home", workspace: draftWorkspace || cwd })}
-                onOpenScheduled={() => navigateTo({ kind: "hub", view: "scheduled" })}
-                onOpenSession={(session) => navigateTo({ kind: "session", cwd: session.cwd, file: session.file })}
+                onNewSession={() => navigateFromSidebar({ kind: "home", workspace: draftWorkspace || cwd })}
+                onOpenScheduled={() => navigateFromSidebar({ kind: "hub", view: "scheduled" })}
+                onOpenSession={(session) => navigateFromSidebar({ kind: "session", cwd: session.cwd, file: session.file })}
                 onOpenNotification={(notification) => {
                   markNotificationRead(notification.id);
                   const targetSession = notification.sessionFile
                     ? sessions.find((session) => sameLocalPath(session.file, notification.sessionFile as string))
                     : null;
                   if (targetSession) {
-                    navigateTo({ kind: "session", cwd: targetSession.cwd, file: targetSession.file });
+                    navigateFromSidebar({ kind: "session", cwd: targetSession.cwd, file: targetSession.file });
                   } else if (notification.cwd) {
-                    navigateTo({ kind: "home", workspace: notification.cwd });
+                    navigateFromSidebar({ kind: "home", workspace: notification.cwd });
                     if (notification.sessionFile) showToast("原任务记录已不可用，已打开对应项目", "warning");
                   }
                 }}
                 onMarkAllNotificationsRead={markAllNotificationsRead}
                 onDismissNotification={dismissNotification}
-                onOpenProject={(workspace) => navigateTo({ kind: "home", workspace })}
-                onNewProjectSession={(workspace) => navigateTo({ kind: "home", workspace })}
+                onOpenProject={(workspace) => navigateFromSidebar({ kind: "home", workspace })}
+                onNewProjectSession={(workspace) => navigateFromSidebar({ kind: "home", workspace })}
                 onArchiveSession={(session) => void archiveConversations([session], session.cwd, "已归档对话")}
                 onSessionRestored={() => void refreshSessions()}
                 onOpenProjectFolder={(workspace) => {
@@ -140,7 +151,7 @@ export function PrimarySidebarShell({
                   try {
                     const snapshot = await agent.gitSnapshot(workspace);
                     const worktree = await agent.createWorktree(workspace, snapshot.branch);
-                    navigateTo({ kind: "home", workspace: worktree.path });
+                    navigateFromSidebar({ kind: "home", workspace: worktree.path });
                     showToast(`已创建工作树：${worktree.branch || worktree.path}`, "info");
                   } catch (error) {
                     showToast(`创建工作树失败：${describeError(error)}`, "error");
@@ -155,15 +166,22 @@ export function PrimarySidebarShell({
                 settingsShortcut={settings?.shortcutSettings ?? "Ctrl+,"}
                 onPickFolder={() => void pickFolder()}
                 newChatShortcut={settings?.shortcutNewChat ?? "Ctrl+Shift+N"}
+                toggleSidebarShortcut={settings?.shortcutToggleSidebar || "Ctrl+B"}
                 searchRequested={sidebarSearchRequested}
                 onSearchRequestHandled={() => setSidebarSearchRequested(false)}
                 hoverPreview={!sidebarVisible}
+                onPinSidebar={!sidebarVisible && !isNarrowViewport ? pinPrimarySidebar : undefined}
+                onCloseSidebar={!sidebarVisible && isNarrowViewport ? closeSidebarHoverPreview : undefined}
                 onHoverEnter={cancelSidebarHoverClose}
                 onHoverLeave={scheduleSidebarHoverClose}
               />
             </RegionErrorBoundary>
             {(contributions.pages.length > 0 || contributions.leftSidebar.length > 0) && (
-              <div className="pid-sidebar-plugin-slot">
+              <div
+                className="pid-sidebar-plugin-slot"
+                onMouseEnter={!sidebarVisible ? cancelSidebarHoverClose : undefined}
+                onMouseLeave={!sidebarVisible ? scheduleSidebarHoverClose : undefined}
+              >
                 {contributions.pages.map((page) => {
                   const targetView: HubView = `plugin:${page.id}`;
                   return (
@@ -171,7 +189,7 @@ export function PrimarySidebarShell({
                       key={page.id}
                       type="button"
                       className={`pid-sidebar-plugin-page-btn${hubView === targetView ? " active" : ""}`}
-                      onClick={() => navigateTo({ kind: "hub", view: targetView })}
+                      onClick={() => navigateFromSidebar({ kind: "hub", view: targetView })}
                     >
                       {page.icon}
                       <span>{page.label}</span>

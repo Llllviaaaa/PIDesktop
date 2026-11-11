@@ -149,13 +149,7 @@ impl RecoveryTracker {
                     RecoveryAction::NotifyOnly
                 }
             }
-            KIND_FRAME_RENDER_PROCESS_EXITED => {
-                if label.starts_with("workspace-browser-") {
-                    RecoveryAction::Reload
-                } else {
-                    RecoveryAction::NotifyOnly
-                }
-            }
+            KIND_FRAME_RENDER_PROCESS_EXITED => RecoveryAction::NotifyOnly,
             KIND_GPU_PROCESS_EXITED => {
                 history.gpu_failures.push_back(now);
                 let severe_reason = matches!(
@@ -262,7 +256,7 @@ fn recreate_main_window_blocking(app: &AppHandle) -> bool {
     }
 
     let teardown_deadline = Instant::now() + Duration::from_secs(3);
-    while app.get_webview_window("main").is_some() || app.get_webview("main").is_some() {
+    while app.get_webview_window("main").is_some() {
         if Instant::now() >= teardown_deadline {
             log_line!(
                 "[webview] timed out waiting for broken main window teardown before recreation"
@@ -331,30 +325,6 @@ pub(crate) fn attach_webview_window(app: &AppHandle, window: &tauri::WebviewWind
     if let Err(err) = result {
         mark_detached(&label);
         log_line!("[webview] could not reach webview {label} to attach crash guard: {err}");
-    }
-}
-
-#[cfg(windows)]
-pub(crate) fn ensure_child_webview_attached(app: &AppHandle, webview: &tauri::Webview) {
-    let label = webview.label().to_string();
-    let app_handle = app.clone();
-    let label_for_closure = label.clone();
-    let result = webview.with_webview(move |platform_webview| {
-        if let Err(err) = register_process_failed_handler(
-            app_handle,
-            label_for_closure.clone(),
-            platform_webview.controller(),
-        ) {
-            mark_detached(&label_for_closure);
-            log_line!(
-                "[webview] failed to attach ProcessFailed listener on child {label_for_closure}: {err}"
-            );
-        }
-    });
-
-    if let Err(err) = result {
-        mark_detached(&label);
-        log_line!("[webview] could not reach child webview {label} for crash guard: {err}");
     }
 }
 
@@ -480,10 +450,6 @@ fn schedule_recovery(app: AppHandle, label: String, action: RecoveryAction) {
                     let _ = window.with_webview(|wv| unsafe {
                         let _ = wv.controller().NotifyParentWindowPositionChanged();
                     });
-                } else if let Some(webview) = app_for_main.get_webview(&label) {
-                    let _ = webview.with_webview(|wv| unsafe {
-                        let _ = wv.controller().NotifyParentWindowPositionChanged();
-                    });
                 }
             }
             RecoveryAction::Reload => {
@@ -492,12 +458,6 @@ fn schedule_recovery(app: AppHandle, label: String, action: RecoveryAction) {
                         log_line!("[webview] reload failed for window {label}: {err}");
                     } else {
                         log_line!("[webview] reloaded window {label} after child-process failure");
-                    }
-                } else if let Some(webview) = app_for_main.get_webview(&label) {
-                    if let Err(err) = webview.reload() {
-                        log_line!("[webview] reload failed for webview {label}: {err}");
-                    } else {
-                        log_line!("[webview] reloaded webview {label} after child-process failure");
                     }
                 }
             }
@@ -595,7 +555,7 @@ mod tests {
         );
         assert_eq!(
             tracker.decide(
-                "workspace-browser-1",
+                "secondary",
                 KIND_BROWSER_PROCESS_EXITED,
                 REASON_UNEXPECTED,
                 t0
@@ -603,19 +563,19 @@ mod tests {
             RecoveryAction::NotifyOnly
         );
 
-        // Subframe crash inside main does not wipe out the main shell, whereas embedded browser reloads
+        // Subframe crashes inside any window's iframe do not reload the host window
         assert_eq!(
             tracker.decide("main", KIND_FRAME_RENDER_PROCESS_EXITED, REASON_CRASHED, t0),
             RecoveryAction::NotifyOnly
         );
         assert_eq!(
             tracker.decide(
-                "workspace-browser-1",
+                "secondary",
                 KIND_FRAME_RENDER_PROCESS_EXITED,
                 REASON_CRASHED,
                 t0
             ),
-            RecoveryAction::Reload
+            RecoveryAction::NotifyOnly
         );
 
         // Unresponsive renderer only reloads if repeated consecutively within 30s
@@ -642,22 +602,10 @@ mod tests {
     #[test]
     fn reattaches_when_same_label_recreated_with_new_com_identity() {
         let mut map = HashMap::new();
-        assert!(should_attach_webview(
-            &mut map,
-            "workspace-browser-1",
-            (0x1000, 0x2000)
-        ));
+        assert!(should_attach_webview(&mut map, "main", (0x1000, 0x2000)));
         // Duplicate attach on identical COM pointers is skipped
-        assert!(!should_attach_webview(
-            &mut map,
-            "workspace-browser-1",
-            (0x1000, 0x2000)
-        ));
+        assert!(!should_attach_webview(&mut map, "main", (0x1000, 0x2000)));
         // Recreated webview with same label and new COM pointers re-attaches
-        assert!(should_attach_webview(
-            &mut map,
-            "workspace-browser-1",
-            (0x3000, 0x4000)
-        ));
+        assert!(should_attach_webview(&mut map, "main", (0x3000, 0x4000)));
     }
 }

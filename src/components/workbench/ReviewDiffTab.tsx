@@ -41,6 +41,24 @@ function resolvedFilePath(file: ParsedDiffFile): string {
   return displayPath(file.oldPath);
 }
 
+/** Fast 32-bit FNV-1a content fingerprint so equal-length diff edits never collide in React Query. */
+function hashDiffSignature(diffText: string | undefined, files: readonly GitFileChange[] | undefined): string {
+  let hash = 0x811c9dc5;
+  const raw = diffText ?? "";
+  for (let i = 0; i < raw.length; i += 1) {
+    hash ^= raw.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  for (const file of files ?? []) {
+    const entry = `${file.status}:${Number(Boolean(file.staged))}:${Number(Boolean(file.unstaged))}:${file.path}`;
+    for (let i = 0; i < entry.length; i += 1) {
+      hash ^= entry.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+  }
+  return `${raw.length}:${files?.length ?? 0}:${(hash >>> 0).toString(16)}`;
+}
+
 export function ReviewDiffTab({
   cwd,
   git,
@@ -53,19 +71,33 @@ export function ReviewDiffTab({
   const [expandedOversized, setExpandedOversized] = useState<Record<string, boolean>>({});
   const [busyPath, setBusyPath] = useState<string | null>(null);
 
+  const diffSignature = useMemo(
+    () => hashDiffSignature(git?.diff, git?.files),
+    [git?.diff, git?.files],
+  );
+
   const filteredSnapshotQuery = useQuery({
-    queryKey: ["workbench-review", cwd, filter, git?.diff?.length ?? 0, git?.files.length ?? 0],
+    queryKey: ["workbench-review", cwd, filter, diffSignature],
     queryFn: () => agent.gitReviewSnapshot(cwd, filter),
     enabled: Boolean(cwd) && Boolean(git?.isRepository) && filter !== "uncommitted",
     staleTime: 3_000,
   });
 
-  const activeSnapshot = filter === "uncommitted" ? git : (filteredSnapshotQuery.data ?? git);
+  const activeSnapshot = filter === "uncommitted" ? git : (filteredSnapshotQuery.data ?? null);
 
-  const parsedFiles = useMemo(() => {
+  const preparedFiles = useMemo(() => {
     const rawDiff = activeSnapshot?.diff ?? "";
     if (!rawDiff.trim()) return [];
-    return parseUnifiedDiff(rawDiff).files;
+    return parseUnifiedDiff(rawDiff).files.map((file) => {
+      const path = resolvedFilePath(file);
+      const segments = unifiedSegments(file);
+      const stats = diffStats(segments);
+      const totalRows = segments.reduce(
+        (sum, seg) => sum + (seg.kind === "hunk" ? seg.rows.length : 1),
+        0,
+      );
+      return { file, path, segments, stats, totalRows };
+    });
   }, [activeSnapshot?.diff]);
 
   const fileChangeMap = useMemo(() => {
@@ -113,6 +145,8 @@ export function ReviewDiffTab({
     : filter === "unstaged"
       ? allFiles.filter((file) => file.unstaged || file.untracked)
       : allFiles;
+
+  const isLoadingFiltered = filter !== "uncommitted" && filteredSnapshotQuery.isLoading;
 
   return (
     <div className="pid-wb-pane">
@@ -181,7 +215,9 @@ export function ReviewDiffTab({
           <div className="pid-wb-empty">
             {filter === "staged" ? "当前没有已暂存的更改。" : "当前没有未暂存的更改。"}
           </div>
-        ) : parsedFiles.length === 0 ? (
+        ) : isLoadingFiltered ? (
+          <div className="pid-wb-empty">正在读取变更详情…</div>
+        ) : preparedFiles.length === 0 ? (
           <div className="pid-wb-section">
             {filteredFiles.map((change) => (
               <div key={change.path} className="pid-wb-diff-card">
@@ -232,16 +268,9 @@ export function ReviewDiffTab({
           </div>
         ) : (
           <div className="pid-wb-diff-list">
-            {parsedFiles.map((file) => {
-              const path = resolvedFilePath(file);
+            {preparedFiles.map(({ file, path, segments, stats, totalRows }) => {
               const normalized = path.replace(/\\/g, "/");
               const statusEntry = fileChangeMap.get(normalized);
-              const segments = unifiedSegments(file);
-              const stats = diffStats(segments);
-              const totalRows = segments.reduce(
-                (sum, seg) => sum + (seg.kind === "hunk" ? seg.rows.length : 1),
-                0,
-              );
               const isOversized = totalRows > OVERSIZED_DIFF_THRESHOLD && !expandedOversized[path];
               const collapsed = Boolean(collapsedPaths[path]);
 

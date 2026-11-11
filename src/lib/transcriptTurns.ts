@@ -63,14 +63,28 @@ export function workStepsFromMessages(
   return steps;
 }
 
+const turnMergeCache = new WeakMap<UiMessage, { inputs: readonly UiMessage[]; merged: UiMessage }>();
+const groupedTranscriptCache = new WeakMap<readonly UiMessage[], UiMessage[]>();
+
 export function mergeAssistantTurn(messages: UiMessage[]): UiMessage {
+  const firstRaw = messages[0];
+  if (firstRaw) {
+    const cached = turnMergeCache.get(firstRaw);
+    if (
+      cached
+      && cached.inputs.length === messages.length
+      && cached.inputs.every((item, index) => item === messages[index])
+    ) {
+      return cached.merged;
+    }
+  }
   const normalized = normalizedMessages(messages);
   const last = normalized[normalized.length - 1];
   const finalIndex = findFinalContentIndex(normalized);
   const content = finalIndex >= 0 ? normalized[finalIndex].content : "";
   const steps = workStepsFromMessages(normalized, content, finalIndex);
   const thinking = steps.filter((step) => step.kind === "thinking").map((step) => step.text).join("\n\n") || undefined;
-  return {
+  const merged: UiMessage = {
     ...last,
     id: normalized[0].id,
     content,
@@ -83,10 +97,16 @@ export function mergeAssistantTurn(messages: UiMessage[]): UiMessage {
     durationMs: turnDurationMs(normalized),
     timestamp: last.timestamp || normalized[0].timestamp,
   };
+  if (firstRaw) {
+    turnMergeCache.set(firstRaw, { inputs: [...messages], merged });
+  }
+  return merged;
 }
 
 /** Collapse consecutive assistant messages from one user turn into a single display row. */
 export function groupTranscriptMessages(messages: UiMessage[]): UiMessage[] {
+  const cached = groupedTranscriptCache.get(messages);
+  if (cached) return cached;
   const out: UiMessage[] = [];
   let bucket: UiMessage[] = [];
   const flush = () => {
@@ -103,5 +123,6 @@ export function groupTranscriptMessages(messages: UiMessage[]): UiMessage[] {
     out.push(message);
   }
   flush();
+  groupedTranscriptCache.set(messages, out);
   return out;
 }

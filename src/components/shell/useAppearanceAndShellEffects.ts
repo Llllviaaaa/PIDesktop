@@ -25,13 +25,12 @@ export interface ShellEffectsOptions {
   setAppMenu: (next: AppMenu | null) => void;
   settingsOpen: boolean;
   setSettingsOpen: (next: boolean) => void;
-  setSidebarVisible: (next: boolean | ((prev: boolean) => boolean)) => void;
   appearanceCatalog: AppearanceCatalog;
   settings: AppSettings | null;
   connection: ConnectionState;
   canOpenWorkspace: boolean;
   openWorkspaceInPreferredApp: () => void;
-  pinPrimarySidebar: () => void;
+  showSidebarHoverPreview: () => void;
   setSidebarSearchRequested: (next: boolean) => void;
   cycleTranscriptDensity: () => void;
   toggleBottomPanel: () => void;
@@ -56,13 +55,12 @@ export function useAppearanceAndShellEffects({
   setAppMenu,
   settingsOpen,
   setSettingsOpen,
-  setSidebarVisible,
   appearanceCatalog,
   settings,
   connection,
   canOpenWorkspace,
   openWorkspaceInPreferredApp,
-  pinPrimarySidebar,
+  showSidebarHoverPreview,
   setSidebarSearchRequested,
   cycleTranscriptDensity,
   toggleBottomPanel,
@@ -117,16 +115,6 @@ export function useAppearanceAndShellEffects({
       window.removeEventListener("keydown", onEscape);
     };
   }, [appMenu, moreOpen, setAppMenu, setMoreOpen, settingsOpen]);
-
-  useEffect(() => {
-    const narrowWindow = window.matchMedia("(max-width: 900px)");
-    const collapseSidebar = (event: MediaQueryListEvent | MediaQueryList) => {
-      if (event.matches) setSidebarVisible(false);
-    };
-    collapseSidebar(narrowWindow);
-    narrowWindow.addEventListener("change", collapseSidebar);
-    return () => narrowWindow.removeEventListener("change", collapseSidebar);
-  }, [setSidebarVisible]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -210,7 +198,8 @@ export function useAppearanceAndShellEffects({
   }, [appearanceCatalog, isTauri, settings]);
 
   useEffect(() => {
-    const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, "").replace("control", "ctrl");
+    const normalize = (value: string) =>
+      value.toLowerCase().replace(/\s+/g, "").replace("control", "ctrl").replace("cmd", "ctrl").replace("command", "ctrl");
     const shortcuts = {
       newChat: settings?.shortcutNewChat ?? "Ctrl+Shift+N",
       settings: settings?.shortcutSettings ?? "Ctrl+,",
@@ -220,22 +209,26 @@ export function useAppearanceAndShellEffects({
     };
     const ctrlKBound = Object.values(shortcuts).some((value) => normalize(value) === "ctrl+k");
     const shortcutFor = (event: KeyboardEvent) => [
-      event.ctrlKey ? "Ctrl" : "",
+      event.ctrlKey || event.metaKey ? "Ctrl" : "",
       event.altKey ? "Alt" : "",
       event.shiftKey ? "Shift" : "",
-      event.metaKey ? "Meta" : "",
       event.key.length === 1 ? event.key.toUpperCase() : event.key,
     ].filter(Boolean).join("+");
     const onKeyDown = (event: KeyboardEvent) => {
+      const targetEl = event.target instanceof Element ? event.target : null;
+      if (targetEl?.closest('[data-shortcut-recorder="true"]')) return;
       const shortcut = normalize(shortcutFor(event));
       const ctrl = event.ctrlKey || event.metaKey;
-      const inTerminal = Boolean((event.target as Element | null)?.closest?.(".xterm"));
+      const inTerminal = Boolean(targetEl?.closest(".xterm"));
+      const inEditable = Boolean(
+        targetEl?.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""], .cm-editor'),
+      );
       if (ctrl && event.shiftKey && !event.altKey && event.key.toLowerCase() === "o" && !inTerminal && canOpenWorkspace) {
         event.preventDefault();
         openWorkspaceInPreferredApp();
         return;
       }
-      if (shortcut === normalize(shortcuts.settings) || (event.ctrlKey && event.key === ",")) {
+      if (shortcut === normalize(shortcuts.settings) || (ctrl && !event.altKey && !event.shiftKey && event.key === ",")) {
         event.preventDefault();
         setSettingsOpen(true);
         return;
@@ -248,16 +241,21 @@ export function useAppearanceAndShellEffects({
       }
       if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k" && !inTerminal && !settingsOpen && !ctrlKBound) {
         event.preventDefault();
-        pinPrimarySidebar();
+        showSidebarHoverPreview();
         setSidebarSearchRequested(true);
         return;
       }
-      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "o" && !inTerminal) {
+      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "o" && !inTerminal && !settingsOpen) {
         event.preventDefault();
         cycleTranscriptDensity();
         return;
       }
-      if (ctrl && !event.altKey && !event.shiftKey && (event.key.toLowerCase() === "j" || event.code === "Backquote" || event.key === "`")) {
+      if (
+        ctrl
+        && !event.altKey
+        && !event.shiftKey
+        && (event.code === "Backquote" || event.key === "`" || (!inTerminal && event.key.toLowerCase() === "j"))
+      ) {
         event.preventDefault();
         toggleBottomPanel();
         return;
@@ -267,7 +265,7 @@ export function useAppearanceAndShellEffects({
         toggleWorkspaceSidebar();
         return;
       }
-      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "t" && !inTerminal) {
+      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "t" && !inTerminal && !settingsOpen) {
         event.preventDefault();
         openBrowserAt();
         return;
@@ -279,7 +277,7 @@ export function useAppearanceAndShellEffects({
         setDraftMode(true);
         setQuickChat(false);
         setHubView(null);
-      } else if (shortcut === normalize(shortcuts.terminal) || shortcut === "ctrl+j") {
+      } else if (shortcut === normalize(shortcuts.terminal) || (!inTerminal && shortcut === "ctrl+j")) {
         event.preventDefault();
         setSettingsOpen(false);
         toggleBottomPanel();
@@ -287,7 +285,7 @@ export function useAppearanceAndShellEffects({
         event.preventDefault();
         setSettingsOpen(false);
         openReview();
-      } else if (shortcut === normalize(shortcuts.toggleSidebar) && !inTerminal) {
+      } else if (shortcut === normalize(shortcuts.toggleSidebar) && !inTerminal && !inEditable && !settingsOpen) {
         event.preventDefault();
         togglePrimarySidebar();
       }
@@ -301,7 +299,6 @@ export function useAppearanceAndShellEffects({
     openBrowserAt,
     openReview,
     openWorkspaceInPreferredApp,
-    pinPrimarySidebar,
     prepareNewTask,
     setDraftMode,
     setHubView,
@@ -310,6 +307,7 @@ export function useAppearanceAndShellEffects({
     setSidebarSearchRequested,
     settings,
     settingsOpen,
+    showSidebarHoverPreview,
     toggleBottomPanel,
     togglePrimarySidebar,
     toggleWorkspaceSidebar,

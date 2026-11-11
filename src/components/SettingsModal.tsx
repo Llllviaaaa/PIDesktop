@@ -31,6 +31,96 @@ export function normalizeSettingsDisplayMode(value?: string | null): SettingsDis
   return value === "modal" ? "modal" : "page";
 }
 
+export function formatShortcutChord(
+  event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">,
+): string | null {
+  const rawKey = event.key;
+  if (!rawKey || ["Control", "Shift", "Alt", "Meta", "Dead", "Unidentified"].includes(rawKey)) {
+    return null;
+  }
+  const isFunctionKey = /^F(?:[1-9]|1[0-2])$/i.test(rawKey);
+  const hasModifier = event.ctrlKey || event.metaKey || event.altKey;
+  if (!hasModifier && !isFunctionKey) {
+    return null;
+  }
+  const normalizedKey = rawKey === " "
+    ? "Space"
+    : rawKey.length === 1
+      ? rawKey.toUpperCase()
+      : isFunctionKey
+        ? rawKey.toUpperCase()
+        : rawKey;
+  return [
+    event.ctrlKey || event.metaKey ? "Ctrl" : "",
+    event.altKey ? "Alt" : "",
+    event.shiftKey ? "Shift" : "",
+    normalizedKey,
+  ].filter(Boolean).join("+");
+}
+
+function ShortcutRecorder({
+  label,
+  value,
+  defaultValue,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  defaultValue: string;
+  onChange: (next: string) => void;
+}) {
+  const [recording, setRecording] = useState(false);
+  const current = value.trim() || defaultValue;
+  const isCustom = current.toLowerCase() !== defaultValue.toLowerCase();
+
+  return (
+    <div className="settings-shortcut-control">
+      <button
+        type="button"
+        className={`settings-shortcut-recorder${recording ? " is-recording" : ""}`}
+        aria-label={label}
+        data-shortcut-recorder={recording ? "true" : undefined}
+        data-escape-layer={recording ? "" : undefined}
+        onClick={() => setRecording((prev) => !prev)}
+        onBlur={() => setRecording(false)}
+        onKeyDown={(event) => {
+          if (!recording) return;
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            setRecording(false);
+            return;
+          }
+          if (event.key === "Tab") {
+            setRecording(false);
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          const chord = formatShortcutChord(event);
+          if (!chord) return;
+          onChange(chord);
+          setRecording(false);
+        }}
+      >
+        <kbd>{recording ? "按下组合键…" : current}</kbd>
+      </button>
+      {isCustom && (
+        <button
+          type="button"
+          className="secondary-button settings-inline-btn"
+          onClick={() => {
+            setRecording(false);
+            onChange(defaultValue);
+          }}
+        >
+          恢复默认
+        </button>
+      )}
+    </div>
+  );
+}
+
 export const DEFAULTS: AppSettings = { ...DEFAULT_APP_SETTINGS };
 
 const NAV_ITEMS: ReadonlyArray<{
@@ -66,6 +156,7 @@ export function SettingsModal({
   initialPage?: SettingsPage;
 }) {
   const [form, setForm] = useState<AppSettings>({ ...DEFAULTS, ...settings, language: "zh-CN" });
+  const formRef = useRef(form);
   const [active, setActive] = useState<SettingsPage>(initialPage);
   const [saveState, setSaveState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
   const editedRef = useRef(false);
@@ -85,7 +176,11 @@ export function SettingsModal({
   }, [active]);
 
   useEffect(() => {
-    if (!editedRef.current) setForm({ ...DEFAULTS, ...settings, language: "zh-CN" });
+    if (!editedRef.current) {
+      const synced: AppSettings = { ...DEFAULTS, ...settings, language: "zh-CN" };
+      formRef.current = synced;
+      setForm(synced);
+    }
   }, [settings]);
 
   const [requestedPage, setRequestedPage] = useState(initialPage);
@@ -136,17 +231,16 @@ export function SettingsModal({
   }, [flushSettings]);
 
   const update = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
-    setForm((current) => {
-      const next = { ...current, [key]: value };
-      editedRef.current = true;
-      if (key === "settingsDisplayMode") {
-        pendingSaveRef.current = next;
-        void flushSettings();
-      } else {
-        scheduleSave(next);
-      }
-      return next;
-    });
+    const next: AppSettings = { ...formRef.current, [key]: value };
+    formRef.current = next;
+    editedRef.current = true;
+    setForm(next);
+    if (key === "settingsDisplayMode") {
+      pendingSaveRef.current = next;
+      void flushSettings();
+    } else {
+      scheduleSave(next);
+    }
   }, [flushSettings, scheduleSave]);
 
   const closeSettings = useCallback(() => {
@@ -665,6 +759,17 @@ function AppearancePage({
               })}
             </div>
           </LayoutGroup>
+        </Row>
+        <Row
+          title="切换左侧栏快捷键"
+          description="固定或收起左侧会话与项目边栏的全局快捷键（窄窗口下展开悬浮抽屉）"
+        >
+          <ShortcutRecorder
+            label="切换左侧栏快捷键"
+            value={form.shortcutToggleSidebar}
+            defaultValue={DEFAULTS.shortcutToggleSidebar}
+            onChange={(next) => update("shortcutToggleSidebar", next)}
+          />
         </Row>
       </Section>
 

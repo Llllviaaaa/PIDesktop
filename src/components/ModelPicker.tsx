@@ -234,14 +234,19 @@ function ModelPickerMenu({
     items[index - 1].focus();
   };
 
-  const closeLevels = () => {
+  const closeLevelsOnPointer = () => {
+    if (customInputOpen || levelsOpen === "keyboard") return;
+    setLevelsOpen(false);
+  };
+
+  const closeLevelsOnFocus = () => {
     if (customInputOpen) return;
     setLevelsOpen(false);
   };
 
   return (
     <div ref={menuRef} className="model-picker-menu" role="dialog" aria-label="选择模型和思考等级" onKeyDown={moveFocus}>
-      <label className="model-picker-search" onPointerEnter={closeLevels} onFocus={closeLevels}>
+      <label className="model-picker-search" onPointerEnter={closeLevelsOnPointer} onFocus={closeLevelsOnFocus}>
         <Search size={13} strokeWidth={1.75} />
         <input
           ref={searchRef}
@@ -316,8 +321,8 @@ function ModelPickerMenu({
         className="model-picker-list"
         role="menu"
         aria-label="模型"
-        onPointerEnter={closeLevels}
-        onFocus={closeLevels}
+        onPointerEnter={closeLevelsOnPointer}
+        onFocus={closeLevelsOnFocus}
       >
         {groups.map(([provider, providerModels]) => (
           <section className="model-picker-group" key={provider} aria-label={provider}>
@@ -388,6 +393,26 @@ function ThinkingLevelMenu({
   useEffect(() => {
     onCustomInputOpenChange(addingCustom);
   }, [addingCustom, onCustomInputOpenChange]);
+
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    const anchor = el?.parentElement;
+    if (!el || !anchor || window.getComputedStyle(el).position !== "absolute") return;
+    el.style.top = "";
+    el.style.right = "";
+    const anchorRect = anchor.getBoundingClientRect();
+    const margin = 12;
+    const defaultTop = anchorRect.top - 5;
+    const overflowBottom = defaultTop + el.offsetHeight - (window.innerHeight - margin);
+    if (overflowBottom > 0) {
+      const maxShiftUp = Math.max(0, defaultTop - margin);
+      el.style.top = `${-5 - Math.min(overflowBottom, maxShiftUp)}px`;
+    }
+    const defaultLeft = anchorRect.left - 9 - el.offsetWidth;
+    if (defaultLeft < margin) {
+      el.style.right = `calc(100% + ${Math.round(9 - (margin - defaultLeft))}px)`;
+    }
+  }, [addingCustom, levels.length]);
 
   useEffect(() => {
     if (!focusOnOpen) return;

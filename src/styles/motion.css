@@ -259,13 +259,14 @@
   transform: translateX(14px);
 }
 
-/* Sidebar collapse/expand smoothness */
-.codex-shot .primary-sidebar-panel {
+/* Sidebar collapse/expand smoothness (docked state only; floating preview stays out-of-flow) */
+.codex-shot .primary-sidebar-panel[data-sidebar-panel-state="pinned"] {
   transition:
     width 200ms var(--pi-ease-out),
     opacity 160ms var(--pi-ease-quart);
 }
 
+.codex-shot .primary-sidebar-panel:not([data-sidebar-panel-state="pinned"]),
 body.sidebar-is-resizing .codex-shot .primary-sidebar-panel {
   transition: none !important;
 }

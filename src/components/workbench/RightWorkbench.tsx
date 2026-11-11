@@ -1,6 +1,9 @@
 import {
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -23,15 +26,18 @@ import {
 } from "lucide-react";
 import { useSyncOnChange } from "../../hooks/useSyncOnChange";
 import { useClientContributions } from "../../lib/clientContributions";
-import { useWorkbenchStore } from "../../stores/workbenchStore";
+import { matchesWorkbenchFileCwd, useWorkbenchStore } from "../../stores/workbenchStore";
 import type { GitSnapshot } from "../../types";
 import { SideChatTab } from "../SideChatTab";
 import { SlotEntryHost } from "../common/ErrorBoundary";
 import { BrowserPreviewTab } from "./BrowserPreviewTab";
-import { CodeEditorTab } from "./CodeEditorTab";
 import { ReviewDiffTab } from "./ReviewDiffTab";
 import { TaskSummaryTab } from "./TaskSummaryTab";
 import { WorkspaceFilesTab } from "./WorkspaceFilesTab";
+
+const LazyCodeEditorTab = lazy(() =>
+  import("./CodeEditorTab").then((mod) => ({ default: mod.CodeEditorTab })),
+);
 
 export interface WorkbenchTopbarControlsProps {
   cwd: string;
@@ -110,7 +116,11 @@ export function RightWorkbench({
   const rightOpen = useWorkbenchStore((state) => state.rightOpen);
   const rightMaximized = useWorkbenchStore((state) => state.rightMaximized);
   const activeTab = useWorkbenchStore((state) => state.activeTab);
-  const openFilesCount = useWorkbenchStore((state) => state.openFiles.length);
+  const openFiles = useWorkbenchStore((state) => state.openFiles);
+  const openFilesCount = useMemo(
+    () => openFiles.filter((file) => matchesWorkbenchFileCwd(file.cwd, cwd)).length,
+    [cwd, openFiles],
+  );
   const openTab = useWorkbenchStore((state) => state.openTab);
   const setRightOpen = useWorkbenchStore((state) => state.setRightOpen);
   const toggleRightMaximized = useWorkbenchStore((state) => state.toggleRightMaximized);
@@ -351,7 +361,9 @@ export function RightWorkbench({
             <WorkspaceFilesTab cwd={cwd} onAddToChat={onAddToChat} />
           )}
           {activeTab === "editor" && (
-            <CodeEditorTab cwd={cwd} />
+            <Suspense fallback={<div className="pid-wb-empty">正在加载编辑器…</div>}>
+              <LazyCodeEditorTab cwd={cwd} />
+            </Suspense>
           )}
           {activeTab === "review" && (
             <ReviewDiffTab

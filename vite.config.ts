@@ -36,10 +36,23 @@ export default defineConfig(async ({ mode }) => ({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes("node_modules/react-markdown") || id.includes("node_modules/remark-") || id.includes("node_modules/rehype-") || id.includes("node_modules/highlight.js")) return "markdown";
-          if (id.includes("node_modules/lucide-react")) return "icons";
-          if (id.includes("node_modules/motion") || id.includes("node_modules/framer-motion")) return "motion";
-          if (id.includes("node_modules/react") || id.includes("node_modules/zustand")) return "react-vendor";
+          const norm = id.replace(/\\/g, "/");
+          if (
+            /\/node_modules\/(?:react-markdown|remark-|rehype-|highlight\.js|lowlight|unified|micromark|mdast-|hast-|unist-|vfile|dompurify)/.test(norm)
+          ) {
+            return "markdown";
+          }
+          if (norm.includes("/node_modules/@xterm/")) return "xterm";
+          if (
+            norm.includes("/node_modules/@codemirror/")
+            && !norm.includes("/node_modules/@codemirror/lang-")
+          ) {
+            return "codemirror-core";
+          }
+          if (norm.includes("/node_modules/motion/") || norm.includes("/node_modules/framer-motion/")) return "motion";
+          if (/\/node_modules\/(?:react|react-dom|scheduler|zustand|@tanstack)\//.test(norm)) {
+            return "react-vendor";
+          }
         },
       },
     },

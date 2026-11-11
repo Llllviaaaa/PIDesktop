@@ -19,8 +19,51 @@ export const WORKSPACE_PANEL_BOUNDS: SizeBounds = { min: 320, max: 900, fallback
 export const BOTTOM_PANEL_BOUNDS: SizeBounds = { min: 180, max: 520, fallback: 280 };
 
 export const SIDEBAR_WIDTH_KEY = "qianji:sidebar-width:v2";
+export const SIDEBAR_PINNED_KEY = "qianji:sidebar-pinned:v1";
+export const SIDEBAR_NARROW_BREAKPOINT = 760;
 export const WORKSPACE_PANEL_WIDTH_KEY = "qianji:workspace-panel-width:v5";
 export const BOTTOM_PANEL_HEIGHT_KEY = "qianji:bottom-panel-height:v1";
+
+export function readStoredSidebarPinned(
+  storage: Pick<Storage, "getItem"> | null | undefined = typeof window !== "undefined" ? window.localStorage : null,
+): boolean {
+  try {
+    const raw = storage?.getItem(SIDEBAR_PINNED_KEY) ?? null;
+    if (raw === "0" || raw === "false") return false;
+    if (raw === "1" || raw === "true") return true;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+export function writeStoredSidebarPinned(
+  pinned: boolean,
+  storage: Pick<Storage, "setItem"> | null | undefined = typeof window !== "undefined" ? window.localStorage : null,
+): void {
+  try {
+    storage?.setItem(SIDEBAR_PINNED_KEY, pinned ? "1" : "0");
+  } catch {
+    // Ignore storage errors when site data is blocked.
+  }
+}
+
+/**
+ * Returns true only for genuinely narrow viewports (`0 < width / scale <= 760` and `height > 0`).
+ * Zero-sized surfaces emitted when Windows minimizes a Tauri WebView2 window (`0x0`)
+ * are ignored so minimizing never unpins or collapses the primary sidebar.
+ */
+export function isCollapsibleNarrowViewport(width: number, height: number, scale = 1): boolean {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return false;
+  }
+  const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  return width / safeScale <= SIDEBAR_NARROW_BREAKPOINT;
+}
+
+export function resolveEffectiveSidebarVisible(sidebarPinned: boolean, isNarrowViewport: boolean): boolean {
+  return sidebarPinned && !isNarrowViewport;
+}
 
 export function clampSize(value: number, bounds: SizeBounds): number {
   if (!Number.isFinite(value)) return bounds.fallback;

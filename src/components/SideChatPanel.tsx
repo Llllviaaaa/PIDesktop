@@ -202,6 +202,26 @@ export function SideChatPanel({
   useEffect(() => {
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
+    let pendingTextDelta = "";
+    let pendingThinkingDelta = "";
+    let deltaFlushTimer: number | null = null;
+
+    const flushPendingDeltas = () => {
+      if (deltaFlushTimer !== null) {
+        window.clearTimeout(deltaFlushTimer);
+        deltaFlushTimer = null;
+      }
+      if (!pendingTextDelta && !pendingThinkingDelta) return;
+      const text = pendingTextDelta;
+      const thinking = pendingThinkingDelta;
+      pendingTextDelta = "";
+      pendingThinkingDelta = "";
+      if (disposed) return;
+      setMessages((current) => streamAssistant(current, {
+        ...(text ? { text } : {}),
+        ...(thinking ? { thinking } : {}),
+      }));
+    };
 
     const refreshStats = async (runtimeId: string) => {
       try {
@@ -216,22 +236,26 @@ export function SideChatPanel({
       if (runtimeId !== runtimeRef.current) return;
       switch (event.type) {
         case "turn-start":
+          flushPendingDeltas();
           activeTurnStartedAtRef.current = Date.now();
           setRetryStatus(null);
           setIsStreaming(true);
           return;
         case "turn-end":
+          flushPendingDeltas();
           activeTurnStartedAtRef.current = null;
           setRetryStatus(null);
           setIsStreaming(false);
           void refreshStats(runtimeId);
           return;
         case "turn-interrupted":
+          flushPendingDeltas();
           setRetryStatus(null);
           setIsStreaming(false);
           setMessages((current) => interruptTurn(current));
           return;
         case "user":
+          flushPendingDeltas();
           setMessages((current) => {
             const last = [...current].reverse().find((message) => message.role === "user");
             const pending = last && !last.entryId && last.content === event.message.content ? last.id : undefined;
@@ -239,18 +263,25 @@ export function SideChatPanel({
           });
           return;
         case "assistant-start":
+          flushPendingDeltas();
           setRetryStatus(null);
           setMessages((current) => startAssistant(current));
           return;
         case "assistant-delta":
           setRetryStatus(null);
-          setMessages((current) => streamAssistant(current, event));
+          if (event.text) pendingTextDelta += event.text;
+          if (event.thinking) pendingThinkingDelta += event.thinking;
+          if (deltaFlushTimer === null) {
+            deltaFlushTimer = window.setTimeout(flushPendingDeltas, 32);
+          }
           return;
         case "assistant-tool-calls":
+          flushPendingDeltas();
           setRetryStatus(null);
           setMessages((current) => streamAssistant(current, { toolCalls: event.calls }));
           return;
         case "assistant": {
+          flushPendingDeltas();
           const startedAt = activeTurnStartedAtRef.current;
           const durationMs = startedAt === null ? undefined : Date.now() - startedAt;
           setRetryStatus(null);
@@ -258,13 +289,16 @@ export function SideChatPanel({
           return;
         }
         case "retry-status":
+          flushPendingDeltas();
           setRetryStatus(event.text);
           setMessages((current) => resetStreamingAssistant(current));
           return;
         case "tool-start":
+          flushPendingDeltas();
           setMessages((current) => startToolCall(current, event.callId, event.name, event.args));
           return;
         case "tool-end":
+          flushPendingDeltas();
           setMessages((current) => endToolCall(current, event.callId, event.name, event.result));
           return;
         case "compaction-start":
@@ -374,6 +408,10 @@ export function SideChatPanel({
 
     return () => {
       disposed = true;
+      if (deltaFlushTimer !== null) {
+        window.clearTimeout(deltaFlushTimer);
+        deltaFlushTimer = null;
+      }
       unsubscribe?.();
       const runtimeId = runtimeRef.current;
       runtimeRef.current = null;

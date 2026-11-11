@@ -1286,6 +1286,63 @@ body.bottom-panel-is-resizing .pid-bottom-resizer::after {
 }
 
 /* Client Plugin Contribution Slots */
+.pid-sidebar-plugin-slot {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px 10px;
+  border-top: 1px solid var(--qj-border-subtle);
+  max-height: 40%;
+  overflow-y: auto;
+}
+
+.pid-sidebar-plugin-page-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--qj-radius-md);
+  background: transparent;
+  color: var(--qj-text-primary);
+  font-family: var(--qj-font-sans);
+  font-size: 13px;
+  font-weight: 460;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.pid-sidebar-plugin-page-btn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--qj-text-secondary);
+  transition: color 140ms ease;
+}
+
+.pid-sidebar-plugin-page-btn:hover {
+  background: var(--qj-bg-hover);
+  color: var(--qj-text-primary);
+}
+
+.pid-sidebar-plugin-page-btn:hover svg,
+.pid-sidebar-plugin-page-btn.active svg {
+  color: var(--qj-text-primary);
+}
+
+.pid-sidebar-plugin-page-btn.active {
+  background: var(--qj-bg-active);
+  font-weight: 560;
+}
+
+.pid-sidebar-plugin-section {
+  min-width: 0;
+}
+
 .pid-plugin-left-sections {
   border-top: 1px solid var(--border);
   padding: 6px 8px;
