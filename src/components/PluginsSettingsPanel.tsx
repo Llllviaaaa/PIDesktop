@@ -742,15 +742,17 @@ export function PluginsSettingsPanel({ cwd, form, onSyncAppSetting }: PluginsSet
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  className={`plugin-ghost-btn ${isEditing ? "active" : ""}`}
-                  disabled={busy}
-                  onClick={() => openConfigEditor(plugin)}
-                >
-                  <Settings2 size={12.5} />
-                  <span>{isEditing ? "收起" : "配置"}</span>
-                </button>
+                {!cannotDisable && (
+                  <button
+                    type="button"
+                    className={`plugin-ghost-btn ${isEditing ? "active" : ""}`}
+                    disabled={busy}
+                    onClick={() => openConfigEditor(plugin)}
+                  >
+                    <Settings2 size={12.5} />
+                    <span>{isEditing ? "收起" : "配置"}</span>
+                  </button>
+                )}
 
                 {plugin.dir !== undefined && isTauri && isExternal && (
                   <button

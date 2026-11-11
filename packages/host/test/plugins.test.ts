@@ -12,7 +12,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ErrorCode, type PluginChangedNotification, type WorkspaceTrustChangedNotification } from "@qianji/protocol";
+import {
+  ErrorCode,
+  PROTOCOL_VERSION,
+  clientSubprotocols,
+  type PluginChangedNotification,
+  type PluginInfo,
+  type PluginListResult,
+  type PluginMutationResult,
+  type WorkspaceTrustChangedNotification,
+} from "@qianji/protocol";
+import WebSocket from "ws";
 import { Sessions } from "@qianji/session";
 import { SystemPrompt } from "@qianji/system-prompt";
 import { Tools } from "@qianji/tools";
@@ -758,16 +768,19 @@ describe("dynamic plugin kernel (ADR 0016)", () => {
     }>("plugin.list");
     const webPlugin = listed.plugins.find((p) => p.id === "web-server");
     const rpcPlugin = listed.plugins.find((p) => p.id === "rpc-gateway");
-    expect(webPlugin).toMatchObject({ enabled: true, status: "active", canDisable: false, provides: ["webServer"] });
+    expect(webPlugin).toMatchObject({ enabled: true, status: "active", canDisable: false, removable: false, provides: ["webServer"] });
     expect(rpcPlugin).toMatchObject({
       enabled: true,
       status: "active",
       canDisable: false,
+      removable: false,
       inject: ["webServer", "hostInfo"],
       provides: ["rpc"],
     });
     await expect(callRpc("plugin.disable", { id: "web-server" })).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
     await expect(callRpc("plugin.disable", { id: "rpc-gateway" })).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
+    await expect(callRpc("plugin.configure", { id: "web-server", config: {} })).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
+    await expect(callRpc("plugin.configure", { id: "rpc-gateway", config: {} })).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
 
     // 2. Turning off memoryEnabled & projectMemoryEnabled via desktop settings unregisters desktop_memory tool while keeping memory.get/set RPCs alive!
     expect(host.ctx.tools.schemas().some((s) => s.name === "desktop_memory")).toBe(true);
@@ -803,5 +816,110 @@ describe("dynamic plugin kernel (ADR 0016)", () => {
     await manager.sync();
     const afterMcpEnable = await callRpc<{ plugins: Array<{ id: string; status: string }> }>("plugin.list");
     expect(afterMcpEnable.plugins.find((p) => p.id === "mcp")?.status).toBe("active");
+  });
+
+  it("keeps the loopback WebSocket RPC listener and secret-store alive across full and targeted plugin.reload", async () => {
+    tempRoot = mkdtempSync(join(tmpdir(), "pid-reload-gateway-test-"));
+    const dataDir = join(tempRoot, "data");
+    mkdirSync(dataDir, { recursive: true });
+
+    const token = "d".repeat(32);
+    const fakeCodec = {
+      protect: (plain: Buffer) => Buffer.from(plain),
+      unprotect: (cipher: Buffer) => Buffer.from(cipher),
+    };
+
+    host = createHost({
+      version: "0.5.0-test",
+      dataDir,
+      plugins: corePlugins(),
+    });
+    await host.start();
+
+    let reloadFn: () => Promise<string[]> = async () => [];
+    const activeManager = new PluginManager(host.ctx, {
+      dataDir,
+      version: "0.5.0-test",
+      builtins: () => builtinPluginDefinitions(dataDir, readHarnessConfig(join(dataDir, "harness.json")).config, {
+        codec: fakeCodec,
+        gateway: {
+          pageOrigins: [pageOrigin],
+          token,
+          manager: () => manager,
+          reload: () => reloadFn(),
+        },
+      }),
+    });
+    manager = activeManager;
+    reloadFn = () => activeManager.sync({ reason: "reloaded" });
+    await host.ctx.plugin(pluginsRpc, { manager: activeManager });
+    await activeManager.sync();
+
+    const port = await host.ctx.webServer.listen(0);
+
+    const openWsClient = () => new Promise<{
+      socket: WebSocket;
+      call<T>(method: string, params?: unknown): Promise<T>;
+    }>((resolve, reject) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/rpc`, clientSubprotocols(token), { origin: pageOrigin });
+      const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+      let seq = 0;
+      socket.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString()) as { id?: number; result?: unknown; error?: { message: string } };
+        if (typeof msg.id === "number") {
+          const req = pending.get(msg.id);
+          if (req !== undefined) {
+            pending.delete(msg.id);
+            if (msg.error !== undefined) req.reject(new Error(msg.error.message));
+            else req.resolve(msg.result);
+          }
+        }
+      });
+      socket.once("open", () => {
+        const call = <T>(method: string, params?: unknown): Promise<T> => {
+          const id = ++seq;
+          return new Promise<T>((done, fail) => {
+            pending.set(id, { resolve: done as (v: unknown) => void, reject: fail });
+            socket.send(JSON.stringify(params === undefined ? { jsonrpc: "2.0", id, method } : { jsonrpc: "2.0", id, method, params }));
+          });
+        };
+        call("initialize", { protocolVersion: PROTOCOL_VERSION, client: { name: "test", version: "1" } })
+          .then(() => resolve({ socket, call }))
+          .catch(reject);
+      });
+      socket.once("error", reject);
+      socket.once("close", () => {
+        for (const req of pending.values()) req.reject(new Error("socket closed mid-call"));
+        pending.clear();
+      });
+    });
+
+    const firstClient = await openWsClient();
+    try {
+      // Full hot-reload (`plugin.reload` with no id) over the live WebSocket MUST NOT close the socket or listening port!
+      const reloaded = await firstClient.call<PluginMutationResult>("plugin.reload", {});
+      const byId = new Map<string, PluginInfo>(reloaded.plugins.map((item) => [item.id, item]));
+      expect(byId.get("web-server")).toMatchObject({ status: "active", enabled: true, canDisable: false });
+      expect(byId.get("rpc-gateway")).toMatchObject({ status: "active", enabled: true, canDisable: false });
+      expect(byId.get("secret-store")).toMatchObject({ status: "active", enabled: true });
+      expect(byId.get("secret-store")?.error).toBeUndefined();
+      expect(reloaded.plugins.filter((item) => item.enabled && item.status === "errored")).toEqual([]);
+
+      // Targeted reload on a protected gateway id is also a safe no-op on the transport socket.
+      const gatewayReload = await firstClient.call<PluginMutationResult>("plugin.reload", { id: "web-server" });
+      expect(gatewayReload.plugin).toMatchObject({ id: "web-server", status: "active", canDisable: false });
+    } finally {
+      firstClient.socket.close();
+    }
+
+    // A brand-new WebSocket connection to the same bound port still connects and lists plugins cleanly.
+    const secondClient = await openWsClient();
+    try {
+      const listed = await secondClient.call<PluginListResult>("plugin.list", {});
+      expect(listed.plugins.some((item) => item.id === "web-server" && item.status === "active")).toBe(true);
+      expect(listed.plugins.some((item) => item.id === "secret-store" && item.status === "active")).toBe(true);
+    } finally {
+      secondClient.socket.close();
+    }
   });
 });

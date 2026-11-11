@@ -241,9 +241,37 @@ describe("Credentials", () => {
       const dispose = ctx.credentials.registerStore(async (id) => `stored:${id}`);
       expect(await ctx.credentials.resolve({ secret: "id" })).toBe("stored:id");
       dispose();
+      await expect(ctx.credentials.resolve({ secret: "id" })).rejects.toThrow("No secret store");
     } finally {
       delete process.env.PID_TEST_SECRET;
     }
+  });
+
+  it("clears the registered store when a child Cordis plugin fiber unloads and reloads", async () => {
+    const ctx = await setup();
+    let round = 0;
+    const storePlugin = {
+      name: "test-secret-store",
+      inject: ["credentials"],
+      apply(innerCtx: Context) {
+        const currentRound = ++round;
+        innerCtx.effect(
+          () => innerCtx.credentials.registerStore(async (id) => `r${currentRound}:${id}`),
+          "test-secret-store",
+        );
+      },
+    };
+    const firstFiber = ctx.plugin(storePlugin);
+    await firstFiber;
+    expect(await ctx.credentials.resolve({ secret: "k" })).toBe("r1:k");
+
+    await firstFiber.dispose();
+    await expect(ctx.credentials.resolve({ secret: "k" })).rejects.toThrow("No secret store");
+
+    const secondFiber = ctx.plugin(storePlugin);
+    await secondFiber;
+    expect(await ctx.credentials.resolve({ secret: "k" })).toBe("r2:k");
+    await secondFiber.dispose();
   });
 
   it("recognizes refs and describes them without the secret", async () => {

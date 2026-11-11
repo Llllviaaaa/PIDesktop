@@ -28,7 +28,7 @@ export function isSecretRef(value: unknown): value is SecretRef {
 
 /** Resolves SecretRefs for adapters; stores register themselves for `secret` refs. */
 export class Credentials extends Service {
-  private store: SecretResolver | undefined;
+  private store: { resolve: SecretResolver } | undefined;
 
   constructor(ctx: Context) {
     super(ctx, "credentials");
@@ -37,9 +37,10 @@ export class Credentials extends Service {
   /** Install the resolver for `{ secret }` refs. Returns its disposer. */
   registerStore(resolver: SecretResolver): () => void {
     if (this.store !== undefined) throw new Error("A secret store is already registered");
-    this.store = resolver;
+    const entry = { resolve: resolver };
+    this.store = entry;
     return () => {
-      if (this.store === resolver) this.store = undefined;
+      if (this.store === entry) this.store = undefined;
     };
   }
 
@@ -51,7 +52,7 @@ export class Credentials extends Service {
       return value === undefined || value === "" ? undefined : value;
     }
     if (this.store === undefined) throw new Error(`No secret store is available for "${ref.secret}"`);
-    return this.store(ref.secret);
+    return this.store.resolve(ref.secret);
   }
 
   /** How a ref is described to the UI, without the secret. */
