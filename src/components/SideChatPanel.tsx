@@ -693,6 +693,7 @@ export function SideChatPanel({
             expectVisibleThinking={thinkingLevel !== "off" && model?.reasoning === true}
             isLastAssistant={message.role === "assistant" && index === displayMessages.length - 1}
             globalStreaming={isStreaming}
+            requireCtrlEnter={settings?.requireCtrlEnter}
             allowRichContent
           />
         ))}

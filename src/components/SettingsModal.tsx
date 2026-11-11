@@ -530,7 +530,7 @@ function GeneralPage({ form, update }: { form: AppSettings; update: Update }) {
   return (
     <>
       <Section title="对话与输入">
-        <Row title="使用 Ctrl + Enter 发送消息" description="开启后按 Enter 换行，按 Ctrl + Enter 提交对话指令">
+        <Row title="使用 Ctrl + Enter 发送消息" description="开启后按 Enter 换行、Ctrl + Enter 发送；关闭时按 Enter 发送、Shift + Enter 或 Ctrl + Enter 换行">
           <Switch
             label="使用 Ctrl+Enter 发送"
             checked={form.requireCtrlEnter}

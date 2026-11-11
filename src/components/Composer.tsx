@@ -27,6 +27,7 @@ import type { TranscriptDensity } from "../lib/transcriptDensity";
 import { ModelPicker } from "./ModelPicker";
 import { useSyncOnChange } from "../hooks/useSyncOnChange";
 import { imageAttachmentFromBlob } from "../lib/attachments";
+import { formatSendShortcutHint, insertNewlineAtSelection, resolveChatEnterAction } from "../lib/composerKeys";
 import { useClientContributions } from "../lib/clientContributions";
 import { rewindController } from "../lib/rewindController";
 
@@ -447,14 +448,18 @@ export const Composer = memo(function Composer({
   const activePermission = PERMISSION_OPTIONS.find((option) => option.value === permissionMode) ?? PERMISSION_OPTIONS[1];
   const activeStreamingBehavior = STREAMING_BEHAVIOR_OPTIONS.find((option) => option.value === streamingBehavior) ?? STREAMING_BEHAVIOR_OPTIONS[0];
   // The placeholder says what Enter will do now, and only offers @ where it works.
-  const commandHint = onSearchFiles ? "用 / 调用命令，@ 引用文件…" : "用 / 调用命令…";
+  const commandHint = onSearchFiles ? "用 / 调用命令，@ 引用文件" : "用 / 调用命令";
+  const idleTail = requireCtrlEnter ? "，Ctrl+Enter 发送…" : "…";
+  const streamingTail = requireCtrlEnter ? "（Ctrl+Enter 发送）…" : "…";
   const placeholder = disabled
     ? "正在准备…"
     : isStreaming
-      ? streamingBehavior === "steer" ? "补充指示，会插入正在进行的任务…" : "写下一条消息，这一轮结束后发送…"
+      ? streamingBehavior === "steer"
+        ? `补充指示，会插入正在进行的任务${streamingTail}`
+        : `写下一条消息，这一轮结束后发送${streamingTail}`
       : variant === "task-start"
-        ? `描述要做的事，${commandHint}`
-        : `继续对话，${commandHint}`;
+        ? `描述要做的事，${commandHint}${idleTail}`
+        : `继续对话，${commandHint}${idleTail}`;
 
   const submit = async () => {
     if (disabled || isSwitchingModel || (!text.trim() && attachments.length === 0)) return;
@@ -716,32 +721,65 @@ export const Composer = memo(function Composer({
             onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
             onPaste={handlePaste}
             onKeyDown={(event) => {
-              if ((commandMenuOpen || mentionMenuOpen) && !event.nativeEvent.isComposing) {
+              const menuOpen = commandMenuOpen || mentionMenuOpen;
+              if (menuOpen && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
                 if (event.key === "Escape") {
                   event.preventDefault();
                   event.stopPropagation();
                   setSuggestionsDismissedFor(text);
                   return;
                 }
-                if (suggestionCount > 0) {
-                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                    event.preventDefault();
-                    const step = event.key === "ArrowDown" ? 1 : -1;
-                    setSuggestionIndex((index) => (Math.min(index, suggestionCount - 1) + step + suggestionCount) % suggestionCount);
-                    return;
-                  }
-                  if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
-                    event.preventDefault();
-                    if (activeCommand) chooseCommand(activeCommand);
-                    else if (activeEntry) chooseEntry(activeEntry, event.key === "Tab");
-                    return;
-                  }
+                if (suggestionCount > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                  event.preventDefault();
+                  const step = event.key === "ArrowDown" ? 1 : -1;
+                  setSuggestionIndex((index) => (Math.min(index, suggestionCount - 1) + step + suggestionCount) % suggestionCount);
+                  return;
                 }
               }
-              const shouldSubmit = requireCtrlEnter ? event.ctrlKey || event.metaKey : !event.shiftKey;
-              if (event.key === "Enter" && shouldSubmit && !event.nativeEvent.isComposing) {
+
+              const action = resolveChatEnterAction(
+                {
+                  key: event.key,
+                  ctrlKey: event.ctrlKey,
+                  metaKey: event.metaKey,
+                  shiftKey: event.shiftKey,
+                  altKey: event.altKey,
+                  isComposing: event.nativeEvent.isComposing,
+                  keyCode: event.nativeEvent.keyCode,
+                  defaultPrevented: event.defaultPrevented,
+                },
+                {
+                  requireCtrlEnter,
+                  hasActiveSuggestion: menuOpen && suggestionCount > 0,
+                },
+              );
+
+              if (action === "accept-suggestion") {
+                event.preventDefault();
+                if (activeCommand) chooseCommand(activeCommand);
+                else if (activeEntry) chooseEntry(activeEntry, event.key === "Tab");
+                return;
+              }
+              if (action === "submit") {
                 event.preventDefault();
                 void submit();
+                return;
+              }
+              if (action === "insert-newline") {
+                event.preventDefault();
+                const { value: nextText, caret: nextCaret } = insertNewlineAtSelection(
+                  text,
+                  event.currentTarget.selectionStart,
+                  event.currentTarget.selectionEnd,
+                );
+                textRef.current = nextText;
+                setText(nextText);
+                setCaret(nextCaret);
+                window.requestAnimationFrame(() => {
+                  const el = textareaRef.current;
+                  if (!el) return;
+                  el.setSelectionRange(nextCaret, nextCaret);
+                });
               }
             }}
           />
@@ -987,7 +1025,8 @@ export const Composer = memo(function Composer({
                 className="send-button dsh-primary-send"
                 disabled={sendDisabled}
                 onClick={() => void submit()}
-                title="发送"
+                aria-label="发送"
+                title={`发送 (${formatSendShortcutHint(requireCtrlEnter)})`}
               >
                 <ArrowUp size={16} strokeWidth={2.25} />
               </button>

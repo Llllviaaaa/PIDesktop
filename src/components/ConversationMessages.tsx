@@ -52,6 +52,7 @@ export function ConversationMessages({
   conversationKey: string;
 }) {
   const messages = useAppStore((state) => state.messages);
+  const requireCtrlEnter = useAppStore((state) => state.settings?.requireCtrlEnter ?? false);
   const intelligentUiEnabled = useIntelligentUiStore((state) => state.pluginEnabled);
   const transcriptDensity = normalizeTranscriptDensity(density);
   const displayMessages = useMemo(() => groupTranscriptMessages(messages), [messages]);
@@ -219,6 +220,7 @@ export function ConversationMessages({
           allowRichContent
           density={transcriptDensity}
           editing={editingMessageId === message.id}
+          requireCtrlEnter={requireCtrlEnter}
           plan={turnPlans.get(message.id)}
           uiWidgets={intelligentUis?.turnWidgetsByMessageId.get(message.id)}
           uiGroups={intelligentUis?.groupsById}

@@ -10,6 +10,7 @@ import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/trans
 import { presentToolCall, type ToolDiffLine, type ToolKind } from "../lib/toolPresentation";
 import { showToast } from "../notifications";
 import { isGoalToolCall } from "../lib/activeGoal";
+import { formatSendShortcutHint, insertNewlineAtSelection, resolveChatEnterAction } from "../lib/composerKeys";
 import { ConversationPlan } from "./ConversationPlan";
 import { IntelligentUiCard } from "./IntelligentUiCard";
 import { Markdown } from "./Markdown";
@@ -623,6 +624,7 @@ export const Message = memo(function Message({
   summaryMode = false,
   density = "normal",
   editing = false,
+  requireCtrlEnter = false,
   plan,
   uiWidgets,
   uiGroups,
@@ -652,6 +654,7 @@ export const Message = memo(function Message({
   /** Conversation density; summaryMode still wins when both are set. */
   density?: TranscriptDensity;
   editing?: boolean;
+  requireCtrlEnter?: boolean;
   /** The plan this turn finished with; hidden while the turn works, when the composer shows it. */
   plan?: TaskPlanSummary;
   /** Interactive widgets created or updated in this turn via `render_ui` / `update_ui`. */
@@ -793,14 +796,43 @@ export const Message = memo(function Message({
                 window.requestAnimationFrame(resizeEditTextarea);
               }}
               onKeyDown={(event) => {
-                if (event.key === "Escape") {
+                if (event.key === "Escape" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
                   event.preventDefault();
                   onCancelEdit?.();
                   return;
                 }
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                const action = resolveChatEnterAction(
+                  {
+                    key: event.key,
+                    ctrlKey: event.ctrlKey,
+                    metaKey: event.metaKey,
+                    shiftKey: event.shiftKey,
+                    altKey: event.altKey,
+                    isComposing: event.nativeEvent.isComposing,
+                    keyCode: event.nativeEvent.keyCode,
+                    defaultPrevented: event.defaultPrevented,
+                  },
+                  { requireCtrlEnter },
+                );
+                if (action === "submit") {
                   event.preventDefault();
                   void submitEdit();
+                  return;
+                }
+                if (action === "insert-newline") {
+                  event.preventDefault();
+                  const { value: nextDraft, caret: nextCaret } = insertNewlineAtSelection(
+                    editDraft,
+                    event.currentTarget.selectionStart,
+                    event.currentTarget.selectionEnd,
+                  );
+                  setEditDraft(nextDraft);
+                  window.requestAnimationFrame(() => {
+                    const el = editTextareaRef.current;
+                    if (!el) return;
+                    el.setSelectionRange(nextCaret, nextCaret);
+                    resizeEditTextarea();
+                  });
                 }
               }}
             />
@@ -813,7 +845,7 @@ export const Message = memo(function Message({
                 className="message-edit-submit"
                 disabled={submittingEdit || !editDraft.trim()}
                 onClick={() => void submitEdit()}
-                title="从此消息重新发送"
+                title={`从此消息重新发送 (${formatSendShortcutHint(requireCtrlEnter)})`}
               >
                 <ArrowUp size={14} strokeWidth={2} />
                 <span>{submittingEdit ? "发送中" : "发送"}</span>
