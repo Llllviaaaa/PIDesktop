@@ -264,7 +264,10 @@ export class Sessions extends Service {
     for (const session of this.open.values()) {
       storage.adopt?.(session.header, session.events);
     }
-    return () => {
+    let disposed = false;
+    const once = (): void => {
+      if (disposed) return;
+      disposed = true;
       if (this.storage === storage) {
         this.storage = previous;
         for (const session of this.open.values()) {
@@ -272,15 +275,34 @@ export class Sessions extends Service {
         }
       }
     };
+    if (this.ctx?.fiber?.uid != null && this.ctx.fiber.state !== 5) {
+      try {
+        return this.ctx.effect(() => once, "sessions.registerStorage") as unknown as () => void;
+      } catch {
+        return once;
+      }
+    }
+    return once;
   }
 
   /** Register an external search provider (such as `@qianji/session-search-fts`). Returns the disposer. */
   registerSearcher(searcher: SessionSearcher): () => void {
     this.searchers.push(searcher);
-    return () => {
+    let disposed = false;
+    const once = (): void => {
+      if (disposed) return;
+      disposed = true;
       const idx = this.searchers.lastIndexOf(searcher);
       if (idx !== -1) this.searchers.splice(idx, 1);
     };
+    if (this.ctx?.fiber?.uid != null && this.ctx.fiber.state !== 5) {
+      try {
+        return this.ctx.effect(() => once, "sessions.registerSearcher") as unknown as () => void;
+      } catch {
+        return once;
+      }
+    }
+    return once;
   }
 
   create(options: CreateSessionOptions): Session {

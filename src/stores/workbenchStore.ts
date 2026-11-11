@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { WorkbenchOpenNotification, WorkbenchPreviewUrlResult } from "@qianji/protocol";
 import { agent } from "../lib/agent";
+import { clientContributions } from "../lib/clientContributions";
 import { describeError } from "../lib/errors";
 import { harnessRuntimes, isRpcMethodNotFound } from "../lib/harnessRuntime";
 
@@ -408,8 +409,20 @@ export function applyWorkbenchOpenNotification(
     case "side-chat":
       store.openSideChat();
       break;
-    default:
+    default: {
+      const targetId = payload.target?.trim();
+      if (targetId) {
+        const isBottomPluginTab = clientContributions
+          .getSnapshot()
+          .bottomPanelTabs.some((tab) => tab.id === targetId);
+        if (isBottomPluginTab) {
+          store.setActiveBottomTab(targetId);
+        } else {
+          store.openTab(targetId);
+        }
+      }
       break;
+    }
   }
 }
 

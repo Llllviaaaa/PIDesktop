@@ -34,14 +34,25 @@ export class Credentials extends Service {
     super(ctx, "credentials");
   }
 
-  /** Install the resolver for `{ secret }` refs. Returns its disposer. */
+  /** Install the resolver for `{ secret }` refs. Automatically cleans up with the caller's Cordis fiber. */
   registerStore(resolver: SecretResolver): () => void {
     if (this.store !== undefined) throw new Error("A secret store is already registered");
     const entry = { resolve: resolver };
     this.store = entry;
-    return () => {
+    let disposed = false;
+    const once = (): void => {
+      if (disposed) return;
+      disposed = true;
       if (this.store === entry) this.store = undefined;
     };
+    if (this.ctx?.fiber?.uid != null && this.ctx.fiber.state !== 5) {
+      try {
+        return this.ctx.effect(() => once, "credentials.registerStore") as unknown as () => void;
+      } catch {
+        return once;
+      }
+    }
+    return once;
   }
 
   async resolve(ref: SecretRef | undefined): Promise<string | undefined> {

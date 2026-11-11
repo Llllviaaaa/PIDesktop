@@ -294,6 +294,7 @@ describe("headless run", () => {
       "find",
       "grep",
       "ls",
+      "qianji_inspect",
       "read",
       "render_ui",
       "update_plan",
@@ -303,6 +304,7 @@ describe("headless run", () => {
     const activateSchema = body.tools.find((tool) => tool.function.name === "activate_tools");
     expect(activateSchema?.function.description).toContain("browser (11 tools:");
     expect(activateSchema?.function.description).toContain("computer (11 tools:");
+    expect(activateSchema?.function.description).toContain("plugin_dev (1 tools:");
 
     const sessionId = /\[session ([0-9a-f-]+): done\]/.exec(err.text)?.[1];
     expect(sessionId).toBeDefined();

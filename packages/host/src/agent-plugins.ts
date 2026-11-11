@@ -40,10 +40,12 @@ import * as toolFs from "@qianji/tool-fs";
 import { Tools } from "@qianji/tools";
 import { Ui } from "@qianji/ui";
 import * as commandsRpc from "./commands-rpc.ts";
+import { resolveDesktopBundledSkillRoots, resolveDesktopPluginTypesDir } from "./control.ts";
 import * as diagnostics from "./diagnostics.ts";
 import type { HarnessConfig } from "./harness-config.ts";
 import type { PluginEntry } from "./host.ts";
 import * as llmRpc from "./llm-rpc.ts";
+import * as pluginDevTools from "./plugin-dev-tools.ts";
 import type { PluginManager } from "./plugin-manager.ts";
 import * as providerAdmin from "./provider-admin.ts";
 import * as providers from "./providers.ts";
@@ -140,6 +142,12 @@ export interface FeatureOptions {
   isWorkspaceTrusted?: (cwd: string) => boolean;
   /** When false, `providers` relies strictly on mounted `llm-*` protocol plugins. */
   autoRegisterBuiltinProtocols?: boolean;
+  /** Optional bundled read-only skill roots (`skills/` in dev or `bundled-skills/` in release). */
+  bundledSkillsDirs?: readonly string[] | (() => readonly string[]);
+  /** Optional live `PluginManager` getter for `qianji_inspect` and `plugin_manager`. */
+  pluginManager?: () => PluginManager | undefined;
+  /** Optional path to generated offline `plugin-types/` declarations for `scaffold`. */
+  pluginTypesDir?: string | (() => string | undefined);
 }
 
 /** MCP servers with their env and headers from the desktop's encrypted secrets, in memory only. */
@@ -223,7 +231,26 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
       hasClient: false,
       plugin: promptContext,
       inject: ["systemPrompt"],
-      config: { dataDir, contextFiles: config.contextFiles.enabled, instructions: config.prompt.instructions },
+      config: {
+        dataDir,
+        contextFiles: config.contextFiles.enabled,
+        instructions: config.prompt.instructions,
+        bundledSkillsDirs: options.bundledSkillsDirs ?? (() => resolveDesktopBundledSkillRoots()),
+      },
+    },
+    {
+      id: "plugin-dev-tools",
+      name: "Agent 插件自省与开发工具 (plugin-dev-tools)",
+      description: "提供免审运行时自省工具 qianji_inspect 与按需加载的插件生命周期管理工具 plugin_manager",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: pluginDevTools,
+      inject: ["tools", "sessions", "ui"],
+      config: {
+        manager: options.pluginManager ?? (() => undefined),
+        pluginTypesDir: options.pluginTypesDir ?? (() => resolveDesktopPluginTypesDir()),
+      },
     },
     {
       id: "plan",
@@ -500,6 +527,9 @@ export function builtinPluginDefinitions(
     },
     ...builtinFeatureDefinitions(dataDir, config, {
       ...options,
+      ...(options.pluginManager === undefined && gateway?.manager !== undefined
+        ? { pluginManager: gateway.manager }
+        : {}),
       autoRegisterBuiltinProtocols: false,
     }),
     gateway !== undefined && {

@@ -9,6 +9,7 @@
  * tested field by field.
  */
 import { join } from "node:path";
+import { DEFAULT_APP_SETTINGS } from "@qianji/protocol";
 import type { Effort } from "@qianji/llm";
 import type { DesktopHookConfig } from "@qianji/hooks";
 import type { McpServerConfig } from "@qianji/mcp";
@@ -58,32 +59,32 @@ export interface DesktopHarness {
 
 export function harnessFromDesktop(message: DesktopMessage): DesktopHarness {
   const settings = message.settings;
-  const provider = str(settings.provider);
-  const model = str(settings.model);
+  const provider = str(settings.provider, DEFAULT_APP_SETTINGS.provider);
+  const model = str(settings.model, DEFAULT_APP_SETTINGS.model);
   const defaultModel = provider !== "" && model !== "" ? { provider, model } : undefined;
   const modelThinkingLevels = settings.modelThinkingLevels && typeof settings.modelThinkingLevels === "object" && !Array.isArray(settings.modelThinkingLevels)
     ? (settings.modelThinkingLevels as Record<string, unknown>)
     : undefined;
   const perModelEffort = defaultModel ? str(modelThinkingLevels?.[`${provider}/${model}`]) : "";
   const effort = effortFromThinking(perModelEffort || str(settings.thinkingLevel));
-  const memoryEnabled = bool(settings.memoryEnabled, true);
+  const memoryEnabled = bool(settings.memoryEnabled, DEFAULT_APP_SETTINGS.memoryEnabled);
   const projectMemoryEnabled = typeof settings.projectMemoryEnabled === "boolean" ? settings.projectMemoryEnabled : memoryEnabled;
   const executable = message.executable?.trim();
-  const browserExecutable = str(settings.browserExecutable).trim();
+  const browserExecutable = str(settings.browserExecutable, DEFAULT_APP_SETTINGS.browserExecutable).trim();
 
   const config: HarnessConfig = {
     permissions: {
-      defaultPermission: str(settings.permissionMode, "ask") as NonNullable<HarnessConfig["permissions"]["defaultPermission"]>,
-      defaultAgentMode: str(settings.agentMode, "agent") as NonNullable<HarnessConfig["permissions"]["defaultAgentMode"]>,
-      alwaysConfirmShell: bool(settings.alwaysConfirmShell, true),
-      blockWriteOutsideWorkspace: bool(settings.blockWriteOutsideWorkspace, true),
-      allowForcePush: bool(settings.allowForcePush, false),
-      shellAllowPrefixes: str(settings.shellAllowPrefixes).split(/[\n,]/).map((item) => item.trim()).filter(Boolean),
+      defaultPermission: str(settings.permissionMode, DEFAULT_APP_SETTINGS.permissionMode) as NonNullable<HarnessConfig["permissions"]["defaultPermission"]>,
+      defaultAgentMode: str(settings.agentMode, DEFAULT_APP_SETTINGS.agentMode) as NonNullable<HarnessConfig["permissions"]["defaultAgentMode"]>,
+      alwaysConfirmShell: bool(settings.alwaysConfirmShell, DEFAULT_APP_SETTINGS.alwaysConfirmShell),
+      blockWriteOutsideWorkspace: bool(settings.blockWriteOutsideWorkspace, DEFAULT_APP_SETTINGS.blockWriteOutsideWorkspace),
+      allowForcePush: bool(settings.allowForcePush, DEFAULT_APP_SETTINGS.allowForcePush),
+      shellAllowPrefixes: str(settings.shellAllowPrefixes, DEFAULT_APP_SETTINGS.shellAllowPrefixes).split(/[\n,]/).map((item) => item.trim()).filter(Boolean),
       toolRules: list<ToolPermissionRule>(settings.toolRules),
     },
     hooks: {
-      hooks: bool(settings.hooksEnabled, false) ? list<DesktopHookConfig>(settings.hooks) : [],
-      inheritEnvironment: bool(settings.hooksInheritEnvironment, false),
+      hooks: bool(settings.hooksEnabled, DEFAULT_APP_SETTINGS.hooksEnabled) ? list<DesktopHookConfig>(settings.hooks) : [],
+      inheritEnvironment: bool(settings.hooksInheritEnvironment, DEFAULT_APP_SETTINGS.hooksInheritEnvironment),
     },
     // Pi's memory switch also turned off context files (--no-context-files).
     memory: {
@@ -92,35 +93,35 @@ export function harnessFromDesktop(message: DesktopMessage): DesktopHarness {
       file: join(message.configDir, "memory.md"),
     },
     contextFiles: { enabled: memoryEnabled || projectMemoryEnabled },
-    plan: { enabled: bool(settings.planTrackingEnabled, true) },
+    plan: { enabled: bool(settings.planTrackingEnabled, DEFAULT_APP_SETTINGS.planTrackingEnabled) },
     mcp: {
-      enabled: bool(settings.mcpEnabled, true),
-      servers: bool(settings.mcpEnabled, true) ? list<McpServerConfig>(settings.mcpServers) : [],
-      confirmTools: bool(settings.mcpConfirmTools, true),
+      enabled: bool(settings.mcpEnabled, DEFAULT_APP_SETTINGS.mcpEnabled),
+      servers: bool(settings.mcpEnabled, DEFAULT_APP_SETTINGS.mcpEnabled) ? list<McpServerConfig>(settings.mcpServers) : [],
+      confirmTools: bool(settings.mcpConfirmTools, DEFAULT_APP_SETTINGS.mcpConfirmTools),
       secretsFile: join(message.configDir, "mcp-secrets.dat"),
     },
     subagents: {
-      enabled: bool(settings.subagentsEnabled, true),
-      concurrency: Math.min(4, Math.max(1, num(settings.subagentMaxConcurrency, 3))),
+      enabled: bool(settings.subagentsEnabled, DEFAULT_APP_SETTINGS.subagentsEnabled),
+      concurrency: Math.min(4, Math.max(1, num(settings.subagentMaxConcurrency, DEFAULT_APP_SETTINGS.subagentMaxConcurrency))),
       ...(defaultModel === undefined ? {} : { model: defaultModel }),
       ...(effort === undefined ? {} : { effort }),
     },
     browser: {
-      enabled: bool(settings.browserEnabled, true),
-      headless: bool(settings.browserHeadless, true),
-      confirmActions: bool(settings.browserConfirmActions, true),
+      enabled: bool(settings.browserEnabled, DEFAULT_APP_SETTINGS.browserEnabled),
+      headless: bool(settings.browserHeadless, DEFAULT_APP_SETTINGS.browserHeadless),
+      confirmActions: bool(settings.browserConfirmActions, DEFAULT_APP_SETTINGS.browserConfirmActions),
       ...(str(settings.browserProfileMode) === "persistent" ? { profileDir: join(message.configDir, "browser-profile") } : {}),
       ...(browserExecutable === "" ? {} : { executable: browserExecutable }),
     },
     computer: {
-      enabled: bool(settings.computerEnabled, true),
-      confirmActions: bool(settings.computerConfirmActions, true),
+      enabled: bool(settings.computerEnabled, DEFAULT_APP_SETTINGS.computerEnabled),
+      confirmActions: bool(settings.computerConfirmActions, DEFAULT_APP_SETTINGS.computerConfirmActions),
       ...(executable ? { helper: executable } : {}),
     },
     // The host is the only scheduler since Pi and the desktop's own went (P6c).
     schedule: { enabled: true },
-    intelligentUi: { enabled: bool(settings.intelligentUiEnabled, true) },
-    sandbox: { enabled: bool(settings.sandboxEnabled, false) },
+    intelligentUi: { enabled: bool(settings.intelligentUiEnabled, DEFAULT_APP_SETTINGS.intelligentUiEnabled) },
+    sandbox: { enabled: bool(settings.sandboxEnabled, DEFAULT_APP_SETTINGS.sandboxEnabled) },
     prompt: { instructions: personalInstructions(settings) },
   };
   return { config, ...(defaultModel === undefined ? {} : { defaultModel }) };

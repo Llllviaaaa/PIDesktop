@@ -94,14 +94,25 @@ export class RpcGateway extends Service implements RpcService {
     })), "rpc: host.info");
   }
 
-  /** Answer `name`. Returns the disposer; register it with the calling plugin's effects. */
+  /** Answer `name`. Automatically cleans up with the calling plugin's Cordis fiber. */
   method(name: string, handler: RpcHandler): () => void {
     if (name === "initialize") throw new Error("initialize is answered by the gateway itself");
     if (this.handlers.has(name)) throw new Error(`RPC method ${name} is already registered`);
     this.handlers.set(name, handler);
-    return () => {
+    let disposed = false;
+    const once = (): void => {
+      if (disposed) return;
+      disposed = true;
       if (this.handlers.get(name) === handler) this.handlers.delete(name);
     };
+    if (this.ctx?.fiber?.uid != null && this.ctx.fiber.state !== 5) {
+      try {
+        return this.ctx.effect(() => once, `rpc.method:${name}`) as unknown as () => void;
+      } catch {
+        return once;
+      }
+    }
+    return once;
   }
 
   /** The method names this host answers, `initialize` included. */

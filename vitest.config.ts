@@ -14,7 +14,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
-      "@qianji/client": resolve(import.meta.dirname, "src/lib/clientPluginBootstrap.ts"),
+      "@qianji/client": resolve(import.meta.dirname, "src/sdk/index.ts"),
     },
   },
   test: {

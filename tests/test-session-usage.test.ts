@@ -4,7 +4,10 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ScriptedProvider, textReply } from "@qianji/testkit";
 import { ClientBundleRegistry } from "../packages/host/src/client-bundles.ts";
-import { applyDesktopMessage } from "../packages/host/src/control.ts";
+import { corePlugins } from "../packages/host/src/agent-plugins.ts";
+import { applyDesktopMessage, resolveDesktopBundledPluginRoots } from "../packages/host/src/control.ts";
+import { createHost } from "../packages/host/src/host.ts";
+import { PluginManager } from "../packages/host/src/plugin-manager.ts";
 import { startE2eHost } from "../packages/host/test/e2e-host.ts";
 import {
   estimateTextTokens,
@@ -61,32 +64,74 @@ describe("session-usage official plugin", () => {
     expect(formatCurrencyAmount(20.634, "USD", 7.25)).toBe("$20.6");
   });
 
-  it("seeds session-usage once via applyDesktopMessage when bundled-plugins directory is present", () => {
+  it("loads session-usage directly as builtin from bundled-plugins and cleans unmodified legacy .seeded-session-usage-v1 copies", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "pid-su-seed-data-"));
     const fakeInstallRoot = mkdtempSync(join(tmpdir(), "pid-su-seed-exe-"));
+    const host = createHost({
+      version: "0.0.0-test",
+      dataDir,
+      plugins: corePlugins(),
+    });
+    await host.start();
     try {
-      const bundledTarget = join(fakeInstallRoot, "harness", "bundled-plugins", "session-usage");
+      const bundledRoot = join(fakeInstallRoot, "harness", "bundled-plugins");
+      const bundledTarget = join(bundledRoot, "session-usage");
       mkdirSync(bundledTarget, { recursive: true });
       cpSync(SESSION_USAGE_DIR, bundledTarget, { recursive: true });
       const fakeExe = join(fakeInstallRoot, "qianji.exe");
       writeFileSync(fakeExe, "");
 
-      const first = applyDesktopMessage(dataDir, {
+      // 1) Fresh boot does not copy files into <dataDir>/plugins/session-usage;
+      //    PluginManager loads session-usage directly as a read-only builtin plugin.
+      const freshNotes = applyDesktopMessage(dataDir, {
         settings: {},
         configDir: dataDir,
         executable: fakeExe,
       });
-      expect(first.some((note) => note.includes("seeded bundled plugin session-usage"))).toBe(true);
-      expect(existsSync(join(dataDir, "plugins", "session-usage", "package.json"))).toBe(true);
+      expect(freshNotes.some((note) => note.includes("seeded bundled plugin"))).toBe(false);
+      expect(existsSync(join(dataDir, "plugins", "session-usage", "package.json"))).toBe(false);
 
-      // Subsequent boots do not re-seed if user uninstalled or modified it.
-      const second = applyDesktopMessage(dataDir, {
+      const roots = resolveDesktopBundledPluginRoots(fakeExe);
+      const manager = new PluginManager(host.ctx, {
+        dataDir,
+        version: "0.0.0-test",
+        bundledPluginsDirs: roots,
+      });
+      await manager.sync();
+      const plugins = await manager.list();
+      const builtinEntry = plugins.find((plugin) => plugin.id === "session-usage");
+      expect(builtinEntry?.tier).toBe("builtin");
+      expect(builtinEntry?.enabled).toBe(true);
+      expect(builtinEntry?.removable).toBe(false);
+      expect(builtinEntry?.clientPath).toBe("/plugins/session-usage/client.js");
+      await manager.dispose();
+
+      // 2) An unmodified legacy .seeded-session-usage-v1 copy is cleaned up automatically.
+      const legacyDir = join(dataDir, "plugins", "session-usage");
+      cpSync(SESSION_USAGE_DIR, legacyDir, { recursive: true });
+      writeFileSync(join(dataDir, "plugins", ".seeded-session-usage-v1"), "1");
+      const cleanupNotes = applyDesktopMessage(dataDir, {
         settings: {},
         configDir: dataDir,
         executable: fakeExe,
       });
-      expect(second.some((note) => note.includes("seeded bundled plugin session-usage"))).toBe(false);
+      expect(cleanupNotes.some((note) => note.includes("cleaned unmodified legacy seeded plugin session-usage"))).toBe(true);
+      expect(existsSync(join(legacyDir, "package.json"))).toBe(false);
+      expect(existsSync(join(dataDir, "plugins", ".seeded-session-usage-v1"))).toBe(false);
+
+      // 3) A user-modified copy under <dataDir>/plugins/session-usage is preserved.
+      cpSync(SESSION_USAGE_DIR, legacyDir, { recursive: true });
+      writeFileSync(join(legacyDir, "host.ts"), "// user customized\n");
+      writeFileSync(join(dataDir, "plugins", ".seeded-session-usage-v1"), "1");
+      const preserveNotes = applyDesktopMessage(dataDir, {
+        settings: {},
+        configDir: dataDir,
+        executable: fakeExe,
+      });
+      expect(preserveNotes.some((note) => note.includes("preserved user-modified plugin session-usage"))).toBe(true);
+      expect(existsSync(join(legacyDir, "package.json"))).toBe(true);
     } finally {
+      await host.stop();
       rmSync(dataDir, { recursive: true, force: true });
       rmSync(fakeInstallRoot, { recursive: true, force: true });
     }

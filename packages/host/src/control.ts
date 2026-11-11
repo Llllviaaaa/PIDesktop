@@ -10,12 +10,14 @@
  * Writing the files keeps a headless run or a restart on the same settings
  * the desktop last sent.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import type { PluginInstallOrigin } from "@qianji/protocol";
 import { harnessFromDesktop, type DesktopMessage } from "./desktop-settings.ts";
 import { HARNESS_TOGGLED_PLUGIN_IDS, pluginEnabledInHarness, readHarnessConfig } from "./harness-config.ts";
-import { installPlugin, managedPluginsRoot } from "./plugin-installer.ts";
-import { pluginsStorePath, updatePluginsStore } from "./plugin-store.ts";
+import { managedPluginDirName, managedPluginsRoot } from "./plugin-installer.ts";
+import { canonicalPath, pathComparisonKey } from "./plugin-manifest.ts";
+import { pluginsStorePath, readPluginsStore, updatePluginsStore } from "./plugin-store.ts";
 
 /** The fields a desktop scheduled task shares with the host's (`@qianji/schedule`). */
 const TASK_FIELDS = ["id", "name", "prompt", "cwd", "frequency", "hour", "minute", "weekday", "permissionMode", "enabled", "lastRunAt", "lastStatus", "lastMessage"] as const;
@@ -66,6 +68,252 @@ function readJson(file: string): Record<string, unknown> | undefined {
   } catch {
     return undefined;
   }
+}
+
+function listRelativeFiles(rootDir: string, prefix = ""): Array<{ rel: string; full: string }> {
+  const results: Array<{ rel: string; full: string }> = [];
+  if (!existsSync(rootDir)) return results;
+  for (const entry of readdirSync(rootDir, { withFileTypes: true })) {
+    if (entry.name === ".git" || entry.name === "node_modules") continue;
+    const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+    const full = join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...listRelativeFiles(full, rel));
+    } else if (entry.isFile()) {
+      results.push({ rel, full });
+    }
+  }
+  results.sort((a, b) => a.rel.localeCompare(b.rel));
+  return results;
+}
+
+function areDirsByteIdentical(dirA: string, dirB: string): boolean {
+  const filesA = listRelativeFiles(dirA);
+  const filesB = listRelativeFiles(dirB);
+  if (filesA.length === 0 || filesA.length !== filesB.length) return false;
+  for (let index = 0; index < filesA.length; index += 1) {
+    const itemA = filesA[index];
+    const itemB = filesB[index];
+    if (itemA === undefined || itemB === undefined || itemA.rel !== itemB.rel) return false;
+    try {
+      const bufA = readFileSync(itemA.full);
+      const bufB = readFileSync(itemB.full);
+      if (!bufA.equals(bufB)) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+function maxFileMtimeMs(rootDir: string): number {
+  let latest = 0;
+  for (const file of listRelativeFiles(rootDir)) {
+    try {
+      const mtime = statSync(file.full).mtimeMs;
+      if (mtime > latest) latest = mtime;
+    } catch {
+      return Number.POSITIVE_INFINITY;
+    }
+  }
+  return latest;
+}
+
+function isUnmodifiedSeededCopy(
+  installedDir: string,
+  bundledPluginDir: string,
+  hasSeedMarker: boolean,
+  origin: PluginInstallOrigin | undefined,
+): boolean {
+  if (areDirsByteIdentical(installedDir, bundledPluginDir)) {
+    return true;
+  }
+  if (origin?.channel !== "local") return false;
+  const normalizedSpec = origin.spec.replace(/\\/g, "/").toLowerCase();
+  const fromBundledOrigin = hasSeedMarker || normalizedSpec.includes("/bundled-plugins/");
+  if (!fromBundledOrigin) return false;
+  const installedAtMs = Date.parse(origin.installedAt);
+  if (!Number.isFinite(installedAtMs)) return false;
+  return maxFileMtimeMs(installedDir) <= installedAtMs + 5_000;
+}
+
+/** Resolve read-only `bundled-plugins` directories from environment, host binary, and desktop binary paths. */
+export function resolveDesktopBundledPluginRoots(desktopExe?: string): string[] {
+  const candidates: string[] = [];
+  const envDir = process.env.QIANJI_BUNDLED_PLUGINS_DIR?.trim();
+  if (envDir) candidates.push(envDir);
+  const trimmedExe = desktopExe?.trim();
+  if (trimmedExe) {
+    candidates.push(
+      join(dirname(trimmedExe), "harness", "bundled-plugins"),
+      join(dirname(trimmedExe), "resources", "harness", "bundled-plugins"),
+    );
+    const devRepoPlugins = resolve(dirname(trimmedExe), "..", "..", "..", "plugins");
+    if (existsSync(join(devRepoPlugins, "smart-rewind", "package.json"))) {
+      candidates.push(devRepoPlugins);
+    }
+  }
+  candidates.push(join(dirname(process.execPath), "bundled-plugins"));
+
+  const seen = new Set<string>();
+  const resolved: string[] = [];
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    const canonical = canonicalPath(candidate);
+    const key = pathComparisonKey(canonical);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    resolved.push(canonical);
+  }
+  return resolved;
+}
+
+/** Resolve read-only `bundled-skills` directories from environment, host binary, desktop binary, and dev checkout. */
+export function resolveDesktopBundledSkillRoots(desktopExe?: string): string[] {
+  const candidates: string[] = [];
+  const envDir = process.env.QIANJI_BUNDLED_SKILLS_DIR?.trim();
+  if (envDir) candidates.push(envDir);
+  const trimmedExe = desktopExe?.trim();
+  if (trimmedExe) {
+    candidates.push(
+      join(dirname(trimmedExe), "harness", "bundled-skills"),
+      join(dirname(trimmedExe), "resources", "harness", "bundled-skills"),
+    );
+    const devRepoSkills = resolve(dirname(trimmedExe), "..", "..", "..", "skills");
+    if (existsSync(devRepoSkills)) {
+      candidates.push(devRepoSkills);
+    }
+  }
+  candidates.push(join(dirname(process.execPath), "bundled-skills"));
+  if (typeof import.meta.dirname === "string") {
+    const devCheckoutSkills = resolve(import.meta.dirname, "..", "..", "..", "skills");
+    if (existsSync(devCheckoutSkills)) {
+      candidates.push(devCheckoutSkills);
+    }
+  }
+
+  const seen = new Set<string>();
+  const resolved: string[] = [];
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    const canonical = canonicalPath(candidate);
+    const key = pathComparisonKey(canonical);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    resolved.push(canonical);
+  }
+  return resolved;
+}
+
+/** Resolve the offline TypeScript declaration directory (`plugin-types`) for scaffolded external plugins. */
+export function resolveDesktopPluginTypesDir(desktopExe?: string): string | undefined {
+  const candidates: string[] = [];
+  const envDir = process.env.QIANJI_PLUGIN_TYPES_DIR?.trim();
+  if (envDir) candidates.push(envDir);
+  const trimmedExe = desktopExe?.trim();
+  if (trimmedExe) {
+    candidates.push(
+      join(dirname(trimmedExe), "harness", "plugin-types"),
+      join(dirname(trimmedExe), "resources", "harness", "plugin-types"),
+      resolve(dirname(trimmedExe), "..", "..", "resources", "harness", "plugin-types"),
+    );
+  }
+  candidates.push(join(dirname(process.execPath), "plugin-types"));
+  if (typeof import.meta.dirname === "string") {
+    candidates.push(resolve(import.meta.dirname, "..", "..", "..", "src-tauri", "resources", "harness", "plugin-types"));
+  }
+  for (const candidate of candidates) {
+    if (existsSync(join(candidate, "tsconfig.plugin.json"))) {
+      return canonicalPath(candidate);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Clean up unmodified legacy `.seeded-<id>-v1` copies under `<dataDir>/plugins`
+ * now that `PluginManager` loads `bundled-plugins` directly as read-only `builtin` tier.
+ * Preserves `enabled`/`config` preferences and never deletes user-modified copies.
+ */
+export function cleanupLegacySeededPlugins(dataDir: string, bundledRoots: readonly string[]): string[] {
+  const notes: string[] = [];
+  const pluginsRoot = managedPluginsRoot(dataDir);
+  if (!existsSync(pluginsRoot)) return notes;
+
+  const candidateIds = new Set<string>();
+  for (const entry of readdirSync(pluginsRoot)) {
+    const match = /^\.seeded-(.+)-v1$/.exec(entry);
+    if (match?.[1] !== undefined) {
+      candidateIds.add(match[1]);
+    }
+  }
+  const store = readPluginsStore(dataDir);
+  for (const [id, patch] of Object.entries(store.plugins)) {
+    if (patch.linkedDir !== undefined) continue;
+    const spec = patch.origin?.spec.replace(/\\/g, "/").toLowerCase() ?? "";
+    if (patch.origin?.channel === "local" && spec.includes("/bundled-plugins/")) {
+      candidateIds.add(id);
+    }
+  }
+
+  for (const pluginId of candidateIds) {
+    const bundledPluginDir = bundledRoots
+      .map((root) => join(root, pluginId))
+      .find((candidate) => existsSync(join(candidate, "package.json")));
+    const seedMarker = join(pluginsRoot, `.seeded-${pluginId}-v1`);
+    const hasSeedMarker = existsSync(seedMarker);
+    const installedDir = join(pluginsRoot, managedPluginDirName(pluginId));
+    const patch = store.plugins[pluginId];
+
+    if (!existsSync(installedDir)) {
+      if (hasSeedMarker) {
+        rmSync(seedMarker, { force: true });
+      }
+      if (patch !== undefined && patch.linkedDir === undefined && patch.origin?.spec.replace(/\\/g, "/").toLowerCase().includes("/bundled-plugins/")) {
+        updatePluginsStore(dataDir, (draft) => {
+          const current = draft.plugins[pluginId];
+          if (current === undefined) return;
+          const preserved: { enabled?: boolean; config?: Record<string, unknown> } = {};
+          if (current.enabled === false) preserved.enabled = false;
+          if (current.config !== undefined && Object.keys(current.config).length > 0) preserved.config = current.config;
+          if (Object.keys(preserved).length === 0) {
+            delete draft.plugins[pluginId];
+          } else {
+            draft.plugins[pluginId] = preserved;
+          }
+        });
+      }
+      continue;
+    }
+
+    if (bundledPluginDir === undefined) {
+      continue;
+    }
+
+    if (isUnmodifiedSeededCopy(installedDir, bundledPluginDir, hasSeedMarker, patch?.origin)) {
+      rmSync(installedDir, { recursive: true, force: true });
+      if (hasSeedMarker) {
+        rmSync(seedMarker, { force: true });
+      }
+      updatePluginsStore(dataDir, (draft) => {
+        const current = draft.plugins[pluginId];
+        if (current === undefined) return;
+        const preserved: { enabled?: boolean; config?: Record<string, unknown> } = {};
+        if (current.enabled === false) preserved.enabled = false;
+        if (current.config !== undefined && Object.keys(current.config).length > 0) preserved.config = current.config;
+        if (Object.keys(preserved).length === 0) {
+          delete draft.plugins[pluginId];
+        } else {
+          draft.plugins[pluginId] = preserved;
+        }
+      });
+      notes.push(`cleaned unmodified legacy seeded plugin ${pluginId} (loaded from builtin bundled-plugins)`);
+    } else if (hasSeedMarker) {
+      rmSync(seedMarker, { force: true });
+      notes.push(`preserved user-modified plugin ${pluginId} in ${installedDir}`);
+    }
+  }
+  return notes;
 }
 
 /** Write what a desktop message says into `dataDir`; returns notes for the log. */
@@ -123,31 +371,11 @@ export function applyDesktopMessage(dataDir: string, message: DesktopMessage): s
     if (tasks.length > 0) notes.push(`imported ${tasks.length} scheduled task(s) from ${desktopFile}`);
   }
 
-  // Seed official bundled plugins (`smart-rewind`, `session-usage`) once on desktop launch.
   const desktopExe = message.executable?.trim();
   if (desktopExe) {
-    const pluginsRoot = managedPluginsRoot(dataDir);
-    const bundledRoots = [
-      join(dirname(desktopExe), "harness", "bundled-plugins"),
-      join(dirname(process.execPath), "bundled-plugins"),
-    ];
-    for (const pluginId of ["smart-rewind", "session-usage"] as const) {
-      const bundledPluginDir = bundledRoots
-        .map((root) => join(root, pluginId))
-        .find((candidate) => existsSync(join(candidate, "package.json")));
-      const seedMarker = join(pluginsRoot, `.seeded-${pluginId}-v1`);
-      if (bundledPluginDir !== undefined && !existsSync(seedMarker)) {
-        mkdirSync(pluginsRoot, { recursive: true });
-        writeFileSync(seedMarker, `${new Date().toISOString()}\n`, "utf8");
-        if (!existsSync(join(pluginsRoot, pluginId))) {
-          try {
-            installPlugin(dataDir, { channel: "local", spec: bundledPluginDir, link: false });
-            notes.push(`seeded bundled plugin ${pluginId} from ${bundledPluginDir}`);
-          } catch (error) {
-            notes.push(`failed to seed bundled plugin ${pluginId}: ${error instanceof Error ? error.message : String(error)}`);
-          }
-        }
-      }
+    const bundledRoots = resolveDesktopBundledPluginRoots(desktopExe);
+    if (bundledRoots.length > 0) {
+      notes.push(...cleanupLegacySeededPlugins(dataDir, bundledRoots));
     }
   }
   return notes;

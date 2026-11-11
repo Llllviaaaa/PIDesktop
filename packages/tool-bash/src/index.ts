@@ -15,6 +15,7 @@ import {
   buildSandboxedEnv,
   generateDevContainerConfig,
   generateWindowsSandboxConfig,
+  inspectSelfKillCommand,
 } from "./sandbox.ts";
 
 export * from "./sandbox.ts";
@@ -216,6 +217,9 @@ export function bashTool(
 ): ToolDefinition<{ command: string; timeout?: number }> {
   const maxTimeout = config.maxTimeoutSeconds ?? 600;
   let shell = config.shell;
+  const protectedPids = new Set<number>(
+    [process.pid, process.ppid].filter((pid): pid is number => Number.isInteger(pid) && pid > 1),
+  );
   return {
     name: "bash",
     description: `Run a bash command in the working directory and return its combined stdout and stderr (the last ${MAX_OUTPUT_LINES} lines or ${MAX_OUTPUT_BYTES / 1024} KB). Times out after \`timeout\` seconds (default ${DEFAULT_TIMEOUT_SECONDS}, at most ${maxTimeout}).`,
@@ -228,6 +232,8 @@ export function bashTool(
       required: ["command"],
     },
     async execute({ command, timeout }, env) {
+      const selfKillReason = inspectSelfKillCommand(command, protectedPids);
+      if (selfKillReason !== undefined) return textOutput(selfKillReason, true);
       shell ??= findShell();
       if (shell === undefined) return textOutput("No bash found. Install Git for Windows or set the bash tool's shell.", true);
       const seconds = Math.min(Math.max(1, timeout ?? DEFAULT_TIMEOUT_SECONDS), maxTimeout);

@@ -16,8 +16,10 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Context } from "@deepseek-ai/cordis";
 import {
+  getActiveSessionSnapshot,
   rewindController,
-  useAppStore,
+  showToast,
+  useActiveSession,
   type ComposerDraftSnapshot,
   type PerformedRewindResult,
   type RewindMode,
@@ -230,9 +232,9 @@ const SMART_REWIND_CSS = `
   margin: 8px 10px 2px;
   padding: 7px 10px 7px 12px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--accent, #006ee4) 8%, var(--muse-soft-fill, rgba(0, 0, 0, 0.04)));
-  color: var(--text);
-  font-family: var(--font-ui);
+  background: color-mix(in srgb, var(--qj-brand-primary, #006ee4) 8%, var(--qj-bg-hover, rgba(0, 0, 0, 0.04)));
+  color: var(--qj-text-primary, var(--text));
+  font-family: var(--qj-font-sans, var(--font-ui));
   font-size: 12.5px;
   line-height: 1.35;
 }
@@ -252,8 +254,8 @@ const SMART_REWIND_CSS = `
   width: 22px;
   height: 22px;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--accent, #006ee4) 15%, transparent);
-  color: var(--accent, #006ee4);
+  background: var(--qj-brand-soft, color-mix(in srgb, var(--qj-brand-primary, #006ee4) 15%, transparent));
+  color: var(--qj-brand-primary, #006ee4);
   flex-shrink: 0;
 }
 
@@ -267,7 +269,7 @@ const SMART_REWIND_CSS = `
 
 .sr-banner-copy strong {
   font-weight: 600;
-  color: var(--text);
+  color: var(--qj-text-primary, var(--text));
 }
 
 .sr-banner-pill {
@@ -277,8 +279,8 @@ const SMART_REWIND_CSS = `
   padding: 1.5px 7px;
   border-radius: 999px;
   font-size: 11.5px;
-  color: var(--text-2);
-  background: var(--muse-soft-fill-hover, rgba(0, 0, 0, 0.06));
+  color: var(--qj-text-secondary, var(--text-2));
+  background: var(--qj-bg-active, rgba(0, 0, 0, 0.06));
 }
 
 .sr-banner-actions {
@@ -296,9 +298,9 @@ const SMART_REWIND_CSS = `
   padding: 0 9px;
   border: 0;
   border-radius: 999px;
-  background: var(--muse-dialog-bg, var(--app, #ffffff));
-  color: var(--text);
-  font-family: var(--font-ui);
+  background: var(--qj-bg-surface, #ffffff);
+  color: var(--qj-text-primary, var(--text));
+  font-family: var(--qj-font-sans, var(--font-ui));
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -307,7 +309,7 @@ const SMART_REWIND_CSS = `
 }
 
 .sr-banner-btn:hover:not(:disabled) {
-  color: var(--accent, #006ee4);
+  color: var(--qj-brand-primary, #006ee4);
 }
 
 .sr-banner-btn:disabled {
@@ -325,13 +327,13 @@ const SMART_REWIND_CSS = `
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--text-3);
+  color: var(--qj-text-muted, var(--text-3));
   cursor: pointer;
 }
 
 .sr-banner-close:hover {
-  background: var(--muse-soft-fill-hover, rgba(0, 0, 0, 0.07));
-  color: var(--text);
+  background: var(--qj-bg-active, rgba(0, 0, 0, 0.07));
+  color: var(--qj-text-primary, var(--text));
 }
 
 .sr-backdrop {
@@ -344,6 +346,7 @@ const SMART_REWIND_CSS = `
   display: grid;
   place-items: center;
   padding: 20px;
+  pointer-events: auto;
   background: var(--muse-dialog-scrim, rgba(17, 17, 18, 0.28));
   backdrop-filter: saturate(140%) blur(6px);
   -webkit-backdrop-filter: saturate(140%) blur(6px);
@@ -355,9 +358,9 @@ const SMART_REWIND_CSS = `
   display: flex;
   flex-direction: column;
   border-radius: 24px;
-  background: var(--muse-dialog-bg, var(--app, #ffffff));
-  color: var(--text);
-  font-family: var(--font-ui);
+  background: var(--qj-bg-surface, #ffffff);
+  color: var(--qj-text-primary, var(--text));
+  font-family: var(--qj-font-sans, var(--font-ui));
   box-shadow: var(--muse-elevation-dialog, 0 24px 64px rgba(0, 0, 0, 0.22));
   overflow: hidden;
 }
@@ -379,12 +382,12 @@ const SMART_REWIND_CSS = `
 .sr-head-badge {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--qj-radius-md, 10px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--accent, #006ee4) 12%, transparent);
-  color: var(--accent, #006ee4);
+  background: var(--qj-brand-soft, color-mix(in srgb, var(--qj-brand-primary, #006ee4) 12%, transparent));
+  color: var(--qj-brand-primary, #006ee4);
 }
 
 .sr-head-title h2 {
@@ -397,7 +400,7 @@ const SMART_REWIND_CSS = `
 .sr-head-title p {
   margin: 2px 0 0;
   font-size: 12px;
-  color: var(--text-3);
+  color: var(--qj-text-muted, var(--text-3));
 }
 
 .sr-close-btn {
@@ -408,14 +411,14 @@ const SMART_REWIND_CSS = `
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--muse-soft-fill, rgba(0, 0, 0, 0.05));
-  color: var(--text-2);
+  background: var(--qj-bg-hover, rgba(0, 0, 0, 0.05));
+  color: var(--qj-text-secondary, var(--text-2));
   cursor: pointer;
 }
 
 .sr-close-btn:hover {
-  background: var(--muse-soft-fill-hover, rgba(0, 0, 0, 0.09));
-  color: var(--text);
+  background: var(--qj-bg-active, rgba(0, 0, 0, 0.09));
+  color: var(--qj-text-primary, var(--text));
 }
 
 .sr-body {
@@ -438,7 +441,7 @@ const SMART_REWIND_CSS = `
   justify-content: space-between;
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-3);
+  color: var(--qj-text-muted, var(--text-3));
 }
 
 .sr-turn-pills {
@@ -457,9 +460,9 @@ const SMART_REWIND_CSS = `
   padding: 0 11px;
   border: 0;
   border-radius: 999px;
-  background: var(--muse-soft-fill, rgba(0, 0, 0, 0.045));
-  color: var(--text-2);
-  font-family: var(--font-ui);
+  background: var(--qj-bg-hover, rgba(0, 0, 0, 0.045));
+  color: var(--qj-text-secondary, var(--text-2));
+  font-family: var(--qj-font-sans, var(--font-ui));
   font-size: 12px;
   cursor: pointer;
   flex-shrink: 0;
@@ -473,15 +476,15 @@ const SMART_REWIND_CSS = `
 }
 
 .sr-turn-pill.active {
-  background: color-mix(in srgb, var(--accent, #006ee4) 14%, transparent);
-  color: var(--accent, #006ee4);
+  background: var(--qj-brand-soft, color-mix(in srgb, var(--qj-brand-primary, #006ee4) 14%, transparent));
+  color: var(--qj-brand-primary, #006ee4);
   font-weight: 600;
 }
 
 .sr-target-card {
   padding: 12px 14px;
   border-radius: 15px;
-  background: var(--muse-soft-fill, rgba(0, 0, 0, 0.045));
+  background: var(--qj-bg-hover, rgba(0, 0, 0, 0.045));
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -494,7 +497,7 @@ const SMART_REWIND_CSS = `
   flex-wrap: wrap;
   gap: 6px;
   font-size: 11.5px;
-  color: var(--text-3);
+  color: var(--qj-text-muted, var(--text-3));
 }
 
 .sr-target-tags {
@@ -511,20 +514,20 @@ const SMART_REWIND_CSS = `
   border-radius: 999px;
   font-size: 11px;
   font-weight: 500;
-  background: var(--muse-soft-fill-hover, rgba(0, 0, 0, 0.065));
-  color: var(--text-2);
+  background: var(--qj-bg-active, rgba(0, 0, 0, 0.065));
+  color: var(--qj-text-secondary, var(--text-2));
 }
 
 .sr-tag.accent {
-  background: color-mix(in srgb, var(--accent, #006ee4) 13%, transparent);
-  color: var(--accent, #006ee4);
+  background: var(--qj-brand-soft, color-mix(in srgb, var(--qj-brand-primary, #006ee4) 13%, transparent));
+  color: var(--qj-brand-primary, #006ee4);
 }
 
 .sr-target-preview {
   margin: 0;
   font-size: 13px;
   line-height: 1.48;
-  color: var(--text);
+  color: var(--qj-text-primary, var(--text));
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -539,12 +542,12 @@ const SMART_REWIND_CSS = `
   display: flex;
   flex-direction: column;
   gap: 7px;
-  background: var(--muse-soft-fill, rgba(0, 0, 0, 0.04));
-  color: var(--text-2);
+  background: var(--qj-bg-hover, rgba(0, 0, 0, 0.04));
+  color: var(--qj-text-secondary, var(--text-2));
 }
 
 .sr-diff-box.changed {
-  background: color-mix(in srgb, #d97706 10%, var(--muse-soft-fill, rgba(0, 0, 0, 0.04)));
+  background: color-mix(in srgb, var(--qj-status-warning, #d97706) 10%, var(--qj-bg-hover, rgba(0, 0, 0, 0.04)));
 }
 
 .sr-diff-row {
@@ -552,7 +555,7 @@ const SMART_REWIND_CSS = `
   align-items: center;
   gap: 7px;
   font-weight: 500;
-  color: var(--text);
+  color: var(--qj-text-primary, var(--text));
 }
 
 .sr-diff-files {
@@ -564,12 +567,12 @@ const SMART_REWIND_CSS = `
 }
 
 .sr-file-chip {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--qj-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 11px;
   padding: 2px 7px;
-  border-radius: 6px;
-  background: var(--muse-dialog-bg, var(--app, #ffffff));
-  color: var(--text-2);
+  border-radius: var(--qj-radius-sm, 6px);
+  background: var(--qj-bg-surface, #ffffff);
+  color: var(--qj-text-secondary, var(--text-2));
 }
 
 .sr-mode-list {
@@ -582,11 +585,11 @@ const SMART_REWIND_CSS = `
   width: 100%;
   text-align: left;
   padding: 11px 13px;
-  border-radius: 14px;
+  border-radius: var(--qj-radius-lg, 14px);
   border: 1.5px solid transparent;
-  background: var(--muse-soft-fill, rgba(0, 0, 0, 0.045));
-  color: var(--text);
-  font-family: var(--font-ui);
+  background: var(--qj-bg-hover, rgba(0, 0, 0, 0.045));
+  color: var(--qj-text-primary, var(--text));
+  font-family: var(--qj-font-sans, var(--font-ui));
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -596,12 +599,12 @@ const SMART_REWIND_CSS = `
 }
 
 .sr-mode-option:hover:not(:disabled) {
-  background: var(--muse-soft-fill-hover, rgba(0, 0, 0, 0.075));
+  background: var(--qj-bg-active, rgba(0, 0, 0, 0.075));
 }
 
 .sr-mode-option.selected {
-  border-color: var(--accent, #006ee4);
-  background: color-mix(in srgb, var(--accent, #006ee4) 8%, var(--muse-soft-fill, rgba(0, 0, 0, 0.04)));
+  border-color: var(--qj-brand-primary, #006ee4);
+  background: color-mix(in srgb, var(--qj-brand-primary, #006ee4) 8%, var(--qj-bg-hover, rgba(0, 0, 0, 0.04)));
 }
 
 .sr-mode-option:disabled {
@@ -627,7 +630,7 @@ const SMART_REWIND_CSS = `
 .sr-mode-desc {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--text-2);
+  color: var(--qj-text-secondary, var(--text-2));
 }
 
 .sr-mode-right {
@@ -645,11 +648,11 @@ const SMART_REWIND_CSS = `
   min-width: 20px;
   height: 20px;
   padding: 0 5px;
-  border-radius: 6px;
+  border-radius: var(--qj-radius-sm, 6px);
   font-size: 11px;
   font-weight: 600;
-  background: var(--muse-dialog-bg, var(--app, #ffffff));
-  color: var(--text-3);
+  background: var(--qj-bg-surface, #ffffff);
+  color: var(--qj-text-muted, var(--text-3));
 }
 
 .sr-draft-guard-note {
@@ -659,8 +662,8 @@ const SMART_REWIND_CSS = `
   padding: 8px 11px;
   border-radius: 11px;
   font-size: 12px;
-  color: var(--text-2);
-  background: color-mix(in srgb, var(--accent, #006ee4) 7%, transparent);
+  color: var(--qj-text-secondary, var(--text-2));
+  background: color-mix(in srgb, var(--qj-brand-primary, #006ee4) 7%, transparent);
 }
 
 .sr-foot {
@@ -676,14 +679,14 @@ const SMART_REWIND_CSS = `
   align-items: center;
   gap: 7px;
   font-size: 12px;
-  color: var(--text-2);
+  color: var(--qj-text-secondary, var(--text-2));
   cursor: pointer;
   user-select: none;
 }
 
 .sr-instant-toggle input {
   margin: 0;
-  accent-color: var(--accent, #006ee4);
+  accent-color: var(--qj-brand-primary, #006ee4);
 }
 
 .sr-foot-actions {
@@ -697,16 +700,16 @@ const SMART_REWIND_CSS = `
   padding: 0 14px;
   border: 0;
   border-radius: 999px;
-  background: var(--muse-soft-fill, rgba(0, 0, 0, 0.05));
-  color: var(--text);
-  font-family: var(--font-ui);
+  background: var(--qj-bg-hover, rgba(0, 0, 0, 0.05));
+  color: var(--qj-text-primary, var(--text));
+  font-family: var(--qj-font-sans, var(--font-ui));
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
 }
 
 .sr-btn-ghost:hover:not(:disabled) {
-  background: var(--muse-soft-fill-hover, rgba(0, 0, 0, 0.09));
+  background: var(--qj-bg-active, rgba(0, 0, 0, 0.09));
 }
 
 .sr-btn-primary {
@@ -714,9 +717,9 @@ const SMART_REWIND_CSS = `
   padding: 0 16px;
   border: 0;
   border-radius: 999px;
-  background: var(--accent, #006ee4);
-  color: #ffffff;
-  font-family: var(--font-ui);
+  background: var(--qj-brand-primary, #006ee4);
+  color: var(--qj-brand-contrast, #ffffff);
+  font-family: var(--qj-font-sans, var(--font-ui));
   font-size: 13px;
   font-weight: 600;
   display: inline-flex;
@@ -738,7 +741,7 @@ const SMART_REWIND_CSS = `
 
 function ComposerRewindBannerView({ store }: { store: SmartRewindUiStore }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const activeSessionId = useAppStore((state) => state.sessionId);
+  const { sessionId: activeSessionId } = useActiveSession();
   const [undoing, setUndoing] = useState(false);
 
   const banner = snapshot.banner;
@@ -774,10 +777,10 @@ function ComposerRewindBannerView({ store }: { store: SmartRewindUiStore }) {
       });
       if (ok) {
         store.clearBanner();
-        useAppStore.getState().showToast("已撤销回退并恢复原对话分支", "info");
+        showToast("已撤销回退并恢复原对话分支", "info");
       }
     } catch (error) {
-      useAppStore.getState().showToast(
+      showToast(
         `撤销回退失败：${error instanceof Error ? error.message : String(error)}`,
         "error",
       );
@@ -918,7 +921,7 @@ function SmartRewindDialogOverlay({ store }: { store: SmartRewindUiStore }) {
       if (outcome) {
         store.setBanner(outcome);
         if (chosenMode === "code") {
-          useAppStore.getState().showToast(
+          showToast(
             `已恢复第 ${outcome.turnNumber} 轮前的代码快照（保留全部对话）`,
             "info",
           );
@@ -1277,18 +1280,14 @@ function SmartRewindDialogOverlay({ store }: { store: SmartRewindUiStore }) {
 }
 
 export const name = "smart-rewind-client";
-export const inject = ["contributions"];
+export const inject = ["contributions", "styles"];
 
 export function apply(ctx: Context, rawConfig: SmartRewindPluginConfig = {}): void {
   const uiStore = new SmartRewindUiStore(rawConfig);
   uiStore.setConfig(rawConfig);
+  ctx.styles.inject(SMART_REWIND_CSS, "smart-rewind");
 
   ctx.effect(() => {
-    const styleEl = document.createElement("style");
-    styleEl.dataset.smartRewindStyle = "true";
-    styleEl.textContent = SMART_REWIND_CSS;
-    document.head.appendChild(styleEl);
-
     const offDraftSent = rewindController.onDraftSent(() => {
       uiStore.clearBanner();
     });
@@ -1300,8 +1299,7 @@ export function apply(ctx: Context, rawConfig: SmartRewindPluginConfig = {}): vo
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
       if (uiStore.getSnapshot().dialog?.open) return;
       if (document.querySelector('[role="dialog"]')) return;
-      const appState = useAppStore.getState();
-      if (appState.isStreaming) return;
+      if (getActiveSessionSnapshot().isStreaming) return;
       const turns = rewindController.listRewindableTurns();
       if (turns.length === 0) return;
 
@@ -1325,21 +1323,19 @@ export function apply(ctx: Context, rawConfig: SmartRewindPluginConfig = {}): vo
     return () => {
       window.removeEventListener("keydown", onWindowKeyDown);
       offDraftSent();
-      styleEl.remove();
       uiStore.dispose();
     };
   });
 
   const openTimeline = (): boolean => {
-    const appState = useAppStore.getState();
-    if (appState.isStreaming) {
-      appState.showToast("请等待当前回复完成后再打开检查点回退", "warning");
+    if (getActiveSessionSnapshot().isStreaming) {
+      showToast("请等待当前回复完成后再打开检查点回退", "warning");
       return true;
     }
     const turns = rewindController.listRewindableTurns();
     const latest = turns[turns.length - 1];
     if (!latest) {
-      appState.showToast("当前对话暂无可回退的用户消息", "info");
+      showToast("当前对话暂无可回退的用户消息", "info");
       return true;
     }
     uiStore.openDialog({
@@ -1363,7 +1359,7 @@ export function apply(ctx: Context, rawConfig: SmartRewindPluginConfig = {}): vo
 
       const inspected = await rewindController.inspectMessage(message.id);
       if (!inspected) {
-        useAppStore.getState().showToast("无法定位这条消息的会话检查点", "warning");
+        showToast("无法定位这条消息的会话检查点", "warning");
         return false;
       }
 

@@ -83,6 +83,9 @@ export class Permissions extends Service {
   constructor(ctx: Context, private readonly config: Config = {}) {
     super(ctx, "permissions");
     this.rules = rulesFromConfig(config);
+    const protectedPids = new Set<number>(
+      [process.pid, process.ppid].filter((pid): pid is number => Number.isInteger(pid) && pid > 1),
+    );
 
     // Prepended, so permissions decide before hooks and other listeners even
     // after a reload re-registers this plugin last.
@@ -90,7 +93,16 @@ export class Permissions extends Service {
       applyDesktopToolDefaults(call.name, call.args);
       const session = await ctx.sessions.get(env.sessionId);
       const mode = session === undefined ? this.defaultModes().effective : this.modes(session).effective;
-      const decision = evaluateToolPermission({ mode, rules: this.rules, workspace: env.cwd, toolName: call.name, input: call.args });
+      const toolDef = ctx.tools.get(call.name);
+      const decision = evaluateToolPermission({
+        mode,
+        rules: this.rules,
+        workspace: env.cwd,
+        toolName: call.name,
+        input: call.args,
+        protectedPids,
+        readOnlyTool: toolDef?.readOnly === true,
+      });
       if (decision.action === "allow") return undefined;
       if (decision.action === "block") return { deny: true, reason: decision.reason };
       if (!ctx.ui.canAsk(env.sessionId)) return { deny: true, reason: "Confirmation required but no UI is available" };

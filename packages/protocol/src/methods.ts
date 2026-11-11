@@ -473,6 +473,33 @@ export type PluginTier = "builtin" | "user" | "workspace";
 /** Runtime lifecycle state of a plugin. `pending` means enabled, waiting on required `inject` services. */
 export type PluginStatus = "active" | "pending" | "disabled" | "errored" | "untrusted";
 
+/** Browser shared module specifiers externalized by the client bundler and provided by the renderer runtime. */
+export const CLIENT_SHARED_EXTERNALS = [
+  "react",
+  "react/jsx-runtime",
+  "react/jsx-dev-runtime",
+  "react-dom",
+  "react-dom/client",
+  "cordis",
+  "@deepseek-ai/cordis",
+  "@deepseek-ai/schemastery",
+  "schemastery",
+  "@qianji/client",
+  "@qianji/protocol",
+  "@pid/client",
+  "@pid/protocol",
+  "dsh-better-sidebar",
+  "dsh-better-sidebar/client",
+  "lucide-react",
+] as const;
+
+export interface PluginClientError {
+  phase: "load" | "render";
+  message: string;
+  stack?: string;
+  etag?: string;
+}
+
 /** How an external plugin was installed. */
 export type PluginInstallChannel = "local" | "archive" | "git" | "npm";
 
@@ -508,7 +535,7 @@ export interface PluginInfo {
   clientPath?: string;
   /** Content revision hash of the client bundle, when `hasClient` is true; changes trigger UI HMR. */
   clientEtag?: string;
-  /** Absolute directory path for `user` and `workspace` plugins. */
+  /** Absolute directory path for disk-backed (`builtin`, `user`, and `workspace`) plugins. */
   dir?: string;
   /** Workspace root when `tier === "workspace"`. */
   workspace?: string;
@@ -528,6 +555,8 @@ export interface PluginInfo {
   missingInject?: string[];
   /** Last load or HMR error message when `status === "errored"` or a reload rolled back. */
   error?: string;
+  /** Latest client-side load or render error reported by the renderer, if any. */
+  clientError?: PluginClientError;
 }
 
 export interface PluginListParams {
@@ -595,9 +624,23 @@ export interface PluginClientBundleResult {
   code?: string;
 }
 
+export interface PluginReportClientErrorParams {
+  id: string;
+  phase: "load" | "render";
+  message: string;
+  stack?: string;
+  etag?: string;
+  workspace?: string;
+}
+
+export interface PluginClearClientErrorParams {
+  id: string;
+  workspace?: string;
+}
+
 /** Notification `plugin/changed`. */
 export interface PluginChangedNotification {
-  reason: "installed" | "updated" | "removed" | "toggled" | "configured" | "reloaded" | "hmr" | "trust";
+  reason: "installed" | "updated" | "removed" | "toggled" | "configured" | "reloaded" | "hmr" | "trust" | "clientError";
   changedIds: string[];
   plugins: PluginInfo[];
 }
@@ -709,13 +752,16 @@ export interface MemoryExportResult {
   path: string;
 }
 
+export type SkillScope = "builtin" | "user" | "project";
+
 export interface SkillInfo {
   name: string;
   description: string;
   path: string;
-  scope: "user" | "project";
+  scope: SkillScope;
   enabled: boolean;
   trusted: boolean;
+  readOnly?: boolean;
 }
 
 export interface SkillListParams {
@@ -784,7 +830,7 @@ export interface SandboxGenerateConfigResult {
 
 // Unified native workbench (Stage 3).
 
-export type WorkbenchOpenTarget =
+export type BuiltinWorkbenchOpenTarget =
   | "files"
   | "editor"
   | "review"
@@ -792,6 +838,8 @@ export type WorkbenchOpenTarget =
   | "summary"
   | "side-chat"
   | "terminal";
+
+export type WorkbenchOpenTarget = BuiltinWorkbenchOpenTarget | (string & {});
 
 export interface WorkbenchOpenParams {
   sessionId?: string;

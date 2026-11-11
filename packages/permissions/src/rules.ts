@@ -1,6 +1,9 @@
 /**
  * Taken from the Pi engine's pidesktop-rules.ts, which went with Pi in P6c (ADR 0009).
  */
+import { inspectSelfKillCommand, isSelfKillCommand } from "@qianji/protocol";
+
+export { inspectSelfKillCommand, isSelfKillCommand };
 
 export type PermissionMode = "read-only" | "ask" | "workspace-write" | "full-access";
 export type AgentMode = "agent" | "plan" | "ask";
@@ -257,6 +260,8 @@ export function evaluateToolPermission(options: {
   toolName: string;
   input: Record<string, unknown>;
   quickChat?: boolean;
+  protectedPids?: ReadonlySet<number>;
+  readOnlyTool?: boolean;
 }): ToolDecision {
   const { mode, rules, workspace, input } = options;
   const tool = options.toolName.toLowerCase();
@@ -300,6 +305,8 @@ export function evaluateToolPermission(options: {
   const isMcpTool = tool.startsWith("mcp__");
   const isSubagent = tool === "delegate_task";
   const isMemoryWrite = tool === "desktop_memory" && action !== "read";
+  const isPluginManagerRead = tool === "plugin_manager" && (action === "list" || action === "verify");
+  const isPluginManagerWrite = tool === "plugin_manager" && !isPluginManagerRead;
   const subagentPermission = input.permission === "workspace-write" ? "workspace-write" : "read-only";
   const targets = pathsFromToolInput(input);
   const target = targets[0];
@@ -321,6 +328,8 @@ export function evaluateToolPermission(options: {
     "sidebar_open",
     "render_ui",
     "update_ui",
+    "activate_tools",
+    "qianji_inspect",
     "mcp_list_resources",
     "mcp_read_resource",
     "mcp_subscribe_resource",
@@ -328,6 +337,13 @@ export function evaluateToolPermission(options: {
     "mcp_list_prompts",
     "mcp_get_prompt",
   ]);
+  const isDeclaredReadOnly = options.readOnlyTool === true
+    && !isWrite
+    && !isShell
+    && !isInteractiveBrowser
+    && !isInteractiveComputer
+    && !isMemoryWrite
+    && !isPluginManagerWrite;
   const isKnownTool = isWrite
     || isShell
     || isBrowserTool
@@ -335,13 +351,15 @@ export function evaluateToolPermission(options: {
     || isMcpTool
     || isSubagent
     || tool === "desktop_memory"
+    || tool === "plugin_manager"
+    || isDeclaredReadOnly
     || knownReadOnlyTools.has(tool);
 
-  if (options.quickChat && (["read", "write", "edit", "apply_patch", "grep", "find", "bash", "shell", "exec"].includes(tool) || isSubagent)) {
+  if (options.quickChat && (["read", "write", "edit", "apply_patch", "grep", "find", "bash", "shell", "exec", "plugin_manager"].includes(tool) || isSubagent)) {
     return { action: "block", reason: "Quick chat does not use local project files or shell commands" };
   }
 
-  if (mode === "read-only" && (isWrite || isShell || isInteractiveBrowser || isInteractiveComputer || isMcpTool || isMemoryWrite)) {
+  if (mode === "read-only" && (isWrite || isShell || isInteractiveBrowser || isInteractiveComputer || isMcpTool || isMemoryWrite || isPluginManagerWrite)) {
     return { action: "block", reason: "Qianji is in read-only mode" };
   }
 
@@ -361,6 +379,15 @@ export function evaluateToolPermission(options: {
       action: "block",
       reason: `${isBrowserDownload ? "Browser download" : "Write"} outside workspace blocked by rule: ${outsideTarget} → ${resolved}`,
     };
+  }
+
+  // Self-preservation holds in every mode (including full-access) and ahead of custom
+  // allow rules so an agent cannot terminate qianji.exe or qianji-harness.exe.
+  if (isShell) {
+    const selfKillReason = inspectSelfKillCommand(command, options.protectedPids);
+    if (selfKillReason !== undefined) {
+      return { action: "block", reason: selfKillReason };
+    }
   }
 
   // A force push rewrites history others may have; like workspace confinement it holds

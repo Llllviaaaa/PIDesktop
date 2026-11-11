@@ -2,6 +2,8 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
+import { AppErrorBoundary } from "./components/AppErrorBoundary";
+import { installGlobalErrorHandlers } from "./lib/crashLogger";
 import { queryClient } from "./lib/queryClient";
 import { moveManagedQueueItem, removeManagedQueueItem } from "./lib/managedQueue";
 import { useAppStore } from "./store";
@@ -15,6 +17,7 @@ import "./styles/index.css";
 // tokens.css defaults to the dark palette; until App reads settings, follow the system so the
 // first frames of a light window do not draw dark chips. App overwrites this once settings load.
 document.documentElement.dataset.theme ??= window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+installGlobalErrorHandlers();
 
 const fixture = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("fixture") : null;
 
@@ -446,8 +449,10 @@ if (fixture === "thread" || fixture === "performance" || fixture === "stream" ||
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </AppErrorBoundary>
   </React.StrictMode>,
 );

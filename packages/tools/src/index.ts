@@ -68,11 +68,33 @@ export interface ToolDefinition<Args extends Record<string, unknown> = Record<st
    * until activated via `activate_tools` or called directly in that session.
    */
   deferred?: boolean;
+  /**
+   * When true, declares this tool is strictly side-effect-free / read-only so
+   * `Plan`, `Ask`, and `ask`-permission modes allow it without confirmation prompts.
+   */
+  readOnly?: boolean;
   execute(args: Args, env: ToolEnv): Promise<ToolOutput> | ToolOutput;
 }
 
 export function textOutput(text: string, isError = false): ToolOutput {
   return isError ? { content: [{ type: "text", text }], isError } : { content: [{ type: "text", text }] };
+}
+
+function bindCallerEffect(ctx: Context | undefined, dispose: () => void, label: string): () => void {
+  let disposed = false;
+  const once = (): void => {
+    if (disposed) return;
+    disposed = true;
+    dispose();
+  };
+  if (ctx?.fiber?.uid != null && ctx.fiber.state !== 5) {
+    try {
+      return ctx.effect(() => once, label) as unknown as () => void;
+    } catch {
+      return once;
+    }
+  }
+  return once;
 }
 
 const JSON_TYPES: Record<string, (value: unknown) => boolean> = {
@@ -115,20 +137,29 @@ export class Tools extends Service {
     }) as never);
   }
 
-  /** Offer a tool to every session. Returns the disposer; register it with the plugin's effects. */
+  /** Offer a tool to every session. Automatically cleans up with the caller's Cordis fiber. */
   register<Args extends Record<string, unknown>>(definition: ToolDefinition<Args>): () => void {
     if (definition.name === ACTIVATE_TOOLS_NAME || this.definitions.has(definition.name)) {
       throw new Error(`Tool ${definition.name} is already registered`);
     }
     const entry = definition as unknown as ToolDefinition;
     this.definitions.set(definition.name, entry);
-    return () => {
-      if (this.definitions.get(definition.name) === entry) this.definitions.delete(definition.name);
-    };
+    return bindCallerEffect(
+      this.ctx,
+      () => {
+        if (this.definitions.get(definition.name) === entry) this.definitions.delete(definition.name);
+      },
+      `tools.register:${definition.name}`,
+    );
   }
 
   get(name: string): ToolDefinition | undefined {
     return this.definitions.get(name);
+  }
+
+  /** Return all registered tool definitions (sorted by name) for runtime introspection. */
+  listDefinitions(): ToolDefinition[] {
+    return [...this.definitions.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /**
@@ -172,9 +203,13 @@ export class Tools extends Service {
   restrict(sessionId: string, names: Iterable<string>): () => void {
     const allowed = new Set(names);
     this.restrictions.set(sessionId, allowed);
-    return () => {
-      if (this.restrictions.get(sessionId) === allowed) this.restrictions.delete(sessionId);
-    };
+    return bindCallerEffect(
+      this.ctx,
+      () => {
+        if (this.restrictions.get(sessionId) === allowed) this.restrictions.delete(sessionId);
+      },
+      `tools.restrict:${sessionId}`,
+    );
   }
 
   /** Whether `sessionId` may use `name`. */

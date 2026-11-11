@@ -4,7 +4,7 @@ import { Sessions } from "@qianji/session";
 import { SystemPrompt } from "@qianji/system-prompt";
 import { Tools, textOutput, type ToolEnv } from "@qianji/tools";
 import { Ui } from "@qianji/ui";
-import { evaluateToolPermission, isForcePush, Permissions, rulesFromConfig, type Config } from "../src/index.ts";
+import { evaluateToolPermission, isForcePush, isSelfKillCommand, Permissions, rulesFromConfig, type Config } from "../src/index.ts";
 
 async function setup(config: Config = {}, withUi = true) {
   const ctx = new Context();
@@ -173,5 +173,91 @@ describe("Settings → 允许强制推送", () => {
     expect(shell("git push --force", true, "ask")).toMatchObject({ action: "confirm" });
     expect(rulesFromConfig({ allowForcePush: true }).allowForcePush).toBe(true);
     expect(rulesFromConfig({}).allowForcePush).toBe(false);
+  });
+});
+
+describe("Self-kill protection (防自杀拦截)", () => {
+  it("detects Windows, PowerShell, WMI, POSIX, encoded, and PID-based self-kill commands", () => {
+    const encodedStopQianji = Buffer.from("Stop-Process -Name qianji -Force", "utf16le").toString("base64");
+    const protectedPids = new Set([42424, 53535]);
+
+    for (const command of [
+      "taskkill /F /IM qianji.exe",
+      "taskkill.exe /im qianji-harness.exe /f",
+      "taskkill /F /IM qianji-harness-x86_64-pc-windows-msvc.exe",
+      "taskkill /F /FI \"IMAGENAME eq qianji*\"",
+      "taskkill /PID 42424 /F",
+      "tskill qianji",
+      "tskill 53535",
+      "Stop-Process -Name qianji -Force",
+      "spps -Id 42424",
+      "Get-Process qianji* | Stop-Process -Force",
+      "Get-Process -Name qianji-harness | ForEach-Object { $_.Kill() }",
+      `powershell -NoProfile -EncodedCommand ${encodedStopQianji}`,
+      "wmic process where \"name='qianji.exe'\" delete",
+      "Get-CimInstance Win32_Process -Filter \"Name = 'qianji.exe'\" | Invoke-CimMethod -MethodName Terminate",
+      "pkill -9 qianji",
+      "killall qianji-harness",
+      "kill -9 42424",
+      "kill -TERM $PPID",
+      "echo $(taskkill /F /IM qianji.exe)",
+      "kill $(pgrep qianji)",
+      "cmd /c \"taskkill /F /IM qianji.exe\"",
+      "(pkill -f qianji.exe)",
+      "npm test; taskkill /F /IM qianji.exe",
+      "node -e \"process.kill(42424, 'SIGKILL')\"",
+      "node -e \"process.kill(process.ppid)\"",
+      "python -c \"import os; os.kill(os.getppid(), 9)\"",
+      "Get-Process | Where-Object { ($_.ProcessName -eq 'qianji') } | Stop-Process -Force",
+      "Get-Process | Where-Object { $_.Name.Contains('qianji-harness') } | Stop-Process",
+      "Get-Process | Where-Object { $_.Id -eq 42424 } | Stop-Process -Force",
+      "(Get-Process -Id 42424).Kill()",
+      "[System.Diagnostics.Process]::GetProcessesByName('qianji') | % { $_.Kill() }",
+      "[Diagnostics.Process]::GetProcessById(42424).Kill()",
+      "taskkill /F /FI:\"PID eq 42424\"",
+      "Stop-Process -Name \"*qianji*.exe\" -Force",
+    ]) {
+      expect(isSelfKillCommand(command, protectedPids), command).toBe(true);
+    }
+
+    for (const safeCommand of [
+      "git commit -m \"fix: block taskkill /F /IM qianji.exe\"",
+      "rg \"taskkill.*qianji\" packages/",
+      "ps aux | grep qianji",
+      "tasklist /FI \"IMAGENAME eq qianji.exe\"",
+      "Get-Process qianji -ErrorAction SilentlyContinue",
+      "Get-Process | Where-Object { ($_.ProcessName -eq 'qianji') }",
+      "pkill -f \"D:/work/qianji-demo/server.js\"",
+      "kill -0 42424",
+      "kill -s 0 42424",
+      "node -e \"process.kill(42424, 0)\"",
+      "node -e \"process.kill(process.ppid, 0)\"",
+      "kill -9 99999",
+      "npm run test:harness-host",
+    ]) {
+      expect(isSelfKillCommand(safeCommand, protectedPids), safeCommand).toBe(false);
+    }
+  });
+
+  it("hard-blocks self-kill commands in full-access mode and ahead of custom allow rules", async () => {
+    const decision = evaluateToolPermission({
+      mode: "full-access",
+      rules: {
+        ...rulesFromConfig({
+          toolRules: [{ id: "allow-all-bash", enabled: true, toolPattern: "bash", action: "allow", commandPrefix: "", pathPrefix: "" }],
+        }),
+      },
+      workspace: "D:/repo",
+      toolName: "bash",
+      input: { command: "taskkill /F /IM qianji.exe" },
+      protectedPids: new Set([12345]),
+    });
+    expect(decision).toMatchObject({ action: "block" });
+
+    const { ctx, session, run, asked } = await setup();
+    ctx.permissions.set(session, { permission: "full-access" });
+    const blocked = await run("bash", { command: `kill -9 ${process.pid}` });
+    expect(blocked).toMatch(/^Denied: 已拦截针对千机自身进程/);
+    expect(asked).toEqual([]);
   });
 });

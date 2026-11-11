@@ -7,6 +7,7 @@ import { deriveTurnPlans } from "../lib/envSources";
 import { deriveSessionIntelligentUis } from "../lib/intelligentUi";
 import { normalizeTranscriptDensity, type TranscriptDensity } from "../lib/transcriptDensity";
 import { groupTranscriptMessages } from "../lib/transcriptTurns";
+import { RegionErrorBoundary } from "./common/ErrorBoundary";
 import { Message } from "./Message";
 
 function singleLineExcerpt(text: string, maxLen = 46): string {
@@ -208,29 +209,30 @@ export function ConversationMessages({
         </button>
       )}
       {visibleMessages.map((message) => (
-        <Message
-          key={message.id}
-          message={message}
-          showThinking={showThinking}
-          expectVisibleThinking={expectVisibleThinking}
-          isLastAssistant={message.id === lastAssistantId}
-          globalStreaming={isStreaming}
-          workingLabel={message.id === lastAssistantId ? statusText : undefined}
-          turnStartedAt={message.id === lastAssistantId ? lastTurnStartedAt : undefined}
-          allowRichContent
-          density={transcriptDensity}
-          editing={editingMessageId === message.id}
-          requireCtrlEnter={requireCtrlEnter}
-          plan={turnPlans.get(message.id)}
-          uiWidgets={intelligentUis?.turnWidgetsByMessageId.get(message.id)}
-          uiGroups={intelligentUis?.groupsById}
-          footer={message.id === lastAssistantId ? lastTurnFooter : undefined}
-          onOpenPlan={message.id === latestPlanMessageId ? onOpenPlan : undefined}
-          onEdit={message.role === "user" ? onEdit : undefined}
-          onRewind={message.role === "user" ? onRewind : undefined}
-          onCancelEdit={onCancelEdit}
-          onSubmitEdit={onSubmitEdit}
-        />
+        <RegionErrorBoundary key={message.id} region="消息卡片" resetKey={message.id} compact>
+          <Message
+            message={message}
+            showThinking={showThinking}
+            expectVisibleThinking={expectVisibleThinking}
+            isLastAssistant={message.id === lastAssistantId}
+            globalStreaming={isStreaming}
+            workingLabel={message.id === lastAssistantId ? statusText : undefined}
+            turnStartedAt={message.id === lastAssistantId ? lastTurnStartedAt : undefined}
+            allowRichContent
+            density={transcriptDensity}
+            editing={editingMessageId === message.id}
+            requireCtrlEnter={requireCtrlEnter}
+            plan={turnPlans.get(message.id)}
+            uiWidgets={intelligentUis?.turnWidgetsByMessageId.get(message.id)}
+            uiGroups={intelligentUis?.groupsById}
+            footer={message.id === lastAssistantId ? lastTurnFooter : undefined}
+            onOpenPlan={message.id === latestPlanMessageId ? onOpenPlan : undefined}
+            onEdit={message.role === "user" ? onEdit : undefined}
+            onRewind={message.role === "user" ? onRewind : undefined}
+            onCancelEdit={onCancelEdit}
+            onSubmitEdit={onSubmitEdit}
+          />
+        </RegionErrorBoundary>
       ))}
       {lastTurnFooter && lastAssistantId === null && !isStreaming && (
         <div className="dshc-turn-footer">{lastTurnFooter}</div>

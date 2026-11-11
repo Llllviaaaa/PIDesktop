@@ -26,6 +26,7 @@ import { useClientContributions } from "../../lib/clientContributions";
 import { useWorkbenchStore } from "../../stores/workbenchStore";
 import type { GitSnapshot } from "../../types";
 import { SideChatTab } from "../SideChatTab";
+import { SlotEntryHost } from "../common/ErrorBoundary";
 import { BrowserPreviewTab } from "./BrowserPreviewTab";
 import { CodeEditorTab } from "./CodeEditorTab";
 import { ReviewDiffTab } from "./ReviewDiffTab";
@@ -48,7 +49,12 @@ export function WorkbenchTopbarControls({ cwd, sessionFile }: WorkbenchTopbarCon
     <div className="pid-wb-topbar-controls">
       {contributions.topbarActions.map((action) => (
         <span key={action.id} className="pid-wb-plugin-action">
-          {action.render({ cwd, sessionFile })}
+          <SlotEntryHost
+            entry={action}
+            context={{ cwd, sessionFile }}
+            slotName="topbarActions"
+            compact
+          />
         </span>
       ))}
       <button
@@ -373,7 +379,13 @@ export function RightWorkbench({
               />
             </div>
           )}
-          {activePluginTab && activePluginTab.render({ cwd, sessionFile })}
+          {activePluginTab && (
+            <SlotEntryHost
+              entry={activePluginTab}
+              context={{ cwd, sessionFile }}
+              slotName="rightWorkbenchTabs"
+            />
+          )}
         </div>
       </aside>
     </>

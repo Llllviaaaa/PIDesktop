@@ -49,6 +49,8 @@ describe("lightweight sandbox helpers", () => {
       /Windows system directory/,
     );
     expect(inspectSandboxedCommand("powershell -c \"Start-Process cmd -Verb RunAs\"")).toMatch(/UAC elevation/);
+    expect(inspectSandboxedCommand("taskkill /F /IM qianji.exe")).toMatch(/已拦截针对千机自身进程/);
+    expect(inspectSandboxedCommand(`kill -9 ${process.pid}`)).toMatch(/已拦截针对千机自身进程/);
   });
 
   it("runs sandboxed commands without leaking scrubbed secrets", async () => {

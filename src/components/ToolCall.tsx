@@ -9,7 +9,9 @@ import {
   type ToolPresentation,
   type ToolSearchHit,
 } from "../lib/toolPresentation";
+import { matchToolRenderer, useClientContributions } from "../lib/clientContributions";
 import { useAppStore } from "../store";
+import { SlotEntryHost } from "./common/ErrorBoundary";
 import { WorkspaceFileOpenContext } from "./Markdown";
 import { useFileActions } from "./WorkspaceOpeners";
 import { DisclosureRow, TextShimmer } from "./TranscriptPrimitives";
@@ -343,13 +345,28 @@ export function ToolCall({
   const [expanded, setExpanded] = useState(false);
   const fileActions = useFileActions();
   const openInApp = useContext(WorkspaceFileOpenContext);
+  const contributions = useClientContributions();
+  const cwd = useAppStore((store) => store.cwd);
+  const sessionFile = useAppStore((store) => store.sessionFile);
   if (mergedHidden) return null;
+
+  const state: RowState = call.running ? "running" : call.isError ? "error" : "ok";
+  const customRenderer = matchToolRenderer(contributions.toolRenderers, call.name);
+  if (customRenderer !== undefined) {
+    return (
+      <SlotEntryHost
+        entry={customRenderer}
+        context={{ cwd, sessionFile, call, state }}
+        slotName="message.toolRenderer"
+        className="dshc-tool dshc-plugin-tool-card"
+      />
+    );
+  }
 
   const base = presentToolCall(call);
   const presented: ToolPresentation = mergedDiff && mergedDiff.length > 0
     ? { ...base, diff: mergedDiff, added: mergedAdded ?? base.added, removed: mergedRemoved ?? base.removed, expandable: true }
     : base;
-  const state: RowState = call.running ? "running" : call.isError ? "error" : "ok";
   const { title, summary } = toolRowCopy(presented, call);
   const expandable = presented.expandable;
   const open = expanded && expandable;

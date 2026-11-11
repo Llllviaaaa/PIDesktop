@@ -96,16 +96,38 @@ export class WebServer extends Service {
 
   register(route: WebRoute): () => void {
     this.routes.add(route);
-    return () => {
+    let disposed = false;
+    const once = (): void => {
+      if (disposed) return;
+      disposed = true;
       this.routes.delete(route);
     };
+    if (this.ctx?.fiber?.uid != null && this.ctx.fiber.state !== 5) {
+      try {
+        return this.ctx.effect(() => once, `webServer.register:${route.path}`) as unknown as () => void;
+      } catch {
+        return once;
+      }
+    }
+    return once;
   }
 
   registerUpgrade(route: WebUpgradeRoute): () => void {
     this.upgrades.add(route);
-    return () => {
+    let disposed = false;
+    const once = (): void => {
+      if (disposed) return;
+      disposed = true;
       this.upgrades.delete(route);
     };
+    if (this.ctx?.fiber?.uid != null && this.ctx.fiber.state !== 5) {
+      try {
+        return this.ctx.effect(() => once, `webServer.registerUpgrade:${route.path}`) as unknown as () => void;
+      } catch {
+        return once;
+      }
+    }
+    return once;
   }
 
   /**

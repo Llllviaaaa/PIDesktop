@@ -168,6 +168,36 @@ export function apply(ctx: Context, config: PluginsRpcConfig): void {
       }));
     },
 
+    "plugin.reportClientError": (params): Promise<PluginMutationResult> => {
+      const p = asObject(params);
+      const id = requiredString(p, "id");
+      const rawPhase = requiredString(p, "phase");
+      if (rawPhase !== "load" && rawPhase !== "render") {
+        throw new RpcError(ErrorCode.InvalidParams, "phase must be 'load' or 'render'");
+      }
+      const message = requiredString(p, "message");
+      const stack = optionalString(p, "stack");
+      const etag = optionalString(p, "etag");
+      const workspace = optionalString(p, "workspace");
+      return wrapPluginAction(() => manager.reportClientError(
+        id,
+        {
+          phase: rawPhase,
+          message,
+          ...(stack === undefined ? {} : { stack }),
+          ...(etag === undefined ? {} : { etag }),
+        },
+        workspace,
+      ));
+    },
+
+    "plugin.clearClientError": (params): Promise<PluginMutationResult> => {
+      const p = asObject(params);
+      const id = requiredString(p, "id");
+      const workspace = optionalString(p, "workspace");
+      return wrapPluginAction(() => manager.clearClientError(id, workspace));
+    },
+
     "workspace.trust.list": (params): WorkspaceTrustListResult => {
       const p = asObject(params);
       const workspace = optionalString(p, "workspace");

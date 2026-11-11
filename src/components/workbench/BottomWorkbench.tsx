@@ -9,6 +9,7 @@ import {
   bottomPanelMaxHeight,
 } from "../../lib/panelLayout";
 import { useWorkbenchStore } from "../../stores/workbenchStore";
+import { SlotEntryHost } from "../common/ErrorBoundary";
 import { TerminalPanel } from "./TerminalPanel";
 
 export interface BottomWorkbenchProps {
@@ -121,7 +122,13 @@ export function BottomWorkbench({ cwd, sessionFile, layoutScale }: BottomWorkben
         <div className="pid-bottom-terminal-pane" hidden={Boolean(activePluginTab)}>
           <TerminalPanel cwd={cwd} visible={terminalVisible} />
         </div>
-        {activePluginTab ? activePluginTab.render({ cwd, sessionFile }) : null}
+        {activePluginTab ? (
+          <SlotEntryHost
+            entry={activePluginTab}
+            context={{ cwd, sessionFile }}
+            slotName="bottomPanelTabs"
+          />
+        ) : null}
       </div>
     </section>
   );

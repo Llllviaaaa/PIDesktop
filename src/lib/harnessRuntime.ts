@@ -116,6 +116,8 @@ export class HarnessRuntimes {
   private readonly localQuestions = new Map<string, (confirmed: boolean) => void>();
   private hostStatus: HostStatus = "connected";
   private readonly statusListeners = new Set<(status: HostStatus) => void>();
+  private readonly streamingListeners = new Set<() => void>();
+  private streamingSnapshot: readonly string[] = [];
   /** Whether a connection was ever made, so the next one resumes the runtimes. */
   private connectedBefore = false;
   private reconnecting = false;
@@ -149,6 +151,17 @@ export class HarnessRuntimes {
     return () => this.listeners.delete(listener);
   }
 
+  /** Subscribe to changes in the set of actively streaming runtime IDs (`useSyncExternalStore`-compatible). */
+  readonly subscribeStreaming = (listener: () => void): (() => void) => {
+    this.streamingListeners.add(listener);
+    return () => {
+      this.streamingListeners.delete(listener);
+    };
+  };
+
+  /** Referentially stable snapshot of streaming runtime IDs for `useSyncExternalStore`. */
+  readonly getStreamingRuntimeIdsSnapshot = (): readonly string[] => this.streamingSnapshot;
+
   /** Hear whether the Host can be reached; called at once with the current status. */
   onHostStatus(listener: (status: HostStatus) => void): () => void {
     this.statusListeners.add(listener);
@@ -164,6 +177,10 @@ export class HarnessRuntimes {
   /** Stop reconnecting and close the connection. */
   close(): void {
     this.closed = true;
+    for (const runtime of this.runtimes.values()) {
+      runtime.streaming = false;
+    }
+    this.refreshStreamingSnapshot();
     void this.connection?.then((connection) => connection.close(), () => undefined);
     this.connection = undefined;
   }
@@ -195,6 +212,9 @@ export class HarnessRuntimes {
   async stop(runtimeId: string): Promise<void> {
     const runtime = this.runtimes.get(runtimeId);
     this.runtimes.delete(runtimeId);
+    if (runtime?.streaming) {
+      this.refreshStreamingSnapshot();
+    }
     if (runtime?.sessionId === undefined || this.connection === undefined) return;
     const stillWatched = [...this.runtimes.values()].some((other) => other.sessionId === runtime.sessionId);
     if (stillWatched) return;
@@ -208,6 +228,16 @@ export class HarnessRuntimes {
 
   isRunning(runtimeId: string): boolean {
     return this.runtimes.has(runtimeId);
+  }
+
+  /** IDs of runtimes currently executing an active turn/stream (including isolated side chats). */
+  streamingRuntimeIds(): readonly string[] {
+    return this.streamingSnapshot;
+  }
+
+  /** Number of runtimes currently executing an active turn/stream. */
+  streamingCount(): number {
+    return this.streamingSnapshot.length;
   }
 
   /** The runtime's session as a session file, once it has one: a new task's session starts with its first prompt. */
@@ -516,7 +546,7 @@ export class HarnessRuntimes {
     }
     const got = await (await this.rpc()).call<SessionGetResult>("session.get", { sessionId: runtime.sessionId });
     if (got.model !== undefined) runtime.model = got.model;
-    runtime.streaming = got.status.running;
+    this.setRuntimeStreaming(runtime, got.status.running);
     return {
       sessionFile: `${HARNESS_SESSION_PREFIX}${got.session.id}`,
       sessionId: got.session.id,
@@ -642,7 +672,7 @@ export class HarnessRuntimes {
     const rpc = await this.rpc();
     const replay = await rpc.call<SessionSubscribeResult>("session.subscribe", { sessionId: runtime.sessionId, afterSeq: runtime.lastSeq });
     runtime.lastSeq = Math.max(runtime.lastSeq, replay.events.at(-1)?.seq ?? 0);
-    runtime.streaming = replay.status.running;
+    this.setRuntimeStreaming(runtime, replay.status.running);
   }
 
   private rpc(): Promise<HarnessConnection> {
@@ -706,7 +736,7 @@ export class HarnessRuntimes {
         const replay = await connection.call<SessionSubscribeResult>("session.subscribe", { sessionId: runtime.sessionId, afterSeq: runtime.lastSeq });
         for (const event of replay.events) this.deliver(runtime, event);
         const wasStreaming = runtime.streaming;
-        runtime.streaming = replay.status.running;
+        this.setRuntimeStreaming(runtime, replay.status.running);
         if (wasStreaming && !replay.status.running) {
           runtime.translator = new TranscriptTranslator();
           this.emit(runtime.id, [{ type: "turn-interrupted" }, { type: "turn-end" }]);
@@ -717,9 +747,33 @@ export class HarnessRuntimes {
     }
   }
 
+  private setRuntimeStreaming(runtime: Runtime, streaming: boolean): void {
+    if (runtime.streaming === streaming) return;
+    runtime.streaming = streaming;
+    this.refreshStreamingSnapshot();
+  }
+
+  private refreshStreamingSnapshot(): void {
+    const next: string[] = [];
+    if (!this.closed && this.hostStatus !== "failed") {
+      for (const runtime of this.runtimes.values()) {
+        if (runtime.streaming) next.push(runtime.id);
+      }
+    }
+    if (
+      next.length === this.streamingSnapshot.length &&
+      next.every((id, idx) => id === this.streamingSnapshot[idx])
+    ) {
+      return;
+    }
+    this.streamingSnapshot = next;
+    for (const listener of this.streamingListeners) listener();
+  }
+
   private setHostStatus(status: HostStatus): void {
     if (this.hostStatus === status) return;
     this.hostStatus = status;
+    this.refreshStreamingSnapshot();
     for (const listener of this.statusListeners) listener(status);
   }
 
@@ -747,8 +801,8 @@ export class HarnessRuntimes {
     } else if (method === "session/delta") {
       const { sessionId, delta } = params as SessionDeltaNotification;
       for (const runtime of this.runtimesOf(sessionId)) {
-        if (delta.type === "agent-start") runtime.streaming = true;
-        if (delta.type === "agent-end") runtime.streaming = false;
+        if (delta.type === "agent-start") this.setRuntimeStreaming(runtime, true);
+        if (delta.type === "agent-end") this.setRuntimeStreaming(runtime, false);
         this.emit(runtime.id, runtime.translator.delta(delta));
       }
     } else if (method === "ui/request") {

@@ -1,0 +1,22 @@
+{
+  "name": "qianji-plugin-demo-panel",
+  "version": "0.1.0",
+  "description": "Minimal full-stack Host RPC + Right Workbench panel template",
+  "qianji": {
+    "id": "demo-panel",
+    "name": "Demo Fullstack Panel",
+    "host": "./index.ts",
+    "client": "./client.tsx",
+    "inject": ["tools", "rpc"],
+    "configSchema": {
+      "type": "object",
+      "properties": {
+        "heading": {
+          "type": "string",
+          "title": "Panel Heading",
+          "default": "Demo Panel"
+        }
+      }
+    }
+  }
+}

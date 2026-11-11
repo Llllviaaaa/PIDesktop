@@ -7,6 +7,9 @@
  */
 import { mkdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { inspectSelfKillCommand, isSelfKillCommand } from "@qianji/protocol";
+
+export { inspectSelfKillCommand, isSelfKillCommand };
 
 const SENSITIVE_EXACT_NAMES = new Set([
   "GITHUB_TOKEN",
@@ -116,13 +119,22 @@ const BLOCKED_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   },
 ];
 
+const DEFAULT_PROTECTED_PIDS: ReadonlySet<number> = new Set(
+  [process.pid, process.ppid].filter((pid): pid is number => Number.isInteger(pid) && pid > 1),
+);
+
 /**
  * Inspects a shell command before execution when lightweight sandboxing is active
  * (unless the session is explicitly in `full-access` mode).
  */
-export function inspectSandboxedCommand(command: string): string | undefined {
+export function inspectSandboxedCommand(
+  command: string,
+  protectedPids: ReadonlySet<number> = DEFAULT_PROTECTED_PIDS,
+): string | undefined {
   const trimmed = command.trim();
   if (trimmed === "") return undefined;
+  const selfKillReason = inspectSelfKillCommand(trimmed, protectedPids);
+  if (selfKillReason !== undefined) return selfKillReason;
   for (const rule of BLOCKED_COMMAND_PATTERNS) {
     if (rule.pattern.test(trimmed)) return rule.reason;
   }
