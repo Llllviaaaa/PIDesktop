@@ -1,0 +1,20 @@
+{
+  "name": "qianji-plugin-demo-widget",
+  "version": "0.1.0",
+  "description": "Minimal Client-only <PluginSlot> status bar widget template",
+  "qianji": {
+    "id": "demo-widget",
+    "name": "Demo Status Widget",
+    "client": "./client.tsx",
+    "configSchema": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "title": "Badge Label",
+          "default": "Ready"
+        }
+      }
+    }
+  }
+}

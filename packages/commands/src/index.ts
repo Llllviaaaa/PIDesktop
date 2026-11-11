@@ -71,6 +71,23 @@ export function parseSlashCommand(text: string): { name: string; rawArgs: string
   return { name: match[1], rawArgs: (match[2] ?? "").trim() };
 }
 
+function bindCallerEffect(ctx: Context | undefined, dispose: () => void, label: string): () => void {
+  let disposed = false;
+  const once = (): void => {
+    if (disposed) return;
+    disposed = true;
+    dispose();
+  };
+  if (ctx?.fiber?.uid != null && ctx.fiber.state !== 5) {
+    try {
+      return ctx.effect(() => once, label) as unknown as () => void;
+    } catch {
+      return once;
+    }
+  }
+  return once;
+}
+
 export class Commands extends Service {
   private readonly definitions = new Map<string, CommandDefinition>();
   private readonly providers = new Set<CommandProvider>();
@@ -79,7 +96,7 @@ export class Commands extends Service {
     super(ctx, "commands");
   }
 
-  /** Register one slash command; returns the disposer. */
+  /** Register one slash command; automatically cleans up with the caller's Cordis fiber. */
   register(definition: CommandDefinition): () => void {
     const name = normalizeCommandName(definition.name);
     if (this.definitions.has(name)) {
@@ -88,23 +105,31 @@ export class Commands extends Service {
     const normalized: CommandDefinition = { ...definition, name };
     this.definitions.set(name, normalized);
     this.notifyChanged(`register:${name}`);
-    return () => {
-      if (this.definitions.get(name) === normalized) {
-        this.definitions.delete(name);
-        this.notifyChanged(`unregister:${name}`);
-      }
-    };
+    return bindCallerEffect(
+      this.ctx,
+      () => {
+        if (this.definitions.get(name) === normalized) {
+          this.definitions.delete(name);
+          this.notifyChanged(`unregister:${name}`);
+        }
+      },
+      `commands.register:${name}`,
+    );
   }
 
   /** Register a dynamic command provider (for example workspace `SKILL.md` commands). */
   registerProvider(provider: CommandProvider): () => void {
     this.providers.add(provider);
     this.notifyChanged("provider:add");
-    return () => {
-      if (this.providers.delete(provider)) {
-        this.notifyChanged("provider:remove");
-      }
-    };
+    return bindCallerEffect(
+      this.ctx,
+      () => {
+        if (this.providers.delete(provider)) {
+          this.notifyChanged("provider:remove");
+        }
+      },
+      "commands.registerProvider",
+    );
   }
 
   notifyChanged(reason = "updated"): void {

@@ -37,7 +37,9 @@ import {
   Save,
   X,
 } from "lucide-react";
+import { SlotEntryHost } from "../common/ErrorBoundary";
 import { Markdown } from "../Markdown";
+import { matchFileViewer, useClientContributions } from "../../lib/clientContributions";
 import { useAppStore } from "../../store";
 import {
   previewKindForPath,
@@ -376,6 +378,8 @@ function DynamicDocumentPreview({
 export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
   const openFiles = useWorkbenchStore((state) => state.openFiles);
   const activeFilePath = useWorkbenchStore((state) => state.activeFilePath);
+  const sessionFile = useAppStore((state) => state.sessionFile);
+  const contributions = useClientContributions();
   const activeFile = openFiles.find((item) => item.path === activeFilePath) ?? openFiles[0] ?? null;
 
   const [previewUrlEntry, setPreviewUrlEntry] = useState<{ key: string; url: string | null } | null>(null);
@@ -449,10 +453,14 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
     );
   }
 
+  const customViewer = matchFileViewer(contributions.fileViewers, {
+    path: activeFile.path,
+    mimeType: activeFile.mimeType,
+  });
   const isDirty = activeFile.content !== activeFile.savedContent;
-  const canRenderPreview = previewKind !== null && (!activeFile.isBinary || previewKind === "svg");
+  const canRenderPreview = customViewer !== undefined || (previewKind !== null && (!activeFile.isBinary || previewKind === "svg"));
   const defaultMode: WorkbenchFileViewMode =
-    previewKind === "html" || previewKind === "svg" ? "preview" : "code";
+    customViewer !== undefined || previewKind === "html" || previewKind === "svg" ? "preview" : "code";
   const effectiveMode: WorkbenchFileViewMode = !canRenderPreview
     ? "code"
     : activeFile.isBinary
@@ -607,6 +615,23 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
           <div className="pid-wb-empty">正在读取 {activeFile.path}…</div>
         ) : activeFile.error ? (
           <div className="pid-wb-empty error">{activeFile.error}</div>
+        ) : canRenderPreview && effectiveMode === "preview" && customViewer !== undefined ? (
+          <SlotEntryHost
+            entry={customViewer}
+            context={{
+              cwd,
+              sessionFile,
+              path: activeFile.path,
+              content: activeFile.content,
+              isBinary: activeFile.isBinary,
+              mimeType: activeFile.mimeType,
+              dataBase64: activeFile.data,
+              size: activeFile.size,
+            }}
+            slotName="file.viewer"
+            className="pid-wb-plugin-file-viewer"
+            style={{ height: "100%", overflow: "auto" }}
+          />
         ) : canRenderPreview && previewKind !== null && effectiveMode === "preview" ? (
           <DynamicDocumentPreview
             file={activeFile}
@@ -614,18 +639,37 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
             previewHttpUrl={previewHttpUrl}
             reloadNonce={previewNonce}
           />
-        ) : canRenderPreview && previewKind !== null && effectiveMode === "split" ? (
+        ) : canRenderPreview && effectiveMode === "split" && (customViewer !== undefined || previewKind !== null) ? (
           <div className="pid-wb-split-view">
             <div className="pid-wb-split-pane is-code">
               <CodeMirrorSurface cwd={cwd} file={activeFile} onSave={() => void handleSave()} />
             </div>
             <div className="pid-wb-split-pane is-preview">
-              <DynamicDocumentPreview
-                file={activeFile}
-                kind={previewKind}
-                previewHttpUrl={previewHttpUrl}
-                reloadNonce={previewNonce}
-              />
+              {customViewer !== undefined ? (
+                <SlotEntryHost
+                  entry={customViewer}
+                  context={{
+                    cwd,
+                    sessionFile,
+                    path: activeFile.path,
+                    content: activeFile.content,
+                    isBinary: activeFile.isBinary,
+                    mimeType: activeFile.mimeType,
+                    dataBase64: activeFile.data,
+                    size: activeFile.size,
+                  }}
+                  slotName="file.viewer"
+                  className="pid-wb-plugin-file-viewer"
+                  style={{ height: "100%", overflow: "auto" }}
+                />
+              ) : previewKind !== null ? (
+                <DynamicDocumentPreview
+                  file={activeFile}
+                  kind={previewKind}
+                  previewHttpUrl={previewHttpUrl}
+                  reloadNonce={previewNonce}
+                />
+              ) : null}
             </div>
           </div>
         ) : activeFile.isBinary ? (

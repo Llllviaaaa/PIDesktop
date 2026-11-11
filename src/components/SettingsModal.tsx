@@ -20,6 +20,7 @@ import {
 import { agent } from "../lib/agent";
 import { BUILTIN_APPEARANCE_CATALOG, type AppearanceCatalog, type AppearanceThemeDefinition } from "../lib/appearanceCatalog";
 import { queryKeys } from "../lib/queries";
+import { DEFAULT_APP_SETTINGS } from "@qianji/protocol";
 import { ModelsPage } from "./ModelsPage";
 import { PluginsSettingsPanel } from "./PluginsSettingsPanel";
 import type { AppSettings, SettingsDisplayMode } from "../types";
@@ -30,79 +31,7 @@ export function normalizeSettingsDisplayMode(value?: string | null): SettingsDis
   return value === "modal" ? "modal" : "page";
 }
 
-export const DEFAULTS: AppSettings = {
-  provider: "",
-  model: "",
-  thinkingLevel: "medium",
-  customThinkingLevels: [],
-  modelThinkingLevels: {},
-  modelCustomThinkingLevels: {},
-  settingsDisplayMode: "page",
-  agentMode: "agent",
-  permissionMode: "ask",
-  alwaysConfirmShell: true,
-  blockWriteOutsideWorkspace: true,
-  shellAllowPrefixes: "",
-  toolRules: [],
-  defaultTaskEnvironment: "local",
-  defaultWorkspace: "",
-  showThinking: true,
-  transcriptDensity: "normal",
-  autoConnect: false,
-  followUpBehavior: "steer",
-  requireCtrlEnter: false,
-  preventSleep: true,
-  language: "zh-CN",
-  defaultFileOpener: "system",
-  terminalShell: "PowerShell",
-  terminalShellArgs: "",
-  terminalOutput: "summary",
-  notificationsEnabled: true,
-  notifyOnCompletion: true,
-  notifyOnApproval: true,
-  notifyOnlyWhenUnfocused: true,
-  theme: "light",
-  accentColor: "#006ee4",
-  backgroundColor: "#fcfcfc",
-  foregroundColor: "#111112",
-  uiFont: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  codeFont: 'ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-  uiScale: 100,
-  messageFontSize: 15,
-  personality: "pragmatic",
-  customInstructions: "",
-  suggestedPrompts: false,
-  memoryEnabled: true,
-  projectMemoryEnabled: true,
-  planTrackingEnabled: true,
-  hooksEnabled: false,
-  hooksInheritEnvironment: false,
-  hooks: [],
-  subagentsEnabled: true,
-  subagentMaxConcurrency: 3,
-  browserEnabled: true,
-  browserHeadless: true,
-  browserProfileMode: "temporary",
-  browserConfirmActions: true,
-  browserExecutable: "",
-  computerEnabled: true,
-  computerConfirmActions: true,
-  sandboxEnabled: false,
-  mcpEnabled: true,
-  mcpConfirmTools: true,
-  mcpServers: [],
-  reviewDelivery: "inline",
-  branchPrefix: "qianji/",
-  allowForcePush: false,
-  commitMessageInstructions: "",
-  logLevel: "info",
-  shortcutNewChat: "Ctrl+Shift+N",
-  shortcutSettings: "Ctrl+,",
-  shortcutTerminal: "Ctrl+Shift+T",
-  shortcutChanges: "Ctrl+Shift+G",
-  shortcutToggleSidebar: "Ctrl+B",
-  archivedSessions: [],
-};
+export const DEFAULTS: AppSettings = { ...DEFAULT_APP_SETTINGS };
 
 const NAV_ITEMS: ReadonlyArray<{
   id: SettingsPage;

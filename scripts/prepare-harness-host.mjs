@@ -5,10 +5,11 @@
 // runs for browser-only development.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { syncBundledPluginAssets } from "./generate-plugin-types.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const hostDir = join(repoRoot, "packages", "host");
@@ -38,15 +39,8 @@ await build({
   logLevel: "warning",
 });
 console.log(`Bundled Harness Host: ${bundleFile}`);
+syncBundledPluginAssets(repoRoot);
 if (bundleOnly) process.exit(0);
-
-mkdirSync(outputDir, { recursive: true });
-const bundledPluginsSource = join(repoRoot, "plugins");
-const bundledPluginsTarget = join(outputDir, "bundled-plugins");
-if (existsSync(bundledPluginsSource)) {
-  rmSync(bundledPluginsTarget, { recursive: true, force: true });
-  cpSync(bundledPluginsSource, bundledPluginsTarget, { recursive: true });
-}
 
 if (process.platform !== "win32" || process.arch !== "x64") {
   throw new Error(`Qianji currently builds a Windows x64 Harness Host, not ${process.platform}/${process.arch}`);

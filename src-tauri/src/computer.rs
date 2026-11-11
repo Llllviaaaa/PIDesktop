@@ -1,5 +1,6 @@
 use std::io::{self, Read};
 use std::mem::{size_of, zeroed};
+use std::path::Path;
 use std::ptr::null_mut;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -10,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use uiautomation::patterns::{
     UIInvokePattern, UIScrollItemPattern, UISelectionItemPattern, UITogglePattern, UIValuePattern,
 };
-use uiautomation::types::Handle;
+use uiautomation::types::{Handle, Point};
 use uiautomation::{UIAutomation, UIElement};
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
@@ -21,15 +22,18 @@ use windows_capture::settings::{
 };
 use windows_capture::window::Window as CaptureWindow;
 use windows_sys::core::BOOL;
-use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
+use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows_sys::Win32::Graphics::Gdi::{
-    BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
-    ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS,
-    SRCCOPY,
+    BitBlt, ClientToScreen, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
+    GetDC, GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
+    DIB_RGB_COLORS, SRCCOPY,
+};
+use windows_sys::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows_sys::Win32::UI::HiDpi::{
-    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    GetDpiForWindow, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, VkKeyScanW, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
@@ -38,9 +42,10 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetSystemMetrics, GetWindowRect, GetWindowTextLengthW,
-    GetWindowTextW, IsWindowVisible, SetCursorPos, SetForegroundWindow, ShowWindowAsync,
-    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_RESTORE,
+    EnumWindows, GetAncestor, GetClientRect, GetForegroundWindow, GetSystemMetrics, GetWindowRect,
+    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, SetCursorPos,
+    SetForegroundWindow, ShowWindowAsync, WindowFromPoint, GA_ROOT, SM_CXVIRTUALSCREEN,
+    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_RESTORE,
 };
 
 #[derive(Deserialize)]
@@ -870,7 +875,11 @@ fn perform_element_action(
     target_ref: &str,
     text: Option<&str>,
 ) -> Result<(), String> {
+    let (handle, _) = parse_element_ref(target_ref)?;
     let element = find_element(target_ref)?;
+    if matches!(action, "invoke" | "select" | "toggle") && is_self_window(handle) {
+        guard_self_window_element(handle, &element)?;
+    }
     match action {
         "invoke" => match element.get_pattern::<UIInvokePattern>() {
             Ok(pattern) => pattern
@@ -1026,6 +1035,7 @@ fn submit(inputs: &[INPUT]) -> Result<(), String> {
 }
 
 fn click(x: i32, y: i32, button: &str, count: u32) -> Result<(), String> {
+    guard_self_window_point(x, y)?;
     move_pointer(x, y)?;
     let (down, up) = match button {
         "left" => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
@@ -1079,6 +1089,8 @@ fn drag(
     end_y: i32,
     duration_ms: u64,
 ) -> Result<(), String> {
+    guard_self_window_point(start_x, start_y)?;
+    guard_self_window_point(end_x, end_y)?;
     move_pointer(start_x, start_y)?;
     submit(&[mouse_input(MOUSEEVENTF_LEFTDOWN, 0)])?;
     let steps = (duration_ms / 16).clamp(2, 120);
@@ -1125,6 +1137,15 @@ fn press_combo(combo: &str) -> Result<(), String> {
         });
     }
     let key = resolve_key(key_name)?;
+    let foreground = unsafe { GetForegroundWindow() };
+    if !foreground.is_null()
+        && is_self_window(foreground)
+        && is_self_window_close_combo(&modifiers, key_name, key)
+    {
+        return Err(format!(
+            "Refusing to send window-close/minimize shortcut ({combo}) while Qianji is focused"
+        ));
+    }
     let mut inputs = Vec::new();
     for modifier in &modifiers {
         inputs.push(keyboard_input(*modifier, 0, 0));
@@ -1135,6 +1156,288 @@ fn press_combo(combo: &str) -> Result<(), String> {
         inputs.push(keyboard_input(*modifier, 0, KEYEVENTF_KEYUP));
     }
     submit(&inputs)
+}
+
+fn is_protected_executable_path(path: &Path) -> bool {
+    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    let lower = stem.trim().to_ascii_lowercase();
+    for base in ["qianji-harness", "qianji"] {
+        if lower == base {
+            return true;
+        }
+        if let Some(rest) = lower.strip_prefix(base) {
+            if let Some(arch) = rest.strip_prefix('-') {
+                if arch.starts_with("x86_64-")
+                    || arch.starts_with("aarch64-")
+                    || arch.starts_with("i686-")
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn window_process_image(handle: HWND) -> Option<std::path::PathBuf> {
+    if handle.is_null() {
+        return None;
+    }
+    let root = unsafe {
+        let ancestor = GetAncestor(handle, GA_ROOT);
+        if ancestor.is_null() {
+            handle
+        } else {
+            ancestor
+        }
+    };
+    let mut pid: u32 = 0;
+    unsafe {
+        GetWindowThreadProcessId(root, &mut pid);
+    }
+    if pid == 0 {
+        return None;
+    }
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return None;
+    }
+    let mut buffer = vec![0_u16; 1024];
+    let mut size = buffer.len() as u32;
+    let ok = unsafe { QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut size) };
+    unsafe {
+        CloseHandle(process);
+    }
+    if ok == 0 || size == 0 {
+        return None;
+    }
+    let path = String::from_utf16_lossy(&buffer[..size as usize]);
+    Some(std::path::PathBuf::from(path))
+}
+
+fn is_self_window(handle: HWND) -> bool {
+    let Some(proc_path) = window_process_image(handle) else {
+        return false;
+    };
+    if is_protected_executable_path(&proc_path) {
+        return true;
+    }
+    if let Ok(current) = std::env::current_exe() {
+        if proc_path
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&current.to_string_lossy())
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_self_window_close_combo(modifiers: &[u16], key_name: &str, key_vk: u16) -> bool {
+    let has_alt = modifiers.contains(&0x12);
+    let has_ctrl = modifiers.contains(&0x11);
+    let has_win = modifiers.contains(&0x5B);
+
+    // Alt+F4 (close window) or Alt+Space (system window menu)
+    if has_alt && (key_vk == 0x73 || key_vk == 0x20 || key_name == "F4" || key_name == "SPACE") {
+        return true;
+    }
+    // Ctrl+Q (quit), Ctrl+W / Ctrl+Shift+W / Ctrl+F4 (close window/webview)
+    if has_ctrl
+        && (key_name == "Q"
+            || key_name == "W"
+            || key_name == "F4"
+            || key_vk == 0x51
+            || key_vk == 0x57
+            || key_vk == 0x73)
+    {
+        return true;
+    }
+    // Win+Down or Win+M (minimize/hide window)
+    if has_win && (key_name == "DOWN" || key_name == "M" || key_vk == 0x28 || key_vk == 0x4D) {
+        return true;
+    }
+    false
+}
+
+fn is_dangerous_self_element_name(name: &str) -> bool {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let lower = trimmed.to_lowercase();
+    // Strip trailing shortcut hints like "退出  Alt+F4" or "Close (Ctrl+W)" if present
+    let primary = lower
+        .split(['\t', '('])
+        .next()
+        .unwrap_or(lower.as_str())
+        .split("  ")
+        .next()
+        .unwrap_or(lower.as_str())
+        .trim();
+
+    matches!(
+        primary,
+        "关闭"
+            | "关闭窗口"
+            | "退出"
+            | "退出千机"
+            | "退出 千机"
+            | "最小化"
+            | "最小化窗口"
+            | "close"
+            | "close window"
+            | "quit"
+            | "exit"
+            | "minimize"
+            | "minimize window"
+    )
+}
+
+fn self_window_client_screen_rect(root: HWND) -> Option<RECT> {
+    let mut client: RECT = unsafe { zeroed() };
+    if unsafe { GetClientRect(root, &mut client) } != 0
+        && client.right > client.left
+        && client.bottom > client.top
+    {
+        let mut top_left = POINT {
+            x: client.left,
+            y: client.top,
+        };
+        let mut bottom_right = POINT {
+            x: client.right,
+            y: client.bottom,
+        };
+        if unsafe { ClientToScreen(root, &mut top_left) } != 0
+            && unsafe { ClientToScreen(root, &mut bottom_right) } != 0
+            && bottom_right.x > top_left.x
+            && bottom_right.y > top_left.y
+        {
+            return Some(RECT {
+                left: top_left.x,
+                top: top_left.y,
+                right: bottom_right.x,
+                bottom: bottom_right.y,
+            });
+        }
+    }
+
+    if let Ok(bounds) = window_capture_bounds(root) {
+        return Some(bounds);
+    }
+
+    let mut rect: RECT = unsafe { zeroed() };
+    if unsafe { GetWindowRect(root, &mut rect) } != 0
+        && rect.right > rect.left
+        && rect.bottom > rect.top
+    {
+        Some(rect)
+    } else {
+        None
+    }
+}
+
+fn is_in_self_titlebar_danger_zone(x: i32, y: i32, rect: RECT, dpi: u32) -> bool {
+    if rect.right <= rect.left || rect.bottom <= rect.top {
+        return false;
+    }
+    if x < rect.left || x > rect.right || y < rect.top || y > rect.bottom {
+        return false;
+    }
+    let dpi_scale = (dpi.max(96) as f64) / 96.0;
+    // Frameless `.window-menubar` (34-36 CSS px tall) right-aligned `.window-controls` strip
+    // (3 buttons * 46 CSS px = 138 CSS px wide: Minimize / Maximize / Close)
+    let controls_height = (36.0 * dpi_scale).round() as i32;
+    let controls_width = (138.0 * dpi_scale).round() as i32;
+    y <= rect.top + controls_height && x >= rect.right - controls_width
+}
+
+fn guard_self_window_point(x: i32, y: i32) -> Result<(), String> {
+    let hwnd = unsafe { WindowFromPoint(POINT { x, y }) };
+    if hwnd.is_null() {
+        return Ok(());
+    }
+    let root = unsafe {
+        let ancestor = GetAncestor(hwnd, GA_ROOT);
+        if ancestor.is_null() {
+            hwnd
+        } else {
+            ancestor
+        }
+    };
+    if !is_self_window(root) {
+        return Ok(());
+    }
+
+    if let Some(rect) = self_window_client_screen_rect(root) {
+        let dpi = unsafe { GetDpiForWindow(root) };
+        if is_in_self_titlebar_danger_zone(x, y, rect, dpi) {
+            return Err("Refusing to click window controls on Qianji's own titlebar".to_string());
+        }
+    }
+
+    if let Ok(automation) = UIAutomation::new() {
+        if let Ok(element) = automation.element_from_point(Point::new(x, y)) {
+            check_element_ancestry(&automation, &element)?;
+        }
+    }
+    Ok(())
+}
+
+fn guard_self_window_element(handle: HWND, element: &UIElement) -> Result<(), String> {
+    let root = unsafe {
+        let ancestor = GetAncestor(handle, GA_ROOT);
+        if ancestor.is_null() {
+            handle
+        } else {
+            ancestor
+        }
+    };
+    if let Some(rect) = self_window_client_screen_rect(root) {
+        if let Ok(bounds) = element.get_bounding_rectangle() {
+            let cx = bounds.get_left() + (bounds.get_right() - bounds.get_left()) / 2;
+            let cy = bounds.get_top() + (bounds.get_bottom() - bounds.get_top()) / 2;
+            let dpi = unsafe { GetDpiForWindow(root) };
+            if is_in_self_titlebar_danger_zone(cx, cy, rect, dpi) {
+                return Err(
+                    "Refusing to invoke window controls on Qianji's own titlebar".to_string(),
+                );
+            }
+        }
+    }
+    if let Ok(automation) = UIAutomation::new() {
+        check_element_ancestry(&automation, element)?;
+    } else if let Ok(name) = element.get_name() {
+        if is_dangerous_self_element_name(&name) {
+            return Err(format!(
+                "Refusing to activate '{}' on Qianji's own window",
+                name.trim()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn check_element_ancestry(automation: &UIAutomation, start: &UIElement) -> Result<(), String> {
+    let walker = automation.get_control_view_walker().ok();
+    let mut current = Some(start.clone());
+    for _ in 0..4 {
+        let Some(el) = current else {
+            break;
+        };
+        if let Ok(name) = el.get_name() {
+            if is_dangerous_self_element_name(&name) {
+                return Err(format!(
+                    "Refusing to activate '{}' on Qianji's own window",
+                    name.trim()
+                ));
+            }
+        }
+        current = walker.as_ref().and_then(|w| w.get_parent(&el).ok());
+    }
+    Ok(())
 }
 
 fn resolve_key(name: &str) -> Result<u16, String> {
@@ -1261,5 +1564,58 @@ mod tests {
             Ok(_) => panic!("unbounded batch should fail"),
         };
         assert!(duration_error.contains("must not exceed"));
+    }
+
+    #[test]
+    fn guards_self_window_executables_shortcuts_elements_and_titlebar() {
+        assert!(is_protected_executable_path(Path::new(
+            r"D:\app\Qianji\qianji.exe"
+        )));
+        assert!(is_protected_executable_path(Path::new(
+            r"D:\app\Qianji\qianji-harness-x86_64-pc-windows-msvc.exe"
+        )));
+        assert!(!is_protected_executable_path(Path::new(
+            r"D:\work\qianji-demo\server.exe"
+        )));
+        assert!(!is_protected_executable_path(Path::new(
+            r"C:\Windows\System32\notepad.exe"
+        )));
+
+        assert!(is_self_window_close_combo(&[0x12], "F4", 0x73));
+        assert!(is_self_window_close_combo(&[0x12], "SPACE", 0x20));
+        assert!(is_self_window_close_combo(&[0x11], "Q", 0x51));
+        assert!(is_self_window_close_combo(&[0x11, 0x10], "W", 0x57));
+        assert!(is_self_window_close_combo(&[0x5B], "DOWN", 0x28));
+        assert!(!is_self_window_close_combo(&[0x11], "C", 0x43));
+        assert!(!is_self_window_close_combo(&[0x11], "J", 0x4A));
+
+        assert!(is_dangerous_self_element_name("关闭窗口"));
+        assert!(is_dangerous_self_element_name("关闭"));
+        assert!(is_dangerous_self_element_name("退出"));
+        assert!(is_dangerous_self_element_name("最小化窗口"));
+        assert!(is_dangerous_self_element_name("Close Window"));
+        assert!(!is_dangerous_self_element_name("最大化或还原窗口"));
+        assert!(!is_dangerous_self_element_name("隐藏侧栏"));
+        assert!(!is_dangerous_self_element_name("关闭标签页"));
+
+        let rect = RECT {
+            left: 100,
+            top: 200,
+            right: 1300,
+            bottom: 1000,
+        };
+        // Top-right close button at 96 DPI -> blocked
+        assert!(is_in_self_titlebar_danger_zone(1285, 218, rect, 96));
+        // Top-right minimize button at 96 DPI -> blocked
+        assert!(is_in_self_titlebar_danger_zone(1190, 218, rect, 96));
+        // Workbench topbar button immediately below 36px `.window-menubar` -> allowed
+        assert!(!is_in_self_titlebar_danger_zone(1285, 240, rect, 96));
+        // 150% DPI (144 DPI -> 54px height, 207px width) -> blocked inside scaled controls, allowed outside
+        assert!(is_in_self_titlebar_danger_zone(1110, 248, rect, 144));
+        assert!(!is_in_self_titlebar_danger_zone(1110, 260, rect, 144));
+        // Center of titlebar (drag / chat title) -> allowed
+        assert!(!is_in_self_titlebar_danger_zone(650, 218, rect, 96));
+        // Inside main stage below titlebar -> allowed
+        assert!(!is_in_self_titlebar_danger_zone(1285, 320, rect, 96));
     }
 }

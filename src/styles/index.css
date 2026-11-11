@@ -7,7 +7,7 @@
  * Tailwind's preflight is left out on purpose: the legacy panels still rely
  * on browser defaults for lists, headings and form controls.
  */
-@layer theme, base, legacy, skin, components, utilities;
+@layer theme, base, plugin-ui, legacy, skin, components, utilities;
 
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
@@ -24,46 +24,45 @@
 @import "./skin-workspace.css" layer(skin);
 @import "./workbench.css" layer(components);
 @import "./intelligent-ui.css" layer(components);
+@import "./ui-primitives.css" layer(components);
 @import "./motion.css" layer(components);
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 /*
- * Tailwind color names follow the shadcn vocabulary Vetta uses, mapped onto
- * the palette variables that App.tsx writes from the active appearance theme.
- * Note the one naming trap: Tailwind `accent` is the hover surface, while the
- * palette's `--accent` is the brand color and surfaces here as `primary`.
+ * Tailwind color names follow the shadcn vocabulary, mapped directly onto
+ * the authoritative `--qj-*` semantic tokens.
  */
 @theme inline {
-  --color-background: var(--app);
-  --color-foreground: var(--text);
-  --color-card: var(--panel);
-  --color-card-foreground: var(--text);
+  --color-background: var(--qj-bg-app);
+  --color-foreground: var(--qj-text-primary);
+  --color-card: var(--qj-bg-surface);
+  --color-card-foreground: var(--qj-text-primary);
   --color-popover: var(--popover);
-  --color-popover-foreground: var(--text);
-  --color-primary: var(--accent);
-  --color-primary-foreground: var(--accent-text);
-  --color-secondary: var(--panel-strong);
-  --color-secondary-foreground: var(--text);
-  --color-muted: var(--panel-soft);
-  --color-muted-foreground: var(--text-2);
-  --color-subtle-foreground: var(--text-3);
-  --color-accent: var(--hover);
-  --color-accent-foreground: var(--text);
-  --color-active: var(--active);
-  --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
-  --color-input: var(--border-strong);
-  --color-ring: var(--accent);
-  --color-sidebar: var(--sidebar-bg);
-  --color-sidebar-foreground: var(--sidebar-text);
-  --color-destructive: var(--red);
-  --color-success: var(--green);
-  --color-warning: var(--yellow);
-  --color-info: var(--blue);
+  --color-popover-foreground: var(--qj-text-primary);
+  --color-primary: var(--qj-brand-primary);
+  --color-primary-foreground: var(--qj-brand-contrast);
+  --color-secondary: var(--qj-bg-elevated);
+  --color-secondary-foreground: var(--qj-text-primary);
+  --color-muted: var(--qj-bg-subtle);
+  --color-muted-foreground: var(--qj-text-secondary);
+  --color-subtle-foreground: var(--qj-text-muted);
+  --color-accent: var(--qj-bg-hover);
+  --color-accent-foreground: var(--qj-text-primary);
+  --color-active: var(--qj-bg-active);
+  --color-border: var(--qj-border-default);
+  --color-border-strong: var(--qj-border-strong);
+  --color-input: var(--qj-border-strong);
+  --color-ring: var(--qj-brand-primary);
+  --color-sidebar: var(--qj-bg-sidebar);
+  --color-sidebar-foreground: var(--qj-text-secondary);
+  --color-destructive: var(--qj-status-danger);
+  --color-success: var(--qj-status-success);
+  --color-warning: var(--qj-status-warning);
+  --color-info: var(--qj-status-info);
 
-  --font-sans: var(--font-ui);
-  --font-mono: var(--code-font);
+  --font-sans: var(--qj-font-sans);
+  --font-mono: var(--qj-font-mono);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

@@ -301,11 +301,26 @@ fn ensure_running(app: &AppHandle, host: &HarnessHost) -> Result<HarnessEndpoint
         .map_err(|_| AppError::locked("harness host"))?;
     let now = Instant::now();
     if let Some(current) = state.running.as_mut() {
-        if matches!(current.child.try_wait(), Ok(None)) {
-            return Ok(HarnessEndpoint {
-                base_url: current.base.clone(),
-                token: current.token.clone(),
-            });
+        match current.child.try_wait() {
+            Ok(None) => {
+                return Ok(HarnessEndpoint {
+                    base_url: current.base.clone(),
+                    token: current.token.clone(),
+                });
+            }
+            Ok(Some(status)) => {
+                let code_desc = match status.code() {
+                    Some(code) => format!("{code} (0x{:08X})", code as u32),
+                    None => status.to_string(),
+                };
+                log_line!(
+                    "[harness] Harness Host exited unexpectedly with code {code_desc}; scheduling restart (prior crashes in window: {})",
+                    state.crashes.len()
+                );
+            }
+            Err(err) => {
+                log_line!("[harness] failed to poll Harness Host child status: {err}");
+            }
         }
         state.running = None;
         state.crashes.push_back(now);

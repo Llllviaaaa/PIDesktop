@@ -255,14 +255,13 @@ export function apply(ctx: Context): void {
   });
   ctx.effect(() => ctx.tools.register({
     name: "sidebar_open",
-    description: "Open a workspace file (optionally at a line), Git diff review, live web preview URL, or task summary inside the user's workbench.",
+    description: "Open a workspace file (optionally at a line), Git diff review, live web preview URL, task summary, or a custom plugin workbench tab inside the user's workbench.",
     parameters: {
       type: "object",
       properties: {
         target: {
           type: "string",
-          enum: ["files", "editor", "review", "preview", "summary", "terminal"],
-          description: "Workbench panel to focus. Defaults to 'editor' when path is provided, or 'preview' when url is provided.",
+          description: "Workbench panel or plugin tab ID to focus ('files', 'editor', 'review', 'preview', 'summary', 'side-chat', 'terminal', 'canvas', or any active plugin tab id). Defaults to 'editor' when path is provided, or 'preview' when url is provided.",
         },
         path: {
           type: "string",
@@ -285,18 +284,18 @@ export function apply(ctx: Context): void {
       },
     },
     async execute(args, env): Promise<ToolOutput> {
-      const rawTarget = typeof args.target === "string" ? args.target : undefined;
+      const rawTarget = typeof args.target === "string" ? args.target.trim() : undefined;
       const rawPath = typeof args.path === "string" ? args.path : undefined;
       const rawUrl = typeof args.url === "string" ? args.url : undefined;
       const line = typeof args.line === "number" && Number.isInteger(args.line) && args.line >= 1 ? args.line : undefined;
       const endLine = typeof args.endLine === "number" && Number.isInteger(args.endLine) && args.endLine >= 1 ? args.endLine : undefined;
 
       let target: WorkbenchOpenTarget;
-      if (rawTarget !== undefined) {
-        if (!VALID_TARGETS.has(rawTarget as WorkbenchOpenTarget)) {
+      if (rawTarget !== undefined && rawTarget !== "") {
+        if (!VALID_TARGETS.has(rawTarget) && !/^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,127}$/.test(rawTarget)) {
           return textOutput(`Invalid workbench target: ${rawTarget}`, true);
         }
-        target = rawTarget as WorkbenchOpenTarget;
+        target = rawTarget;
       } else if (rawPath !== undefined) {
         target = "editor";
       } else if (rawUrl !== undefined) {
@@ -348,8 +347,8 @@ export function apply(ctx: Context): void {
 
   ctx.effect(() => ctx.rpc.method("workbench.open", (params): { ok: true } => {
     const p = (typeof params === "object" && params !== null ? params : {}) as Record<string, unknown>;
-    const rawTarget = p.target;
-    if (typeof rawTarget !== "string" || !VALID_TARGETS.has(rawTarget as WorkbenchOpenTarget)) {
+    const rawTarget = typeof p.target === "string" ? p.target.trim() : "";
+    if (rawTarget === "" || (!VALID_TARGETS.has(rawTarget) && !/^[a-zA-Z0-9][a-zA-Z0-9:._-]{0,127}$/.test(rawTarget))) {
       throw new RpcError(ErrorCode.InvalidParams, "workbench.open requires a valid target");
     }
     const cwd = typeof p.cwd === "string" && p.cwd.trim() !== "" ? p.cwd : undefined;

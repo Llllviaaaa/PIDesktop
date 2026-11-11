@@ -64,4 +64,16 @@ describe.skipIf(shell === undefined)("bash tool", () => {
     expect(textOf(output)).toContain("background-started");
     expect(Date.now() - started).toBeLessThan(2500);
   });
+
+  it("refuses to execute commands that would terminate Qianji or its Harness Host", async () => {
+    for (const command of [
+      "taskkill /F /IM qianji.exe",
+      "Stop-Process -Name qianji-harness -Force",
+      `kill -9 ${process.pid}`,
+    ]) {
+      const output = await tool.execute({ command }, env());
+      expect(output.isError, command).toBe(true);
+      expect(textOf(output), command).toMatch(/已拦截针对千机自身进程/);
+    }
+  });
 });

@@ -3,10 +3,12 @@
 //! `~/.qianji/logs`, kept for a week and redacted line by line. Every line also
 //! still goes to stderr.
 
+use std::backtrace::Backtrace;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+use std::panic::PanicHookInfo;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, Once, OnceLock, TryLockError};
 
 use chrono::{Days, Local, NaiveDate};
 use regex::Regex;
@@ -22,6 +24,10 @@ macro_rules! log_line {
 
 const PREFIX: &str = "desktop";
 const KEEP_DAYS: u64 = 7;
+const MAX_FRONTEND_SOURCE_CHARS: usize = 120;
+const MAX_FRONTEND_MESSAGE_CHARS: usize = 4_000;
+const MAX_FRONTEND_STACK_CHARS: usize = 12_000;
+const MAX_BACKTRACE_CHARS: usize = 16_000;
 
 struct Today {
     date: NaiveDate,
@@ -29,6 +35,7 @@ struct Today {
 }
 
 static LOG: Mutex<Option<Today>> = Mutex::new(None);
+static PANIC_HOOK_INSTALLED: Once = Once::new();
 
 /// Where the desktop and the Host keep their logs.
 pub(crate) fn logs_dir() -> PathBuf {
@@ -38,16 +45,159 @@ pub(crate) fn logs_dir() -> PathBuf {
 /// Write `line` to stderr and, redacted, to today's file.
 pub(crate) fn log(line: &str) {
     eprintln!("{line}");
+    write_redacted_to_dir(&logs_dir(), line, false);
+}
+
+fn write_redacted_to_dir(dir: &Path, line: &str, use_direct_append: bool) {
     let now = Local::now();
-    let Ok(mut state) = LOG.lock() else {
-        return;
-    };
     let date = now.date_naive();
+    let entry = format!("{} {}\n", now.to_rfc3339(), redact(line));
+
+    if !use_direct_append {
+        match LOG.try_lock() {
+            Ok(mut state) => {
+                write_with_cached_handle(&mut state, dir, date, &entry);
+                return;
+            }
+            Err(TryLockError::Poisoned(poisoned)) => {
+                let mut state = poisoned.into_inner();
+                write_with_cached_handle(&mut state, dir, date, &entry);
+                return;
+            }
+            Err(TryLockError::WouldBlock) => {
+                // Fall through to direct append so re-entrant panic logging never deadlocks.
+            }
+        }
+    }
+
+    append_direct(dir, date, &entry);
+}
+
+fn write_with_cached_handle(state: &mut Option<Today>, dir: &Path, date: NaiveDate, entry: &str) {
     if state.as_ref().map(|today| today.date) != Some(date) {
-        *state = open(&logs_dir(), date);
+        *state = open(dir, date);
     }
     if let Some(today) = state.as_mut() {
-        let _ = writeln!(today.file, "{} {}", now.to_rfc3339(), redact(line));
+        let _ = today.file.write_all(entry.as_bytes());
+        let _ = today.file.flush();
+    }
+}
+
+fn append_direct(dir: &Path, date: NaiveDate, entry: &str) {
+    if fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(file_name(date)))
+    {
+        let _ = file.write_all(entry.as_bytes());
+        let _ = file.flush();
+    }
+}
+
+fn truncate_chars(input: &str, max_chars: usize) -> String {
+    let mut chars = input.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{truncated}…[truncated]")
+    } else {
+        truncated
+    }
+}
+
+fn panic_payload_message<'a>(info: &'a PanicHookInfo<'_>) -> &'a str {
+    if let Some(text) = info.payload().downcast_ref::<&str>() {
+        text
+    } else if let Some(text) = info.payload().downcast_ref::<String>() {
+        text.as_str()
+    } else {
+        "<non-string panic payload>"
+    }
+}
+
+fn format_panic_report(
+    thread_name: &str,
+    pid: u32,
+    location: Option<(&str, u32, u32)>,
+    payload: &str,
+    backtrace: &str,
+) -> String {
+    let where_at = match location {
+        Some((file, line, col)) => format!("{file}:{line}:{col}"),
+        None => "<unknown>".to_string(),
+    };
+    let clean_payload = truncate_chars(payload.trim(), MAX_FRONTEND_MESSAGE_CHARS);
+    let clean_bt = truncate_chars(backtrace.trim(), MAX_BACKTRACE_CHARS);
+    if clean_bt.is_empty() {
+        format!("[panic] pid={pid} thread={thread_name} at {where_at}: {clean_payload}")
+    } else {
+        format!(
+            "[panic] pid={pid} thread={thread_name} at {where_at}: {clean_payload}\nBacktrace:\n{clean_bt}"
+        )
+    }
+}
+
+/// Install a process-wide panic hook that persists redacted panic diagnostics + backtrace
+/// to `desktop-YYYY-MM-DD.log` before delegating to the default panic hook.
+pub fn install_panic_hook() {
+    PANIC_HOOK_INSTALLED.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let thread = std::thread::current();
+            let thread_name = thread.name().unwrap_or("unnamed");
+            let location = info
+                .location()
+                .map(|loc| (loc.file(), loc.line(), loc.column()));
+            let payload = panic_payload_message(info);
+            let backtrace = Backtrace::force_capture().to_string();
+            let report = format_panic_report(
+                thread_name,
+                std::process::id(),
+                location,
+                payload,
+                &backtrace,
+            );
+            eprintln!("{}", redact(&report));
+            write_redacted_to_dir(&logs_dir(), &report, true);
+            previous(info);
+        }));
+    });
+}
+
+/// Tauri command used by the React ErrorBoundary and global `onerror`/`unhandledrejection`
+/// handlers so renderer crashes leave a trail on disk even if the WebView reloads right after.
+#[tauri::command]
+pub(crate) fn log_frontend_error(
+    level: Option<String>,
+    source: String,
+    message: String,
+    stack: Option<String>,
+) {
+    let normalized_level = match level.as_deref().map(str::trim) {
+        Some("warn" | "WARN") => "warn",
+        _ => "error",
+    };
+    let clean_source = truncate_chars(source.trim(), MAX_FRONTEND_SOURCE_CHARS);
+    let clean_message = truncate_chars(message.trim(), MAX_FRONTEND_MESSAGE_CHARS);
+    let source_label = if clean_source.is_empty() {
+        "renderer"
+    } else {
+        clean_source.as_str()
+    };
+    match stack.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(raw_stack) => {
+            let clean_stack = truncate_chars(raw_stack, MAX_FRONTEND_STACK_CHARS);
+            log(&format!(
+                "[renderer:{normalized_level}] ({source_label}) {clean_message}\n{clean_stack}"
+            ));
+        }
+        None => {
+            log(&format!(
+                "[renderer:{normalized_level}] ({source_label}) {clean_message}"
+            ));
+        }
     }
 }
 
@@ -171,6 +321,39 @@ mod tests {
         assert!(dir.join("desktop-2026-10-24.log").is_file());
         assert!(dir.join("host-2026-10-01.log").is_file());
         assert_eq!(file_name(today), "desktop-2026-10-30.log");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn formats_and_persists_redacted_panic_and_frontend_logs() {
+        let dir = std::env::temp_dir().join(format!(
+            "pid-desktop-panic-log-{}-{}",
+            std::process::id(),
+            Local::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let secret = ["sk", "proj", "0123456789abcdefghij"].join("-");
+        let report = format_panic_report(
+            "worker-1",
+            4242,
+            Some(("src/lib.rs", 99, 5)),
+            &format!("unexpected state with token={secret}"),
+            "0: qianji_lib::run\n1: main",
+        );
+        write_redacted_to_dir(&dir, &report, true);
+
+        let today = Local::now().date_naive();
+        let content = fs::read_to_string(dir.join(file_name(today))).unwrap();
+        assert!(content.contains("[panic] pid=4242 thread=worker-1 at src/lib.rs:99:5"));
+        assert!(content.contains("token=[REDACTED]"));
+        assert!(!content.contains(&secret));
+        assert!(content.contains("Backtrace:\n0: qianji_lib::run"));
+
+        assert_eq!(
+            truncate_chars("千机桌面崩溃日志", 4),
+            "千机桌面…[truncated]"
+        );
+        assert_eq!(truncate_chars("千机", 4), "千机");
+
         fs::remove_dir_all(&dir).unwrap();
     }
 }

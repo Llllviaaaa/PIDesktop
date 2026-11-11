@@ -7,6 +7,7 @@
  * - fiber-isolated fault tolerance with transactional HMR rollback (ADR 0016).
  */
 import { existsSync, watch as fsWatch, type FSWatcher } from "node:fs";
+import { pathToFileURL } from "node:url";
 import type { Context, Plugin } from "@deepseek-ai/cordis";
 import {
   WorkspacePluginScope,
@@ -19,6 +20,7 @@ import {
 import type {
   PluginChangedNotification,
   PluginClientBundleResult,
+  PluginClientError,
   PluginInfo,
   PluginInstallOrigin,
   PluginInstallParams,
@@ -54,7 +56,9 @@ import "./web-server.ts";
 export interface PluginManagerOptions {
   dataDir: string;
   version: string;
-  builtins: (activeTrustedWorkspace?: string) => readonly BuiltinPluginDefinition[];
+  builtins?: (activeTrustedWorkspace?: string) => readonly BuiltinPluginDefinition[];
+  /** Optional read-only directories scanned as `builtin` tier (e.g. `resources/harness/bundled-plugins`). */
+  bundledPluginsDirs?: readonly string[] | (() => readonly string[]);
   onChanged?: (notification: PluginChangedNotification) => void;
   onTrustChanged?: (notification: WorkspaceTrustChangedNotification) => void;
 }
@@ -165,7 +169,10 @@ export class PluginManager {
   readonly bundles = new ClientBundleRegistry();
   private readonly mounted = new Map<string, MountedFiber>();
   private readonly errors = new Map<string, string>();
+  private readonly circuitBroken = new Set<string>();
+  private readonly clientErrors = new Map<string, PluginClientError>();
   private readonly clientEtags = new Map<string, string>();
+  private readonly extraBundledDirs = new Set<string>();
   private readonly watchers = new Map<string, WatcherEntry>();
   private readonly workspaceScope: WorkspacePluginScope;
   private readonly httpRouteFiber: { dispose(): unknown };
@@ -239,6 +246,35 @@ export class PluginManager {
     return isWorkspaceTrusted(this.options.dataDir, this.activeWorkspace) ? this.activeWorkspace : undefined;
   }
 
+  /** Register an additional read-only `bundled-plugins` directory at runtime (e.g. from desktop handshake). */
+  addBundledPluginsDir(dir: string): boolean {
+    if (dir.trim() === "" || !existsSync(dir)) return false;
+    const normalized = canonicalPath(dir);
+    const key = pathComparisonKey(normalized);
+    for (const existing of this.extraBundledDirs) {
+      if (pathComparisonKey(existing) === key) return false;
+    }
+    this.extraBundledDirs.add(normalized);
+    return true;
+  }
+
+  private resolveBundledPluginsDirs(): string[] {
+    const raw = typeof this.options.bundledPluginsDirs === "function"
+      ? this.options.bundledPluginsDirs()
+      : (this.options.bundledPluginsDirs ?? []);
+    const seen = new Set<string>();
+    const dirs: string[] = [];
+    for (const entry of [...raw, ...this.extraBundledDirs]) {
+      if (entry.trim() === "" || !existsSync(entry)) continue;
+      const normalized = canonicalPath(entry);
+      const key = pathComparisonKey(normalized);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      dirs.push(normalized);
+    }
+    return dirs;
+  }
+
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
     const next = this.queue.then(work);
     this.queue = next.catch(() => undefined);
@@ -248,6 +284,144 @@ export class PluginManager {
   private notifyUserWarning(message: string): void {
     const ui = this.ctx.get("ui");
     ui?.notify(message, "warning");
+  }
+
+  /**
+   * Synchronously inspect an uncaught exception or unhandled rejection stack and
+   * attribute it to a mounted disk-backed plugin directory if any frame matches.
+   */
+  attributeExternalPluginError(
+    reason: unknown,
+  ): { pluginId: string; alreadyCircuitBroken: boolean } | undefined {
+    if (this.disposed || this.latestCandidates.length === 0) return undefined;
+    const stackText = reason instanceof Error
+      ? `${reason.name}: ${reason.message}\n${reason.stack ?? ""}`
+      : String(reason);
+    const haystack = process.platform === "win32" ? stackText.toLowerCase() : stackText;
+
+    let bestMatch: { id: string; len: number } | undefined;
+    for (const candidate of this.latestCandidates) {
+      if (!candidate.enabled || candidate.dir === undefined || candidate.builtinPlugin !== undefined) continue;
+      const fsDir = candidate.dir;
+      const slashDir = fsDir.replace(/\\/g, "/");
+      const fileUrl = pathToFileURL(fsDir).href;
+      const needles = [fsDir, slashDir, fileUrl].map((item) => (process.platform === "win32" ? item.toLowerCase() : item));
+      for (const needle of needles) {
+        if (needle !== "" && haystack.includes(needle)) {
+          if (bestMatch === undefined || needle.length > bestMatch.len) {
+            bestMatch = { id: candidate.id, len: needle.length };
+          }
+        }
+      }
+    }
+    if (bestMatch === undefined) return undefined;
+
+    const pluginId = bestMatch.id;
+    const alreadyCircuitBroken = this.circuitBroken.has(pluginId);
+    if (alreadyCircuitBroken) {
+      return { pluginId, alreadyCircuitBroken: true };
+    }
+
+    this.errors.set(pluginId, `Unhandled async error: ${errorMessage(reason)}`);
+    this.latestSnapshot = this.buildSnapshot(this.latestCandidates);
+    const snapshot = this.activeWorkspace !== undefined
+      ? this.withUntrustedWorkspaceOverlay(this.latestSnapshot, this.activeWorkspace)
+      : [...this.latestSnapshot];
+    setImmediate(() => {
+      if (this.disposed) return;
+      this.options.onChanged?.({
+        reason: "clientError",
+        changedIds: [pluginId],
+        plugins: snapshot,
+      });
+    });
+    return { pluginId, alreadyCircuitBroken: false };
+  }
+
+  /** Circuit-break a rogue plugin that triggered an uncaught exception storm without killing the Host. */
+  circuitBreakPlugin(pluginId: string, reason: unknown): void {
+    if (this.disposed) return;
+    this.circuitBroken.add(pluginId);
+    void this.enqueue(async () => {
+      if (this.disposed) return;
+      const mounted = this.mounted.get(pluginId);
+      if (mounted !== undefined) {
+        try {
+          await mounted.fiber?.dispose();
+        } catch {
+          // Best-effort teardown of rogue plugin fiber.
+        }
+        this.mounted.delete(pluginId);
+      }
+      const candidate = this.latestCandidates.find((entry) => entry.id === pluginId);
+      if (candidate !== undefined && candidate.canDisable) {
+        candidate.enabled = false;
+        if (candidate.tier === "workspace" && candidate.workspace !== undefined) {
+          const wsKey = workspacePluginKey(candidate.workspace, pluginId);
+          updatePluginsStore(this.options.dataDir, (draft) => {
+            (draft.workspacePlugins[wsKey] ??= {}).enabled = false;
+          });
+        } else {
+          updatePluginsStore(this.options.dataDir, (draft) => {
+            (draft.plugins[pluginId] ??= {}).enabled = false;
+          });
+        }
+      }
+      this.errors.set(pluginId, `Circuit-broken after uncaught exception storm: ${errorMessage(reason)}`);
+      this.latestSnapshot = this.buildSnapshot(this.latestCandidates);
+      this.notifyUserWarning(`插件 ${pluginId} 因高频未捕获异常已被自动熔断隔离`);
+      const snapshot = this.activeWorkspace !== undefined
+        ? this.withUntrustedWorkspaceOverlay(this.latestSnapshot, this.activeWorkspace)
+        : [...this.latestSnapshot];
+      this.options.onChanged?.({
+        reason: "toggled",
+        changedIds: [pluginId],
+        plugins: snapshot,
+      });
+    });
+  }
+
+  async reportClientError(id: string, err: PluginClientError, workspace?: string): Promise<PluginMutationResult> {
+    await this.enqueue(async () => {
+      if (this.latestCandidates.length === 0 && !this.disposed) {
+        await this.syncNow(workspace === undefined ? {} : { workspace });
+      }
+      this.clientErrors.set(id, err);
+      if (this.latestCandidates.length > 0) {
+        this.latestSnapshot = this.buildSnapshot(this.latestCandidates);
+        const snapshot = this.activeWorkspace !== undefined
+          ? this.withUntrustedWorkspaceOverlay(this.latestSnapshot, this.activeWorkspace)
+          : [...this.latestSnapshot];
+        this.options.onChanged?.({
+          reason: "clientError",
+          changedIds: [id],
+          plugins: snapshot,
+        });
+      }
+    });
+    const plugins = await this.list(workspace);
+    const plugin = plugins.find((entry) => entry.id === id);
+    return { ...(plugin === undefined ? {} : { plugin }), plugins };
+  }
+
+  async clearClientError(id: string, workspace?: string): Promise<PluginMutationResult> {
+    await this.enqueue(async () => {
+      const removed = this.clientErrors.delete(id);
+      if (removed && this.latestCandidates.length > 0) {
+        this.latestSnapshot = this.buildSnapshot(this.latestCandidates);
+        const snapshot = this.activeWorkspace !== undefined
+          ? this.withUntrustedWorkspaceOverlay(this.latestSnapshot, this.activeWorkspace)
+          : [...this.latestSnapshot];
+        this.options.onChanged?.({
+          reason: "clientError",
+          changedIds: [id],
+          plugins: snapshot,
+        });
+      }
+    });
+    const plugins = await this.list(workspace);
+    const plugin = plugins.find((entry) => entry.id === id);
+    return { ...(plugin === undefined ? {} : { plugin }), plugins };
   }
 
   private resolveClientTarget(pluginId: string, workspace?: string): ClientRouteTarget | undefined {
@@ -308,7 +482,7 @@ export class PluginManager {
   }
 
   private isProtectedBuiltin(id: string): boolean {
-    const builtinDef = this.options.builtins(this.currentTrustedWorkspace).find((entry) => entry.id === id);
+    const builtinDef = (this.options.builtins?.(this.currentTrustedWorkspace) ?? []).find((entry) => entry.id === id);
     return builtinDef?.canDisable === false;
   }
 
@@ -342,7 +516,11 @@ export class PluginManager {
           };
         });
       }
-      if (!enabled) this.errors.delete(id);
+      this.circuitBroken.delete(id);
+      if (!enabled) {
+        this.errors.delete(id);
+        this.clientErrors.delete(id);
+      }
       await this.syncNow({ reason: "toggled", forceIds: new Set([id]), ...(options.workspace === undefined ? {} : { workspace: options.workspace }) });
     });
     const plugins = await this.list(options.workspace);
@@ -380,6 +558,7 @@ export class PluginManager {
           };
         });
       }
+      this.clientErrors.delete(id);
       await this.syncNow({ reason: "configured", forceIds: new Set([id]), ...(options.workspace === undefined ? {} : { workspace: options.workspace }) });
     });
     const plugins = await this.list(options.workspace);
@@ -392,6 +571,9 @@ export class PluginManager {
       if (id !== undefined) {
         const existing = this.latestSnapshot.find((entry) => entry.id === id);
         if (existing?.dir !== undefined) this.bundles.invalidateDir(existing.dir);
+        this.circuitBroken.delete(id);
+        this.errors.delete(id);
+        this.clientErrors.delete(id);
         const forceIds = this.isProtectedBuiltin(id) ? undefined : new Set([id]);
         await this.syncNow({
           reason: "reloaded",
@@ -400,6 +582,9 @@ export class PluginManager {
         });
       } else {
         this.bundles.clear();
+        this.circuitBroken.clear();
+        this.errors.clear();
+        this.clientErrors.clear();
         const reloadableIds = new Set(
           this.latestSnapshot
             .filter((entry) => entry.canDisable !== false)
@@ -419,7 +604,9 @@ export class PluginManager {
       const installed = installPlugin(this.options.dataDir, params);
       installedId = installed.manifest.id;
       this.bundles.invalidateDir(installed.manifest.dir);
+      this.circuitBroken.delete(installedId);
       this.errors.delete(installedId);
+      this.clientErrors.delete(installedId);
       await this.syncNow({ reason: "installed", forceIds: new Set([installedId]) });
     });
     const plugins = await this.list();
@@ -442,7 +629,9 @@ export class PluginManager {
       for (const pluginId of ids) {
         const updated = updateInstalledPlugin(this.options.dataDir, pluginId);
         this.bundles.invalidateDir(updated.manifest.dir);
+        this.circuitBroken.delete(updated.manifest.id);
         this.errors.delete(updated.manifest.id);
+        this.clientErrors.delete(updated.manifest.id);
         updatedIds.add(updated.manifest.id);
         targetId ??= updated.manifest.id;
       }
@@ -458,7 +647,9 @@ export class PluginManager {
       const current = this.latestSnapshot.find((entry) => entry.id === id);
       removeUserPluginFiles(this.options.dataDir, id, current?.tier === "user" ? current.dir : undefined);
       if (current?.dir !== undefined) this.bundles.invalidateDir(current.dir);
+      this.circuitBroken.delete(id);
       this.errors.delete(id);
+      this.clientErrors.delete(id);
       this.clientEtags.delete(id);
       await this.syncNow({ reason: "removed", forceIds: new Set([id]), ...(workspace === undefined ? {} : { workspace }) });
     });
@@ -524,6 +715,7 @@ export class PluginManager {
       await this.workspaceScope.dispose();
       await this.httpRouteFiber.dispose();
       this.bundles.clear();
+      this.clientErrors.clear();
       this.latestCandidates = [];
       this.latestSnapshot = [];
     });
@@ -536,9 +728,20 @@ export class PluginManager {
     const pluginsDir = resolveWorkspacePluginsDir(workspacePath);
     const scanned = scanPluginsDirectory(pluginsDir, "workspace", workspacePath);
     if (scanned.manifests.length === 0) return [...base];
-    const builtins = new Set(this.options.builtins(undefined).map((item) => item.id));
+    const builtins = new Set([
+      ...(this.options.builtins?.(undefined) ?? []).map((item) => item.id),
+      ...this.latestCandidates.filter((item) => item.tier === "builtin").map((item) => item.id),
+    ]);
     const extras: PluginInfo[] = scanned.manifests
-      .filter((manifest) => !base.some((existing) => existing.id === manifest.id && existing.tier === "workspace"))
+      .filter(
+        (manifest) =>
+          !base.some(
+            (existing) =>
+              existing.id === manifest.id
+              && (existing.tier === "workspace"
+                || (existing.dir !== undefined && pathComparisonKey(existing.dir) === pathComparisonKey(manifest.dir))),
+          ),
+      )
       .map((manifest) => ({
         id: manifest.id,
         name: manifest.name,
@@ -564,13 +767,14 @@ export class PluginManager {
   private buildSnapshot(candidates: readonly ResolvedCandidate[]): PluginInfo[] {
     return candidates.map((candidate): PluginInfo => {
       const err = this.errors.get(candidate.id);
+      const clientErr = candidate.enabled ? this.clientErrors.get(candidate.id) : undefined;
       const mounted = this.mounted.get(candidate.id);
       let status: PluginStatus;
       let missingInject: string[] | undefined;
 
       if (!candidate.enabled) {
         status = "disabled";
-      } else if (mounted === undefined) {
+      } else if (mounted === undefined || err?.startsWith("Unhandled async error:")) {
         status = "errored";
       } else if (!candidate.hasHost || mounted.fiber === undefined) {
         status = "active";
@@ -589,7 +793,7 @@ export class PluginManager {
       }
 
       const clientEtag = this.clientEtags.get(candidate.id);
-      const clientPath = candidate.hasClient && candidate.tier !== "builtin"
+      const clientPath = candidate.hasClient && candidate.clientEntry !== undefined
         ? `/plugins/${encodeURIComponent(candidate.id)}/client.js`
         : undefined;
       return {
@@ -617,6 +821,7 @@ export class PluginManager {
         ...(candidate.provides.length > 0 ? { provides: [...candidate.provides] } : {}),
         ...(missingInject === undefined ? {} : { missingInject }),
         ...(err === undefined ? {} : { error: err }),
+        ...(clientErr === undefined ? {} : { clientError: clientErr }),
       };
     });
   }
@@ -636,8 +841,21 @@ export class PluginManager {
       const activeTrustedWs = this.currentTrustedWorkspace;
       const activeWsKey = activeTrustedWs !== undefined ? pathComparisonKey(activeTrustedWs) : undefined;
 
-      const builtins = this.options.builtins(activeTrustedWs);
+      const builtins = this.options.builtins?.(activeTrustedWs) ?? [];
       const builtinsById = new Map(builtins.map((entry) => [entry.id, entry]));
+      const bundledById = new Map<string, DiscoveredPluginManifest>();
+      for (const bundledRoot of this.resolveBundledPluginsDirs()) {
+        const scanned = scanPluginsDirectory(bundledRoot, "builtin");
+        for (const manifest of scanned.manifests) {
+          if (!builtinsById.has(manifest.id) && !bundledById.has(manifest.id)) {
+            bundledById.set(manifest.id, manifest);
+          }
+        }
+        for (const scanErr of scanned.errors) {
+          this.ctx.logger("plugins").warn("skipping invalid bundled plugin %s: %s", scanErr.dir, scanErr.error);
+        }
+      }
+      const hasBuiltinId = (id: string): boolean => builtinsById.has(id) || bundledById.has(id);
       const store = readPluginsStore(this.options.dataDir);
 
       // 1. Discover user plugins (`<dataDir>/plugins/*` + linked local dirs in `plugins.json`).
@@ -686,6 +904,7 @@ export class PluginManager {
       for (const id of [...userById.keys()].sort()) pushId(id);
       for (const id of [...manifestErrors.keys()].sort()) pushId(id);
       for (const builtin of builtins) pushId(builtin.id);
+      for (const id of [...bundledById.keys()].sort()) pushId(id);
 
       const candidates: ResolvedCandidate[] = [];
       for (const id of allIds) {
@@ -728,7 +947,7 @@ export class PluginManager {
             tier: "workspace",
             enabled: wsPatch?.enabled !== false,
             canDisable: true,
-            overridesBuiltin: builtinsById.has(id),
+            overridesBuiltin: hasBuiltinId(id),
             removable: false,
             hasHost: wsManifest.hostEntry !== undefined,
             hasClient: wsManifest.clientEntry !== undefined,
@@ -760,7 +979,7 @@ export class PluginManager {
             tier: "user",
             enabled: patch?.enabled !== false,
             canDisable: true,
-            overridesBuiltin: builtinsById.has(id),
+            overridesBuiltin: hasBuiltinId(id),
             removable: true,
             hasHost: userManifest.hostEntry !== undefined,
             hasClient: userManifest.clientEntry !== undefined,
@@ -789,7 +1008,7 @@ export class PluginManager {
             tier: broken.tier,
             enabled: patch?.enabled !== false,
             canDisable: true,
-            overridesBuiltin: builtinsById.has(id),
+            overridesBuiltin: hasBuiltinId(id),
             removable: true,
             hasHost: false,
             hasClient: false,
@@ -834,6 +1053,36 @@ export class PluginManager {
             inject: depMeta.inject,
             provides: depMeta.provides,
           });
+          continue;
+        }
+
+        const bundledManifest = bundledById.get(id);
+        if (bundledManifest !== undefined) {
+          const patch = store.plugins[id];
+          const mergedConfig = { ...(bundledManifest.defaultConfig ?? {}), ...(patch?.config ?? {}) };
+          candidates.push({
+            id,
+            name: bundledManifest.name,
+            version: bundledManifest.version,
+            ...(bundledManifest.description === undefined ? {} : { description: bundledManifest.description }),
+            tier: "builtin",
+            enabled: patch?.enabled !== false,
+            canDisable: true,
+            overridesBuiltin: false,
+            removable: patch !== undefined,
+            hasHost: bundledManifest.hostEntry !== undefined,
+            hasClient: bundledManifest.clientEntry !== undefined,
+            watch: false,
+            dir: bundledManifest.dir,
+            ...(bundledManifest.hostEntry === undefined ? {} : { hostEntry: bundledManifest.hostEntry }),
+            ...(bundledManifest.clientEntry === undefined ? {} : { clientEntry: bundledManifest.clientEntry }),
+            ...(bundledManifest.assetsDir === undefined ? {} : { assetsDir: bundledManifest.assetsDir }),
+            effectiveConfig: mergedConfig,
+            publicConfig: mergedConfig,
+            ...(bundledManifest.configSchema === undefined ? {} : { configSchema: bundledManifest.configSchema }),
+            inject: [...(bundledManifest.inject ?? [])],
+            provides: [...(bundledManifest.provides ?? [])],
+          });
         }
       }
 
@@ -857,6 +1106,7 @@ export class PluginManager {
         await mounted.fiber?.dispose();
         this.mounted.delete(mounted.id);
         this.clientEtags.delete(mounted.id);
+        this.clientErrors.delete(mounted.id);
         changed.push(mounted.id);
       }
 
@@ -866,7 +1116,9 @@ export class PluginManager {
       }
 
       // 5. Prepare external bundles & imports, extract dependency metadata, and topologically sort before mounting.
-      const externalNeeded = candidates.some((c) => c.enabled && c.tier !== "builtin" && c.hasHost);
+      const externalNeeded = candidates.some(
+        (c) => c.enabled && c.builtinPlugin === undefined && c.hasHost && c.hostEntry !== undefined,
+      );
       if (externalNeeded) {
         await installHostModuleBridge();
       }
@@ -885,6 +1137,12 @@ export class PluginManager {
         const sig = signatureOf(candidate.effectiveConfig);
         const pinnedGateway = candidate.tier === "builtin" && !candidate.canDisable;
         const force = !pinnedGateway && params.forceIds?.has(candidate.id) === true;
+        if (this.circuitBroken.has(candidate.id) && !force) {
+          continue;
+        }
+        if (force) {
+          this.circuitBroken.delete(candidate.id);
+        }
         const current = this.mounted.get(candidate.id);
 
         if (current !== undefined && (pinnedGateway || (!force && current.sourceKey === sourceKey && current.signature === sig))) {
@@ -900,7 +1158,7 @@ export class PluginManager {
           continue;
         }
 
-        if (candidate.tier === "builtin") {
+        if (candidate.builtinPlugin !== undefined || (candidate.tier === "builtin" && candidate.dir === undefined)) {
           preparedList.push({
             candidate,
             sourceKey,
@@ -956,7 +1214,11 @@ export class PluginManager {
         let nextPlugin: Plugin;
         try {
           this.importCounter += 1;
-          const mod = await importExternalModule(candidate.hostEntry, `${Date.now()}-${this.importCounter}`);
+          const mod = await importExternalModule(
+            candidate.hostEntry,
+            `${Date.now()}-${this.importCounter}`,
+            candidate.dir,
+          );
           nextPlugin = resolveCordisPluginExport(mod, candidate.id);
           const depMeta = extractPluginDependencyMeta(mod, {
             inject: candidate.inject,
@@ -1032,7 +1294,12 @@ export class PluginManager {
             inject: candidate.inject,
             provides: candidate.provides,
           });
-          if (clientEtag !== undefined) this.clientEtags.set(candidate.id, clientEtag);
+          if (clientEtag !== undefined) {
+            if (this.clientEtags.get(candidate.id) !== clientEtag) {
+              this.clientErrors.delete(candidate.id);
+            }
+            this.clientEtags.set(candidate.id, clientEtag);
+          }
           this.errors.delete(candidate.id);
           if (!changed.includes(candidate.id)) changed.push(candidate.id);
           continue;
@@ -1060,7 +1327,12 @@ export class PluginManager {
             inject: candidate.inject,
             provides: candidate.provides,
           });
-          if (clientEtag !== undefined) this.clientEtags.set(candidate.id, clientEtag);
+          if (clientEtag !== undefined) {
+            if (this.clientEtags.get(candidate.id) !== clientEtag) {
+              this.clientErrors.delete(candidate.id);
+            }
+            this.clientEtags.set(candidate.id, clientEtag);
+          }
           this.errors.delete(candidate.id);
           if (!changed.includes(candidate.id)) changed.push(candidate.id);
         } catch (error) {

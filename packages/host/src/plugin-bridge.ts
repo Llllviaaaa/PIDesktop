@@ -115,24 +115,54 @@ export function installHostModuleBridge(): Promise<void> {
   return bridgePromise;
 }
 
-function evictBunModuleSubtree(pluginDir: string): void {
+export function evictBunModuleSubtree(pluginDir: string): void {
+  const normalizedDir = pluginDir.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const pathPrefix = `${normalizedDir}/`;
+  const fileUrlPrefix = `${pathToFileURL(pluginDir).href.replace(/\/+$/, "").toLowerCase()}/`;
+  const matchesSubtree = (rawKey: string): boolean => {
+    const normalizedKey = rawKey.replace(/\\/g, "/").toLowerCase();
+    const withoutQuery = normalizedKey.split("?")[0] ?? normalizedKey;
+    return (
+      withoutQuery === normalizedDir
+      || withoutQuery.startsWith(pathPrefix)
+      || withoutQuery.startsWith(fileUrlPrefix)
+    );
+  };
+
   const loader = (globalThis as { Loader?: { registry?: Map<string, unknown> } }).Loader;
-  if (loader?.registry === undefined) return;
-  const normalizedPrefix = pluginDir.replace(/\\/g, "/").toLowerCase();
-  for (const key of [...loader.registry.keys()]) {
-    if (key.replace(/\\/g, "/").toLowerCase().startsWith(normalizedPrefix)) {
-      loader.registry.delete(key);
+  if (loader?.registry !== undefined) {
+    for (const key of [...loader.registry.keys()]) {
+      if (matchesSubtree(key)) {
+        loader.registry.delete(key);
+      }
     }
+  }
+
+  try {
+    const nodeCache = createRequire(import.meta.url).cache;
+    if (nodeCache !== undefined) {
+      for (const key of Object.keys(nodeCache)) {
+        if (matchesSubtree(key)) {
+          delete nodeCache[key];
+        }
+      }
+    }
+  } catch {
+    // Ignore environments without CJS module cache
   }
 }
 
 /** Import an external JS/TS module with fresh evaluation so HMR reloads modified code. */
-export async function importExternalModule(filePath: string, revision: string | number): Promise<Record<string, unknown>> {
+export async function importExternalModule(
+  filePath: string,
+  revision: string | number,
+  pluginDir?: string,
+): Promise<Record<string, unknown>> {
   await installHostModuleBridge();
+  evictBunModuleSubtree(pluginDir ?? dirname(filePath));
 
   const bun = (globalThis as { Bun?: BunGlobal }).Bun;
   if (bun !== undefined) {
-    evictBunModuleSubtree(dirname(filePath));
     const href = `${pathToFileURL(filePath).href}?rev=${encodeURIComponent(String(revision))}`;
     return (await import(/* @vite-ignore */ href)) as Record<string, unknown>;
   }

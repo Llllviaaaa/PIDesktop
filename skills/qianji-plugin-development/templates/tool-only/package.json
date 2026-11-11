@@ -1,0 +1,22 @@
+{
+  "name": "qianji-plugin-demo-tool",
+  "version": "0.1.0",
+  "description": "Minimal Host-only tool plugin template for Qianji Desktop",
+  "qianji": {
+    "id": "demo-tool",
+    "name": "Demo Tool",
+    "host": "./index.ts",
+    "inject": ["tools"],
+    "configSchema": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "title": "Output Prefix",
+          "description": "Prefix prepended to tool status output",
+          "default": "[demo-tool]"
+        }
+      }
+    }
+  }
+}

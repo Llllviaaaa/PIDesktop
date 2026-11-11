@@ -81,21 +81,33 @@ Host 内置统一的插件安装与更新器，覆盖四种渠道：
 3. **`git`**：调用本机 `git` 克隆或快进更新 Git 仓库（支持 `https://`、`git+https://`、`github:owner/repo#ref`）；
 4. **`npm`**：复用 `pid-harness.exe` 内嵌的 Bun 运行时（设置环境变量 `BUN_BE_BUN=1` 调用自身执行 `install --ignore-scripts`），无需用户机器预装 Node.js 或 npm，默认禁用生命周期脚本以防供应链投毒。
 
-### 6. 协议扩展（`@pid/protocol`）
+### 6. 协议扩展与前后端故障闭环（`@qianji/protocol`）
 
 保持主协议版本 `1.x` 向后兼容，补齐并扩展 [ADR 0002](0002-client-protocol.md) 预留的 `plugin` 域与工作区信任方法：
 
-- 请求方法：`plugin.list`、`plugin.enable`、`plugin.disable`、`plugin.configure`、`plugin.reload`、`plugin.install`、`plugin.update`、`plugin.remove`、`plugin.clientBundle`、`workspace.trust.list`、`workspace.trust.set`。
+- 请求方法：`plugin.list`、`plugin.enable`、`plugin.disable`、`plugin.configure`、`plugin.reload`、`plugin.install`、`plugin.update`、`plugin.remove`、`plugin.clientBundle`、`plugin.reportClientError`、`plugin.clearClientError`、`workspace.trust.list`、`workspace.trust.set`。
 - 服务端通知：`plugin/changed`（携带最新插件摘要列表或变更项）、`workspace/trustChanged`。
+- 前后端错误闭环与防死循环：`PluginInfo` 携带 `clientError?: { phase: "load" | "render"; message: string; stack?: string; etag?: string }`。客户端运行时严格拆分模块加载期错误（`activationError`）与渲染期崩溃（`renderError`，绑定 `(etag, configKey)` 熔断锁死），确保渲染异常回传 Host 后绝不触发 `plugin/changed` → 卸载重装无限死循环；仅在代码 `ETag` 变更、配置更新或用户点击「重载插件」时重新挂载。
+
+### 7. 双端物理防爆舱、内置直读与 CSS `@scope` 样式沙箱（2026-11 演进）
+
+围绕极高稳定性与极高易拓展性，插件底座进一步固化以下五项工程机制（详见根目录 [`AGENTS.md`](../../AGENTS.md)）：
+
+1. **内置插件直读（零拷贝升级）**：`PluginManager` 直接将 `resources/harness/bundled-plugins`（开发期回退仓库 [`plugins/`](../../plugins)）作为只读 `builtin` 层扫描加载，废除旧 `.seeded-*-v1` 一次性复制机制，并在启动时自动清理未修改的历史种子副本，确保官方内置插件随安装包升级即时生效，同时保留用户同名插件覆盖能力。
+2. **Host 进程守护与自动解绑**：Host 入口安装 `uncaughtException` / `unhandledRejection` 守护并按插件目录堆栈精准归因；`Tools`、`Commands`、`SystemPrompt`、`RpcGateway`、`WebServer`、`LlmRegistry` 六大注册服务统一绑定幂等 `this.ctx.effect(() => dispose)`，即使插件漏写清理回调，热重载或停用时也会自动解绑，杜绝 `already registered` 冲突。
+3. **多文件追踪与受控 CSS 沙箱**：`ClientBundleRegistry` 基于 `metafile.inputs` 追踪插件目录下全部子文件 `mtimeMs` 并支持导入 `.css` 自动转译为 `ctx.styles.inject(css)`；宿主在 [`src/styles/index.css`](../../src/styles/index.css) 锁定层序 `@layer theme, base, plugin-ui, legacy, skin, components, utilities;`，所有插件样式自动包裹 `@layer plugin-ui { @scope ([data-qj-plugin="<id>"]) { ... } }` 并在 Fiber 卸载时自动移除，`overlays` 槽位根层强制 `pointer-events: none` 防止误遮挡主窗口。
+4. **独立子 Fiber 插槽边界与冻结版 `@qianji/client` SDK**：所有客户端插槽统一经 [`<PluginSlot>`](../../src/components/common/PluginSlot.tsx) / [`<SlotEntryHost>`](../../src/components/common/ErrorBoundary.tsx) 挂载（ESLint 禁止宿主组件直接裸调 `entry.render()`），使同步抛错与动态 Hooks 100% 隔离在独立子 Fiber 内并提供一键「重载 / 停用」降级卡片；对外通过 [`src/sdk/index.ts`](../../src/sdk/index.ts)（`@qianji/client` + `--qj-*` 语义令牌 + 离线 `plugin-types/` `.d.ts` 生成器 [`scripts/generate-plugin-types.mjs`](../../scripts/generate-plugin-types.mjs)）提供冻结契约，与宿主内部私有 UI 原语（`src/components/ui/`）彻底解耦。
+5. **Agent 插件开发五环自闭环**：内置只读自省工具 `qianji_inspect`（全模式免弹窗查询服务、14 个客户端插槽、主题令牌与插件 `clientError`）、按需激活工具 `plugin_manager`（免审 `list`/`verify` 预检编译 + 审批门控 `scaffold`/`install_local`/`reload`）以及内置只读技能层 [`skills/qianji-plugin-development/SKILL.md`](../../skills/qianji-plugin-development/SKILL.md)，所有模板纳入 CI `tsc --noEmit` 与 `ClientBundleRegistry.compile` 冒烟门禁。
 
 ## 后果
 
-- 应用安装包升级与用户插件生态彻底解耦：内置插件负责稳定底座，`<dataDir>/plugins/` 与 `<dataDir>/plugins.json` 承载用户的个性化定制、覆盖与第三方扩展。
-- 本地全栈插件开发实现“零配置免构建热更新”：保存 `.ts` / `.tsx` 后百毫秒内完成 Host 工具/钩子与前端侧边栏 UI 的局部热替换。
-- 既能直接复用 `dsh-better-sidebar` 社区的前端预览/标签页插件，又保持了 PI-Desktop Host 自身小巧稳定的公开扩展词汇表。
+- 应用安装包升级与用户插件生态彻底解耦：内置插件直读负责稳定底座，`<dataDir>/plugins/` 与 `<dataDir>/plugins.json` 承载用户的个性化定制、覆盖与第三方扩展。
+- 本地全栈插件开发实现“零配置免构建热更新 + 故障物理隔离”：保存多文件 `.ts` / `.tsx` / `.css` 后百毫秒内完成 Host 工具与前端插槽 UI 的局部热替换；任何单插件崩溃或越界样式均无法导致主窗口白屏、死循环或样式污染。
+- Agent 在任意外部工作区均可通过「技能指导 → 实时自省 → 离线类型检查与预检编译 → 链接热挂载 → 错误回传修复」独立高质量交付插件。
 
 ## 备选方案
 
-- **在 Host 端完整模拟 DSH 的全部后端服务（方案 B）**：上游 `@deepseek-ai/dsh-*` 仍处于快速演进阶段，私有服务接口频繁变更，强行全量模拟会导致极高的维护负担与脆弱性。否决，仅对稳定的客户端 UI 与 `betterSidebar` 扩展点提供兼容层。
-- **要求用户在系统全局安装 Node.js / npm 才能安装插件**：破坏桌面应用开箱即用的体验；既然 `pid-harness.exe` 已经内嵌 Bun，通过 `BUN_BE_BUN=1` 复用其包管理器无需增加任何安装包体积。否决外部工具强依赖。
+- **在 Host 端完整模拟 DSH 的全部后端服务（方案 B）**：上游 `@deepseek-ai/dsh-*` 仍处于快速演进阶段，私有服务接口频繁变更，强行全量模拟会导致极高的维护负担与脆弱性。否决，仅对稳定的客户端 UI 与 `betterSidebar` 扩展点提供兼容层，主推原生 `@qianji/client` 契约。
+- **向外部插件直接暴露宿主内部 `useAppStore` 与内部 UI 组件**：一旦宿主重构内部状态切片或组件 Props，会导致已安装的外部插件批量白屏。否决，采用内外双层解耦（内部 `src/components/ui/` + 对外冻结 `src/sdk/`）。
+- **要求用户在系统全局安装 Node.js / npm 才能安装或校验插件**：破坏桌面应用开箱即用体验；通过 `BUN_BE_BUN=1` 复用内嵌包管理器，并随安装包附带零依赖 `plugin-types/` 离线声明包。
 - **在 Tauri CSP `script-src` 中直接放开 `http://127.0.0.1:*`**：会让本机任意本地端口具备脚本源资格，削弱 WebView 隔离边界。改为仅从受控 Host 获取脚本并通过同源 `blob:` 执行。

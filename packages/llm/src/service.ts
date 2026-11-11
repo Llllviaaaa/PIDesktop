@@ -127,12 +127,23 @@ export class LlmService extends Service {
     if (normalized === "") throw new Error("LLM protocol id must be non-empty");
     this.protocols.set(normalized, spec);
     this.ctx.emit("llm/protocols-changed");
-    return () => {
+    let disposed = false;
+    const once = (): void => {
+      if (disposed) return;
+      disposed = true;
       if (this.protocols.get(normalized) === spec) {
         this.protocols.delete(normalized);
         this.ctx.emit("llm/protocols-changed");
       }
     };
+    if (this.ctx?.fiber?.uid != null && this.ctx.fiber.state !== 5) {
+      try {
+        return this.ctx.effect(() => once, `llm.registerProtocol:${normalized}`) as unknown as () => void;
+      } catch {
+        return once;
+      }
+    }
+    return once;
   }
 
   getProtocol(api: string): LlmProtocolSpec | undefined {
@@ -164,14 +175,25 @@ export class LlmService extends Service {
     };
   }
 
-  /** Serve `info.id` with `adapter`. Returns the disposer; register it with the plugin's effects. */
+  /** Serve `info.id` with `adapter`. Automatically cleans up with the caller's Cordis fiber. */
   registerAdapter(info: ProviderInfo, adapter: LlmAdapter): () => void {
     if (this.adapters.has(info.id)) throw new Error(`LLM provider ${info.id} is already registered`);
     const entry = { info, adapter };
     this.adapters.set(info.id, entry);
-    return () => {
+    let disposed = false;
+    const once = (): void => {
+      if (disposed) return;
+      disposed = true;
       if (this.adapters.get(info.id) === entry) this.adapters.delete(info.id);
     };
+    if (this.ctx?.fiber?.uid != null && this.ctx.fiber.state !== 5) {
+      try {
+        return this.ctx.effect(() => once, `llm.registerAdapter:${info.id}`) as unknown as () => void;
+      } catch {
+        return once;
+      }
+    }
+    return once;
   }
 
   listProviders(): ProviderInfo[] {

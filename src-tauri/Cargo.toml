@@ -37,7 +37,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 [target.'cfg(windows)'.dependencies]
 png = "0.17"
 uiautomation = "0.25"
+webview2-com = "0.39"
 windows-capture = "=2.0.1"
+windows-core = "0.62"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Dwm",

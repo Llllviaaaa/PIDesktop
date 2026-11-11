@@ -134,95 +134,13 @@ export type ExtensionUIRequest =
   | { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
   | { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string };
 
-export type SettingsDisplayMode = "page" | "modal";
-
-export interface AppSettings {
-  provider: string;
-  model: string;
-  thinkingLevel: string;
-  /** Legacy global custom thinking tiers; superseded by `modelCustomThinkingLevels`. */
-  customThinkingLevels?: string[];
-  /** Per-model preferred thinking level keyed by `provider/model`. */
-  modelThinkingLevels?: Record<string, string>;
-  /** Per-model user-defined custom thinking levels keyed by `provider/model`. */
-  modelCustomThinkingLevels?: Record<string, string[]>;
-  /** `provider/model` keys hidden from the composer model picker. */
-  hiddenModels?: string[];
-  /** Whether Settings renders as a standalone full-window page or a centered modal. */
-  settingsDisplayMode?: SettingsDisplayMode;
-  agentMode: "agent" | "plan" | "ask";
-  permissionMode: "read-only" | "ask" | "workspace-write" | "full-access";
-  /** Shell/bash/exec always requires confirmation (unless full-access). */
-  alwaysConfirmShell: boolean;
-  /** Block model writes outside the workspace without prompting. */
-  blockWriteOutsideWorkspace: boolean;
-  /** Newline- or comma-separated command prefixes that skip shell confirmation. */
-  shellAllowPrefixes: string;
-  toolRules: ToolPermissionRule[];
-  /** Default new-task environment when starting a coding task. */
-  defaultTaskEnvironment: "local" | "worktree";
-  /** Optional custom default workspace directory; falls back to the built-in quick-chat directory when empty. */
-  defaultWorkspace?: string;
-  showThinking: boolean;
-  /** Conversation transcript density: summary hides work, verbose expands it. */
-  transcriptDensity: "summary" | "normal" | "verbose";
-  autoConnect: boolean;
-  followUpBehavior: "steer" | "followUp";
-  requireCtrlEnter: boolean;
-  preventSleep: boolean;
-  language: "system" | "en" | "zh-CN";
-  /** `system` picks the first detected editor; otherwise a WorkspaceEditorInfo id. */
-  defaultFileOpener: string;
-  terminalShell: string;
-  terminalShellArgs: string;
-  terminalOutput: "summary" | "full";
-  notificationsEnabled: boolean;
-  notifyOnCompletion: boolean;
-  notifyOnApproval: boolean;
-  notifyOnlyWhenUnfocused: boolean;
-  theme: string;
-  accentColor: string;
-  backgroundColor: string;
-  foregroundColor: string;
-  uiFont: string;
-  codeFont: string;
-  uiScale: number;
-  /** Transcript body size in px (10–22), as DSH's content font size. */
-  messageFontSize: number;
-  personality: "friendly" | "pragmatic" | "none";
-  customInstructions: string;
-  suggestedPrompts: boolean;
-  memoryEnabled: boolean;
-  projectMemoryEnabled: boolean;
-  planTrackingEnabled: boolean;
-  hooksEnabled: boolean;
-  hooksInheritEnvironment: boolean;
-  hooks: DesktopHookConfig[];
-  subagentsEnabled: boolean;
-  subagentMaxConcurrency: number;
-  browserEnabled: boolean;
-  browserHeadless: boolean;
-  browserProfileMode: "temporary" | "persistent";
-  browserConfirmActions: boolean;
-  browserExecutable: string;
-  computerEnabled: boolean;
-  computerConfirmActions: boolean;
-  sandboxEnabled: boolean;
-  mcpEnabled: boolean;
-  mcpConfirmTools: boolean;
-  mcpServers: McpServerConfig[];
-  reviewDelivery: "inline" | "detached";
-  branchPrefix: string;
-  allowForcePush: boolean;
-  commitMessageInstructions: string;
-  logLevel: "error" | "warn" | "info" | "debug";
-  shortcutNewChat: string;
-  shortcutSettings: string;
-  shortcutTerminal: string;
-  shortcutChanges: string;
-  shortcutToggleSidebar: string;
-  archivedSessions: string[];
-}
+export type {
+  AppSettings,
+  DesktopHookConfig,
+  McpServerConfig,
+  SettingsDisplayMode,
+  ToolPermissionRule,
+} from "@qianji/protocol";
 
 export type AppNotificationKind = "completion" | "approval" | "question";
 
@@ -235,21 +153,6 @@ export interface AppNotification {
   sessionFile: string | null;
   createdAt: number;
   read: boolean;
-}
-
-export interface McpServerConfig {
-  id: string;
-  name: string;
-  enabled: boolean;
-  transport: "stdio" | "http";
-  command: string;
-  args: string[];
-  cwd: string;
-  env: Record<string, string>;
-  inheritEnvironment: boolean;
-  url: string;
-  headers: Record<string, string>;
-  trustedReadOnly: boolean;
 }
 
 export interface SessionInfo {
@@ -266,25 +169,6 @@ export interface SessionInfo {
 export interface SessionSearchMatch {
   session: SessionInfo;
   snippet: string;
-}
-
-export interface DesktopHookConfig {
-  id: string;
-  name: string;
-  enabled: boolean;
-  event: "session_start" | "before_agent_start" | "agent_end" | "agent_settled" | "tool_call" | "tool_result";
-  command: string;
-  timeoutSeconds: number;
-  blocking: boolean;
-}
-
-export interface ToolPermissionRule {
-  id: string;
-  enabled: boolean;
-  toolPattern: string;
-  action: "allow" | "confirm" | "block";
-  commandPrefix: string;
-  pathPrefix: string;
 }
 
 export interface WorkspaceEditorInfo {

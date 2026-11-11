@@ -12,11 +12,13 @@ import { agent } from "./agent";
 import {
   ClientContributionRegistry,
   ClientContributionService,
+  ClientStylesService,
   clientContributions,
   useClientContributions,
 } from "./clientContributions";
 import {
   createClientPluginRuntime,
+  resolveContextPluginId,
   type ClientPluginRuntimeHandle,
   type ClientPluginTransport,
   type ModuleLoaderGlobal,
@@ -30,6 +32,7 @@ import {
 import { pluginClient } from "./pluginClient";
 import { groupTranscriptMessages } from "./transcriptTurns";
 import { IntelligentUiCanvasTab } from "../components/workbench/IntelligentUiCanvasTab";
+import { qianjiClientSdk } from "../sdk";
 import { useAppStore } from "../store";
 import { useIntelligentUiStore } from "../stores/intelligentUiStore";
 import { useWorkbenchStore } from "../stores/workbenchStore";
@@ -46,6 +49,8 @@ declare global {
   }
 }
 
+export { ClientStylesService };
+
 export interface LegacySidebarTabDescriptor {
   id: string;
   title?: string | (() => string);
@@ -57,16 +62,27 @@ export interface LegacySidebarTabDescriptor {
   render?: (props: Record<string, unknown>) => ReactNode;
 }
 
+export interface LegacyFileViewerDescriptor {
+  id: string;
+  title?: string | (() => string);
+  label?: string;
+  extensions?: readonly string[];
+  mimeTypes?: readonly string[];
+  order?: number;
+  component?: (props: Record<string, unknown>) => ReactNode;
+  render?: (props: Record<string, unknown>) => ReactNode;
+}
+
 /**
  * Lightweight compatibility shim for external client-only plugins declaring
  * `inject: ["betterSidebar"]` or importing `"dsh-better-sidebar"`. Maps tab
- * contributions directly into `ClientContributionRegistry` (`rightWorkbenchTabs`
- * or `bottomPanelTabs`) with zero legacy DSH bundle weight.
+ * and file viewer contributions directly into `ClientContributionRegistry`
+ * with zero legacy DSH bundle weight.
  */
 export class BetterSidebarCompatService extends Service {
   static provide = "betterSidebar";
   readonly version = "0.26.0";
-  readonly features = ["openFile", "targetedOpen"] as const;
+  readonly features = ["openFile", "targetedOpen", "fileViewer"] as const;
   private readonly registry: ClientContributionRegistry;
 
   constructor(ctx: Context, registry: ClientContributionRegistry = clientContributions) {
@@ -76,6 +92,7 @@ export class BetterSidebarCompatService extends Service {
 
   registerTab(descriptor: LegacySidebarTabDescriptor): () => void {
     const callerCtx = this.ctx;
+    const pluginId = resolveContextPluginId(callerCtx);
     const resolveLabel = (): string => {
       if (typeof descriptor.title === "function") return descriptor.title();
       if (typeof descriptor.title === "string" && descriptor.title !== "") return descriptor.title;
@@ -84,6 +101,7 @@ export class BetterSidebarCompatService extends Service {
     const icon = typeof descriptor.icon === "function" ? descriptor.icon(14) : descriptor.icon;
     const contribution = {
       id: descriptor.id,
+      ...(pluginId === undefined ? {} : { pluginId }),
       label: resolveLabel(),
       ...(icon === undefined ? {} : { icon }),
       ...(descriptor.order === undefined ? {} : { order: descriptor.order }),
@@ -107,15 +125,53 @@ export class BetterSidebarCompatService extends Service {
         return null;
       },
     };
-    const dispose = descriptor.bottomOnly
+    const rawDispose = descriptor.bottomOnly
       ? this.registry.registerBottomPanelTab(contribution)
       : this.registry.registerRightWorkbenchTab(contribution);
-    callerCtx.effect(() => dispose);
-    return dispose;
+    let disposed = false;
+    const once = () => {
+      if (disposed) return;
+      disposed = true;
+      rawDispose();
+    };
+    return callerCtx.effect(() => once);
   }
 
-  registerFileViewer(_descriptor: unknown): () => void {
-    return () => {};
+  registerFileViewer(descriptor: LegacyFileViewerDescriptor): () => void {
+    if (typeof descriptor !== "object" || descriptor === null || typeof descriptor.id !== "string") {
+      return () => undefined;
+    }
+    const callerCtx = this.ctx;
+    const pluginId = resolveContextPluginId(callerCtx);
+    const resolveLabel = (): string => {
+      if (typeof descriptor.title === "function") return descriptor.title();
+      if (typeof descriptor.title === "string" && descriptor.title !== "") return descriptor.title;
+      return descriptor.label || descriptor.id;
+    };
+    const rawDispose = this.registry.registerFileViewer({
+      id: descriptor.id,
+      ...(pluginId === undefined ? {} : { pluginId }),
+      label: resolveLabel(),
+      ...(descriptor.extensions === undefined ? {} : { extensions: descriptor.extensions }),
+      ...(descriptor.mimeTypes === undefined ? {} : { mimeTypes: descriptor.mimeTypes }),
+      ...(descriptor.order === undefined ? {} : { order: descriptor.order }),
+      render: (fileCtx) => {
+        const props = {
+          ctx: callerCtx,
+          ...fileCtx,
+        };
+        if (typeof descriptor.component === "function") return descriptor.component(props);
+        if (typeof descriptor.render === "function") return descriptor.render(props);
+        return null;
+      },
+    });
+    let disposed = false;
+    const once = () => {
+      if (disposed) return;
+      disposed = true;
+      rawDispose();
+    };
+    return callerCtx.effect(() => once);
   }
 
   registerFileIcon(_descriptor: unknown): () => void {
@@ -159,7 +215,7 @@ const betterSidebarCompatModule = {
   SIDEBAR_SERVICE_VERSION: "0.26.0",
 };
 
-/** Public client SDK exposed to dynamic `.tsx` plugins via `import ... from "@qianji/client"`. */
+export * from "../sdk";
 export {
   clientContributions,
   useClientContributions,
@@ -170,31 +226,8 @@ export {
   agent,
   useAppStore,
 };
-export type {
-  ClientComposerStatusContribution,
-  WorkbenchSlotContext,
-} from "./clientContributions";
-export type {
-  ComposerDraftSnapshot,
-  PerformedRewindResult,
-  RewindExecutionResult,
-  RewindInspection,
-  RewindMode,
-  RewindTargetSummary,
-  RewindTurnSummary,
-} from "./rewindController";
-export type { UiMessage, AttachmentPayload } from "../types";
 
-export const pidClientSdk = {
-  clientContributions,
-  useClientContributions,
-  useWorkbenchStore,
-  harnessRuntimes,
-  rewindController,
-  messageImagesToAttachments,
-  agent,
-  useAppStore,
-};
+export const pidClientSdk = qianjiClientSdk;
 
 /** Shared browser singletons exposed via both `ctx.modules.import()` and CJS `require()`. */
 export const CLIENT_MODULES: Record<string, () => Promise<unknown>> = {
@@ -230,9 +263,9 @@ export const CLIENT_MODULES: Record<string, () => Promise<unknown>> = {
   "@deepseek-ai/cordis": () => import("@deepseek-ai/cordis"),
   "schemastery": () => import("@deepseek-ai/schemastery"),
   "@deepseek-ai/schemastery": () => import("@deepseek-ai/schemastery"),
-  "@qianji/client": async () => pidClientSdk,
+  "@qianji/client": async () => qianjiClientSdk,
   "@qianji/protocol": () => import("@qianji/protocol"),
-  "@pid/client": async () => pidClientSdk,
+  "@pid/client": async () => qianjiClientSdk,
   "@pid/protocol": () => import("@qianji/protocol"),
   "dsh-better-sidebar": async () => betterSidebarCompatModule,
   "dsh-better-sidebar/client": async () => betterSidebarCompatModule,
@@ -242,7 +275,9 @@ export const CLIENT_MODULES: Record<string, () => Promise<unknown>> = {
 const defaultTransport: ClientPluginTransport = {
   list: (workspace) => pluginClient.list(workspace),
   clientBundle: (params) => pluginClient.clientBundle(params),
-  onChanged: (listener) => pluginClient.onChanged(() => listener()),
+  reportClientError: (params) => pluginClient.reportClientError(params),
+  clearClientError: (params) => pluginClient.clearClientError(params),
+  onChanged: (listener) => pluginClient.onChanged((payload) => listener(payload)),
   onTrustChanged: (listener) => pluginClient.onTrustChanged(() => listener()),
   onHostReconnect: (listener) => {
     let seenConnected = false;
@@ -339,6 +374,7 @@ export function ensureClientPluginRuntime(): ClientPluginRuntimeHandle {
   if (singletonRuntime !== undefined) return singletonRuntime;
   const root = new Context();
   root.plugin(ClientContributionService, clientContributions);
+  root.plugin(ClientStylesService);
   root.plugin(BetterSidebarCompatService, clientContributions);
   mountBuiltinIntelligentUiSync();
   singletonRoot = root;

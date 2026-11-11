@@ -4,6 +4,7 @@
  */
 import type {
   PluginChangedNotification,
+  PluginClearClientErrorParams,
   PluginClientBundleParams,
   PluginClientBundleResult,
   PluginConfigureParams,
@@ -13,6 +14,7 @@ import type {
   PluginMutationResult,
   PluginReloadParams,
   PluginRemoveParams,
+  PluginReportClientErrorParams,
   PluginToggleParams,
   PluginUpdateParams,
   WorkspaceTrustChangedNotification,
@@ -71,6 +73,14 @@ export const pluginClient = {
 
   clientBundle(params: PluginClientBundleParams): Promise<PluginClientBundleResult> {
     return harnessRuntimes.call<PluginClientBundleResult>("plugin.clientBundle", withWorkspace({ ...params }));
+  },
+
+  reportClientError(params: PluginReportClientErrorParams): Promise<PluginMutationResult> {
+    return harnessRuntimes.call<PluginMutationResult>("plugin.reportClientError", withWorkspace({ ...params }));
+  },
+
+  clearClientError(params: PluginClearClientErrorParams): Promise<PluginMutationResult> {
+    return harnessRuntimes.call<PluginMutationResult>("plugin.clearClientError", withWorkspace({ ...params }));
   },
 
   trustList(workspace?: string): Promise<WorkspaceTrustListResult> {

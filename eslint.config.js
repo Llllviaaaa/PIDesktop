@@ -19,6 +19,9 @@ export default tseslint.config(
       "node_modules/**",
       "src-tauri/target/**",
       "src-tauri/gen/**",
+      "**/plugin-types/**",
+      "**/bundled-plugins/**",
+      "**/bundled-skills/**",
       // Vendored tooling, not project source.
       ".gitnexus/**",
     ],
@@ -85,6 +88,48 @@ export default tseslint.config(
           message: "Renderer code under src/ must not import packages/ by path; use @qianji/protocol (ADR 0005).",
         },
       ],
+    },
+  },
+
+  {
+    files: ["src/App.tsx", "src/components/**/*.{ts,tsx}"],
+    ignores: ["src/components/common/ErrorBoundary.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            ":matches(ImportExpression, TSImportType) > :matches(Literal.source[value=/^(?:@qianji\\/(?!protocol$)|@pid\\/)/], TemplateLiteral.source[expressions.length=0][quasis.0.value.cooked=/^(?:@qianji\\/(?!protocol$)|@pid\\/)/])",
+          message: "Renderer code under src/ may only import @qianji/protocol from @qianji/* (ADR 0005).",
+        },
+        {
+          selector:
+            ":matches(ImportExpression, TSImportType) > :matches(Literal.source[value=/(?:^|[\\\\/])packages(?:[\\\\/]|$)/], TemplateLiteral.source[expressions.length=0][quasis.0.value.cooked=/(?:^|[\\\\/])packages(?:[\\\\/]|$)/])",
+          message: "Renderer code under src/ must not import packages/ by path; use @qianji/protocol (ADR 0005).",
+        },
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.object.name!='mermaid'][callee.property.name='render']",
+          message:
+            "Never invoke plugin contribution .render() directly in host components; mount via <SlotEntryHost> or <PluginSlot> so synchronous throws and Hooks stay isolated in a child Fiber.",
+        },
+      ],
+    },
+  },
+
+  {
+    files: [
+      "src/App.tsx",
+      "src/components/PluginsSettingsPanel.tsx",
+      "src/components/ModelsPage.tsx",
+      "src/components/IntelligentUiCard.tsx",
+      "src/components/Sidebar.tsx",
+      "src/components/Message.tsx",
+      "src/components/Composer.tsx",
+      "src/components/{ui,plugins,models,shell,intelligent-ui,sidebar,message,composer}/**/*.{ts,tsx}",
+    ],
+    rules: {
+      "max-lines": ["error", { max: 400, skipBlankLines: true, skipComments: true }],
     },
   },
 

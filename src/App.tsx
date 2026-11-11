@@ -1,107 +1,44 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { useSyncOnChange } from "./hooks/useSyncOnChange";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { queryKeys } from "./lib/queries";
-import { usePanelResize } from "./hooks/usePanelResize";
-import {
-  applyUiScale,
-  resolveUiScale,
-  SIDEBAR_BOUNDS,
-  SIDEBAR_KEYS,
-  SIDEBAR_WIDTH_KEY,
-  WORKSPACE_PANEL_BOUNDS,
-  WORKSPACE_PANEL_KEYS,
-  WORKSPACE_PANEL_WIDTH_KEY,
-  workspacePanelMaxWidth as panelMaxWidth,
-} from "./lib/panelLayout";
-import { describeError } from "./lib/errors";
-import { loadAttachmentFiles, mergeAttachments } from "./lib/attachments";
-import { findMentionCandidates } from "./lib/workspaceSearch";
-import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
-import { type UnlistenFn } from "@tauri-apps/api/event";
-import { scheduleClient } from "./lib/scheduleClient";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Code2,
-  Folder,
-  GitCompare,
-  Globe2,
-  Menu,
-  Minus,
-  MoreHorizontal,
-  PanelLeft,
-  Sparkles,
-  Square,
-  X,
-} from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import { agent } from "./lib/agent";
-import {
-  mergeAppearanceCatalog,
-  resolveAppearanceTheme,
-} from "./lib/appearanceCatalog";
-import { clientContributions, useClientContributions } from "./lib/clientContributions";
-import { ensureClientPluginRuntime } from "./lib/clientPluginBootstrap";
-import { rewindController } from "./lib/rewindController";
+import { usePanelResize } from "./hooks/usePanelResize";
+import { useRuntimeBootstrap } from "./hooks/useRuntimeBootstrap";
+import { useSyncOnChange } from "./hooks/useSyncOnChange";
+import { mergeAppearanceCatalog } from "./lib/appearanceCatalog";
+import { useClientContributions } from "./lib/clientContributions";
 import { aggregateDiffStats, perFileDiffStats } from "./lib/gitDiffStats";
-import { changesEditedBy, sessionEditedPaths } from "./lib/sessionEdits";
-import {
-  nextTranscriptDensity,
-  normalizeTranscriptDensity,
-  TRANSCRIPT_DENSITY_LABELS,
-  TRANSCRIPT_DENSITY_ORDER,
-} from "./lib/transcriptDensity";
-import { activeSessionTitle } from "./lib/sessionTitle";
-import { navigationKey, withoutArchivedSessions, type NavigationTarget as BaseNavigationTarget } from "./lib/navigationHistory";
-import { sameLocalPath } from "./lib/pathIdentity";
+import { harnessRuntimes } from "./lib/harnessRuntime";
 import { filterHiddenModels } from "./lib/modelProviders";
-import { ACTIVE_RUNTIME_KEY, LAST_TASK_KEY, readPersistedTask, useRuntimeBootstrap } from "./hooks/useRuntimeBootstrap";
+import {
+  resolveUiScale, SIDEBAR_BOUNDS, SIDEBAR_KEYS, SIDEBAR_WIDTH_KEY,
+  WORKSPACE_PANEL_BOUNDS, WORKSPACE_PANEL_KEYS, WORKSPACE_PANEL_WIDTH_KEY, workspacePanelMaxWidth as panelMaxWidth,
+} from "./lib/panelLayout";
+import { hasActiveStreamingTasks } from "./lib/quitGuard";
+import { rewindController } from "./lib/rewindController";
+import { changesEditedBy, sessionEditedPaths } from "./lib/sessionEdits";
+import { activeSessionTitle } from "./lib/sessionTitle";
+import { nextTranscriptDensity, normalizeTranscriptDensity } from "./lib/transcriptDensity";
 import { useAppStore } from "./store";
-import { useIntelligentUiStore } from "./stores/intelligentUiStore";
 import { useSlices } from "./store/selectors";
-import { bindWorkbenchNotifications, useWorkbenchStore } from "./stores/workbenchStore";
-import { Sidebar } from "./components/Sidebar";
-import { Composer } from "./components/Composer";
-import type { SettingsPage } from "./components/SettingsModal";
-import { ExtensionDialog } from "./components/ExtensionDialog";
-import { ConversationMessages } from "./components/ConversationMessages";
-import { SessionChangeCard } from "./components/SessionChangeCard";
-import { ActiveGoalBar } from "./components/ActiveGoalBar";
-import { LivePlanBar } from "./components/LivePlanBar";
+import { useWorkbenchStore } from "./stores/workbenchStore";
+import { RegionErrorBoundary } from "./components/common/ErrorBoundary";
 import { WorkspaceFileOpenContext } from "./components/Markdown";
-import { FileActionsProvider, OpenInMenu } from "./components/WorkspaceOpeners";
-import { GitActionButton } from "./components/GitActionButton";
-import { BottomWorkbench } from "./components/workbench/BottomWorkbench";
-import { RightWorkbench, WorkbenchTopbarControls } from "./components/workbench/RightWorkbench";
-import { CommitDialog, type CommitOutcome } from "./components/CommitDialog";
-import { preferredEditorFor, rememberProjectEditor } from "./lib/workspaceEditors";
-import type { CodeReviewScope } from "./lib/codeReview";
-import type { AppSettings, AttachmentPayload, GitSnapshot, ModelInfo, ProjectConfig, SessionInfo, TerminalAppInfo, UiMessage, WorkspaceEditorInfo } from "./types";
-import { HostStatusBanner } from "./components/HostStatusBanner";
-import { WorkspaceTrustBanner } from "./components/WorkspaceTrustBanner";
-
-const SettingsModal = lazy(() => import("./components/SettingsModal").then((module) => ({ default: module.SettingsModal })));
-const ScheduledTasksPage = lazy(() => import("./components/ScheduledTasksPage").then((module) => ({ default: module.ScheduledTasksPage })));
-
-type HubView = "sites" | "scheduled" | `plugin:${string}`;
-type AppMenu = "file" | "edit" | "view" | "help";
-type NavigationTarget = BaseNavigationTarget<HubView>;
+import type { SettingsPage } from "./components/SettingsModal";
+import { MainConversationStage } from "./components/shell/MainConversationStage";
+import { PrimarySidebarShell } from "./components/shell/PrimarySidebarShell";
+import { ShellComposer } from "./components/shell/ShellComposer";
+import { ShellOverlaysAndModals } from "./components/shell/ShellOverlaysAndModals";
+import type { AppMenu, HubView } from "./components/shell/shellTypes";
+import { StageTopbar } from "./components/shell/StageTopbar";
+import { useAppearanceAndShellEffects } from "./components/shell/useAppearanceAndShellEffects";
+import { useShellNavigation } from "./components/shell/useShellNavigation";
+import { useShellTaskAndGitActions } from "./components/shell/useShellTaskAndGitActions";
+import { useShellWorkspaceAndSidebar } from "./components/shell/useShellWorkspaceAndSidebar";
+import { WindowMenubar } from "./components/shell/WindowMenubar";
+import { RightWorkbench } from "./components/workbench/RightWorkbench";
+import { FileActionsProvider } from "./components/WorkspaceOpeners";
+import type { AttachmentPayload } from "./types";
 
 export default function App() {
-  // The shell reads the fields and actions it uses, by slice; the transcript's
-  // messages are read by the conversation components themselves.
   const store = useSlices({
     runtime: [
       "connection", "cwd", "settings", "sessionFile", "sessionId", "sessionName", "isSwitchingModel", "model",
@@ -118,1845 +55,288 @@ export default function App() {
       "markNotificationRead", "markAllNotificationsRead", "dismissToast", "dismissNotification", "answerExtension",
     ],
   });
-  // Store actions are stable references. Calling them unbound keeps hooks from
-  // having to list the whole `store` object, which changes on every update.
-  const { prepareNewTask, setViewedSession, connect, appendLog, switchSession } = store;
-  const queryClient = useQueryClient();
-  const isTauri = "__TAURI_INTERNALS__" in window;
   const {
-    connection,
-    cwd,
-    sessions,
-    settings,
-    sessionFile,
-    sessionId,
-    sessionName,
-    isStreaming,
-    isSwitchingModel,
-    isCompacting,
-    retryStatus,
-    model,
-    thinkingLevel,
-    availableModels,
-    availableThinkingLevels,
-    commands,
-    stats,
-    git,
-    extensionRequest,
-    extensionWidgets,
-    composerPrefill,
-    runtimeId,
-    runtimes,
-    toasts,
-    notifications,
+    connection, cwd, sessions, settings, sessionFile, sessionId, sessionName, isStreaming, isSwitchingModel,
+    isCompacting, retryStatus, model, thinkingLevel, availableModels, availableThinkingLevels, commands, stats, git,
+    extensionRequest, extensionWidgets, composerPrefill, runtimeId, runtimes, toasts, notifications,
+    prepareNewTask, setViewedSession, connect, appendLog, switchSession,
   } = store;
-  const pickerModels = useMemo(
-    () => filterHiddenModels(availableModels, settings?.hiddenModels, model),
-    [availableModels, settings?.hiddenModels, model],
+
+  const isTauri = "__TAURI_INTERNALS__" in window;
+  const appWindow = isTauri ? getCurrentWindow() : null;
+  const pickerModels = useMemo(() => filterHiddenModels(availableModels, settings?.hiddenModels, model), [availableModels, settings?.hiddenModels, model]);
+  const adapterStreamingIds = useSyncExternalStore(
+    harnessRuntimes.subscribeStreaming, harnessRuntimes.getStreamingRuntimeIdsSnapshot, harnessRuntimes.getStreamingRuntimeIdsSnapshot,
+  );
+  const anyTaskStreaming = useMemo(
+    () => hasActiveStreamingTasks({ runtimeId, isStreaming, isCompacting, runtimes }, adapterStreamingIds),
+    [runtimeId, isStreaming, isCompacting, runtimes, adapterStreamingIds],
   );
   const [draftMode, setDraftMode] = useState(() => {
     if (!import.meta.env.DEV) return true;
     const fixture = new URLSearchParams(window.location.search).get("fixture");
-    return fixture !== "thread" && fixture !== "performance" && fixture !== "stream" && fixture !== "queue" && fixture !== "title" && fixture !== "diagrams" && fixture !== "goal";
+    return !["thread", "performance", "stream", "queue", "title", "diagrams", "goal"].includes(fixture ?? "");
   });
   const newTask = draftMode;
   const [localTranscriptDensity, setLocalTranscriptDensity] = useState<ReturnType<typeof normalizeTranscriptDensity>>("normal");
-  const transcriptDensity = settings
-    ? normalizeTranscriptDensity(settings.transcriptDensity)
-    : localTranscriptDensity;
+  const transcriptDensity = settings ? normalizeTranscriptDensity(settings.transcriptDensity) : localTranscriptDensity;
   const setTranscriptDensity = useCallback((density: typeof transcriptDensity) => {
     const current = useAppStore.getState();
-    if (current.settings) {
-      void current.saveSettings({ ...current.settings, transcriptDensity: density });
-      return;
-    }
+    if (current.settings) { void current.saveSettings({ ...current.settings, transcriptDensity: density }); return; }
     setLocalTranscriptDensity(density);
   }, []);
-  // The task on screen as Markdown, wherever the user picks.
-  const exportConversation = useCallback(async () => {
-    const current = useAppStore.getState();
-    const name = (current.sessionName || "conversation").replace(/[\\/:*?"<>|]+/g, "-").slice(0, 60);
-    const destination = await saveDialog({ defaultPath: `${name}.md`, filters: [{ name: "Markdown", extensions: ["md"] }] });
-    if (!destination) return;
-    try {
-      await current.exportSession(destination);
-    } catch (error) {
-      current.showToast(`导出失败：${describeError(error)}`, "error");
-    }
-  }, []);
-  const cycleTranscriptDensity = useCallback(() => {
-    setTranscriptDensity(nextTranscriptDensity(transcriptDensity));
-  }, [setTranscriptDensity, transcriptDensity]);
-  const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth > 900);
-  const [sidebarHoverPreview, setSidebarHoverPreview] = useState(false);
+  const cycleTranscriptDensity = useCallback(() => setTranscriptDensity(nextTranscriptDensity(transcriptDensity)), [setTranscriptDensity, transcriptDensity]);
+
   const [sidebarSearchRequested, setSidebarSearchRequested] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>("general");
   const [hubView, setHubView] = useState<HubView | null>(null);
-  const [commitDialog, setCommitDialog] = useState<{ push: boolean } | null>(null);
-  const [gitPushing, setGitPushing] = useState(false);
-  const [editorChoiceOverride, setEditorChoiceOverride] = useState<{ workspace: string; id: string } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [appMenu, setAppMenu] = useState<AppMenu | null>(null);
-  const [attachments, setAttachments] = useState<AttachmentPayload[]>([]);
-  const attachmentsRef = useRef(attachments);
-  useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
-  useEffect(() => rewindController.bindAttachmentBridge({
-    getAttachments: () => attachmentsRef.current,
-    setAttachments: (nextAttachments) => {
-      attachmentsRef.current = nextAttachments;
-      setAttachments(nextAttachments);
-    },
-  }), []);
   const [titleDraft, setTitleDraft] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
-  // Codex home defaults to Local; Worktree only when settings or user toggle says so.
-  const [taskEnvironment, setTaskEnvironment] = useState<"local" | "worktree">("local");
   const [draftWorkspace, setDraftWorkspace] = useState(() => window.localStorage.getItem("qianji:last-workspace") || "");
-  // The home composer shows the chosen workspace's branch and uncommitted changes.
-  const draftGitQuery = useQuery({
-    queryKey: queryKeys.gitSnapshot(draftWorkspace),
-    queryFn: () => agent.gitSnapshot(draftWorkspace),
-    enabled: isTauri && Boolean(draftWorkspace),
-  });
-  const draftGit: GitSnapshot | null = isTauri && draftWorkspace && !draftGitQuery.isError ? draftGitQuery.data ?? null : null;
-  const draftBranch = draftGit?.isRepository ? draftGit.branch || "" : "";
-  const [registeredProjects, setRegisteredProjects] = useState<ProjectConfig[]>([]);
-  const [quickChat, setQuickChat] = useState(false);
-  const customDefaultWorkspace = settings?.defaultWorkspace?.trim() || "";
-  const defaultWorkspaceQuery = useQuery({
-    queryKey: ["default-workspace-dir", customDefaultWorkspace],
-    queryFn: () => agent.quickChatDir(),
-    enabled: isTauri,
-    staleTime: Infinity,
-  });
-  const defaultWorkspaceDir = (customDefaultWorkspace || defaultWorkspaceQuery.data || "").trim();
-  const isDefaultWorkspace = useCallback((path: string) => {
-    const trimmed = path.trim().replace(/[\\/]+$/, "");
-    if (!trimmed) return false;
-    if (trimmed.toLowerCase().endsWith("quick-chat")) return true;
-    if (customDefaultWorkspace) return sameLocalPath(trimmed, customDefaultWorkspace);
-    return false;
-  }, [customDefaultWorkspace]);
-  const [editingMessage, setEditingMessage] = useState<{ messageId: string } | null>(null);
+  const [attachments, setAttachments] = useState<AttachmentPayload[]>([]);
+  const attachmentsRef = useRef(attachments);
+  useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
+  useEffect(() => rewindController.bindAttachmentBridge({
+    getAttachments: () => attachmentsRef.current,
+    setAttachments: (next) => { attachmentsRef.current = next; setAttachments(next); },
+  }), []);
 
   const conversationScrollRef = useRef<HTMLDivElement>(null);
   const autoFollowConversationRef = useRef(true);
   const lastAutoScrollAtRef = useRef(0);
-  const firstUserMessage = useAppStore((state) => state.messages.find((message) => message.role === "user")?.content);
-  const resolvedThreadTitle = useMemo(() => activeSessionTitle({
-    sessions,
-    sessionFile,
-    sessionId,
-    sessionName,
-    firstMessage: firstUserMessage,
-  }), [firstUserMessage, sessionFile, sessionId, sessionName, sessions]);
-  const navigationBackRef = useRef<NavigationTarget[]>([]);
-  const navigationForwardRef = useRef<NavigationTarget[]>([]);
-  const sidebarHoverCloseTimerRef = useRef<number | null>(null);
-  const [navigationAvailability, setNavigationAvailability] = useState({ back: false, forward: false });
-  const layoutScale = resolveUiScale(settings?.uiScale);
+  const firstUserMessage = useAppStore((state) => state.messages.find((msg) => msg.role === "user")?.content);
+  const resolvedThreadTitle = useMemo(
+    () => activeSessionTitle({ sessions, sessionFile, sessionId, sessionName, firstMessage: firstUserMessage }),
+    [firstUserMessage, sessionFile, sessionId, sessionName, sessions],
+  );
+  const contributions = useClientContributions();
+  const appearanceCatalog = useMemo(() => mergeAppearanceCatalog(contributions.themes), [contributions.themes]);
 
+  const { runtimeRecoveryDone, startupAutoConnectRef } = useRuntimeBootstrap({
+    isTauri, connection, sessions, autoConnect: settings?.autoConnect ?? false, runtimeId, cwd, sessionFile,
+    draftMode, onDraftModeChange: setDraftMode, onDraftWorkspaceChange: setDraftWorkspace,
+  });
+
+  const ws = useShellWorkspaceAndSidebar({
+    isTauri, newTask, cwd, settings, sessions, connection, hubView, setHubView,
+    runtimeRecoveryDone, startupAutoConnectRef, connect, draftWorkspace, setDraftWorkspace,
+  });
+
+  const layoutScale = resolveUiScale(settings?.uiScale);
   const sidebarResize = usePanelResize({
-    storageKey: SIDEBAR_WIDTH_KEY,
-    bounds: SIDEBAR_BOUNDS,
-    keys: SIDEBAR_KEYS,
-    axis: "x",
-    growsWithPointer: true,
-    resizingClass: "sidebar-is-resizing",
-    scale: layoutScale,
-    maxSize: useCallback(() => SIDEBAR_BOUNDS.max, []),
+    storageKey: SIDEBAR_WIDTH_KEY, bounds: SIDEBAR_BOUNDS, keys: SIDEBAR_KEYS, axis: "x", growsWithPointer: true,
+    resizingClass: "sidebar-is-resizing", scale: layoutScale, maxSize: useCallback(() => SIDEBAR_BOUNDS.max, []),
   });
   const sidebarWidth = sidebarResize.size;
-
-  // The workspace panel and the conversation share the space the sidebar leaves.
   const workspacePanelMaxWidth = useCallback(
-    () => panelMaxWidth(window.innerWidth, layoutScale, sidebarVisible ? sidebarWidth : 0),
-    [layoutScale, sidebarVisible, sidebarWidth],
+    () => panelMaxWidth(window.innerWidth, layoutScale, ws.sidebarVisible ? sidebarWidth : 0),
+    [layoutScale, sidebarWidth, ws.sidebarVisible],
   );
   const workspaceResize = usePanelResize({
-    storageKey: WORKSPACE_PANEL_WIDTH_KEY,
-    bounds: WORKSPACE_PANEL_BOUNDS,
-    keys: WORKSPACE_PANEL_KEYS,
-    axis: "x",
-    growsWithPointer: false,
-    resizingClass: "workspace-is-resizing",
-    scale: layoutScale,
-    maxSize: workspacePanelMaxWidth,
+    storageKey: WORKSPACE_PANEL_WIDTH_KEY, bounds: WORKSPACE_PANEL_BOUNDS, keys: WORKSPACE_PANEL_KEYS, axis: "x",
+    growsWithPointer: false, resizingClass: "workspace-is-resizing", scale: layoutScale, maxSize: workspacePanelMaxWidth,
   });
   const workspacePanelWidth = workspaceResize.size;
 
-  const contributions = useClientContributions();
-  const appearanceCatalog = useMemo(
-    () => mergeAppearanceCatalog(contributions.themes),
-    [contributions.themes],
-  );
-  const workspaceCwd = newTask ? draftWorkspace : cwd;
-  const { runtimeRecoveryDone, startupAutoConnectRef } = useRuntimeBootstrap({
-    isTauri,
-    connection,
-    sessions,
-    autoConnect: settings?.autoConnect ?? false,
-    runtimeId,
-    cwd,
-    sessionFile,
-    draftMode,
-    onDraftModeChange: setDraftMode,
-    onDraftWorkspaceChange: setDraftWorkspace,
-  });
-  const appWindow = isTauri ? getCurrentWindow() : null;
-  const sidebarRendered = sidebarVisible || sidebarHoverPreview;
+  const showErrorToast = useCallback((msg: string) => useAppStore.getState().showToast(msg, "error"), []);
+  const notify = useCallback((msg: string, tone: "info" | "error") => useAppStore.getState().showToast(msg, tone), []);
+  const toggleWorkspaceSidebar = useCallback(() => { setHubView(null); useWorkbenchStore.getState().toggleRight(); }, []);
+  const toggleBottomPanel = useCallback(() => useWorkbenchStore.getState().toggleBottom(), []);
+  const openBottomTerminal = useCallback(() => useWorkbenchStore.getState().openBottomTerminal(), []);
+  const openSummary = useCallback(() => { setHubView(null); useWorkbenchStore.getState().openSummary("overview"); }, []);
+  const openDiagnostics = useCallback(() => { setHubView(null); useWorkbenchStore.getState().openSummary("diagnostics"); }, []);
+  const openReview = useCallback(() => { setHubView(null); useWorkbenchStore.getState().openReview(); }, []);
+  const openBrowserAt = useCallback((url?: string) => { setHubView(null); useWorkbenchStore.getState().openPreview(url); }, []);
+  const openSettingsPage = useCallback((page: SettingsPage) => { setSettingsPage(page); setSettingsOpen(true); }, []);
 
-  useEffect(() => {
-    if (isTauri) return;
-    void useAppStore.getState().loadSettings();
-  }, [isTauri]);
-
-  const showErrorToast = useCallback((message: string) => {
-    useAppStore.getState().showToast(message, "error");
-  }, []);
-
-  const toggleWorkspaceSidebar = useCallback(() => {
-    setHubView(null);
-    useWorkbenchStore.getState().toggleRight();
-  }, []);
-
-  const toggleBottomPanel = useCallback(() => {
-    useWorkbenchStore.getState().toggleBottom();
-  }, []);
-
-  const openBottomTerminal = useCallback(() => {
-    useWorkbenchStore.getState().openBottomTerminal();
-  }, []);
-
-  const openSummary = useCallback(() => {
-    setHubView(null);
-    useWorkbenchStore.getState().openSummary("overview");
-  }, []);
-
-  const openDiagnostics = useCallback(() => {
-    setHubView(null);
-    useWorkbenchStore.getState().openSummary("diagnostics");
-  }, []);
-
-  const openReview = useCallback(() => {
-    setHubView(null);
-    useWorkbenchStore.getState().openReview();
-  }, []);
-
-  const openBrowserAt = useCallback((url?: string) => {
-    setHubView(null);
-    useWorkbenchStore.getState().openPreview(url);
-  }, []);
-
-  const workspaceEditorsQuery = useQuery({
-    queryKey: queryKeys.workspaceEditors(),
-    queryFn: () => agent.listWorkspaceEditors(),
-    enabled: isTauri,
-    staleTime: Infinity,
-  });
-  const workspaceEditors: WorkspaceEditorInfo[] = useMemo(() => workspaceEditorsQuery.data ?? [], [workspaceEditorsQuery.data]);
-  const terminalAppsQuery = useQuery({
-    queryKey: queryKeys.terminalApps(),
-    queryFn: () => agent.listTerminalApps(),
-    enabled: isTauri,
-    staleTime: Infinity,
-  });
-  const terminalApps: TerminalAppInfo[] = useMemo(() => terminalAppsQuery.data ?? [], [terminalAppsQuery.data]);
-  // Project choice (just made, or remembered) → Settings default → first installed editor.
-  const preferredWorkspaceEditor = useMemo(() => {
-    const override = editorChoiceOverride && sameLocalPath(editorChoiceOverride.workspace, workspaceCwd)
-      ? workspaceEditors.find((editor) => editor.id === editorChoiceOverride.id) ?? null
-      : null;
-    return override ?? preferredEditorFor(workspaceCwd, workspaceEditors, settings?.defaultFileOpener);
-  }, [editorChoiceOverride, settings?.defaultFileOpener, workspaceCwd, workspaceEditors]);
-
-  const cancelSidebarHoverClose = useCallback(() => {
-    if (sidebarHoverCloseTimerRef.current === null) return;
-    window.clearTimeout(sidebarHoverCloseTimerRef.current);
-    sidebarHoverCloseTimerRef.current = null;
-  }, []);
-
-  const showSidebarHoverPreview = useCallback(() => {
-    if (sidebarVisible) return;
-    cancelSidebarHoverClose();
-    setSidebarHoverPreview(true);
-  }, [cancelSidebarHoverClose, sidebarVisible]);
-
-  const scheduleSidebarHoverClose = useCallback(() => {
-    if (sidebarVisible) return;
-    cancelSidebarHoverClose();
-    sidebarHoverCloseTimerRef.current = window.setTimeout(() => {
-      setSidebarHoverPreview(false);
-      sidebarHoverCloseTimerRef.current = null;
-    }, 160);
-  }, [cancelSidebarHoverClose, sidebarVisible]);
-
-  const togglePrimarySidebar = useCallback(() => {
-    cancelSidebarHoverClose();
-    setSidebarHoverPreview(false);
-    setSidebarVisible((value) => !value);
-  }, [cancelSidebarHoverClose]);
-
-  const pinPrimarySidebar = useCallback(() => {
-    cancelSidebarHoverClose();
-    setSidebarHoverPreview(false);
-    setSidebarVisible(true);
-  }, [cancelSidebarHoverClose]);
-
-  // Showing the sidebar ends any hover preview; the pending close timer goes with it.
-  useSyncOnChange([sidebarVisible], () => {
-    if (sidebarVisible) setSidebarHoverPreview(false);
-  });
-  useEffect(() => {
-    if (sidebarVisible) cancelSidebarHoverClose();
-  }, [cancelSidebarHoverClose, sidebarVisible]);
-
-  useEffect(() => () => cancelSidebarHoverClose(), [cancelSidebarHoverClose]);
-
-  // Boot the unified client plugin runtime and bind Host `workbench/open` notifications.
-  const activeWorkspaceRef = useRef(workspaceCwd || cwd);
-  useEffect(() => {
-    const nextWorkspace = workspaceCwd || cwd;
-    activeWorkspaceRef.current = nextWorkspace;
-    ensureClientPluginRuntime().setWorkspace(nextWorkspace || undefined);
-  }, [cwd, workspaceCwd]);
-
-  useEffect(() => {
-    ensureClientPluginRuntime();
-    return bindWorkbenchNotifications(() => ({ cwd: activeWorkspaceRef.current }));
-  }, []);
-
-  useEffect(() => {
-    if (!moreOpen && !appMenu) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Element | null;
-      if (!target) return;
-      if (moreOpen && !target.closest(".title-actions")) setMoreOpen(false);
-      if (appMenu && !target.closest(".app-menu-bar, .app-menu-dropdown")) setAppMenu(null);
-    };
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || settingsOpen) return;
-      if (moreOpen) setMoreOpen(false);
-      else if (appMenu) setAppMenu(null);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onEscape);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onEscape);
-    };
-  }, [appMenu, moreOpen, settingsOpen]);
-
-  useEffect(() => {
-    const narrowWindow = window.matchMedia("(max-width: 900px)");
-    const collapseSidebar = (event: MediaQueryListEvent | MediaQueryList) => {
-      if (event.matches) setSidebarVisible(false);
-    };
-
-    collapseSidebar(narrowWindow);
-    narrowWindow.addEventListener("change", collapseSidebar);
-    return () => narrowWindow.removeEventListener("change", collapseSidebar);
-  }, []);
-
-  useEffect(() => {
-    if (!isTauri) return;
-    let disposed = false;
-    let unlisten: UnlistenFn | undefined;
-    void scheduleClient.onRunUpdated((run) => {
-      if (run.status === "running") return;
-      void useAppStore.getState().refreshSessions();
-      useAppStore.getState().showToast(
-        run.status === "success"
-          ? `计划任务“${run.taskName}”已完成`
-          : `计划任务“${run.taskName}”${run.status === "interrupted" ? "已中断" : "失败"}`,
-        run.status === "success" ? "info" : "error",
-      );
-      useAppStore.getState().addNotification({
-        id: `scheduled:${run.id}:${run.status}`,
-        kind: "completion",
-        title: run.status === "success" ? "计划任务已完成" : "计划任务未完成",
-        body: run.taskName,
-        cwd: run.cwd,
-        sessionFile: run.sessionFile ?? null,
-      });
-    }).then((stop) => {
-      if (disposed) stop();
-      else unlisten = stop;
-    });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [isTauri]);
-
-  // Apply the product default when settings arrive or the default changes; the
-  // user can still toggle the chips afterwards.
-  const defaultTaskEnvironment = settings?.defaultTaskEnvironment;
-  const settingsLoaded = Boolean(settings);
-  useSyncOnChange([settingsLoaded, defaultTaskEnvironment], () => {
-    if (!settingsLoaded) return;
-    setTaskEnvironment(defaultTaskEnvironment === "worktree" ? "worktree" : "local");
+  useAppearanceAndShellEffects({
+    isTauri, anyTaskStreaming, workspaceCwd: ws.workspaceCwd, cwd, moreOpen, setMoreOpen, appMenu, setAppMenu,
+    settingsOpen, setSettingsOpen, setSidebarVisible: ws.setSidebarVisible, appearanceCatalog, settings, connection,
+    canOpenWorkspace: ws.canOpenWorkspace, openWorkspaceInPreferredApp: ws.openWorkspaceInPreferredApp,
+    pinPrimarySidebar: ws.pinPrimarySidebar, setSidebarSearchRequested, cycleTranscriptDensity, toggleBottomPanel,
+    toggleWorkspaceSidebar, openBrowserAt, openReview, togglePrimarySidebar: ws.togglePrimarySidebar,
+    prepareNewTask, setDraftMode, setQuickChat: ws.setQuickChat, setHubView,
   });
 
-  useEffect(() => {
-    window.localStorage.setItem("qianji:task-environment", taskEnvironment);
-  }, [taskEnvironment]);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    const syncWindowBlur = () => {
-      root.toggleAttribute("data-window-blur", !document.hasFocus());
-    };
-    document.body.setAttribute("data-dsh-claude-style", "");
-    syncWindowBlur();
-    window.addEventListener("focus", syncWindowBlur);
-    window.addEventListener("blur", syncWindowBlur);
-    return () => {
-      window.removeEventListener("focus", syncWindowBlur);
-      window.removeEventListener("blur", syncWindowBlur);
-    };
-  }, []);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    const systemTheme = window.matchMedia?.("(prefers-color-scheme: dark)");
-    const applyTheme = () => {
-      const fixtureTheme = import.meta.env.DEV && !isTauri
-        ? new URLSearchParams(window.location.search).get("theme")
-        : null;
-      const requestedTheme = fixtureTheme && appearanceCatalog.themes.some((theme) => theme.id === fixtureTheme)
-        ? fixtureTheme
-        : settings?.theme ?? "system";
-      const theme = resolveAppearanceTheme(appearanceCatalog, requestedTheme, systemTheme?.matches ?? false);
-      const palette = theme.palette;
-      if (!palette) return;
-      root.dataset.theme = theme.mode;
-      const variables: Record<string, string> = {
-        "--app": palette.app,
-        "--panel": palette.panel,
-        "--panel-strong": palette.panelStrong,
-        "--panel-soft": palette.panelSoft,
-        "--hover": palette.hover,
-        "--active": palette.active,
-        "--border": palette.border,
-        "--border-strong": palette.borderStrong,
-        "--text": palette.text,
-        "--text-2": palette.text2,
-        "--text-3": palette.text3,
-        "--accent": palette.accent,
-        "--accent-custom": palette.accent,
-        "--accent-text": palette.accentText,
-        "--sidebar-bg": palette.sidebar,
-        "--sidebar-text": palette.text2,
-        "--thread-muted": palette.text3,
-      };
-      for (const [name, value] of Object.entries(variables)) root.style.setProperty(name, value);
-      root.style.setProperty(
-        "--code-font",
-        settings?.codeFont || '"JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", "SF Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace',
-      );
-      const messageFontSize = Number(settings?.messageFontSize);
-      root.style.setProperty(
-        "--dsh-content-font-size",
-        `${Number.isFinite(messageFontSize) ? Math.min(22, Math.max(10, messageFontSize)) : 15}px`,
-      );
-      root.style.fontFamily = settings?.uiFont || 'var(--font-ui)';
-      root.style.color = palette.text;
-      root.style.background = palette.app;
-      applyUiScale(root, document.getElementById("root"), settings?.uiScale);
-    };
-    applyTheme();
-    systemTheme?.addEventListener("change", applyTheme);
-    return () => systemTheme?.removeEventListener("change", applyTheme);
-  }, [appearanceCatalog, isTauri, settings]);
-
-  useEffect(() => {
-    const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, "").replace("control", "ctrl");
-    const shortcuts = {
-      newChat: settings?.shortcutNewChat ?? "Ctrl+Shift+N",
-      settings: settings?.shortcutSettings ?? "Ctrl+,",
-      terminal: settings?.shortcutTerminal ?? "Ctrl+Shift+T",
-      changes: settings?.shortcutChanges ?? "Ctrl+Shift+G",
-      toggleSidebar: settings?.shortcutToggleSidebar ?? "Ctrl+B",
-    };
-    // A shortcut the user bound to Ctrl+K wins over the built-in search.
-    const ctrlKBound = Object.values(shortcuts).some((value) => normalize(value) === "ctrl+k");
-    const shortcutFor = (event: KeyboardEvent) => [
-      event.ctrlKey ? "Ctrl" : "",
-      event.altKey ? "Alt" : "",
-      event.shiftKey ? "Shift" : "",
-      event.metaKey ? "Meta" : "",
-      event.key.length === 1 ? event.key.toUpperCase() : event.key,
-    ].filter(Boolean).join("+");
-    const onKeyDown = (event: KeyboardEvent) => {
-      const shortcut = normalize(shortcutFor(event));
-      const ctrl = event.ctrlKey || event.metaKey;
-      // Inside a terminal, shells own Ctrl+O/P/T/B (readline history, search, …).
-      const inTerminal = Boolean((event.target as Element | null)?.closest?.(".xterm"));
-      if (shortcut === normalize(shortcuts.settings) || (event.ctrlKey && event.key === ",")) {
-        event.preventDefault();
-        setSettingsOpen(true);
-        return;
-      }
-      if (settingsOpen && event.key === "Escape") {
-        // Menus and dialogs inside Settings mark themselves so Escape closes them first.
-        if (document.querySelector("[data-escape-layer]")) return;
-        event.preventDefault();
-        setSettingsOpen(false);
-        return;
-      }
-      // Shells use Ctrl+K to kill the rest of the line.
-      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k" && !inTerminal && !settingsOpen && !ctrlKBound) {
-        event.preventDefault();
-        pinPrimarySidebar();
-        setSidebarSearchRequested(true);
-        return;
-      }
-      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "o" && !inTerminal) {
-        event.preventDefault();
-        cycleTranscriptDensity();
-        return;
-      }
-      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "j") {
-        event.preventDefault();
-        toggleBottomPanel();
-        return;
-      }
-      if (ctrl && !event.altKey && !event.shiftKey && (event.code === "Backquote" || event.key === "`")) {
-        event.preventDefault();
-        toggleBottomPanel();
-        return;
-      }
-      if (ctrl && event.altKey && !event.shiftKey && event.key.toLowerCase() === "b") {
-        event.preventDefault();
-        toggleWorkspaceSidebar();
-        return;
-      }
-      if (ctrl && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "t" && !inTerminal) {
-        event.preventDefault();
-        openBrowserAt();
-        return;
-      }
-      if (shortcut === normalize(shortcuts.newChat) && connection === "running") {
-        event.preventDefault();
-        setSettingsOpen(false);
-        prepareNewTask();
-        setDraftMode(true);
-        setQuickChat(false);
-        setHubView(null);
-      } else if (shortcut === normalize(shortcuts.terminal) || shortcut === "ctrl+j") {
-        event.preventDefault();
-        setSettingsOpen(false);
-        toggleBottomPanel();
-      } else if (shortcut === normalize(shortcuts.changes) && !inTerminal) {
-        event.preventDefault();
-        setSettingsOpen(false);
-        openReview();
-      } else if (shortcut === normalize(shortcuts.toggleSidebar) && !inTerminal) {
-        event.preventDefault();
-        togglePrimarySidebar();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [
-    connection,
-    cycleTranscriptDensity,
-    openBrowserAt,
-    openReview,
-    pinPrimarySidebar,
-    prepareNewTask,
-    settings,
-    settingsOpen,
-    toggleBottomPanel,
-    togglePrimarySidebar,
-    toggleWorkspaceSidebar,
-  ]);
-
-  useSyncOnChange([editingTitle, resolvedThreadTitle], () => {
-    if (!editingTitle) setTitleDraft(resolvedThreadTitle);
+  const nav = useShellNavigation({
+    cwd, draftWorkspace, hubView, newTask, sessionFile, isDefaultWorkspace: ws.isDefaultWorkspace,
+    selectWorkspace: ws.selectWorkspace, setDraftWorkspace, setDraftMode, setQuickChat: ws.setQuickChat,
+    setTaskEnvironment: ws.setTaskEnvironment, setHubView, setMoreOpen, switchSession,
   });
 
-  // A different conversation drops any message being edited and follows new output.
+  const actions = useShellTaskAndGitActions({
+    newTask, quickChat: ws.quickChat, defaultWorkspaceDir: ws.defaultWorkspaceDir, draftWorkspace,
+    workspaceCwd: ws.workspaceCwd, cwd, taskEnvironment: ws.taskEnvironment, attachments, setAttachments,
+    draftGit: ws.draftGit, git, settings, selectWorkspace: ws.selectWorkspace, setDraftWorkspace, setDraftMode,
+    setQuickChat: ws.setQuickChat, setTaskEnvironment: ws.setTaskEnvironment, setHubView,
+    refreshDraftGit: ws.refreshDraftGit, connect, appendLog,
+  });
+
+  const { setEditingMessage } = actions;
+  useSyncOnChange([editingTitle, resolvedThreadTitle], () => { if (!editingTitle) setTitleDraft(resolvedThreadTitle); });
   useSyncOnChange([runtimeId, sessionFile], () => setEditingMessage(null));
+  useEffect(() => { autoFollowConversationRef.current = true; }, [runtimeId, sessionFile]);
   useEffect(() => {
-    autoFollowConversationRef.current = true;
-  }, [runtimeId, sessionFile]);
-
-  useEffect(() => {
-    const viewedSession = !newTask && !hubView && !settingsOpen ? sessionFile : null;
-    setViewedSession(viewedSession);
-    const markVisibleSessionViewed = () => setViewedSession(viewedSession);
-    window.addEventListener("focus", markVisibleSessionViewed);
-    return () => {
-      window.removeEventListener("focus", markVisibleSessionViewed);
-      setViewedSession(null);
-    };
+    const viewed = !newTask && !hubView && !settingsOpen ? sessionFile : null;
+    setViewedSession(viewed);
+    const markViewed = () => setViewedSession(viewed);
+    window.addEventListener("focus", markViewed);
+    return () => { window.removeEventListener("focus", markViewed); setViewedSession(null); };
   }, [hubView, newTask, sessionFile, settingsOpen, setViewedSession]);
 
-  useSyncOnChange([draftWorkspace, sessions], () => {
-    if (draftWorkspace || sessions.length === 0) return;
-    const firstProject = sessions.find((session) => !isDefaultWorkspace(session.cwd))?.cwd;
-    if (firstProject) setDraftWorkspace(firstProject);
-  });
-
-  useEffect(() => {
-    if (!isTauri) return;
-    let disposed = false;
-    const loadProjects = async () => {
-      try {
-        const projects = await agent.listProjects();
-        if (!disposed) setRegisteredProjects(projects.filter((project) => !project.hidden));
-      } catch {
-        if (!disposed) setRegisteredProjects([]);
-      }
-    };
-    void loadProjects();
-    const reload = () => void loadProjects();
-    window.addEventListener("qianji:projects-changed", reload);
-    return () => {
-      disposed = true;
-      window.removeEventListener("qianji:projects-changed", reload);
-    };
-  }, [isTauri]);
-
-  useEffect(() => {
-    const targetWorkspace = quickChat ? defaultWorkspaceDir : (draftWorkspace || defaultWorkspaceDir);
-    if (!isTauri || !targetWorkspace) return;
-    if (!runtimeRecoveryDone || !newTask || hubView !== null || connection !== "disconnected" || startupAutoConnectRef.current) return;
-    // A home composer needs an active blank runtime: the model catalog and
-    // model/thinking commands are runtime RPCs, not static settings data.
-    void connect(targetWorkspace).catch(() => undefined);
-  }, [connection, defaultWorkspaceDir, draftWorkspace, hubView, isTauri, newTask, quickChat, runtimeRecoveryDone, startupAutoConnectRef, connect]);
-
-  const refreshDraftGit = useCallback(async () => {
-    if (!isTauri || !draftWorkspace) return;
-    await queryClient.invalidateQueries({ queryKey: queryKeys.gitSnapshot(draftWorkspace) });
-  }, [draftWorkspace, isTauri, queryClient]);
-
-  const selectWorkspace = useCallback((workspace: string) => {
-    const isDefault = isDefaultWorkspace(workspace);
-    window.localStorage.setItem("qianji:last-workspace", workspace);
-    if (!isDefault) setDraftWorkspace(workspace);
-    setQuickChat(isDefault);
-    if (isTauri && workspace && !isDefault) {
-      void agent.registerProject(workspace)
-        .then(() => window.dispatchEvent(new Event("qianji:projects-changed")))
-        .catch(() => undefined);
-    }
-  }, [isDefaultWorkspace, isTauri]);
-
-  const pickFolder = useCallback(async () => {
-    const selected = await open({ directory: true, multiple: false, title: "打开工作区" });
-    if (typeof selected !== "string") return;
-    selectWorkspace(selected);
-  }, [selectWorkspace]);
-
-  const attachFiles = useCallback(async (files: string[]) => {
-    const loaded = await loadAttachmentFiles(files, (error) => {
-      appendLog(`附件读取失败：${describeError(error)}`);
-      showErrorToast(`无法添加附件：${describeError(error)}`);
-    });
-    setAttachments((current) => mergeAttachments(current, loaded));
-  }, [appendLog, showErrorToast]);
-  const attachPayloads = useCallback((added: AttachmentPayload[]) => {
-    setAttachments((current) => mergeAttachments(current, added));
-  }, []);
-  const pickAttachments = useCallback(async () => {
-    const selected = await open({
-      multiple: true,
-      directory: false,
-      title: "向任务添加文件",
-    });
-    await attachFiles(typeof selected === "string" ? [selected] : selected ?? []);
-  }, [attachFiles]);
-
-  /** Opens a file link inside the native right workbench editor. */
-  const openPreviewFile = useCallback((path: string, line?: number) => {
-    if (!workspaceCwd) return;
-    setHubView(null);
-    void useWorkbenchStore.getState().openFile(workspaceCwd, path, line ? { line } : undefined);
-  }, [workspaceCwd]);
-
-  const newWorktreeChat = useCallback(async () => {
-    if (!cwd) return;
-    const worktree = await agent.createWorktree(cwd, git?.branch);
-    window.localStorage.setItem("qianji:last-workspace", worktree.path);
-    await connect(worktree.path);
-  }, [cwd, git?.branch, connect]);
-
-  const permissionLabel = settings?.permissionMode === "read-only"
-    ? "只读"
-    : settings?.permissionMode === "workspace-write"
-      ? "工作区写入"
-      : settings?.permissionMode === "full-access"
-        ? "完全访问"
-        : "先询问";
+  const permissionLabel = settings?.permissionMode === "read-only" ? "只读"
+    : settings?.permissionMode === "workspace-write" ? "工作区写入"
+      : settings?.permissionMode === "full-access" ? "完全访问" : "先询问";
   const connected = connection === "running";
-  const workspaceFilePath = useCallback((path: string) => (
-    /^(?:[A-Za-z]:[\\/]|[\\/])/.test(path)
-      ? path
-      : `${workspaceCwd.replace(/[\\/]+$/, "")}\\${path.replace(/\//g, "\\")}`
-  ), [workspaceCwd]);
-  const addWorkspaceFileToChat = useCallback(async (path: string) => {
-    if (!workspaceCwd) return;
-    try {
-      const attachment = await agent.readAttachment(workspaceFilePath(path));
-      setAttachments((current) => current.some((item) => item.path === attachment.path)
-        ? current
-        : [...current, attachment]);
-      useAppStore.getState().showToast(`${attachment.fileName} 已添加到聊天`, "info");
-    } catch (error) {
-      useAppStore.getState().showToast(describeError(error), "error");
-    }
-  }, [workspaceCwd, workspaceFilePath]);
-  const workspaceOptions = useMemo(
-    () => [draftWorkspace, cwd, ...registeredProjects.map((project) => project.path), ...sessions.map((session) => session.cwd)]
-      .filter((item): item is string => Boolean(item) && !isDefaultWorkspace(item)),
-    [cwd, draftWorkspace, isDefaultWorkspace, registeredProjects, sessions],
-  );
   const runningSessionFiles = useMemo(
-    () => Object.values(runtimes).filter((runtime) => runtime.isStreaming && runtime.sessionFile).map((runtime) => runtime.sessionFile as string),
+    () => Object.values(runtimes).filter((rt) => rt.isStreaming && rt.sessionFile).map((rt) => rt.sessionFile as string),
     [runtimes],
   );
   const approvalSessionFiles = useMemo(
-    () => Object.values(runtimes).filter((runtime) => runtime.extensionRequest && runtime.sessionFile).map((runtime) => runtime.sessionFile as string),
+    () => Object.values(runtimes).filter((rt) => rt.extensionRequest && rt.sessionFile).map((rt) => rt.sessionFile as string),
     [runtimes],
   );
-  // Joined into one string so a streaming delta that edits nothing does not re-render the app.
   const sessionEditedKey = useAppStore((state) => sessionEditedPaths(state.messages).join("\n"));
-  // The conversation's change card shows only what this session wrote, not every change in the checkout.
   const sessionChanges = useMemo(
     () => changesEditedBy(git?.files ?? [], sessionEditedKey ? sessionEditedKey.split("\n") : []),
     [git?.files, sessionEditedKey],
   );
   const sessionFileStats = useMemo(() => perFileDiffStats(git?.diff), [git?.diff]);
-  // The checkout the review tab shows: the chosen project on a new task, else the thread's.
-  const reviewGit = newTask ? draftGit : git;
+  const reviewGit = newTask ? ws.draftGit : git;
   const gitDiffStats = useMemo(() => {
     const { add, del } = aggregateDiffStats(reviewGit?.diff);
     return { additions: add, deletions: del };
   }, [reviewGit?.diff]);
-  const reviewFileCount = reviewGit?.files.length ?? 0;
   const taskWorkspaceName = draftWorkspace.split(/[\\/]/).filter(Boolean).pop() ?? "";
-  // The home headline names the chosen project; without one it falls back to the default workspace.
-  const homeHeadline = quickChat || !taskWorkspaceName
-    ? "接下来聊些什么？"
-    : `接下来在 ${taskWorkspaceName} 做什么？`;
-  const statusText = isCompacting
-    ? "正在压缩上下文…"
+  const homeHeadline = ws.quickChat || !taskWorkspaceName ? "接下来聊些什么？" : `接下来在 ${taskWorkspaceName} 做什么？`;
+  const statusText = isCompacting ? "正在压缩上下文…"
     : retryStatus || (isStreaming ? "Agent 正在工作…" : connected ? "就绪" : connection === "starting" ? "正在启动 Harness…" : "未连接");
-  const sendFromComposer = useCallback(async (text: string, behavior?: "steer" | "followUp") => {
-    const enteringConversation = newTask;
-    const enterConversation = () => {
-      if (!enteringConversation) return;
-      setDraftMode(false);
-      setHubView(null);
-    };
-    const restoreInitialPrompt = () => {
-      if (enteringConversation) useAppStore.setState({ composerPrefill: text });
-    };
-    let current = useAppStore.getState();
-    let workspace = quickChat
-      ? (defaultWorkspaceDir || await agent.quickChatDir())
-      : (draftWorkspace || current.cwd || defaultWorkspaceDir || await agent.quickChatDir());
-    if (!workspace) {
-        const selected = await open({ directory: true, multiple: false, title: "选择任务项目" });
-        if (typeof selected !== "string") return false;
-        workspace = selected;
-        selectWorkspace(selected);
-    }
-    const normalize = (value: string) => value.replace(/[\\/]+$/, "").toLowerCase();
-    if (current.connection !== "running" || normalize(current.cwd) !== normalize(workspace)) {
-      window.localStorage.setItem("qianji:last-workspace", workspace);
-      const connection = current.connect(workspace);
-      enterConversation();
-      await connection;
-      current = useAppStore.getState();
-      if (current.connection !== "running") {
-        restoreInitialPrompt();
-        return false;
-      }
-    }
-    if (taskEnvironment === "worktree" && current.messages.length === 0 && !quickChat) {
-      try {
-        // Ensure git snapshot is available for base branch when possible.
-        await current.refreshGit();
-        current = useAppStore.getState();
-        const worktree = await agent.createWorktree(current.cwd, current.git?.branch);
-        window.localStorage.setItem("qianji:last-workspace", worktree.path);
-        setDraftWorkspace(worktree.path);
-        const connection = current.connect(worktree.path);
-        enterConversation();
-        await connection;
-        current = useAppStore.getState();
-        if (current.connection !== "running") {
-          restoreInitialPrompt();
-          return false;
-        }
-      } catch (error) {
-        current.appendLog(`创建 Worktree 失败：${describeError(error)}`);
-        current.showToast(`创建 Worktree 失败：${describeError(error)}`, "error");
-        restoreInitialPrompt();
-        return false;
-      }
-    }
-    enterConversation();
-    const sent = await current.sendMessage(text, attachments, behavior);
-    if (sent) {
-      setAttachments([]);
-    } else restoreInitialPrompt();
-    return sent;
-  }, [attachments, defaultWorkspaceDir, draftWorkspace, newTask, quickChat, selectWorkspace, taskEnvironment]);
-
-  useEffect(() => {
-    useIntelligentUiStore.getState().setPromptDispatcher((prompt) => sendFromComposer(prompt, "followUp"));
-    return () => useIntelligentUiStore.getState().setPromptDispatcher(null);
-  }, [sendFromComposer]);
-
-  const startNewTask = useCallback((asQuickChat = false) => {
-    const current = useAppStore.getState();
-    if (current.cwd && !isDefaultWorkspace(current.cwd)) setDraftWorkspace(current.cwd);
-    current.prepareNewTask();
-    setDraftMode(true);
-    setQuickChat(asQuickChat);
-    // Codex home defaults to Local; only keep Worktree when settings ask for it.
-    const preferred = current.settings?.defaultTaskEnvironment === "worktree" ? "worktree" : "local";
-    setTaskEnvironment(asQuickChat ? "local" : preferred);
-    window.localStorage.setItem("qianji:task-environment", asQuickChat ? "local" : preferred);
-    setHubView(null);
-  }, [isDefaultWorkspace]);
-
-  const openProjectHome = useCallback((workspace: string) => {
-    if (!workspace) return;
-    const isDefault = isDefaultWorkspace(workspace);
-    selectWorkspace(workspace);
-    useAppStore.getState().prepareNewTask();
-    setDraftMode(true);
-    setQuickChat(isDefault);
-    setHubView(null);
-  }, [isDefaultWorkspace, selectWorkspace]);
-
-  const revealWorkspaceInExplorer = useCallback((workspace: string) => {
-    if (!workspace) return;
-    void agent.openWorkspaceInFileManager(workspace).catch((error) => {
-      useAppStore.getState().showToast(`无法在资源管理器中打开项目：${describeError(error)}`, "error");
-    });
-  }, []);
-
-  const revealWorkspaceInEditor = useCallback((workspace: string, editor: WorkspaceEditorInfo) => {
-    if (!workspace) return;
-    void agent.openWorkspaceInEditor(workspace, editor.id).catch((error) => {
-      useAppStore.getState().showToast(`无法在 ${editor.name} 中打开项目：${describeError(error)}`, "error");
-    });
-  }, []);
-
-  /** Opens the project in `editor` and makes it this project's editor from now on. */
-  const chooseWorkspaceEditor = useCallback((editor: WorkspaceEditorInfo) => {
-    if (!workspaceCwd) return;
-    revealWorkspaceInEditor(workspaceCwd, editor);
-    rememberProjectEditor(workspaceCwd, editor.id);
-    setEditorChoiceOverride({ workspace: workspaceCwd, id: editor.id });
-  }, [revealWorkspaceInEditor, workspaceCwd]);
-
-  const openWorkspaceTerminalApp = useCallback((app: TerminalAppInfo) => {
-    if (!workspaceCwd) return;
-    void agent.openWorkspaceInTerminalApp(workspaceCwd, app.id).catch((error) => {
-      useAppStore.getState().showToast(`无法打开 ${app.name}：${describeError(error)}`, "error");
-    });
-  }, [workspaceCwd]);
-
-  /** The "open in" button's main action: the project's editor, or Explorer when none is installed. */
-  const openWorkspaceInPreferredApp = useCallback(() => {
-    if (!workspaceCwd) return;
-    if (preferredWorkspaceEditor) chooseWorkspaceEditor(preferredWorkspaceEditor);
-    else revealWorkspaceInExplorer(workspaceCwd);
-  }, [chooseWorkspaceEditor, preferredWorkspaceEditor, revealWorkspaceInExplorer, workspaceCwd]);
-  const canOpenWorkspace = Boolean(workspaceCwd) && !quickChat && !hubView;
-
-  // Ctrl+O already cycles transcript density, so opening the project takes Ctrl+Shift+O.
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey || event.key.toLowerCase() !== "o") return;
-      if ((event.target as Element | null)?.closest?.(".xterm") || !canOpenWorkspace) return;
-      event.preventDefault();
-      openWorkspaceInPreferredApp();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [canOpenWorkspace, openWorkspaceInPreferredApp]);
-
-  const notify = useCallback((message: string, tone: "info" | "error") => {
-    useAppStore.getState().showToast(message, tone);
-  }, []);
-
-  const currentNavigationTarget = useCallback((): NavigationTarget => {
-    if (hubView) return { kind: "hub", view: hubView };
-    if (!newTask && sessionFile) return { kind: "session", cwd, file: sessionFile };
-    return { kind: "home", workspace: draftWorkspace || cwd };
-  }, [cwd, draftWorkspace, hubView, newTask, sessionFile]);
-
-  const applyNavigationTarget = useCallback(async (target: NavigationTarget) => {
-    setMoreOpen(false);
-    if (target.kind === "hub") {
-      setHubView(target.view);
-      return;
-    }
-    if (target.kind === "home") {
-      if (target.workspace) openProjectHome(target.workspace);
-      else startNewTask(false);
-      return;
-    }
-    window.localStorage.setItem("qianji:last-workspace", target.cwd);
-    if (!isDefaultWorkspace(target.cwd)) setDraftWorkspace(target.cwd);
-    setDraftMode(false);
-    setQuickChat(isDefaultWorkspace(target.cwd));
-    setHubView(null);
-    await switchSession(target.cwd, target.file);
-  }, [isDefaultWorkspace, openProjectHome, startNewTask, switchSession]);
-
-  // The history stacks are refs so navigation never re-renders mid-update; this
-  // copies what the back and forward buttons need into state after each change.
-  const syncNavigationAvailability = useCallback(() => {
-    setNavigationAvailability({
-      back: navigationBackRef.current.length > 0,
-      forward: navigationForwardRef.current.length > 0,
-    });
-  }, []);
-
-  const navigateTo = useCallback((target: NavigationTarget) => {
-    const current = currentNavigationTarget();
-    if (navigationKey(current) === navigationKey(target)) return;
-    navigationBackRef.current.push(current);
-    navigationForwardRef.current = [];
-    syncNavigationAvailability();
-    void applyNavigationTarget(target);
-  }, [applyNavigationTarget, currentNavigationTarget, syncNavigationAvailability]);
-
-  const navigateBack = useCallback(() => {
-    const target = navigationBackRef.current.pop();
-    if (!target) return;
-    navigationForwardRef.current.push(currentNavigationTarget());
-    syncNavigationAvailability();
-    void applyNavigationTarget(target);
-  }, [applyNavigationTarget, currentNavigationTarget, syncNavigationAvailability]);
-
-  const navigateForward = useCallback(() => {
-    const target = navigationForwardRef.current.pop();
-    if (!target) return;
-    navigationBackRef.current.push(currentNavigationTarget());
-    syncNavigationAvailability();
-    void applyNavigationTarget(target);
-  }, [applyNavigationTarget, currentNavigationTarget, syncNavigationAvailability]);
-
-  const forgetArchivedSessions = useCallback((archivedFiles: string[]) => {
-    navigationBackRef.current = withoutArchivedSessions(navigationBackRef.current, archivedFiles);
-    navigationForwardRef.current = withoutArchivedSessions(navigationForwardRef.current, archivedFiles);
-    const persistedTask = readPersistedTask();
-    if (persistedTask && archivedFiles.some((file) => sameLocalPath(file, persistedTask.sessionFile))) {
-      window.localStorage.removeItem(LAST_TASK_KEY);
-    }
-    syncNavigationAvailability();
-  }, [syncNavigationAvailability]);
-
-  const archiveConversations = useCallback(async (
-    targets: Array<Pick<SessionInfo, "cwd" | "file">>,
-    fallbackWorkspace: string,
-    successMessage: string,
-  ) => {
-    if (targets.length === 0) return;
-    const archivedFiles = targets.map((target) => target.file);
-    try {
-      await Promise.all(archivedFiles.map((file) => agent.archiveSession(file)));
-    } catch (error) {
-      useAppStore.getState().showToast(`归档失败：${describeError(error)}`, "error");
-      return;
-    }
-
-    const activeFile = useAppStore.getState().sessionFile;
-    const activeTarget = activeFile
-      ? targets.find((target) => sameLocalPath(target.file, activeFile))
-      : undefined;
-    forgetArchivedSessions(archivedFiles);
-
-    let closeWarning: string | null = null;
-    if (activeTarget) {
-      window.localStorage.removeItem(ACTIVE_RUNTIME_KEY);
-      window.localStorage.removeItem(LAST_TASK_KEY);
-      try {
-        await useAppStore.getState().disconnect();
-      } catch (error) {
-        closeWarning = describeError(error);
-        useAppStore.getState().appendLog(`归档后关闭旧任务失败：${closeWarning}`);
-      }
-      await applyNavigationTarget({ kind: "home", workspace: activeTarget.cwd || fallbackWorkspace });
-    }
-
-    try {
-      await useAppStore.getState().refreshSessions();
-    } catch (error) {
-      useAppStore.getState().appendLog(`归档后刷新会话失败：${describeError(error)}`);
-    }
-    useAppStore.getState().showToast(
-      closeWarning ? `${successMessage}；旧任务进程关闭失败，但已返回项目首页` : successMessage,
-      closeWarning ? "warning" : "info",
-    );
-  }, [applyNavigationTarget, forgetArchivedSessions]);
-
-  const canNavigateBack = navigationAvailability.back;
-  const canNavigateForward = navigationAvailability.forward;
-
-
-  const restoreGitFiles = useCallback(async (paths?: string[]) => {
-    const workspace = workspaceCwd;
-    const snapshot = newTask ? draftGit : useAppStore.getState().git;
-    if (!workspace || !snapshot?.files.length) return;
-    const targets = paths?.length ? paths : snapshot.files.map((file) => file.path);
-    if (!targets.length) return;
-    const label = targets.length === 1 ? targets[0] : `${targets.length} 个文件`;
-    if (!window.confirm(`撤销对 ${label} 的本地更改？未提交的改动将丢失。`)) return;
-    try {
-      await agent.gitRestoreFiles(workspace, targets);
-      if (newTask) await refreshDraftGit();
-      else await useAppStore.getState().refreshGit();
-      useAppStore.getState().showToast("已撤销本地更改", "info");
-    } catch (error) {
-      useAppStore.getState().showToast(describeError(error), "error");
-    }
-  }, [draftGit, newTask, refreshDraftGit, workspaceCwd]);
-
-  const openSettingsPage = useCallback((page: SettingsPage) => {
-    setSettingsPage(page);
-    setSettingsOpen(true);
-  }, []);
-
-  const stopFromComposer = useCallback(() => {
-    void useAppStore.getState().abort();
-  }, []);
-  const removeComposerAttachment = useCallback((path: string) => {
-    setAttachments((items) => items.filter((item) => item.path !== path));
-  }, []);
-  const changeComposerModel = useCallback((next: ModelInfo) => {
-    void useAppStore.getState().setModel(next).catch((error) => {
-      useAppStore.getState().appendLog(`切换模型失败：${describeError(error)}`);
-    });
-  }, []);
-  const changeComposerThinking = useCallback((level: string) => {
-    void useAppStore.getState().setThinkingLevel(level).catch((error) => {
-      useAppStore.getState().showToast(`设置推理等级失败：${describeError(error)}`, "error");
-    });
-  }, []);
-  const startQuickChatFromComposer = useCallback(() => {
-    setQuickChat(true);
-    setTaskEnvironment("local");
-  }, []);
-  const changeComposerPermission = useCallback(async (mode: AppSettings["permissionMode"]) => {
-    const current = useAppStore.getState();
-    if (!current.settings || current.settings.permissionMode === mode) return;
-    if (current.isStreaming) {
-      current.showToast("请等待当前回复完成后再切换权限", "warning");
-      return;
-    }
-    const previous = current.settings.permissionMode;
-    try {
-      await current.setRuntimePermissionMode(mode);
-      await current.saveSettings({ ...current.settings, permissionMode: mode });
-      useAppStore.getState().showToast("权限模式已更新", "info");
-    } catch (error) {
-      await useAppStore.getState().setRuntimePermissionMode(previous).catch(() => undefined);
-      useAppStore.getState().showToast(`切换权限失败：${describeError(error)}`, "error");
-    }
-  }, []);
-  const changeComposerAgentMode = useCallback(async (mode: AppSettings["agentMode"]) => {
-    const current = useAppStore.getState();
-    if (!current.settings || current.settings.agentMode === mode) return;
-    if (current.isStreaming) {
-      current.showToast("请等待当前回复完成后再切换工作模式", "warning");
-      return;
-    }
-    const previous = current.settings.agentMode;
-    try {
-      await current.setRuntimeAgentMode(mode);
-      await current.saveSettings({ ...current.settings, agentMode: mode });
-      useAppStore.getState().showToast(`已切换到${mode === "agent" ? "执行" : mode === "plan" ? "计划" : "问答"}模式`, "info");
-    } catch (error) {
-      await useAppStore.getState().setRuntimeAgentMode(previous).catch(() => undefined);
-      useAppStore.getState().showToast(`切换工作模式失败：${describeError(error)}`, "error");
-    }
-  }, []);
-  const consumeComposerPrefill = useCallback(() => {
-    useAppStore.getState().clearComposerPrefill();
-  }, []);
-
-  const editUserMessage = useCallback((message: UiMessage) => {
-    const current = useAppStore.getState();
-    if (current.isStreaming) {
-      current.showToast("请等待当前回复完成后再编辑消息", "warning");
-      return;
-    }
-    setEditingMessage({ messageId: message.id });
-  }, []);
-
-  const submitMessageEdit = useCallback(async (message: UiMessage, text: string) => {
-    const current = useAppStore.getState();
-    if (current.isStreaming) {
-      current.showToast("请等待当前回复完成后再编辑消息", "warning");
-      return false;
-    }
-    const point = await current.resolveMessageForkPoint(message.id);
-    if (!point) {
-      current.showToast("无法定位这条消息的会话检查点", "warning");
-      return false;
-    }
-    const originalImages: AttachmentPayload[] = (message.images ?? []).map((image, index) => ({
-      path: `message-image-${message.id}-${index}`,
-      fileName: `image-${index + 1}.${image.mimeType.split("/")[1] || "png"}`,
-      mimeType: image.mimeType,
-      size: Math.floor(image.data.length * 0.75),
-      kind: "image",
-      data: image.data,
-    }));
-    const sent = await current.editAndResend(point.entryId, text, originalImages);
-    if (sent) setEditingMessage(null);
-    return sent;
-  }, []);
-
-  const rewindUserMessage = useCallback(async (message: UiMessage) => {
-    const current = useAppStore.getState();
-    if (current.isStreaming) {
-      current.showToast("请等待当前回复完成后再回退消息", "warning");
-      return false;
-    }
-    if (clientContributions.hasRewindHandler()) {
-      const handled = await clientContributions.tryHandleRewind(message);
-      if (handled) setEditingMessage(null);
-      return handled;
-    }
-    const inspected = await rewindController.inspectMessage(message.id);
-    if (!inspected) {
-      current.showToast("无法定位这条消息的会话检查点", "warning");
-      return false;
-    }
-    const detail = inspected.changed
-      ? `将回退此消息之后的对话，并将 ${inspected.files.length || 1} 个文件恢复到该消息发送前的快照状态。原消息会自动放回输入框供你修改重发。`
-      : "将回退此消息之后的对话，并将原消息放回输入框供你重新编辑发送。已有对话分支仍可从会话树切回。";
-    const accepted = await confirm(
-      detail,
-      { title: "回退消息并重新编辑？", kind: "warning", okLabel: "回退并编辑", cancelLabel: "取消" },
-    );
-    if (!accepted) return false;
-    const outcome = await rewindController.performRewind({
-      message,
-      entryId: inspected.entryId,
-      mode: "both",
-      protectDraft: false,
-    });
-    if (outcome) setEditingMessage(null);
-    return Boolean(outcome);
-  }, []);
-
-  const cancelMessageEdit = useCallback(() => {
-    setEditingMessage(null);
-  }, []);
-
-  const requestReview = useCallback(async (target: CodeReviewScope = { mode: "uncommitted" }) => {
-    if (settings?.reviewDelivery === "detached") {
-      const current = useAppStore.getState();
-      const workspace = current.cwd;
-      current.prepareNewTask();
-      if (workspace) await useAppStore.getState().connect(workspace);
-    }
-    const scope = target.mode === "base-branch"
-      ? `审查当前分支相对于基线分支 ${target.baseBranch} 的代码更改。先运行 git merge-base HEAD ${target.baseBranch}，再检查从合并基点到 HEAD 的差异。`
-      : "审查当前未提交的代码更改，包括已暂存、未暂存和未跟踪文件。";
-    const sent = await useAppStore.getState().sendMessage([
-      scope,
-      "只报告由这些更改引入、作者明确会修复的离散问题，重点检查正确性、回归风险、安全性和缺失测试；按严重程度列出发现。没有可操作问题时请直接说明。",
-      "需要定位到具体改动行的意见，请另起一行输出 ::code-comment{title=\"[P1] 简短标题\" body=\"问题、触发场景和修复方向\" file=\"相对或绝对文件路径\" start=行号 end=行号 priority=1}。正文保持普通 Markdown，不要输出 JSON。",
-    ].join("\n\n"));
-    if (sent) setDraftMode(false);
-  }, [settings?.reviewDelivery]);
-
-  const refreshReviewGit = useCallback(async () => {
-    if (newTask) await refreshDraftGit();
-    else await useAppStore.getState().refreshGit();
-  }, [newTask, refreshDraftGit]);
-
-  /** Commits run in the app, not through the agent; the dialog can push right after. */
-  const openCommitDialog = useCallback((push: boolean) => {
-    if (workspaceCwd) setCommitDialog({ push });
-  }, [workspaceCwd]);
-
-  const finishCommit = useCallback((outcome: CommitOutcome) => {
-    setCommitDialog(null);
-    const committed = `已提交 ${outcome.commit.shortSha}：${outcome.commit.subject}`;
-    const push = outcome.push;
-    if (push && "error" in push) {
-      useAppStore.getState().showToast(`${committed}。推送失败：${push.error}`, "error");
-    } else if (push) {
-      useAppStore.getState().showToast(`${committed}，已推送到 ${push.result.remote}/${push.result.branch}`, "info");
-    } else {
-      useAppStore.getState().showToast(committed, "info");
-    }
-    void refreshReviewGit();
-  }, [refreshReviewGit]);
-
-  const pushCurrentBranch = useCallback(async () => {
-    if (!workspaceCwd || gitPushing) return;
-    setGitPushing(true);
-    try {
-      const result = await agent.gitPush(workspaceCwd);
-      useAppStore.getState().showToast(
-        result.setUpstream ? `已发布 ${result.branch} 到 ${result.remote}` : `已推送到 ${result.remote}/${result.branch}`,
-        "info",
-      );
-    } catch (error) {
-      useAppStore.getState().showToast(`推送失败：${describeError(error)}`, "error");
-    } finally {
-      setGitPushing(false);
-      void refreshReviewGit();
-    }
-  }, [gitPushing, refreshReviewGit, workspaceCwd]);
-
-
-  const exportConversationMarkdown = useCallback(async () => {
-    const current = useAppStore.getState();
-    if (!current.sessionFile) return;
-    const baseName = (current.sessionName || "qianji-conversation")
-      // eslint-disable-next-line no-control-regex -- stripping control characters is what this sanitiser is for
-      .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-")
-      .trim() || "qianji-conversation";
-    const destination = await saveDialog({
-      title: "导出当前对话",
-      defaultPath: `${baseName}.md`,
-      filters: [{ name: "Markdown", extensions: ["md"] }],
-    });
-    if (typeof destination !== "string") return;
-    try {
-      const path = await agent.exportSessionMarkdown(current.sessionFile, destination);
-      current.showToast(`已导出到 ${path}`, "info");
-    } catch (error) {
-      current.showToast(`导出失败：${describeError(error)}`, "error");
-    }
-  }, []);
 
   const renderComposer = (variant: "task-start" | "follow-up") => (
-    <Composer
-      variant={variant}
-        isStreaming={isStreaming}
-        isSwitchingModel={isSwitchingModel}
-        disabled={false}
-        attachments={attachments}
-        commands={commands}
-        models={pickerModels}
-        model={model}
-        thinkingLevel={thinkingLevel}
-        thinkingLevels={availableThinkingLevels}
-        prefill={composerPrefill}
-        pendingCount={store.steeringQueue.length + store.followUpQueue.length + store.managedFollowUpQueue.length}
-        queuedMessages={store.managedFollowUpQueue}
-        requireCtrlEnter={settings?.requireCtrlEnter}
-        defaultFollowUpBehavior={settings?.followUpBehavior}
-        workspace={quickChat ? "" : draftWorkspace}
-        workspaceOptions={workspaceOptions}
-        environment={taskEnvironment}
-        branchLabel={!quickChat ? (variant === "task-start" ? draftBranch : (git?.isRepository ? (git.branch || "") : "")) : ""}
-        quickChat={quickChat}
-        permissionMode={settings?.permissionMode ?? "ask"}
-        permissionLabel={permissionLabel}
-        agentMode={settings?.agentMode ?? "agent"}
-        contextUsage={variant === "follow-up" ? stats?.contextUsage : undefined}
-        sessionCost={variant === "follow-up" ? stats?.cost : undefined}
-        sessionTokens={variant === "follow-up" ? stats?.tokens : undefined}
-        transcriptDensity={transcriptDensity}
-        onTranscriptDensityChange={variant === "follow-up" ? setTranscriptDensity : undefined}
-        onSend={sendFromComposer}
-        onStop={stopFromComposer}
-        onPickAttachments={pickAttachments}
-        onAttachFiles={(files) => void attachFiles(files)}
-        onAttachPayloads={attachPayloads}
-        onSearchFiles={workspaceCwd && !quickChat ? (query, signal) => findMentionCandidates(workspaceCwd, query, signal) : undefined}
-        onRemoveAttachment={removeComposerAttachment}
-        onModelChange={changeComposerModel}
-        onThinkingChange={changeComposerThinking}
-        onWorkspaceSelect={selectWorkspace}
-        onPickWorkspace={pickFolder}
-        onQuickChat={startQuickChatFromComposer}
-        onEnvironmentChange={setTaskEnvironment}
-        onPermissionChange={changeComposerPermission}
-        onAgentModeChange={changeComposerAgentMode}
-        onPrefillConsumed={consumeComposerPrefill}
-        onRemoveQueuedMessage={store.removeManagedFollowUp}
-        onMoveQueuedMessage={store.moveManagedFollowUp}
-        onSteerQueuedMessage={store.steerManagedFollowUp}
-      />
+    <ShellComposer
+      variant={variant} sessionFile={sessionFile} isStreaming={isStreaming} isSwitchingModel={isSwitchingModel}
+      attachments={attachments} commands={commands} models={pickerModels} model={model} thinkingLevel={thinkingLevel}
+      thinkingLevels={availableThinkingLevels} prefill={composerPrefill}
+      pendingCount={store.steeringQueue.length + store.followUpQueue.length + store.managedFollowUpQueue.length}
+      queuedMessages={store.managedFollowUpQueue} settings={settings} quickChat={ws.quickChat}
+      draftWorkspace={draftWorkspace} workspaceCwd={ws.workspaceCwd} workspaceOptions={ws.workspaceOptions}
+      environment={ws.taskEnvironment} draftBranch={ws.draftBranch} git={git} permissionLabel={permissionLabel}
+      stats={stats} transcriptDensity={transcriptDensity} setTranscriptDensity={setTranscriptDensity}
+      onSend={actions.sendFromComposer} onStop={actions.stopFromComposer} onPickAttachments={actions.pickAttachments}
+      onAttachFiles={actions.attachFiles} onAttachPayloads={actions.attachPayloads}
+      onRemoveAttachment={actions.removeComposerAttachment} onModelChange={actions.changeComposerModel}
+      onThinkingChange={actions.changeComposerThinking} onWorkspaceSelect={ws.selectWorkspace}
+      onPickWorkspace={ws.pickFolder} onQuickChat={actions.startQuickChatFromComposer}
+      onEnvironmentChange={ws.setTaskEnvironment} onPermissionChange={actions.changeComposerPermission}
+      onAgentModeChange={actions.changeComposerAgentMode} onPrefillConsumed={actions.consumeComposerPrefill}
+      onRemoveQueuedMessage={store.removeManagedFollowUp} onMoveQueuedMessage={store.moveManagedFollowUp}
+      onSteerQueuedMessage={store.steerManagedFollowUp}
+    />
   );
 
-
-  // Codex layout: native-style menubar above the sidebar and rounded work surface.
-  const settingsIsModal = settings?.settingsDisplayMode === "modal";
   return (
-    <div
-      className="app-shell codex-shot"
-      style={{ ["--sidebar-width" as string]: `${sidebarWidth}px` }}
-    >
-      <div className="window-menubar" data-tauri-drag-region>
-        <div className="window-menubar-left" data-tauri-drag-region>
-          <button
-            type="button"
-            className="window-nav-button"
-            onClick={togglePrimarySidebar}
-            onMouseEnter={settingsOpen ? undefined : showSidebarHoverPreview}
-            onMouseLeave={settingsOpen ? undefined : scheduleSidebarHoverClose}
-            title={sidebarVisible ? "隐藏侧栏" : "显示侧栏"}
-          >
-            <PanelLeft size={17} strokeWidth={1.65} />
-          </button>
-          <button
-            type="button"
-            className="window-nav-button"
-            disabled={!settingsOpen && !canNavigateBack}
-            onClick={() => {
-              if (settingsOpen) setSettingsOpen(false);
-              else navigateBack();
-            }}
-            title="后退"
-          >
-            <ArrowLeft size={18} strokeWidth={1.55} />
-          </button>
-          <button type="button" className="window-nav-button" disabled={settingsOpen || !canNavigateForward} onClick={navigateForward} title="前进">
-            <ArrowRight size={18} strokeWidth={1.55} />
-          </button>
-          <div className="app-menu-bar">
-            {(["file", "edit", "view", "help"] as AppMenu[]).map((menu) => (
-              <button
-                type="button"
-                key={menu}
-                className={`app-menu-trigger ${appMenu === menu ? "active" : ""}`}
-                onClick={() => setAppMenu((current) => current === menu ? null : menu)}
-              >
-                {menu === "file" ? "文件" : menu === "edit" ? "编辑" : menu === "view" ? "视图" : "帮助"}
-              </button>
-            ))}
-          </div>
-          {appMenu && (
-            <div className={`app-menu-dropdown menu-${appMenu}`}>
-              {appMenu === "file" && <>
-                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); navigateTo({ kind: "home", workspace: draftWorkspace || cwd }); }}>新对话</button>
-                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); void pickFolder(); }}>打开项目...</button>
-                <button disabled={!canOpenWorkspace} onClick={() => { setAppMenu(null); openWorkspaceInPreferredApp(); }}>{preferredWorkspaceEditor ? `在 ${preferredWorkspaceEditor.name} 中打开` : "在文件资源管理器中打开"}  Ctrl+Shift+O</button>
-                <button disabled={!connected || !sessionFile} onClick={() => { setAppMenu(null); void exportConversationMarkdown(); }}>导出为 Markdown...</button>
-                <button disabled={!connected} onClick={() => { setAppMenu(null); void exportConversation(); }}>导出为 Markdown</button>
-                <div className="menu-separator" />
-                <button onClick={() => { setAppMenu(null); void invoke("quit_app"); }}>退出</button>
-              </>}
-              {appMenu === "edit" && <>
-                <button onClick={() => { setAppMenu(null); document.execCommand("undo"); }}>撤销</button>
-                <button onClick={() => { setAppMenu(null); document.execCommand("redo"); }}>重做</button>
-                <div className="menu-separator" />
-                <button onClick={() => { setAppMenu(null); document.execCommand("selectAll"); }}>全选</button>
-              </>}
-              {appMenu === "view" && <>
-                <button onClick={() => { setAppMenu(null); togglePrimarySidebar(); }}>{sidebarVisible ? "隐藏侧栏" : "显示侧栏"}</button>
-                {TRANSCRIPT_DENSITY_ORDER.map((value) => (
-                  <button key={value} onClick={() => { setAppMenu(null); setTranscriptDensity(value); }}>
-                    对话{TRANSCRIPT_DENSITY_LABELS[value]}{transcriptDensity === value ? " ✓" : ""}
-                    {value === "normal" ? "  Ctrl+O" : ""}
-                  </button>
-                ))}
-                <div className="menu-separator" />
-                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); toggleWorkspaceSidebar(); }}>侧边栏  Ctrl+Alt+B</button>
-                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); openBrowserAt(); }}>浏览器  Ctrl+T</button>
-                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); toggleBottomPanel(); }}>底部面板  Ctrl+J</button>
-                <button onClick={() => { setAppMenu(null); openSettingsPage("appearance"); }}>外观设置</button>
-              </>}
-              {appMenu === "help" && <>
-                <button onClick={() => { setAppMenu(null); void openUrl("https://github.com/Llllviaaaa/PIDesktop"); }}>项目主页</button>
-                <button onClick={() => { setAppMenu(null); setSettingsOpen(false); openDiagnostics(); }}>诊断日志</button>
-              </>}
-            </div>
-          )}
-        </div>
-        <div className="window-controls">
-          <button className="window-control" onClick={() => void appWindow?.minimize()} title="最小化" aria-label="最小化窗口">
-            <Minus size={15} strokeWidth={1.6} />
-          </button>
-          <button className="window-control" onClick={() => void appWindow?.toggleMaximize()} title="最大化或还原" aria-label="最大化或还原窗口">
-            <Square size={12} strokeWidth={1.5} />
-          </button>
-          <button className="window-control close" onClick={() => void appWindow?.close()} title="关闭" aria-label="关闭窗口">
-            <X size={16} strokeWidth={1.6} />
-          </button>
-        </div>
-      </div>
-      <div className="workspace-shell" style={{
-        ["--sidebar-width" as string]: `${sidebarWidth}px`,
-        ["--workspace-panel-width" as string]: `${workspacePanelWidth}px`,
-      }}>
-        {!sidebarVisible && !settingsOpen && (
-          <div
-            aria-hidden="true"
-            className="sidebar-hover-zone"
-            onMouseEnter={showSidebarHoverPreview}
-            onMouseLeave={scheduleSidebarHoverClose}
-          />
-        )}
-        <div
-          className={`primary-sidebar-panel${sidebarRendered ? " open" : ""}${sidebarHoverPreview ? " hover-preview" : ""}`}
-          data-panel
-          data-sidebar-panel-state={sidebarVisible ? "pinned" : sidebarHoverPreview ? "preview" : "closed"}
-        >
-          {sidebarRendered && (
-            <>
-              <Sidebar
-                sessions={sessions}
-                currentSessionFile={sessionFile}
-                runningSessionFiles={runningSessionFiles}
-                approvalSessionFiles={approvalSessionFiles}
-                notifications={notifications}
-                cwd={newTask ? draftWorkspace : cwd}
-                newTaskActive={newTask && hubView === null}
-                activeHub={hubView === "scheduled" ? "scheduled" : null}
-                onNewSession={() => navigateTo({ kind: "home", workspace: draftWorkspace || cwd })}
-                onOpenScheduled={() => navigateTo({ kind: "hub", view: "scheduled" })}
-                onOpenSession={(session) => navigateTo({ kind: "session", cwd: session.cwd, file: session.file })}
-                onOpenNotification={(notification) => {
-                  store.markNotificationRead(notification.id);
-                  const targetSession = notification.sessionFile
-                    ? sessions.find((session) => sameLocalPath(session.file, notification.sessionFile as string))
-                    : null;
-                  if (targetSession) {
-                    navigateTo({ kind: "session", cwd: targetSession.cwd, file: targetSession.file });
-                  } else if (notification.cwd) {
-                    navigateTo({ kind: "home", workspace: notification.cwd });
-                    if (notification.sessionFile) store.showToast("原任务记录已不可用，已打开对应项目", "warning");
-                  }
-                }}
-                onMarkAllNotificationsRead={store.markAllNotificationsRead}
-                onDismissNotification={store.dismissNotification}
-                onOpenProject={(workspace) => navigateTo({ kind: "home", workspace })}
-                onNewProjectSession={(workspace) => navigateTo({ kind: "home", workspace })}
-                onArchiveSession={(session) => archiveConversations([session], session.cwd, "已归档对话")}
-                onSessionRestored={() => void store.refreshSessions()}
-                onOpenProjectFolder={(workspace) => {
-                  revealWorkspaceInExplorer(workspace);
-                }}
-                onCreateWorktree={async (workspace) => {
-                  try {
-                    const snapshot = await agent.gitSnapshot(workspace);
-                    const worktree = await agent.createWorktree(workspace, snapshot.branch);
-                    navigateTo({ kind: "home", workspace: worktree.path });
-                    store.showToast(`已创建工作树：${worktree.branch || worktree.path}`, "info");
-                  } catch (error) {
-                    store.showToast(`创建工作树失败：${describeError(error)}`, "error");
-                  }
-                }}
-                onArchiveProject={(workspace, projectSessions) => archiveConversations(
-                  projectSessions,
-                  workspace,
-                  `已归档 ${projectSessions.length} 个对话`,
-                )}
-                onOpenSettings={openSettingsPage}
-                settingsShortcut={settings?.shortcutSettings ?? "Ctrl+,"}
-                onPickFolder={() => void pickFolder()}
-                newChatShortcut={settings?.shortcutNewChat ?? "Ctrl+Shift+N"}
-                searchRequested={sidebarSearchRequested}
-                onSearchRequestHandled={() => setSidebarSearchRequested(false)}
-                hoverPreview={!sidebarVisible}
-                onHoverEnter={cancelSidebarHoverClose}
-                onHoverLeave={scheduleSidebarHoverClose}
-              />
-              {(contributions.pages.length > 0 || contributions.leftSidebar.length > 0) && (
-                <div className="pid-sidebar-plugin-slot">
-                  {contributions.pages.map((page) => {
-                    const targetView: HubView = `plugin:${page.id}`;
-                    return (
-                      <button
-                        key={page.id}
-                        type="button"
-                        className={`pid-sidebar-plugin-page-btn${hubView === targetView ? " active" : ""}`}
-                        onClick={() => navigateTo({ kind: "hub", view: targetView })}
-                      >
-                        {page.icon}
-                        <span>{page.label}</span>
-                      </button>
-                    );
-                  })}
-                  {contributions.leftSidebar.map((section) => (
-                    <div key={section.id} className="pid-sidebar-plugin-section">
-                      {section.render({ cwd: workspaceCwd || cwd, sessionFile })}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-        {sidebarVisible && (
-          <div
-            className="sidebar-resizer"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="调整侧栏宽度"
-            aria-valuemin={200}
-            aria-valuemax={380}
-            aria-valuenow={Math.round(sidebarWidth)}
-            tabIndex={0}
-            onPointerDown={sidebarResize.beginResize}
-            onKeyDown={sidebarResize.resizeWithKeyboard}
-          />
-        )}
-
+    <div className="app-shell codex-shot" style={{ ["--sidebar-width" as string]: `${sidebarWidth}px` }}>
+      <WindowMenubar
+        appWindow={appWindow} sidebarVisible={ws.sidebarVisible} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen}
+        canNavigateBack={nav.canNavigateBack} canNavigateForward={nav.canNavigateForward} navigateBack={nav.navigateBack}
+        navigateForward={nav.navigateForward} navigateTo={nav.navigateTo} togglePrimarySidebar={ws.togglePrimarySidebar}
+        showSidebarHoverPreview={ws.showSidebarHoverPreview} scheduleSidebarHoverClose={ws.scheduleSidebarHoverClose}
+        appMenu={appMenu} setAppMenu={setAppMenu} draftWorkspace={draftWorkspace} cwd={cwd} canOpenWorkspace={ws.canOpenWorkspace}
+        preferredWorkspaceEditor={ws.preferredWorkspaceEditor} openWorkspaceInPreferredApp={ws.openWorkspaceInPreferredApp}
+        pickFolder={ws.pickFolder} connected={connected} sessionFile={sessionFile}
+        exportConversationMarkdown={nav.exportConversationMarkdown} transcriptDensity={transcriptDensity}
+        setTranscriptDensity={setTranscriptDensity} toggleWorkspaceSidebar={toggleWorkspaceSidebar}
+        openBrowserAt={openBrowserAt} toggleBottomPanel={toggleBottomPanel} openSettingsPage={openSettingsPage}
+        openDiagnostics={openDiagnostics}
+      />
+      <div
+        className="workspace-shell"
+        style={{ ["--sidebar-width" as string]: `${sidebarWidth}px`, ["--workspace-panel-width" as string]: `${workspacePanelWidth}px` }}
+      >
+        <PrimarySidebarShell
+          sidebarVisible={ws.sidebarVisible} sidebarHoverPreview={ws.sidebarHoverPreview} sidebarRendered={ws.sidebarRendered}
+          sidebarWidth={sidebarWidth} settingsOpen={settingsOpen} showSidebarHoverPreview={ws.showSidebarHoverPreview}
+          cancelSidebarHoverClose={ws.cancelSidebarHoverClose} scheduleSidebarHoverClose={ws.scheduleSidebarHoverClose}
+          onResizePointerDown={sidebarResize.beginResize} onResizeKeyDown={sidebarResize.resizeWithKeyboard}
+          sessions={sessions} sessionFile={sessionFile} runningSessionFiles={runningSessionFiles}
+          approvalSessionFiles={approvalSessionFiles} notifications={notifications} workspaceCwd={ws.workspaceCwd}
+          cwd={cwd} draftWorkspace={draftWorkspace} newTask={newTask} hubView={hubView} settings={settings}
+          sidebarSearchRequested={sidebarSearchRequested} setSidebarSearchRequested={setSidebarSearchRequested}
+          navigateTo={nav.navigateTo} archiveConversations={nav.archiveConversations} refreshSessions={store.refreshSessions}
+          markNotificationRead={store.markNotificationRead} markAllNotificationsRead={store.markAllNotificationsRead}
+          dismissNotification={store.dismissNotification} showToast={store.showToast}
+          revealWorkspaceInExplorer={ws.revealWorkspaceInExplorer} openSettingsPage={openSettingsPage}
+          pickFolder={ws.pickFolder} contributions={contributions}
+        />
         <FileActionsProvider
-          workspace={workspaceCwd}
-          editors={workspaceEditors}
-          preferredEditor={preferredWorkspaceEditor}
-          onOpenPreview={openPreviewFile}
-          onAddToChat={(path) => void addWorkspaceFileToChat(path)}
-          onNotify={notify}
+          workspace={ws.workspaceCwd} editors={ws.workspaceEditors} preferredEditor={ws.preferredWorkspaceEditor}
+          onOpenPreview={ws.openPreviewFile} onAddToChat={(path) => void actions.addWorkspaceFileToChat(path)} onNotify={notify}
         >
-        <WorkspaceFileOpenContext.Provider value={openPreviewFile}>
-        <div className="work-surface">
-        <div className="stage-canvas">
-        <header className={`topbar ${newTask && !hubView ? "topbar-home" : ""}`} data-tauri-drag-region>
-          <div className="topbar-left" data-tauri-drag-region>
-            {!sidebarVisible && (
-              <button
-                className="icon-button"
-                onClick={pinPrimarySidebar}
-                onMouseEnter={showSidebarHoverPreview}
-                onMouseLeave={scheduleSidebarHoverClose}
-                title="显示侧栏"
-              ><Menu size={17} /></button>
-            )}
-            {/* Codex: thread title + … live on the left; not a window-chrome ⋯ on the right */}
-            {!newTask && !hubView && (
-              <>
-                <div className="thread-title-cluster">
-                  {editingTitle && connected ? (
-                    <input
-                      autoFocus
-                      className="title-input"
-                      value={titleDraft}
-                      onChange={(event) => setTitleDraft(event.target.value)}
-                      onBlur={() => {
-                        setEditingTitle(false);
-                        if (titleDraft.trim() !== resolvedThreadTitle) void store.setSessionName(titleDraft);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") event.currentTarget.blur();
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setTitleDraft(resolvedThreadTitle);
-                          setEditingTitle(false);
-                        }
-                      }}
-                    />
-                  ) : (
-                    <button className="chat-title" onClick={() => connected && setEditingTitle(true)} title="重命名线程">
-                      <Folder size={14} strokeWidth={1.75} className="title-doc-icon" />
-                      <span>{titleDraft || "新对话"}</span>
-                    </button>
-                  )}
-                  <div className="topbar-menu-wrap title-actions">
-                    <button
-                      type="button"
-                      className="icon-button title-more"
-                      title="线程操作"
-                      onClick={() => setMoreOpen((value) => !value)}
-                    >
-                      <MoreHorizontal size={16} strokeWidth={1.75} />
-                    </button>
-                    {moreOpen && (
-                      <div className="topbar-menu title-menu">
-                        <button onClick={() => { setMoreOpen(false); navigateTo({ kind: "home", workspace: draftWorkspace || cwd }); }}>新对话</button>
-                        <button disabled={!connected || !git?.isRepository} onClick={() => { setMoreOpen(false); void newWorktreeChat(); }}>新建 Worktree 任务</button>
-                        <button disabled={!connected} onClick={() => { setMoreOpen(false); void store.cloneSession(); }}>克隆当前分支</button>
-                        <button disabled={!connected || isStreaming} onClick={() => { setMoreOpen(false); void store.forkLatest(); }}>从最新检查点分叉</button>
-                        <button disabled={!connected || isStreaming} onClick={() => { setMoreOpen(false); void store.compact(); }}>压缩上下文</button>
-                        <button disabled={!connected} onClick={() => { setMoreOpen(false); void exportConversation(); }}>导出为 Markdown</button>
-                        <button disabled={!sessionFile} onClick={() => { setMoreOpen(false); void exportConversationMarkdown(); }}>导出为 Markdown...</button>
-                        <button disabled={!sessionFile || isStreaming} onClick={() => {
-                          setMoreOpen(false);
-                          if (!sessionFile) return;
-                          void archiveConversations([{ cwd, file: sessionFile }], cwd, "已归档对话");
-                        }}>归档任务</button>
-                        <div className="menu-separator" />
-                        <button onClick={() => { setMoreOpen(false); setSettingsOpen(true); }}>设置</button>
-                        <button disabled={!connected} onClick={() => { setMoreOpen(false); void store.disconnect(); }}>断开连接</button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-          <div className="topbar-right" data-tauri-drag-region>
-            {/* Same controls on a new task as in a running one, so nothing moves when it starts. */}
-            {!hubView && (
-              <div className="panel-toggles codex-layout-chrome">
-                <div className="main-pane-controls">
-                  {reviewFileCount > 0 && (
-                    <button
-                      type="button"
-                      className="title-diff-chip topbar-diff-chip"
-                      title={`${reviewFileCount} 个文件有未提交的变更`}
-                      aria-label={`审查 ${reviewFileCount} 个文件的变更`}
-                      onClick={openReview}
-                    >
-                      {gitDiffStats.additions > 0 && <em>+{gitDiffStats.additions.toLocaleString()}</em>}
-                      {gitDiffStats.deletions > 0 && <b>−{gitDiffStats.deletions.toLocaleString()}</b>}
-                      {gitDiffStats.additions === 0 && gitDiffStats.deletions === 0 && <span>{reviewFileCount} 个文件</span>}
-                    </button>
-                  )}
-                  {canOpenWorkspace && (
-                    <GitActionButton
-                      git={reviewGit}
-                      pushing={gitPushing}
-                      onCommit={openCommitDialog}
-                      onPush={() => void pushCurrentBranch()}
-                    />
-                  )}
-                  {canOpenWorkspace && (
-                    <OpenInMenu
-                      workspace={workspaceCwd}
-                      editors={workspaceEditors}
-                      preferredEditor={preferredWorkspaceEditor}
-                      terminalApps={terminalApps}
-                      onOpenPreferred={openWorkspaceInPreferredApp}
-                      onChooseEditor={chooseWorkspaceEditor}
-                      onOpenTerminalApp={openWorkspaceTerminalApp}
-                      onReveal={() => revealWorkspaceInExplorer(workspaceCwd)}
-                      onOpenIntegratedTerminal={openBottomTerminal}
-                    />
-                  )}
-                </div>
-                <div className="workspace-pane-controls">
-                  <WorkbenchTopbarControls
-                    cwd={workspaceCwd || cwd}
-                    sessionFile={sessionFile}
-                  />
-                </div>
+          <WorkspaceFileOpenContext.Provider value={ws.openPreviewFile}>
+            <div className="work-surface">
+              <div className="stage-canvas">
+                <StageTopbar
+                  newTask={newTask} hubView={hubView} sidebarVisible={ws.sidebarVisible} pinPrimarySidebar={ws.pinPrimarySidebar}
+                  showSidebarHoverPreview={ws.showSidebarHoverPreview} scheduleSidebarHoverClose={ws.scheduleSidebarHoverClose}
+                  connected={connected} isStreaming={isStreaming} editingTitle={editingTitle} setEditingTitle={setEditingTitle}
+                  titleDraft={titleDraft} setTitleDraft={setTitleDraft} resolvedThreadTitle={resolvedThreadTitle}
+                  setSessionName={store.setSessionName} moreOpen={moreOpen} setMoreOpen={setMoreOpen} navigateTo={nav.navigateTo}
+                  draftWorkspace={draftWorkspace} cwd={cwd} workspaceCwd={ws.workspaceCwd} sessionFile={sessionFile} git={git}
+                  reviewGit={reviewGit} newWorktreeChat={actions.newWorktreeChat} cloneSession={store.cloneSession}
+                  forkLatest={store.forkLatest} compact={store.compact} exportConversationMarkdown={nav.exportConversationMarkdown}
+                  archiveConversations={nav.archiveConversations} setSettingsOpen={setSettingsOpen} disconnect={store.disconnect}
+                  reviewFileCount={reviewGit?.files.length ?? 0} gitDiffStats={gitDiffStats} openReview={openReview}
+                  canOpenWorkspace={ws.canOpenWorkspace} gitPushing={actions.gitPushing} openCommitDialog={actions.openCommitDialog}
+                  pushCurrentBranch={actions.pushCurrentBranch} workspaceEditors={ws.workspaceEditors}
+                  preferredWorkspaceEditor={ws.preferredWorkspaceEditor} terminalApps={ws.terminalApps}
+                  openWorkspaceInPreferredApp={ws.openWorkspaceInPreferredApp} chooseWorkspaceEditor={ws.chooseWorkspaceEditor}
+                  openWorkspaceTerminalApp={ws.openWorkspaceTerminalApp} revealWorkspaceInExplorer={ws.revealWorkspaceInExplorer}
+                  openBottomTerminal={openBottomTerminal}
+                />
+                <MainConversationStage
+                  workspaceCwd={ws.workspaceCwd} cwd={cwd} draftWorkspace={draftWorkspace}
+                  defaultWorkspaceDir={ws.defaultWorkspaceDir} workspaceOptions={ws.workspaceOptions} sessionFile={sessionFile}
+                  runtimeId={runtimeId} hubView={hubView} setHubView={setHubView} newTask={newTask}
+                  transcriptDensity={transcriptDensity} homeHeadline={homeHeadline} lastError={store.lastError} settings={settings}
+                  thinkingLevel={thinkingLevel} model={model} isStreaming={isStreaming} statusText={statusText}
+                  editingMessageId={actions.editingMessage?.messageId} editUserMessage={actions.editUserMessage}
+                  rewindUserMessage={actions.rewindUserMessage} cancelMessageEdit={actions.cancelMessageEdit}
+                  submitMessageEdit={actions.submitMessageEdit} conversationScrollRef={conversationScrollRef}
+                  autoFollowConversationRef={autoFollowConversationRef} lastAutoScrollAtRef={lastAutoScrollAtRef}
+                  openSummary={openSummary} sessionChanges={sessionChanges} sessionFileStats={sessionFileStats}
+                  openPreviewFile={ws.openPreviewFile} restoreGitFiles={actions.restoreGitFiles}
+                  requestReview={actions.requestReview} extensionWidgets={extensionWidgets} extensionRequest={extensionRequest}
+                  answerExtension={store.answerExtension} refreshSessions={store.refreshSessions} navigateTo={nav.navigateTo}
+                  showErrorToast={showErrorToast} openSettingsPage={openSettingsPage} sendFromComposer={actions.sendFromComposer}
+                  renderComposer={renderComposer} layoutScale={layoutScale} contributions={contributions}
+                />
               </div>
-            )}
-          </div>
-        </header>
-
-        <div className="work-body">
-        <main className="main-stage">
-          <WorkspaceTrustBanner
-            workspace={workspaceCwd || cwd}
-            onOpenPluginsSettings={() => openSettingsPage("plugins")}
-          />
-          <Suspense fallback={<div className="page-loading">正在加载…</div>}>
-          {hubView === "scheduled" ? (
-            <ScheduledTasksPage
-              workspaces={workspaceOptions}
-              defaultWorkspace={defaultWorkspaceDir}
-              onTasksChanged={() => void store.refreshSessions()}
-              onOpenSession={(workspace, file) => navigateTo({ kind: "session", cwd: workspace, file })}
-              onError={showErrorToast}
-            />
-          ) : hubView === "sites" ? (
-            <div className="feature-hub">
-              <div className="feature-hub-heading"><span className="feature-hub-icon"><Globe2 size={22} /></span><div><h1>站点快捷方式</h1><p>识别当前项目中的 Web 应用并在本地启动检查。</p></div></div>
-              <div className="feature-hub-card"><div className="feature-hub-stat"><strong>{draftWorkspace.split(/[\\/]/).filter(Boolean).pop() || "选择一个项目"}</strong><span>本地 Web 工作区</span></div><div className="feature-hub-actions"><button className="primary-button" onClick={() => { setHubView(null); void sendFromComposer("识别这个项目中的 Web 应用，启动本地开发服务器，检查首页是否可用，并把预览地址告诉我。若启动失败，请直接修复。", undefined); }}>启动并检查</button></div></div>
+              <RegionErrorBoundary region="右侧工作台" resetKey={ws.workspaceCwd || cwd}>
+                <RightWorkbench
+                  cwd={ws.workspaceCwd || cwd} sessionFile={sessionFile} width={workspacePanelWidth} git={reviewGit}
+                  onRefreshGit={actions.refreshReviewGit} onRestoreFiles={actions.restoreGitFiles}
+                  onRequestReview={() => void actions.requestReview({ mode: "uncommitted" })}
+                  onAddToChat={(path) => void actions.addWorkspaceFileToChat(path)}
+                  resize={{
+                    onPointerDown: workspaceResize.beginResize, onKeyDown: workspaceResize.resizeWithKeyboard,
+                    min: WORKSPACE_PANEL_BOUNDS.min, max: workspacePanelMaxWidth(),
+                  }}
+                />
+              </RegionErrorBoundary>
             </div>
-          ) : hubView?.startsWith("plugin:") ? (
-            <div className="pid-plugin-page-stage">
-              {contributions.pages.find((page) => `plugin:${page.id}` === hubView)?.render({
-                cwd: workspaceCwd || cwd,
-                sessionFile,
-              }) ?? null}
-            </div>
-          ) : <>
-          <div
-            ref={conversationScrollRef}
-            className={`conversation-scroll ${newTask ? "new-task-scroll" : ""}`}
-            onScroll={(event) => {
-              const scroller = event.currentTarget;
-              autoFollowConversationRef.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
-            }}
-          >
-            <div className={`conversation ${newTask ? "new-task-conversation" : ""} ${!newTask ? `density-${transcriptDensity}` : ""}`}>
-              {newTask ? (
-                <div className="new-task-screen codex-home vetta-home dsh-claude-home">
-                  <div className="minimal-home-core">
-                    <h1 className="new-task-heading">
-                      {homeHeadline}
-                    </h1>
-                    {store.lastError && <p className="new-task-error">{store.lastError}</p>}
-                    <div className="dsh-claude-home-composer-wrap">
-                      {renderComposer("task-start")}
-                    </div>
-                    <div className="dsh-home-starters" aria-label="快捷指令建议">
-                      <button
-                        type="button"
-                        className="dsh-home-starter-pill"
-                        onClick={() => useAppStore.setState({ composerPrefill: "梳理当前项目的核心目录架构，指出值得优先优化的模块。" })}
-                      >
-                        <Code2 size={13} strokeWidth={1.8} />
-                        <span>梳理项目架构</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="dsh-home-starter-pill"
-                        onClick={() => useAppStore.setState({ composerPrefill: "排查当前项目里值得优先修复的潜在缺陷或边界情况，并给出修复建议。" })}
-                      >
-                        <Sparkles size={13} strokeWidth={1.8} />
-                        <span>排查潜在缺陷</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="dsh-home-starter-pill"
-                        onClick={() => useAppStore.setState({ composerPrefill: "检查当前工作区的 Git 未提交变更，总结风险点并给出改进建议。" })}
-                      >
-                        <GitCompare size={13} strokeWidth={1.8} />
-                        <span>审查未提交变更</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <ConversationMessages
-                    showThinking={settings?.showThinking ?? true}
-                    expectVisibleThinking={thinkingLevel !== "off" && model?.reasoning === true}
-                    isStreaming={isStreaming}
-                    statusText={statusText}
-                    editingMessageId={editingMessage?.messageId}
-                    onEdit={editUserMessage}
-                    onRewind={rewindUserMessage}
-                    onCancelEdit={cancelMessageEdit}
-                    onSubmitEdit={submitMessageEdit}
-                    scrollerRef={conversationScrollRef}
-                    autoFollowRef={autoFollowConversationRef}
-                    lastAutoScrollAtRef={lastAutoScrollAtRef}
-                    conversationKey={`${runtimeId ?? "none"}:${sessionFile ?? "new"}`}
-                    density={transcriptDensity}
-                    onOpenPlan={openSummary}
-                    lastTurnFooter={sessionChanges.length > 0 ? (
-                      <SessionChangeCard
-                        files={sessionChanges}
-                        stats={sessionFileStats}
-                        onOpenFile={openPreviewFile}
-                        onRestore={() => void restoreGitFiles(sessionChanges.map((file) => file.path))}
-                        onReview={() => void requestReview({ mode: "uncommitted" })}
-                      />
-                    ) : undefined}
-                  />
-                  {/* ConversationPlan already renders update_plan; skip the plan extension's text copy. */}
-                  {Object.entries(extensionWidgets).filter(([key]) => key !== "qianji-plan" && key !== "pidesktop-plan").map(([key, lines]) => (
-                    <div className="extension-widget" key={key}>{lines.map((line, lineIndex) => <div key={lineIndex}>{line}</div>)}</div>
-                  ))}
-                  {extensionRequest && <ExtensionDialog request={extensionRequest} onAnswer={(response) => void store.answerExtension(response)} />}
-                </>
-              )}
-            </div>
-          </div>
-
-          {!newTask && !hubView && (
-            <div className="composer-dock">
-              <LivePlanBar />
-              <ActiveGoalBar />
-              {renderComposer("follow-up")}
-            </div>
-          )}
-          </>}
-          </Suspense>
-        </main>
-        </div>
-        <BottomWorkbench
-          cwd={workspaceCwd || cwd}
-          sessionFile={sessionFile}
-          layoutScale={layoutScale}
-        />
-        </div>
-        <RightWorkbench
-          cwd={workspaceCwd || cwd}
-          sessionFile={sessionFile}
-          width={workspacePanelWidth}
-          git={reviewGit}
-          onRefreshGit={refreshReviewGit}
-          onRestoreFiles={restoreGitFiles}
-          onRequestReview={() => void requestReview({ mode: "uncommitted" })}
-          onAddToChat={(path) => void addWorkspaceFileToChat(path)}
-          resize={{
-            onPointerDown: workspaceResize.beginResize,
-            onKeyDown: workspaceResize.resizeWithKeyboard,
-            min: WORKSPACE_PANEL_BOUNDS.min,
-            max: workspacePanelMaxWidth(),
-          }}
-        />
-        </div>
-        </WorkspaceFileOpenContext.Provider>
+          </WorkspaceFileOpenContext.Provider>
         </FileActionsProvider>
       </div>
-
-      {commitDialog && workspaceCwd && reviewGit?.isRepository && (
-        <CommitDialog
-          cwd={workspaceCwd}
-          git={reviewGit}
-          initialPush={commitDialog.push}
-          model={model ? { provider: model.provider, id: model.id } : null}
-          agentRunning={isStreaming}
-          onClose={() => setCommitDialog(null)}
-          onDone={finishCommit}
-        />
-      )}
-      <AnimatePresence>
-        {settingsOpen && (
-          <Suspense
-            fallback={(
-              <div className={`settings-backdrop ${settingsIsModal ? "is-modal" : "is-page"}`}>
-                <div className={`settings-center settings-loading ${settingsIsModal ? "is-modal" : "is-page"}`}>
-                  正在加载设置…
-                </div>
-              </div>
-            )}
-          >
-            <SettingsModal
-              initialPage={settingsPage}
-              settings={settings}
-              cwd={workspaceCwd || cwd}
-              appearanceCatalog={appearanceCatalog}
-              onSave={store.saveSettings}
-              onClose={() => setSettingsOpen(false)}
-            />
-          </Suspense>
-        )}
-      </AnimatePresence>
-
-      {contributions.overlays.map((overlay) => (
-        <div key={overlay.id} className="client-plugin-overlay-slot">
-          {overlay.render({ cwd: workspaceCwd || cwd, sessionFile })}
-        </div>
-      ))}
-
-      <HostStatusBanner />
-
-      <div className="toast-stack">
-        <AnimatePresence initial={false}>
-          {toasts.map((toast) => (
-            <motion.button
-              layout
-              key={toast.id}
-              className={`toast ${toast.kind}`}
-              initial={{ opacity: 0, y: 10, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 6, scale: 0.96 }}
-              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-              onClick={() => store.dismissToast(toast.id)}
-            >
-              {toast.message}
-            </motion.button>
-          ))}
-        </AnimatePresence>
-      </div>
+      <ShellOverlaysAndModals
+        commitDialog={actions.commitDialog} setCommitDialog={actions.setCommitDialog} workspaceCwd={ws.workspaceCwd}
+        cwd={cwd} sessionFile={sessionFile} reviewGit={reviewGit} model={model} isStreaming={isStreaming}
+        finishCommit={actions.finishCommit} settingsOpen={settingsOpen} setSettingsOpen={setSettingsOpen}
+        settingsPage={settingsPage} settings={settings} appearanceCatalog={appearanceCatalog}
+        saveSettings={store.saveSettings} contributions={contributions} toasts={toasts} dismissToast={store.dismissToast}
+      />
     </div>
   );
 }

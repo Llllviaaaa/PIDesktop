@@ -42,6 +42,23 @@ interface Section {
   render: SectionRender;
 }
 
+function bindCallerEffect(ctx: Context | undefined, dispose: () => void, label: string): () => void {
+  let disposed = false;
+  const once = (): void => {
+    if (disposed) return;
+    disposed = true;
+    dispose();
+  };
+  if (ctx?.fiber?.uid != null && ctx.fiber.state !== 5) {
+    try {
+      return ctx.effect(() => once, label) as unknown as () => void;
+    } catch {
+      return once;
+    }
+  }
+  return once;
+}
+
 export class SystemPrompt extends Service {
   private readonly sections = new Map<string, Section>();
 
@@ -49,14 +66,25 @@ export class SystemPrompt extends Service {
     super(ctx, "systemPrompt");
   }
 
-  /** Offer a section. Returns the disposer; register it with the plugin's effects. */
+  /** Offer a section. Automatically cleans up with the caller's Cordis fiber. */
   section(id: string, render: SectionRender, options: SectionOptions = {}): () => void {
     if (this.sections.has(id)) throw new Error(`System prompt section ${id} is already registered`);
     const section: Section = { id, order: options.order ?? 500, render };
     this.sections.set(id, section);
-    return () => {
-      if (this.sections.get(id) === section) this.sections.delete(id);
-    };
+    return bindCallerEffect(
+      this.ctx,
+      () => {
+        if (this.sections.get(id) === section) this.sections.delete(id);
+      },
+      `systemPrompt.section:${id}`,
+    );
+  }
+
+  /** Registered section metadata sorted by order for introspection. */
+  listSections(): Array<{ id: string; order: number }> {
+    return [...this.sections.values()]
+      .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+      .map(({ id, order }) => ({ id, order }));
   }
 
   /** The sections' text in order, blank ones left out. A failing section is skipped and logged. */

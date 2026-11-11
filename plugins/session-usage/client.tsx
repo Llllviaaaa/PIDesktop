@@ -18,13 +18,16 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { Context } from "@deepseek-ai/cordis";
 import {
-  harnessRuntimes,
-  useAppStore,
+  callHostRpc,
+  getActiveSessionSnapshot,
+  subscribeSessionActivity,
+  useActiveSession,
+  type SessionStats,
   type WorkbenchSlotContext,
 } from "@qianji/client";
 
 export const name = "session-usage-client";
-export const inject = ["contributions"];
+export const inject = ["contributions", "styles"];
 
 export type UsageCurrency = "CNY" | "USD";
 
@@ -338,14 +341,14 @@ class SessionUsageUiStore {
   async refreshNow(): Promise<void> {
     if (this.disposed) return;
     const seq = ++this.fetchSeq;
-    const app = useAppStore.getState();
+    const app = getActiveSessionSnapshot();
     const isTaskStart = this.state.variant === "task-start";
     const effectiveSessionId = isTaskStart ? undefined : (app.sessionId ?? undefined);
     const effectiveCwd = (isTaskStart ? (this.state.slotCwd || app.cwd) : (app.cwd || this.state.slotCwd)) || undefined;
     const model = app.model;
 
     try {
-      const result = await harnessRuntimes.call<SessionUsageInspectResult>("sessionUsage.inspect", {
+      const result = await callHostRpc<SessionUsageInspectResult>("sessionUsage.inspect", {
         ...(effectiveSessionId ? { sessionId: effectiveSessionId } : {}),
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         ...(model?.provider ? { provider: model.provider } : {}),
@@ -361,7 +364,7 @@ class SessionUsageUiStore {
         nowMs: Date.now(),
         lastFetchedAt: Date.now(),
       };
-      this.syncLiveTicker(useAppStore.getState().isStreaming);
+      this.syncLiveTicker(getActiveSessionSnapshot().isStreaming);
       this.emit();
     } catch {
       // Host may still be booting or reconnecting; keep existing snapshot gracefully.
@@ -397,10 +400,10 @@ const SESSION_USAGE_CSS = `
   height: 26px;
   padding: 0 7px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--qj-radius-sm, 7px);
   background: transparent;
-  color: var(--text);
-  font-family: var(--font-ui);
+  color: var(--qj-text-primary, var(--text));
+  font-family: var(--qj-font-sans, var(--font-ui));
   font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -413,7 +416,7 @@ const SESSION_USAGE_CSS = `
 
 .su-cost-pill:hover,
 .su-cost-pill.active {
-  background: var(--dsh-claude-hover-bg, var(--muse-soft-fill, rgba(0, 0, 0, 0.055)));
+  background: var(--qj-bg-hover, rgba(0, 0, 0, 0.055));
 }
 
 .su-ring-anchor {
@@ -427,9 +430,9 @@ const SESSION_USAGE_CSS = `
   padding: 0 8px 0 7px;
   border: 0;
   border-radius: 8px;
-  background: var(--muse-soft-fill, rgba(15, 23, 42, 0.045));
-  color: var(--text-2);
-  font-family: var(--font-ui);
+  background: var(--qj-bg-hover, rgba(15, 23, 42, 0.045));
+  color: var(--qj-text-secondary, var(--text-2));
+  font-family: var(--qj-font-sans, var(--font-ui));
   font-size: 12px;
   font-weight: 540;
   font-variant-numeric: tabular-nums;
@@ -442,17 +445,8 @@ const SESSION_USAGE_CSS = `
 
 .su-ring-pill:hover,
 .su-ring-pill.active {
-  background: var(--muse-soft-fill-hover, rgba(15, 23, 42, 0.085));
-  color: var(--text);
-}
-
-:root[data-theme="dark"] .su-ring-pill {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-:root[data-theme="dark"] .su-ring-pill:hover,
-:root[data-theme="dark"] .su-ring-pill.active {
-  background: rgba(255, 255, 255, 0.11);
+  background: var(--qj-bg-active, rgba(15, 23, 42, 0.085));
+  color: var(--qj-text-primary, var(--text));
 }
 
 .su-ring-svg {
@@ -470,10 +464,10 @@ const SESSION_USAGE_CSS = `
   width: 296px;
   padding: 15px 16px;
   border-radius: 15px;
-  border: 1px solid color-mix(in srgb, var(--text) 9%, transparent);
-  background: var(--muse-dialog-bg, var(--panel, #ffffff));
-  color: var(--text);
-  font-family: var(--font-ui);
+  border: 1px solid var(--qj-border-default, color-mix(in srgb, var(--qj-text-primary, #111112) 9%, transparent));
+  background: var(--qj-bg-surface, #ffffff);
+  color: var(--qj-text-primary, var(--text));
+  font-family: var(--qj-font-sans, var(--font-ui));
   box-shadow: var(--muse-elevation-popover, 0 14px 40px rgba(15, 23, 42, 0.14), 0 2px 8px rgba(15, 23, 42, 0.05));
   display: flex;
   flex-direction: column;
@@ -509,21 +503,21 @@ const SESSION_USAGE_CSS = `
 }
 
 .su-ctx-title {
-  color: var(--text-2);
+  color: var(--qj-text-secondary, var(--text-2));
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
 }
 
 .su-ctx-title strong {
-  color: var(--text);
+  color: var(--qj-text-primary, var(--text));
   font-size: 13px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
 .su-ctx-cap {
-  color: var(--text-2);
+  color: var(--qj-text-secondary, var(--text-2));
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
 }
@@ -532,7 +526,7 @@ const SESSION_USAGE_CSS = `
   width: 100%;
   height: 6px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 8%, transparent);
+  background: color-mix(in srgb, var(--qj-text-primary, #111112) 8%, transparent);
   overflow: hidden;
   display: flex;
   align-items: stretch;
@@ -554,7 +548,7 @@ const SESSION_USAGE_CSS = `
 }
 
 .su-seg-piece.messages {
-  background: #3b82f6;
+  background: var(--qj-brand-primary, #3b82f6);
 }
 
 .su-legend {
@@ -576,7 +570,7 @@ const SESSION_USAGE_CSS = `
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  color: var(--text-2);
+  color: var(--qj-text-secondary, var(--text-2));
 }
 
 .su-legend-dot {
@@ -595,11 +589,11 @@ const SESSION_USAGE_CSS = `
 }
 
 .su-legend-dot.messages {
-  background: #3b82f6;
+  background: var(--qj-brand-primary, #3b82f6);
 }
 
 .su-legend-val {
-  color: var(--text);
+  color: var(--qj-text-primary, var(--text));
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
@@ -607,7 +601,7 @@ const SESSION_USAGE_CSS = `
 .su-divider {
   height: 1px;
   width: 100%;
-  background: color-mix(in srgb, var(--text) 8%, transparent);
+  background: var(--qj-border-default, color-mix(in srgb, var(--qj-text-primary, #111112) 8%, transparent));
 }
 
 .su-metrics-grid {
@@ -627,7 +621,7 @@ const SESSION_USAGE_CSS = `
 .su-metric-label {
   font-size: 11.5px;
   line-height: 1.25;
-  color: var(--text-3);
+  color: var(--qj-text-muted, var(--text-3));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -637,7 +631,7 @@ const SESSION_USAGE_CSS = `
   font-size: 14px;
   line-height: 1.3;
   font-weight: 650;
-  color: var(--text);
+  color: var(--qj-text-primary, var(--text));
   font-variant-numeric: tabular-nums;
   display: inline-flex;
   align-items: center;
@@ -649,8 +643,8 @@ const SESSION_USAGE_CSS = `
   margin: 0;
   border: 0;
   background: transparent;
-  color: var(--text);
-  font-family: var(--font-ui);
+  color: var(--qj-text-primary, var(--text));
+  font-family: var(--qj-font-sans, var(--font-ui));
   font-size: 14px;
   line-height: 1.3;
   font-weight: 650;
@@ -666,21 +660,21 @@ const SESSION_USAGE_CSS = `
 }
 
 .su-metric-cost-btn:hover {
-  color: var(--accent, #006ee4);
+  color: var(--qj-brand-primary, #006ee4);
 }
 
 .su-subagent-tag {
   font-size: 11px;
   font-weight: 500;
-  color: var(--text-3);
+  color: var(--qj-text-muted, var(--text-3));
 }
 
 .su-live-dot {
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: #10b981;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+  background: var(--qj-status-success, #10b981);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--qj-status-success, #10b981) 20%, transparent);
   flex-shrink: 0;
 }
 `;
@@ -690,7 +684,7 @@ function resolveDisplayData(
   variant: "task-start" | "follow-up",
   appSessionId: string | null,
   appModelContextWindow: number | undefined,
-  appStats: ReturnType<typeof useAppStore.getState>["stats"],
+  appStats: SessionStats | null,
 ): SessionUsageInspectResult {
   const inspected = snapshot.data;
   const matchesContext = variant === "task-start"
@@ -701,7 +695,7 @@ function resolveDisplayData(
     return inspected;
   }
 
-  // Instant zero-latency fallback from AppStore while RPC is in-flight
+  // Instant zero-latency fallback from active session snapshot while RPC is in-flight
   const contextWindow = (variant === "follow-up" && appStats?.contextUsage?.contextWindow)
     || appModelContextWindow
     || inspected?.context.contextWindow
@@ -757,9 +751,10 @@ function CostToolbarPill({
   slotContext: WorkbenchSlotContext;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const appSessionId = useAppStore((state) => state.sessionId);
-  const appModelWindow = useAppStore((state) => state.model?.contextWindow);
-  const appStats = useAppStore((state) => state.stats);
+  const activeSession = useActiveSession();
+  const appSessionId = activeSession.sessionId;
+  const appModelWindow = activeSession.model?.contextWindow;
+  const appStats = activeSession.stats;
 
   const variant = slotContext.variant ?? "follow-up";
   if (!snapshot.config.showCostInToolbar || variant === "task-start") {
@@ -806,10 +801,11 @@ function RingAndPopoverStatus({
   slotContext: WorkbenchSlotContext;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const appSessionId = useAppStore((state) => state.sessionId);
-  const appModelWindow = useAppStore((state) => state.model?.contextWindow);
-  const appStats = useAppStore((state) => state.stats);
-  const isStreaming = useAppStore((state) => state.isStreaming);
+  const activeSession = useActiveSession();
+  const appSessionId = activeSession.sessionId;
+  const appModelWindow = activeSession.model?.contextWindow;
+  const appStats = activeSession.stats;
+  const isStreaming = activeSession.isStreaming;
 
   const variant = slotContext.variant ?? "follow-up";
 
@@ -1026,57 +1022,20 @@ function RingAndPopoverStatus({
 
 export function apply(ctx: Context, rawConfig: SessionUsageClientConfig = {}): void {
   const uiStore = new SessionUsageUiStore(rawConfig);
+  ctx.styles.inject(SESSION_USAGE_CSS, "session-usage");
 
-  // Inject scoped stylesheet and dispose cleanly on HMR / plugin disable.
   ctx.effect(() => {
-    const styleEl = document.createElement("style");
-    styleEl.setAttribute("data-session-usage-style", "true");
-    styleEl.textContent = SESSION_USAGE_CSS;
-    document.head.appendChild(styleEl);
-
-    const offAppStore = useAppStore.subscribe((state, prev) => {
-      uiStore.syncLiveTicker(state.isStreaming);
-      if (
-        state.sessionId !== prev.sessionId
-        || state.sessionFile !== prev.sessionFile
-        || state.cwd !== prev.cwd
-        || state.model?.provider !== prev.model?.provider
-        || state.model?.id !== prev.model?.id
-        || state.isStreaming !== prev.isStreaming
-        || state.isCompacting !== prev.isCompacting
-        || state.messages.length !== prev.messages.length
-        || state.stats !== prev.stats
-      ) {
-        uiStore.scheduleRefresh(state.isStreaming ? 140 : 50);
-      }
+    const offActivity = subscribeSessionActivity((session) => {
+      uiStore.syncLiveTicker(session.isStreaming);
+      uiStore.scheduleRefresh(session.isStreaming ? 140 : 50);
     });
 
-    const offRuntimeEvents = harnessRuntimes.subscribe((_runtimeId, event) => {
-      if (
-        event.type === "turn-start"
-        || event.type === "turn-end"
-        || event.type === "turn-interrupted"
-        || event.type === "compaction-end"
-      ) {
-        uiStore.scheduleRefresh(40);
-      }
-    });
-
-    const offHostStatus = harnessRuntimes.onHostStatus((status) => {
-      if (status === "connected") {
-        uiStore.scheduleRefresh(60);
-      }
-    });
-
-    uiStore.syncLiveTicker(useAppStore.getState().isStreaming);
+    uiStore.syncLiveTicker(getActiveSessionSnapshot().isStreaming);
     uiStore.scheduleRefresh(30);
 
     return () => {
-      offAppStore();
-      offRuntimeEvents();
-      offHostStatus();
+      offActivity();
       uiStore.dispose();
-      styleEl.remove();
     };
   });
 

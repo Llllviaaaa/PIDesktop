@@ -97,3 +97,41 @@ export function resolveAppearanceTheme(
     ?? BUILTIN_APPEARANCE_CATALOG.themes.find((theme) => theme.id === resolvedId)
     ?? BUILTIN_APPEARANCE_CATALOG.themes[0];
 }
+
+export function buildThemeCssVariables(palette: ThemePalette): Record<string, string> {
+  return {
+    "--qj-bg-app": palette.app,
+    "--qj-bg-canvas": palette.app,
+    "--qj-bg-sidebar": palette.sidebar,
+    "--qj-bg-surface": palette.panel,
+    "--qj-bg-subtle": palette.panelSoft,
+    "--qj-bg-elevated": palette.panelStrong,
+    "--qj-bg-hover": palette.hover,
+    "--qj-bg-active": palette.active,
+    "--qj-border-default": palette.border,
+    "--qj-border-strong": palette.borderStrong,
+    "--qj-text-primary": palette.text,
+    "--qj-text-secondary": palette.text2,
+    "--qj-text-muted": palette.text3,
+    "--qj-text-inverse": palette.app,
+    "--qj-brand-primary": palette.accent,
+    "--qj-brand-contrast": palette.accentText,
+    "--app": palette.app,
+    "--panel": palette.panel,
+    "--panel-strong": palette.panelStrong,
+    "--panel-soft": palette.panelSoft,
+    "--hover": palette.hover,
+    "--active": palette.active,
+    "--border": palette.border,
+    "--border-strong": palette.borderStrong,
+    "--text": palette.text,
+    "--text-2": palette.text2,
+    "--text-3": palette.text3,
+    "--accent": palette.accent,
+    "--accent-custom": palette.accent,
+    "--accent-text": palette.accentText,
+    "--sidebar-bg": palette.sidebar,
+    "--sidebar-text": palette.text2,
+    "--thread-muted": palette.text3,
+  };
+}

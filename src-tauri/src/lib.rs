@@ -11,7 +11,10 @@ mod harness_host;
 mod platform;
 mod secret_store;
 mod terminal;
+mod webview_guard;
 mod workspace_files;
+
+pub use desktop_log::install_panic_hook;
 
 // The crate root doubles as a prelude: config.rs, platform.rs and every module
 // under commands/ start with `use crate::*;`, so the std, serde and tauri
@@ -32,6 +35,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, State,
 };
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use commands::commit::*;
 use commands::desktop::*;
@@ -49,6 +53,10 @@ use platform::*;
 
 #[cfg(windows)]
 static KEEP_AWAKE: AtomicBool = AtomicBool::new(false);
+static STREAMING_GUARD_ACTIVE: AtomicBool = AtomicBool::new(false);
+static QUIT_CONFIRM_OPEN: AtomicBool = AtomicBool::new(false);
+static EXPLICIT_EXIT: AtomicBool = AtomicBool::new(false);
+
 #[cfg(windows)]
 unsafe extern "system" {
     fn SetThreadExecutionState(es_flags: u32) -> u32;
@@ -79,6 +87,8 @@ fn browser_webview_action(
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| AppError::NotFound("browser webview is not available".to_string()))?;
+    #[cfg(windows)]
+    webview_guard::ensure_child_webview_attached(&app, &webview);
     match action.as_str() {
         "navigate" => {
             let raw =
@@ -131,7 +141,48 @@ fn show_main_window(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+    } else {
+        webview_guard::spawn_recreate_main_window(app);
     }
+}
+
+fn exit_app_cleanly(app: &AppHandle) {
+    log_line!("[desktop] exiting application on explicit request");
+    EXPLICIT_EXIT.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
+
+fn request_app_exit(app: AppHandle, already_confirmed: bool) {
+    if already_confirmed || !STREAMING_GUARD_ACTIVE.load(Ordering::Acquire) {
+        exit_app_cleanly(&app);
+        return;
+    }
+    if QUIT_CONFIRM_OPEN.swap(true, Ordering::AcqRel) {
+        return;
+    }
+
+    show_main_window(&app);
+    let app_for_cb = app.clone();
+    let mut dialog = app
+        .dialog()
+        .message(
+            "当前有会话正在执行任务，退出将中断正在运行的流式回复或工具调用。确定仍要退出千机吗？",
+        )
+        .title("退出千机")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "仍要退出".to_string(),
+            "继续运行".to_string(),
+        ));
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.parent(&window);
+    }
+    dialog.show(move |confirmed| {
+        QUIT_CONFIRM_OPEN.store(false, Ordering::Release);
+        if confirmed {
+            exit_app_cleanly(&app_for_cb);
+        }
+    });
 }
 
 fn initialize_tray(app: &mut tauri::App) -> tauri::Result<()> {
@@ -145,7 +196,7 @@ fn initialize_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "tray_show" => show_main_window(app),
-            "tray_quit" => app.exit(0),
+            "tray_quit" => request_app_exit(app.clone(), false),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -171,36 +222,49 @@ fn initialize_tray(app: &mut tauri::App) -> tauri::Result<()> {
 /// default context menu). Release builds turn that off for the windows from
 /// tauri.conf.json; the embedded browser's webviews are created later and keep it.
 #[cfg(all(windows, not(debug_assertions)))]
+pub(crate) fn disable_window_devtools(label: &str, window: &tauri::WebviewWindow) {
+    let owned_label = label.to_string();
+    let result = window.with_webview(move |webview| {
+        let disabled = unsafe {
+            webview
+                .controller()
+                .CoreWebView2()
+                .and_then(|core| core.Settings())
+                .and_then(|settings| settings.SetAreDevToolsEnabled(false))
+        };
+        if let Err(err) = disabled {
+            log_line!("[desktop] could not turn off DevTools for {owned_label}: {err}");
+        }
+    });
+    if let Err(err) = result {
+        log_line!(
+            "[desktop] could not reach the {} webview: {err}",
+            window.label()
+        );
+    }
+}
+
+#[cfg(all(windows, not(debug_assertions)))]
 fn disable_app_devtools(app: &tauri::App) {
     for (label, window) in app.webview_windows() {
-        let result = window.with_webview(move |webview| {
-            let disabled = unsafe {
-                webview
-                    .controller()
-                    .CoreWebView2()
-                    .and_then(|core| core.Settings())
-                    .and_then(|settings| settings.SetAreDevToolsEnabled(false))
-            };
-            if let Err(err) = disabled {
-                log_line!("[desktop] could not turn off DevTools for {label}: {err}");
-            }
-        });
-        if let Err(err) = result {
-            log_line!(
-                "[desktop] could not reach the {} webview: {err}",
-                window.label()
-            );
-        }
+        disable_window_devtools(&label, &window);
     }
 }
 
 #[tauri::command]
-fn quit_app(app: AppHandle) {
-    app.exit(0);
+fn set_streaming_guard(active: bool) {
+    STREAMING_GUARD_ACTIVE.store(active, Ordering::Release);
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle, confirmed: Option<bool>) {
+    request_app_exit(app, confirmed.unwrap_or(false));
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    desktop_log::install_panic_hook();
+
     #[cfg(windows)]
     std::thread::spawn(|| loop {
         const ES_CONTINUOUS: u32 = 0x8000_0000;
@@ -221,7 +285,7 @@ pub fn run() {
     #[cfg(windows)]
     KEEP_AWAKE.store(settings.prevent_sleep, Ordering::Relaxed);
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         // Must be registered first: a second launch hands off here and exits before
         // it can start its own window, tray icon or Harness Host.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -240,18 +304,24 @@ pub fn run() {
             initialize_tray(app)?;
             #[cfg(all(windows, not(debug_assertions)))]
             disable_app_devtools(app);
+            #[cfg(windows)]
+            webview_guard::install_for_all_windows(app);
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+                api.prevent_close();
+                let _ = window.hide();
             }
+            tauri::WindowEvent::Destroyed => {
+                webview_guard::mark_detached(window.label());
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             quit_app,
+            set_streaming_guard,
+            desktop_log::log_frontend_error,
             quick_chat_dir,
             list_projects_cmd,
             register_project_cmd,
@@ -312,8 +382,19 @@ pub fn run() {
             list_worktrees,
             create_worktree
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Qianji");
+        .build(tauri::generate_context!())
+        .expect("error while building Qianji");
+
+    app.run(|_app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+            if code.is_none() && !EXPLICIT_EXIT.load(Ordering::SeqCst) {
+                api.prevent_exit();
+                log_line!(
+                    "[desktop] prevented implicit event-loop exit while tray or WebView recovery is active"
+                );
+            }
+        }
+    });
 }
 
 pub fn run_computer_helper() -> i32 {
