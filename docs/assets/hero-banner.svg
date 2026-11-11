@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090a0f"/>
+      <stop offset="50%" stop-color="#11131f"/>
+      <stop offset="100%" stop-color="#0b0d14"/>
+    </linearGradient>
+    <radialGradient id="glowPurple" cx="22%" cy="35%" r="48%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowCyan" cx="82%" cy="68%" r="45%">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="brandGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="50%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e2235" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#121521" stop-opacity="0.75"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#ffffff" stroke-width="0.6" stroke-opacity="0.04"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="340" rx="20" fill="url(#bgGrad)" stroke="#26293e" stroke-width="1.5"/>
+  <rect width="1200" height="340" rx="20" fill="url(#grid)"/>
+  <rect width="1200" height="340" rx="20" fill="url(#glowPurple)"/>
+  <rect width="1200" height="340" rx="20" fill="url(#glowCyan)"/>
+
+  <!-- Left Brand Emblem -->
+  <g transform="translate(68, 62)">
+    <rect x="0" y="0" width="84" height="84" rx="22" fill="#16192b" stroke="url(#brandGrad)" stroke-width="2"/>
+    <!-- Geometric Qianji Mark -->
+    <path d="M 24 28 L 60 28 M 42 20 L 42 64 M 24 46 L 60 46 M 30 60 L 54 60" stroke="url(#brandGrad)" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="60" cy="28" r="4" fill="#34d399"/>
+    <circle cx="24" cy="46" r="4" fill="#a78bfa"/>
+
+    <!-- Title & Subtitle -->
+    <text x="108" y="44" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="40" font-weight="800" fill="#f8fafc" letter-spacing="-0.5">
+      千机 <tspan fill="url(#brandGrad)">Qianji</tspan>
+    </text>
+    <rect x="332" y="18" width="96" height="26" rx="13" fill="#1e1b4b" stroke="#6366f1" stroke-width="1"/>
+    <text x="380" y="35" text-anchor="middle" font-family="'JetBrains Mono', Consolas, monospace" font-size="12" font-weight="600" fill="#a5b4fc">v0.3 · Local</text>
+
+    <text x="108" y="76" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="17" font-weight="500" fill="#94a3b8">
+      融合 <tspan fill="#e2e8f0" font-weight="600">Agent 工作台</tspan> · <tspan fill="#e2e8f0" font-weight="600">自主运行 Bot</tspan> · <tspan fill="#e2e8f0" font-weight="600">轻量级 IDE</tspan> 的本地优先桌面创造环境
+    </text>
+  </g>
+
+  <!-- Three Core Pillars Cards -->
+  <g transform="translate(68, 176)">
+    <!-- Card 1 -->
+    <g transform="translate(0, 0)">
+      <rect width="336" height="114" rx="14" fill="url(#cardGrad)" stroke="#2e3452" stroke-width="1.2"/>
+      <circle cx="28" cy="30" r="12" fill="#312e81"/>
+      <text x="28" y="35" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="13" font-weight="700" fill="#a5b4fc">01</text>
+      <text x="50" y="35" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="16" font-weight="700" fill="#f1f5f9">Agent 智能工作台</text>
+      <text x="20" y="64" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" fill="#94a3b8">• 多模型流式推理 · 子代理并发委派</text>
+      <text x="20" y="86" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" fill="#94a3b8">• Intelligent UI 双引擎分屏交互画布</text>
+      <text x="20" y="104" font-family="'JetBrains Mono', monospace" font-size="11" fill="#818cf8">MCP · Browser CDP · Computer Use</text>
+    </g>
+
+    <!-- Card 2 -->
+    <g transform="translate(364, 0)">
+      <rect width="336" height="114" rx="14" fill="url(#cardGrad)" stroke="#2e3452" stroke-width="1.2"/>
+      <circle cx="28" cy="30" r="12" fill="#064e3b"/>
+      <text x="28" y="35" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="13" font-weight="700" fill="#6ee7b7">02</text>
+      <text x="50" y="35" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="16" font-weight="700" fill="#f1f5f9">自主运行 Bot 与插件内核</text>
+      <text x="20" y="64" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" fill="#94a3b8">• 单进程 Harness Host (Cordis 微内核)</text>
+      <text x="20" y="86" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" fill="#94a3b8">• 三级动态插件覆盖与零刷新全栈 HMR</text>
+      <text x="20" y="104" font-family="'JetBrains Mono', monospace" font-size="11" fill="#34d399">Schedules · Memory 2.0 · DPAPI</text>
+    </g>
+
+    <!-- Card 3 -->
+    <g transform="translate(728, 0)">
+      <rect width="336" height="114" rx="14" fill="url(#cardGrad)" stroke="#2e3452" stroke-width="1.2"/>
+      <circle cx="28" cy="30" r="12" fill="#0c4a6e"/>
+      <text x="28" y="35" text-anchor="middle" font-family="'JetBrains Mono', monospace" font-size="13" font-weight="700" fill="#7dd3fc">03</text>
+      <text x="50" y="35" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="16" font-weight="700" fill="#f1f5f9">原生 IDE 与 Git 审查闭环</text>
+      <text x="20" y="64" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" fill="#94a3b8">• CodeMirror 6 编辑器 · Hunk 级 Git 审查</text>
+      <text x="20" y="86" font-family="Inter, 'Microsoft YaHei', sans-serif" font-size="13" fill="#94a3b8">• 无侵入 Git 快照回退 · 多标签 ConPTY</text>
+      <text x="20" y="104" font-family="'JetBrains Mono', monospace" font-size="11" fill="#38bdf8">Worktree · GitHub PR Loop · Sandbox</text>
+    </g>
+  </g>
+</svg>
