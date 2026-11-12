@@ -222,6 +222,8 @@ export function bashTool(
   );
   return {
     name: "bash",
+    // Bounded by its own `timeout` argument (ADR 0020).
+    timeoutMs: 0,
     description: `Run a bash command in the working directory and return its combined stdout and stderr (the last ${MAX_OUTPUT_LINES} lines or ${MAX_OUTPUT_BYTES / 1024} KB). Times out after \`timeout\` seconds (default ${DEFAULT_TIMEOUT_SECONDS}, at most ${maxTimeout}).`,
     parameters: {
       type: "object",

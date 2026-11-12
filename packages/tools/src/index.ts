@@ -4,7 +4,9 @@
  * 1. `tools/pre-execute` (async bail): the first listener to return a
  *    decision wins; none means allow.
  * 2. `tools/execute` (waterfall): wraps the call, e.g. checkpoints, timeouts,
- *    output truncation; the innermost `next` runs the tool.
+ *    output truncation; the innermost `next` runs the tool. `env` belongs to
+ *    this call alone, so a listener may replace `env.signal` (to add a
+ *    deadline, say) for the listeners and the tool below it, restoring it after.
  * 3. `tools/result` (emit): observes the outcome.
  *
  * `execute` never throws: a failing, denied or unknown tool becomes an error
@@ -73,6 +75,12 @@ export interface ToolDefinition<Args extends Record<string, unknown> = Record<st
    * `Plan`, `Ask`, and `ask`-permission modes allow it without confirmation prompts.
    */
   readOnly?: boolean;
+  /**
+   * The longest a call may run, in milliseconds, before the tool-guards plugin
+   * aborts it and reports a timeout. Omitted means the plugin's default; 0
+   * means no limit (for tools that bound their own run time, like `bash`).
+   */
+  timeoutMs?: number;
   execute(args: Args, env: ToolEnv): Promise<ToolOutput> | ToolOutput;
 }
 
@@ -280,8 +288,11 @@ export class Tools extends Service {
   }
 
   async execute(call: ToolCall, env: ToolEnv): Promise<ToolOutput> {
-    const output = await this.run(call, env);
-    this.ctx.emit("tools/result", call, env, output);
+    // Each call gets its own env: parallel calls of a turn share the caller's object,
+    // and a `tools/execute` listener may replace `signal` for the calls below it.
+    const callEnv: ToolEnv = { ...env, callId: call.id };
+    const output = await this.run(call, callEnv);
+    this.ctx.emit("tools/result", call, callEnv, output);
     return output;
   }
 

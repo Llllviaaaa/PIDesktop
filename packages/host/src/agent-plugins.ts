@@ -37,6 +37,7 @@ import * as subagents from "@qianji/subagents";
 import { SystemPrompt } from "@qianji/system-prompt";
 import * as toolBash from "@qianji/tool-bash";
 import * as toolFs from "@qianji/tool-fs";
+import * as toolGuards from "@qianji/tool-guards";
 import * as toolOutput from "@qianji/tool-output";
 import { Tools } from "@qianji/tools";
 import { Ui } from "@qianji/ui";
@@ -222,6 +223,17 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
       plugin: toolOutput,
       inject: ["tools"],
       config: { spillDir: join(dataDir, "spill") },
+    },
+    {
+      id: "tool-guards",
+      name: "工具调用保护 (tool-guards)",
+      description: "给工具调用设时限，并在模型连续重复完全相同的调用时提醒它换个办法",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: toolGuards,
+      inject: ["tools"],
+      config: {},
     },
     {
       id: "plan",

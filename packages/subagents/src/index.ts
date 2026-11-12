@@ -97,6 +97,8 @@ export function delegateTool(ctx: Context, config: Config): ToolDefinition<{ tas
   const concurrency = Math.max(1, Math.min(4, config.concurrency ?? 3));
   return {
     name: "delegate_task",
+    // Subagent runs are bounded by their own turn limit and the parent's abort (ADR 0020).
+    timeoutMs: 0,
     description: [
       "Run one isolated subagent or up to eight independent subagents in parallel; each gets a fresh context and returns its final answer.",
       "Use it only when an isolated context or independent parallel investigation materially helps.",
