@@ -113,7 +113,7 @@ export class HarnessRuntimes {
   /** Listeners for Host notifications outside sessions (schedule updates), by method. */
   private readonly notificationListeners = new Map<string, Set<(params: unknown) => void>>();
   /** Questions the adapter asks itself (rewinding files), answered through the same dialog. */
-  private readonly localQuestions = new Map<string, (confirmed: boolean) => void>();
+  private readonly localQuestions = new Map<string, { runtimeId: string; resolve: (confirmed: boolean) => void }>();
   private hostStatus: HostStatus = "connected";
   private readonly statusListeners = new Set<(status: HostStatus) => void>();
   private readonly streamingListeners = new Set<() => void>();
@@ -174,9 +174,19 @@ export class HarnessRuntimes {
     void this.reconnect(true);
   }
 
+  private cancelLocalQuestions(runtimeId?: string): void {
+    for (const [id, entry] of [...this.localQuestions.entries()]) {
+      if (runtimeId === undefined || entry.runtimeId === runtimeId) {
+        this.localQuestions.delete(id);
+        entry.resolve(false);
+      }
+    }
+  }
+
   /** Stop reconnecting and close the connection. */
   close(): void {
     this.closed = true;
+    this.cancelLocalQuestions();
     for (const runtime of this.runtimes.values()) {
       runtime.streaming = false;
     }
@@ -212,6 +222,7 @@ export class HarnessRuntimes {
   async stop(runtimeId: string): Promise<void> {
     const runtime = this.runtimes.get(runtimeId);
     this.runtimes.delete(runtimeId);
+    this.cancelLocalQuestions(runtimeId);
     if (runtime?.streaming) {
       this.refreshStreamingSnapshot();
     }
@@ -251,7 +262,7 @@ export class HarnessRuntimes {
     const local = this.localQuestions.get(request.id);
     if (local !== undefined) {
       this.localQuestions.delete(request.id);
-      local(response.confirmed === true);
+      local.resolve(response.confirmed === true);
       return;
     }
     const value = response.cancelled ? null : response.confirmed ?? response.value ?? null;
@@ -259,8 +270,8 @@ export class HarnessRuntimes {
   }
 
   /** One Host RPC, for the session list and other calls outside a runtime. */
-  async call<T>(method: string, params?: Record<string, unknown>): Promise<T> {
-    return (await this.rpc()).call<T>(method, params);
+  async call<T>(method: string, params?: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<T> {
+    return (await this.rpc()).call<T>(method, params, options);
   }
 
   /** The Host's sessions, newest first. Subagent sessions belong to their parent's tool call and side chats to their panel, so both are left out. */
@@ -398,12 +409,21 @@ export class HarnessRuntimes {
   /** Start over: the next prompt creates a new session. */
   newSession(runtimeId: string): void {
     const runtime = this.runtime(runtimeId);
+    const previous = runtime.sessionId;
+    this.cancelLocalQuestions(runtimeId);
     runtime.sessionId = undefined;
     runtime.pendingLevel ??= "medium";
     runtime.pendingPermission = undefined;
     runtime.pendingAgentMode = undefined;
     runtime.lastSeq = 0;
     runtime.title = undefined;
+    runtime.translator = new TranscriptTranslator();
+    this.setRuntimeStreaming(runtime, false);
+    if (previous !== undefined && this.connection !== undefined && this.runtimesOf(previous).length === 0) {
+      void this.connection
+        .then((rpc) => rpc.call("session.unsubscribe", { sessionId: previous }))
+        .catch(() => undefined);
+    }
   }
 
   async setModel(runtimeId: string, provider: string, modelId: string): Promise<ModelInfo> {
@@ -430,7 +450,13 @@ export class HarnessRuntimes {
 
   async compact(runtimeId: string): Promise<void> {
     const runtime = this.runtime(runtimeId);
-    if (runtime.sessionId !== undefined) await (await this.rpc()).call("session.compact", { sessionId: runtime.sessionId });
+    if (runtime.sessionId !== undefined) {
+      await (await this.rpc()).call(
+        "session.compact",
+        { sessionId: runtime.sessionId },
+        { timeoutMs: 300_000 },
+      );
+    }
   }
 
   /** Point the runtime at another session (a fork or clone), as Pi's runtime switches to it. */
@@ -527,7 +553,7 @@ export class HarnessRuntimes {
   private askLocally(runtimeId: string, title: string, message: string): Promise<boolean> {
     const id = `harness-local-${Date.now().toString(36)}-${this.localQuestions.size}`;
     return new Promise((resolve) => {
-      this.localQuestions.set(id, resolve);
+      this.localQuestions.set(id, { runtimeId, resolve });
       this.emit(runtimeId, [{ type: "ui-request", request: { type: "extension_ui_request", id, method: "confirm", title, message } }]);
     });
   }
@@ -767,18 +793,38 @@ export class HarnessRuntimes {
       return;
     }
     this.streamingSnapshot = next;
-    for (const listener of this.streamingListeners) listener();
+    for (const listener of [...this.streamingListeners]) {
+      try {
+        listener();
+      } catch (error) {
+        console.error("[harnessRuntime] streaming listener error:", error);
+      }
+    }
   }
 
   private setHostStatus(status: HostStatus): void {
     if (this.hostStatus === status) return;
     this.hostStatus = status;
     this.refreshStreamingSnapshot();
-    for (const listener of this.statusListeners) listener(status);
+    for (const listener of [...this.statusListeners]) {
+      try {
+        listener(status);
+      } catch (error) {
+        console.error("[harnessRuntime] hostStatus listener error:", error);
+      }
+    }
   }
 
   private emit(runtimeId: string, events: TranscriptEvent[]): void {
-    for (const event of events) for (const listener of this.listeners) listener(runtimeId, event);
+    for (const event of events) {
+      for (const listener of [...this.listeners]) {
+        try {
+          listener(runtimeId, event);
+        } catch (error) {
+          console.error("[harnessRuntime] runtime listener error:", error);
+        }
+      }
+    }
   }
 
   private runtimesOf(sessionId: string | undefined): Runtime[] {
@@ -794,7 +840,13 @@ export class HarnessRuntimes {
   }
 
   private notify(method: string, params: unknown): void {
-    for (const listener of this.notificationListeners.get(method) ?? []) listener(params);
+    for (const listener of [...(this.notificationListeners.get(method) ?? [])]) {
+      try {
+        listener(params);
+      } catch (error) {
+        console.error(`[harnessRuntime] notification listener error (${method}):`, error);
+      }
+    }
     if (method === "session/event") {
       const { sessionId, event } = params as SessionEventNotification;
       for (const runtime of this.runtimesOf(sessionId)) this.deliver(runtime, event as PersistedEvent);

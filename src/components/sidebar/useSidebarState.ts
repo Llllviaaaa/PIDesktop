@@ -14,12 +14,11 @@ import { queryKeys } from "../../lib/queries";
 import { sessionTitle } from "../../lib/sessionTitle";
 import {
   reconcileSidebarOrder,
-  sortSidebarProjectGroups,
-  sortSidebarSessions,
   type SidebarOrder,
 } from "../../lib/sidebarProjectOrder";
 import type { AppNotification, ProjectConfig, SessionInfo } from "../../types";
 import {
+  buildSidebarProjectGroups,
   COLLAPSED_PROJECTS_KEY,
   GROUP_MODE_KEY,
   NO_PROJECTS,
@@ -58,9 +57,11 @@ export function useSidebarState({
   onSearchRequestHandled,
 }: UseSidebarStateOptions) {
   const previewCloseTimer = useRef<number | null>(null);
-  const requestedBranches = useRef(new Set<string>());
+  const inflightBranches = useRef(new Set<string>());
+  const branchFetchedAt = useRef(new Map<string, number>());
 
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<"active" | "archived">("active");
@@ -82,6 +83,13 @@ export function useSidebarState({
   }, [collapsedProjectPaths]);
 
   const [pinnedSessionFiles, setPinnedSessionFiles] = useState(() => readStringList(PINNED_SESSIONS_KEY));
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PINNED_SESSIONS_KEY, JSON.stringify(pinnedSessionFiles));
+    } catch {
+      // ignore storage errors
+    }
+  }, [pinnedSessionFiles]);
   const [persistedOrder, setPersistedOrder] = useState<SidebarOrder>(() => ({
     sessions: readStringList(SIDEBAR_SESSION_ORDER_KEY),
     workspaces: readStringList(SIDEBAR_PROJECT_ORDER_KEY),
@@ -104,18 +112,32 @@ export function useSidebarState({
     enabled: workspaceView === "archived",
   });
 
+  useSyncOnChange([query], () => {
+    if (query.trim() === "") {
+      setDebouncedQuery("");
+    }
+  });
+  useEffect(() => {
+    if (query.trim() === "") return;
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
   const trimmedQuery = query.trim();
+  const debouncedTrimmedQuery = debouncedQuery.trim();
   const sessionSearchQuery = useQuery({
-    queryKey: queryKeys.sessionSearch(trimmedQuery, workspaceView === "archived"),
-    queryFn: () => agent.searchSessions(trimmedQuery, { includeArchived: workspaceView === "archived", limit: 50 }),
-    enabled: trimmedQuery.length > 0,
+    queryKey: queryKeys.sessionSearch(debouncedTrimmedQuery, workspaceView === "archived"),
+    queryFn: () => agent.searchSessions(debouncedTrimmedQuery, { includeArchived: workspaceView === "archived", limit: 50 }),
+    enabled: debouncedTrimmedQuery.length > 0,
     placeholderData: (previous) => previous,
   });
 
   const snippetByFile = useMemo(() => {
-    if (!trimmedQuery) return new Map<string, string>();
+    if (!debouncedTrimmedQuery) return new Map<string, string>();
     return new Map((sessionSearchQuery.data ?? []).map((hit) => [hit.session.file, hit.snippet]));
-  }, [sessionSearchQuery.data, trimmedQuery]);
+  }, [debouncedTrimmedQuery, sessionSearchQuery.data]);
 
   const archivedSessions = useMemo(() => {
     const allArchived = archivedSessionsQuery.data ?? [];
@@ -182,51 +204,20 @@ export function useSidebarState({
     setThreadPreview(null);
   }, []);
 
-  const groups = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const result = new Map<string, SessionInfo[]>();
-    const seenFiles = new Set<string>();
-    const canonicalKey = (rawWorkspace: string): string => {
-      if (!rawWorkspace) return "未知项目";
-      for (const existing of result.keys()) {
-        if (pathsEqual(existing, rawWorkspace)) return existing;
-      }
-      const configured = projectConfigs.find((project) => pathsEqual(project.path, rawWorkspace));
-      return configured?.path.trim() || rawWorkspace;
-    };
-    for (const session of sessions) {
-      seenFiles.add(session.file);
-      const config = projectConfigs.find((project) => pathsEqual(project.path, session.cwd));
-      if (config?.hidden) continue;
-      const title = sessionTitle(session);
-      const projectName = config?.name.trim() || repoName(session.cwd);
-      const haystack = `${title} ${projectName} ${session.cwd}`.toLowerCase();
-      if (normalizedQuery && !haystack.includes(normalizedQuery) && !snippetByFile.has(session.file)) continue;
-      const key = canonicalKey(session.cwd);
-      result.set(key, [...(result.get(key) ?? []), session]);
-    }
-    if (normalizedQuery && workspaceView === "active") {
-      for (const hit of sessionSearchQuery.data ?? []) {
-        if (seenFiles.has(hit.session.file)) continue;
-        const config = projectConfigs.find((project) => pathsEqual(project.path, hit.session.cwd));
-        if (config?.hidden) continue;
-        const key = canonicalKey(hit.session.cwd);
-        result.set(key, [...(result.get(key) ?? []), hit.session]);
-      }
-    }
-    for (const config of projectConfigs) {
-      if (config.hidden || !config.path.trim()) continue;
-      if ([...result.keys()].some((existing) => pathsEqual(existing, config.path))) continue;
-      const projectName = config.name.trim() || repoName(config.path);
-      const haystack = `${projectName} ${config.path}`.toLowerCase();
-      if (normalizedQuery && !haystack.includes(normalizedQuery)) continue;
-      result.set(config.path, []);
-    }
-    for (const [key, chats] of result) {
-      result.set(key, sortSidebarSessions(chats, pinnedSessionFiles, stableSessionOrder));
-    }
-    return sortSidebarProjectGroups([...result.entries()], projectConfigs, stableSessionOrder, sidebarOrder.workspaces);
-  }, [pinnedSessionFiles, projectConfigs, query, sessionSearchQuery.data, sessions, sidebarOrder.workspaces, snippetByFile, stableSessionOrder, workspaceView]);
+  const groups = useMemo(
+    () => buildSidebarProjectGroups({
+      query,
+      sessions,
+      projectConfigs,
+      snippetByFile,
+      workspaceView,
+      searchHits: sessionSearchQuery.data,
+      pinnedSessionFiles,
+      stableSessionOrder,
+      workspaceOrder: sidebarOrder.workspaces,
+    }),
+    [pinnedSessionFiles, projectConfigs, query, sessionSearchQuery.data, sessions, sidebarOrder.workspaces, snippetByFile, stableSessionOrder, workspaceView],
+  );
 
   const recentSessions = useMemo(() => groups
     .flatMap(([, chats]) => chats)
@@ -259,11 +250,9 @@ export function useSidebarState({
   });
 
   const togglePinnedSession = useCallback((file: string) => {
-    setPinnedSessionFiles((current) => {
-      const next = current.includes(file) ? current.filter((item) => item !== file) : [...current, file];
-      window.localStorage.setItem(PINNED_SESSIONS_KEY, JSON.stringify(next));
-      return next;
-    });
+    setPinnedSessionFiles((current) => (
+      current.includes(file) ? current.filter((item) => item !== file) : [...current, file]
+    ));
   }, []);
 
   const updateProjectConfig = async (workspace: string, changes: Partial<ProjectConfig>) => {
@@ -302,11 +291,24 @@ export function useSidebarState({
       : 58;
     setThreadPreview({ session, top });
     const workspace = session.cwd;
-    if (branchByWorkspace[workspace] !== undefined || requestedBranches.current.has(workspace)) return;
-    requestedBranches.current.add(workspace);
+    const now = Date.now();
+    const lastFetched = branchFetchedAt.current.get(workspace) ?? 0;
+    if (!workspace || inflightBranches.current.has(workspace) || (branchByWorkspace[workspace] !== undefined && now - lastFetched < 15_000)) {
+      return;
+    }
+    inflightBranches.current.add(workspace);
     void agent.gitSnapshot(workspace)
-      .then((snapshot) => setBranchByWorkspace((current) => ({ ...current, [workspace]: snapshot.branch || "本地" })))
-      .catch(() => setBranchByWorkspace((current) => ({ ...current, [workspace]: "本地" })));
+      .then((snapshot) => {
+        branchFetchedAt.current.set(workspace, Date.now());
+        setBranchByWorkspace((current) => ({ ...current, [workspace]: snapshot.branch || "本地" }));
+      })
+      .catch(() => {
+        branchFetchedAt.current.set(workspace, Date.now());
+        setBranchByWorkspace((current) => ({ ...current, [workspace]: "本地" }));
+      })
+      .finally(() => {
+        inflightBranches.current.delete(workspace);
+      });
   };
 
   const schedulePreviewClose = () => {

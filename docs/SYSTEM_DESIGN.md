@@ -277,7 +277,7 @@ Rust 层在 V2 架构重构后实现了大幅瘦身（移除了 HTTP 客户端 `
 1. **应用生命周期与窗口治理 ([`src-tauri/src/lib.rs`](../src-tauri/src/lib.rs))**：
    - **单实例锁 (`tauri_plugin_single_instance`)**：重复启动应用时自动唤醒并置顶已有主窗口，防止多开冲突。
    - **托盘常驻与防休眠**：点击关闭按钮最小化至系统托盘；开启“防止系统休眠”时后台线程每 30 秒调用 Win32 `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED)` 保障长任务与定时任务不中断。
-   - **DevTools 权限收敛**：Release 构建下禁用主界面 WebView2 的开发者工具，仅对工作台内嵌预览浏览器（`workspace-browser-*`）开放 Inspector。
+   - **DevTools 权限收敛**：Release 构建下显式禁用应用窗口 WebView2 的开发者工具（`F12` 及默认右键菜单检查），仅在调试构建下开放。
 2. **原生 Git 引擎与 PR 闭环 ([`commands/git.rs`](../src-tauri/src/commands/git.rs), [`commit.rs`](../src-tauri/src/commands/commit.rs), [`pull_request.rs`](../src-tauri/src/commands/pull_request.rs))**：
    - 全异步执行 Git 状态快照、分支对比、提交历史、受管 Worktree 创建与枚举（`list_worktrees` / `create_worktree`）。
    - 支持 `git apply --cached / --reverse` 实现 **Hunk 级与行级暂存/取消暂存/丢弃**。

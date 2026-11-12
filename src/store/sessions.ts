@@ -121,6 +121,7 @@ export function createSessionsSlice(set: SetState, get: GetState, ctx: StoreCont
 
     loadSessionTree: async () => {
       const runtimeId = get().runtimeId;
+      const sessionFile = get().sessionFile;
       if (!runtimeId || get().connection !== "running") {
         set({ sessionTree: [], sessionTreeLeafId: null, sessionTreeError: "需要已连接的会话才能查看会话树", sessionTreeLoading: false });
         return;
@@ -128,6 +129,7 @@ export function createSessionsSlice(set: SetState, get: GetState, ctx: StoreCont
       set({ sessionTreeLoading: true, sessionTreeError: null });
       try {
         const { tree, leafId } = await harnessRuntimes.tree(runtimeId);
+        if (get().runtimeId !== runtimeId || get().sessionFile !== sessionFile) return;
         set({
           sessionTree: flattenSessionTree(tree, leafId),
           sessionTreeLeafId: leafId,
@@ -135,6 +137,7 @@ export function createSessionsSlice(set: SetState, get: GetState, ctx: StoreCont
           sessionTreeLoading: false,
         });
       } catch (error) {
+        if (get().runtimeId !== runtimeId || get().sessionFile !== sessionFile) return;
         const message = describeError(error);
         set({
           sessionTree: [],

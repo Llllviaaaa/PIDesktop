@@ -823,7 +823,24 @@ function extractIntelligentUiFences(markdown: string, messageId: string): Intell
   return artifacts;
 }
 
+const sessionIntelligentUiCache = new WeakMap<readonly UiMessage[], SessionIntelligentUiSummary>();
+
+export function messageMayContainIntelligentUi(message: UiMessage | undefined): boolean {
+  if (!message || message.role !== "assistant") return false;
+  if (message.content && message.content.includes(INTELLIGENT_UI_FENCE_LANGUAGE)) return true;
+  if (message.toolCalls) {
+    for (const call of message.toolCalls) {
+      const normalized = normalizedToolName(call.name);
+      if (normalized === "render_ui" || normalized === "update_ui") return true;
+    }
+  }
+  return false;
+}
+
 export function deriveSessionIntelligentUis(messages: readonly UiMessage[]): SessionIntelligentUiSummary {
+  const cached = sessionIntelligentUiCache.get(messages);
+  if (cached) return cached;
+
   const groupsById = new Map<string, IntelligentUiVersionGroup>();
   const orderedIds: string[] = [];
   const turnWidgetsByMessageId = new Map<string, TurnWidgetRef[]>();
@@ -909,11 +926,13 @@ export function deriveSessionIntelligentUis(messages: readonly UiMessage[]): Ses
     if (grp) orderedGroups.push(grp);
   }
 
-  return {
+  const summary: SessionIntelligentUiSummary = {
     groupsById,
     orderedGroups,
     turnWidgetsByMessageId,
   };
+  sessionIntelligentUiCache.set(messages, summary);
+  return summary;
 }
 
 export function serializeWidgetSource(artifact: IntelligentUiArtifact): string {

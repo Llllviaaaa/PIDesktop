@@ -1,30 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { cpp } from "@codemirror/lang-cpp";
-import { css } from "@codemirror/lang-css";
-import { go } from "@codemirror/lang-go";
-import { html } from "@codemirror/lang-html";
-import { java } from "@codemirror/lang-java";
-import { javascript } from "@codemirror/lang-javascript";
-import { json } from "@codemirror/lang-json";
-import { markdown } from "@codemirror/lang-markdown";
-import { php } from "@codemirror/lang-php";
-import { python } from "@codemirror/lang-python";
-import { rust } from "@codemirror/lang-rust";
-import { sql } from "@codemirror/lang-sql";
-import { xml } from "@codemirror/lang-xml";
-import { yaml } from "@codemirror/lang-yaml";
-import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
-import {
-  EditorView,
-  highlightActiveLine,
-  highlightActiveLineGutter,
-  keymap,
-  lineNumbers,
-} from "@codemirror/view";
 import {
   Code2,
   Columns2,
@@ -37,12 +12,15 @@ import {
   Save,
   X,
 } from "lucide-react";
+import { useSyncOnChange } from "../../hooks/useSyncOnChange";
 import { SlotEntryHost } from "../common/ErrorBoundary";
 import { Markdown } from "../Markdown";
 import { matchFileViewer, useClientContributions } from "../../lib/clientContributions";
 import { useAppStore } from "../../store";
 import {
+  matchesWorkbenchFileCwd,
   previewKindForPath,
+  resolveWorkspaceActiveFilePath,
   resolveWorkspacePreviewUrl,
   useWorkbenchStore,
   type OpenWorkbenchFile,
@@ -50,202 +28,10 @@ import {
   type WorkbenchPreviewKind,
 } from "../../stores/workbenchStore";
 
+const LazyCodeMirrorSurface = lazy(() => import("./CodeMirrorSurface"));
+
 export interface CodeEditorTabProps {
   cwd: string;
-}
-
-function languageExtensionForPath(filePath: string): Extension {
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-  switch (ext) {
-    case "ts":
-    case "mts":
-    case "cts":
-      return javascript({ typescript: true });
-    case "tsx":
-      return javascript({ typescript: true, jsx: true });
-    case "js":
-    case "mjs":
-    case "cjs":
-      return javascript();
-    case "jsx":
-      return javascript({ jsx: true });
-    case "json":
-    case "jsonc":
-      return json();
-    case "md":
-    case "mdx":
-      return markdown();
-    case "css":
-    case "scss":
-    case "less":
-      return css();
-    case "html":
-    case "htm":
-    case "vue":
-      return html();
-    case "py":
-      return python();
-    case "rs":
-      return rust();
-    case "go":
-      return go();
-    case "c":
-    case "h":
-    case "cc":
-    case "cpp":
-    case "cxx":
-    case "hpp":
-      return cpp();
-    case "java":
-      return java();
-    case "php":
-      return php();
-    case "sql":
-      return sql();
-    case "xml":
-    case "svg":
-      return xml();
-    case "yml":
-    case "yaml":
-    case "toml":
-      return yaml();
-    default:
-      return [];
-  }
-}
-
-const editorTheme = EditorView.theme({
-  "&": {
-    height: "100%",
-    fontSize: "12.5px",
-    backgroundColor: "transparent",
-    color: "var(--text)",
-  },
-  ".cm-scroller": {
-    fontFamily: "var(--font-mono, 'JetBrains Mono Variable', Consolas, monospace)",
-    lineHeight: "1.55",
-    overflow: "auto",
-  },
-  ".cm-gutters": {
-    backgroundColor: "transparent",
-    color: "var(--text-3)",
-    borderRight: "1px solid var(--border)",
-  },
-  ".cm-activeLineGutter": {
-    backgroundColor: "var(--panel-soft)",
-    color: "var(--text-2)",
-  },
-  ".cm-activeLine": {
-    backgroundColor: "color-mix(in srgb, var(--panel-soft) 65%, transparent)",
-  },
-  "&.cm-focused .cm-selectionBackground, ::selection": {
-    backgroundColor: "color-mix(in srgb, var(--accent) 24%, transparent)",
-  },
-  ".cm-cursor": {
-    borderLeftColor: "var(--text)",
-  },
-});
-
-interface CodeMirrorSurfaceProps {
-  cwd: string;
-  file: OpenWorkbenchFile;
-  onSave: () => void;
-}
-
-function CodeMirrorSurface({ file, onSave }: CodeMirrorSurfaceProps) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<EditorView | null>(null);
-  const langCompartmentRef = useRef(new Compartment());
-  const readOnlyCompartmentRef = useRef(new Compartment());
-  const activePathRef = useRef(file.path);
-  const onSaveRef = useRef(onSave);
-
-  useEffect(() => {
-    onSaveRef.current = onSave;
-  }, [onSave]);
-
-  useEffect(() => {
-    const container = hostRef.current;
-    if (!container) return;
-    const langCompartment = langCompartmentRef.current;
-    const readOnlyCompartment = readOnlyCompartmentRef.current;
-    activePathRef.current = file.path;
-
-    const state = EditorState.create({
-      doc: file.content,
-      extensions: [
-        lineNumbers(),
-        highlightActiveLineGutter(),
-        highlightActiveLine(),
-        history(),
-        bracketMatching(),
-        highlightSelectionMatches(),
-        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-        editorTheme,
-        langCompartment.of(languageExtensionForPath(file.path)),
-        readOnlyCompartment.of(EditorState.readOnly.of(file.truncated)),
-        keymap.of([
-          {
-            key: "Mod-s",
-            run: () => {
-              onSaveRef.current();
-              return true;
-            },
-          },
-          indentWithTab,
-          ...defaultKeymap,
-          ...historyKeymap,
-          ...searchKeymap,
-        ]),
-        EditorView.updateListener.of((update) => {
-          if (!update.docChanged) return;
-          const nextText = update.state.doc.toString();
-          useWorkbenchStore.getState().updateFileContent(activePathRef.current, nextText);
-        }),
-      ],
-    });
-
-    const view = new EditorView({ state, parent: container });
-    viewRef.current = view;
-    return () => {
-      view.destroy();
-      viewRef.current = null;
-    };
-    // Re-create view when switching file path; incremental edits stay inside the same view.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file.path]);
-
-  // Sync external content reloads without resetting cursor during normal typing.
-  useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    const currentText = view.state.doc.toString();
-    if (currentText !== file.content) {
-      view.dispatch({
-        changes: { from: 0, to: currentText.length, insert: file.content },
-      });
-    }
-    view.dispatch({
-      effects: [
-        langCompartmentRef.current.reconfigure(languageExtensionForPath(file.path)),
-        readOnlyCompartmentRef.current.reconfigure(EditorState.readOnly.of(file.truncated)),
-      ],
-    });
-  }, [file.content, file.path, file.truncated]);
-
-  // Scroll to target line when opened from AI `sidebar_open` or file links.
-  useEffect(() => {
-    const view = viewRef.current;
-    if (!view || !file.line || file.line < 1) return;
-    const clampedLine = Math.min(file.line, view.state.doc.lines);
-    const lineInfo = view.state.doc.line(clampedLine);
-    view.dispatch({
-      selection: { anchor: lineInfo.from },
-      effects: EditorView.scrollIntoView(lineInfo.from, { y: "center" }),
-    });
-  }, [file.line, file.path]);
-
-  return <div ref={hostRef} className="pid-wb-cm-host" />;
 }
 
 function escapeHtmlAttr(value: string): string {
@@ -316,13 +102,17 @@ function DynamicDocumentPreview({
   const isDirty = file.content !== file.savedContent;
   const [debouncedContent, setDebouncedContent] = useState(file.content);
 
+  useSyncOnChange([file.cwd, file.path], () => {
+    setDebouncedContent(file.content);
+  });
+
   useEffect(() => {
     if (!isDirty) return;
     const timer = window.setTimeout(() => {
       setDebouncedContent(file.content);
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [file.content, file.path, isDirty]);
+  }, [file.content, file.cwd, file.path, isDirty]);
 
   const renderedContent = isDirty ? debouncedContent : file.content;
 
@@ -365,7 +155,7 @@ function DynamicDocumentPreview({
   return (
     <div className="pid-wb-preview-stage" data-workbench-preview={kind}>
       <iframe
-        key={`${file.path}:${useLoopbackServer ? "http" : "data"}:${reloadNonce}`}
+        key={`${file.cwd ?? ""}::${file.path}:${useLoopbackServer ? "http" : "data"}:${reloadNonce}`}
         className="pid-wb-iframe"
         src={frameSrc}
         title={`动态预览 ${file.path}`}
@@ -377,45 +167,51 @@ function DynamicDocumentPreview({
 
 export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
   const openFiles = useWorkbenchStore((state) => state.openFiles);
-  const activeFilePath = useWorkbenchStore((state) => state.activeFilePath);
+  const preferredPath = useWorkbenchStore((state) => resolveWorkspaceActiveFilePath(state, cwd));
   const sessionFile = useAppStore((state) => state.sessionFile);
   const contributions = useClientContributions();
-  const activeFile = openFiles.find((item) => item.path === activeFilePath) ?? openFiles[0] ?? null;
+
+  const workspaceFiles = useMemo(
+    () => openFiles.filter((item) => matchesWorkbenchFileCwd(item.cwd, cwd)),
+    [cwd, openFiles],
+  );
+  const activeFile = workspaceFiles.find((item) => item.path === preferredPath) ?? workspaceFiles[0] ?? null;
 
   const [previewUrlEntry, setPreviewUrlEntry] = useState<{ key: string; url: string | null } | null>(null);
   const [previewNonce, setPreviewNonce] = useState(0);
 
   const previewKind = activeFile ? previewKindForPath(activeFile.path) : null;
-  const activePreviewKey = activeFile && cwd && (previewKind === "html" || previewKind === "svg")
-    ? `${cwd}::${activeFile.path}`
+  const effectiveFileCwd = activeFile?.cwd || cwd;
+  const activePreviewKey = activeFile && effectiveFileCwd && (previewKind === "html" || previewKind === "svg")
+    ? `${effectiveFileCwd}::${activeFile.path}`
     : null;
   const previewHttpUrl = activePreviewKey && previewUrlEntry?.key === activePreviewKey
     ? previewUrlEntry.url
     : null;
 
   useEffect(() => {
-    if (!activePreviewKey || !activeFile || !cwd) return;
+    if (!activePreviewKey || !activeFile || !effectiveFileCwd) return;
     let cancelled = false;
-    void resolveWorkspacePreviewUrl(cwd, activeFile.path).then((url) => {
+    void resolveWorkspacePreviewUrl(effectiveFileCwd, activeFile.path).then((url) => {
       if (!cancelled) setPreviewUrlEntry({ key: activePreviewKey, url });
     });
     return () => {
       cancelled = true;
     };
-  }, [activeFile, activePreviewKey, cwd]);
+  }, [activeFile, activePreviewKey, effectiveFileCwd]);
 
   const handleSave = useCallback(async () => {
-    if (!activeFile || !cwd) return;
-    const saved = await useWorkbenchStore.getState().saveFile(cwd, activeFile.path);
+    if (!activeFile || !effectiveFileCwd) return;
+    const saved = await useWorkbenchStore.getState().saveFile(effectiveFileCwd, activeFile.path);
     if (saved) {
       setPreviewNonce((n) => n + 1);
       useAppStore.getState().showToast(`已保存 ${activeFile.path.split("/").pop() ?? activeFile.path}`, "info");
       void useAppStore.getState().refreshGit();
     }
-  }, [activeFile, cwd]);
+  }, [activeFile, effectiveFileCwd]);
 
   const handleReload = useCallback(() => {
-    if (!activeFile || !cwd) return;
+    if (!activeFile || !effectiveFileCwd) return;
     if (
       activeFile.content !== activeFile.savedContent
       && !window.confirm(`放弃 ${activeFile.path} 的未保存修改并重新加载？`)
@@ -423,8 +219,8 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
       return;
     }
     setPreviewNonce((n) => n + 1);
-    void useWorkbenchStore.getState().reloadFile(cwd, activeFile.path);
-  }, [activeFile, cwd]);
+    void useWorkbenchStore.getState().reloadFile(effectiveFileCwd, activeFile.path);
+  }, [activeFile, effectiveFileCwd]);
 
   const handleCloseTab = useCallback((file: OpenWorkbenchFile) => {
     if (
@@ -433,8 +229,8 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
     ) {
       return;
     }
-    useWorkbenchStore.getState().closeFile(file.path);
-  }, []);
+    useWorkbenchStore.getState().closeFile(file.path, file.cwd || cwd);
+  }, [cwd]);
 
   if (!activeFile) {
     return (
@@ -468,7 +264,7 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
       : (activeFile.viewMode ?? defaultMode);
 
   const setMode = (mode: WorkbenchFileViewMode) => {
-    useWorkbenchStore.getState().setFileViewMode(activeFile.path, mode);
+    useWorkbenchStore.getState().setFileViewMode(activeFile.path, mode, effectiveFileCwd);
   };
 
   return (
@@ -484,13 +280,13 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
           }
         }}
       >
-        {openFiles.map((file) => {
+        {workspaceFiles.map((file) => {
           const dirty = file.content !== file.savedContent;
           const active = file.path === activeFile.path;
           const fileName = file.path.split("/").pop() || file.path;
           return (
             <div
-              key={file.path}
+              key={`${file.cwd ?? ""}::${file.path}`}
               role="tab"
               aria-selected={active}
               className={`pid-wb-editor-tab${active ? " active" : ""}`}
@@ -499,7 +295,7 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
               <button
                 type="button"
                 className="pid-wb-editor-tab-label"
-                onClick={() => useWorkbenchStore.getState().selectFile(file.path)}
+                onClick={() => useWorkbenchStore.getState().selectFile(file.path, file.cwd || cwd)}
               >
                 <span>{fileName}</span>
                 {dirty && <span className="pid-wb-dirty-dot" aria-label="未保存" />}
@@ -619,7 +415,7 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
           <SlotEntryHost
             entry={customViewer}
             context={{
-              cwd,
+              cwd: effectiveFileCwd,
               sessionFile,
               path: activeFile.path,
               content: activeFile.content,
@@ -642,14 +438,16 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
         ) : canRenderPreview && effectiveMode === "split" && (customViewer !== undefined || previewKind !== null) ? (
           <div className="pid-wb-split-view">
             <div className="pid-wb-split-pane is-code">
-              <CodeMirrorSurface cwd={cwd} file={activeFile} onSave={() => void handleSave()} />
+              <Suspense fallback={<div className="pid-wb-empty">正在加载编辑器…</div>}>
+                <LazyCodeMirrorSurface cwd={effectiveFileCwd} file={activeFile} onSave={() => void handleSave()} />
+              </Suspense>
             </div>
             <div className="pid-wb-split-pane is-preview">
               {customViewer !== undefined ? (
                 <SlotEntryHost
                   entry={customViewer}
                   context={{
-                    cwd,
+                    cwd: effectiveFileCwd,
                     sessionFile,
                     path: activeFile.path,
                     content: activeFile.content,
@@ -684,7 +482,9 @@ export function CodeEditorTab({ cwd }: CodeEditorTabProps) {
             <div className="pid-wb-empty">二进制文件无法直接作为文本编辑（{(activeFile.size / 1024).toFixed(1)} KB）</div>
           )
         ) : (
-          <CodeMirrorSurface cwd={cwd} file={activeFile} onSave={() => void handleSave()} />
+          <Suspense fallback={<div className="pid-wb-empty">正在加载编辑器…</div>}>
+            <LazyCodeMirrorSurface cwd={effectiveFileCwd} file={activeFile} onSave={() => void handleSave()} />
+          </Suspense>
         )}
       </div>
     </div>

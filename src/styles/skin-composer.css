@@ -965,6 +965,7 @@
 }
 
 .codex-shot .model-picker-levels {
+  max-height: min(332px, calc(100vh - 24px));
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--dsh-claude-raised, var(--popover));

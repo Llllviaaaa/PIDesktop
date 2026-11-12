@@ -1004,3 +1004,44 @@
   background: var(--accent);
   color: #ffffff;
 }
+
+.settings-shortcut-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-shortcut-recorder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 96px;
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 9px;
+  border: 1px solid var(--qj-border-default);
+  background: var(--qj-bg-surface);
+  color: var(--qj-text-primary);
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.settings-shortcut-recorder:hover {
+  border-color: var(--qj-border-strong);
+  background: var(--qj-bg-hover);
+}
+
+.settings-shortcut-recorder.is-recording {
+  border-color: var(--qj-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qj-accent) 18%, transparent);
+}
+
+.settings-shortcut-recorder > kbd {
+  font-family: var(--qj-font-mono);
+  font-size: 12px;
+  font-weight: 550;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}

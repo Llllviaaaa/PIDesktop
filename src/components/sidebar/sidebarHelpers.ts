@@ -1,5 +1,10 @@
 import { sameLocalPath } from "../../lib/pathIdentity";
-import type { AppNotification, ProjectConfig, SessionInfo } from "../../types";
+import { sessionTitle } from "../../lib/sessionTitle";
+import {
+  sortSidebarProjectGroups,
+  sortSidebarSessions,
+} from "../../lib/sidebarProjectOrder";
+import type { AppNotification, ProjectConfig, SessionInfo, SessionSearchMatch } from "../../types";
 import type { SettingsPage } from "../SettingsModal";
 
 export type SidebarHub = "scheduled" | null;
@@ -31,9 +36,12 @@ export interface SidebarProps {
   onPickFolder: () => void;
   settingsShortcut?: string;
   newChatShortcut?: string;
+  toggleSidebarShortcut?: string;
   searchRequested?: boolean;
   onSearchRequestHandled?: () => void;
   hoverPreview?: boolean;
+  onPinSidebar?: () => void;
+  onCloseSidebar?: () => void;
   onHoverEnter?: () => void;
   onHoverLeave?: () => void;
 }
@@ -133,4 +141,83 @@ export function readGroupMode(): SidebarGroupMode {
 
 export function sessionTimestamp(session: SessionInfo): number {
   return session.updatedAt || (session.createdAt ? Date.parse(session.createdAt) : 0) || 0;
+}
+
+export function buildSidebarProjectGroups(options: {
+  query: string;
+  sessions: readonly SessionInfo[];
+  projectConfigs: readonly ProjectConfig[];
+  snippetByFile: ReadonlyMap<string, string>;
+  workspaceView: "active" | "archived";
+  searchHits: readonly SessionSearchMatch[] | undefined;
+  pinnedSessionFiles: readonly string[];
+  stableSessionOrder: readonly string[];
+  workspaceOrder: readonly string[];
+}): Array<[string, SessionInfo[]]> {
+  const {
+    query,
+    sessions,
+    projectConfigs,
+    snippetByFile,
+    workspaceView,
+    searchHits,
+    pinnedSessionFiles,
+    stableSessionOrder,
+    workspaceOrder,
+  } = options;
+  const normalizedQuery = query.trim().toLowerCase();
+  const result = new Map<string, SessionInfo[]>();
+  const seenFiles = new Set<string>();
+  const canonicalKey = (rawWorkspace: string): string => {
+    if (!rawWorkspace) return "未知项目";
+    for (const existing of result.keys()) {
+      if (pathsEqual(existing, rawWorkspace)) return existing;
+    }
+    const configured = projectConfigs.find((project) => pathsEqual(project.path, rawWorkspace));
+    return configured?.path.trim() || rawWorkspace;
+  };
+  const appendSession = (key: string, session: SessionInfo) => {
+    let bucket = result.get(key);
+    if (!bucket) {
+      bucket = [];
+      result.set(key, bucket);
+    }
+    bucket.push(session);
+  };
+
+  for (const session of sessions) {
+    seenFiles.add(session.file);
+    const config = projectConfigs.find((project) => pathsEqual(project.path, session.cwd));
+    if (config?.hidden) continue;
+    const title = sessionTitle(session);
+    const projectName = config?.name.trim() || repoName(session.cwd);
+    const haystack = `${title} ${projectName} ${session.cwd}`.toLowerCase();
+    if (normalizedQuery && !haystack.includes(normalizedQuery) && !snippetByFile.has(session.file)) continue;
+    appendSession(canonicalKey(session.cwd), session);
+  }
+  if (normalizedQuery && workspaceView === "active") {
+    for (const hit of searchHits ?? []) {
+      if (seenFiles.has(hit.session.file)) continue;
+      const config = projectConfigs.find((project) => pathsEqual(project.path, hit.session.cwd));
+      if (config?.hidden) continue;
+      appendSession(canonicalKey(hit.session.cwd), hit.session);
+    }
+  }
+  for (const config of projectConfigs) {
+    if (config.hidden || !config.path.trim()) continue;
+    if ([...result.keys()].some((existing) => pathsEqual(existing, config.path))) continue;
+    const projectName = config.name.trim() || repoName(config.path);
+    const haystack = `${projectName} ${config.path}`.toLowerCase();
+    if (normalizedQuery && !haystack.includes(normalizedQuery)) continue;
+    result.set(config.path, []);
+  }
+  for (const [key, chats] of result) {
+    result.set(key, sortSidebarSessions(chats, [...pinnedSessionFiles], [...stableSessionOrder]));
+  }
+  return sortSidebarProjectGroups(
+    [...result.entries()],
+    [...projectConfigs],
+    [...stableSessionOrder],
+    [...workspaceOrder],
+  );
 }

@@ -28,6 +28,7 @@ import { messageImagesToAttachments, rewindController } from "./rewindController
 import {
   deriveSessionIntelligentUis,
   INTELLIGENT_UI_CANVAS_TAB_ID,
+  messageMayContainIntelligentUi,
 } from "./intelligentUi";
 import { pluginClient } from "./pluginClient";
 import { groupTranscriptMessages } from "./transcriptTurns";
@@ -343,8 +344,19 @@ function mountBuiltinIntelligentUiSync(): void {
       void syncFromHost();
     }
   });
+  const MAX_SEEN_HTML_ARTIFACTS = 512;
   const seenHtmlArtifacts = new Set<string>();
-  let trackedSessionFile: string | null = useAppStore.getState().sessionFile;
+  const rememberSeenArtifact = (key: string) => {
+    if (seenHtmlArtifacts.size >= MAX_SEEN_HTML_ARTIFACTS) {
+      const oldest = seenHtmlArtifacts.values().next().value;
+      if (oldest !== undefined) seenHtmlArtifacts.delete(oldest);
+    }
+    seenHtmlArtifacts.add(key);
+  };
+  const initial = useAppStore.getState();
+  let hydratedSessionKey: string | null = initial.messages.length > 0
+    ? (initial.sessionFile ?? "__draft__")
+    : null;
 
   useAppStore.subscribe((state, prev) => {
     if (state.cwd !== prev.cwd) {
@@ -352,16 +364,47 @@ function mountBuiltinIntelligentUiSync(): void {
       void syncFromHost();
     }
     if (state.messages !== prev.messages || state.sessionFile !== prev.sessionFile) {
-      const sessionChangedIdle = state.sessionFile !== trackedSessionFile && !state.isStreaming;
-      trackedSessionFile = state.sessionFile;
+      if (state.sessionFile !== prev.sessionFile && state.messages.length === 0) {
+        hydratedSessionKey = null;
+      }
+      if (!useIntelligentUiStore.getState().pluginEnabled) return;
       if (state.messages.length === 0) return;
+
+      const sessionKey = state.sessionFile ?? "__draft__";
+      const sameHydratedSession = hydratedSessionKey === sessionKey;
+      const isIdleSessionHydration = !sameHydratedSession && !state.isStreaming;
+      hydratedSessionKey = sessionKey;
+
+      // Fast path during 32ms streaming updates: if all prior messages are referentially identical
+      // and the tail message carries neither `render_ui`/`update_ui` nor an `intelligent-ui` fence, skip full derivation.
+      if (
+        sameHydratedSession
+        && state.sessionFile === prev.sessionFile
+        && prev.messages.length > 0
+        && state.messages.length >= prev.messages.length
+        && state.messages.length - prev.messages.length <= 1
+      ) {
+        const prefixEnd = state.messages.length === prev.messages.length
+          ? prev.messages.length - 1
+          : prev.messages.length;
+        let prefixUnchanged = true;
+        for (let i = 0; i < prefixEnd; i += 1) {
+          if (state.messages[i] !== prev.messages[i]) {
+            prefixUnchanged = false;
+            break;
+          }
+        }
+        const tail = state.messages[state.messages.length - 1];
+        if (prefixUnchanged && !messageMayContainIntelligentUi(tail)) return;
+      }
+
       const summary = deriveSessionIntelligentUis(groupTranscriptMessages(state.messages));
       for (const grp of summary.orderedGroups) {
         if (grp.latest.engine !== "html") continue;
         const key = `${state.sessionFile ?? "draft"}::${grp.id}::v${grp.latest.version}`;
         if (!seenHtmlArtifacts.has(key)) {
-          seenHtmlArtifacts.add(key);
-          if (!sessionChangedIdle && useIntelligentUiStore.getState().pluginEnabled) {
+          rememberSeenArtifact(key);
+          if (!isIdleSessionHydration) {
             useIntelligentUiStore.getState().openInCanvas(grp.id, grp.latest.version);
           }
         }

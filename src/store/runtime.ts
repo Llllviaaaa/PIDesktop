@@ -68,6 +68,7 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
         ctx.pendingOptimisticPrompt = null;
         ctx.activeTurnStartedAt = null;
         const localHistory = sessionFile ? agent.sessionHistory(sessionFile) : null;
+        let runtimeSyncStarted = false;
         set({
           connection: "starting",
           cwd,
@@ -86,7 +87,13 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
         });
         if (localHistory) {
           void localHistory.then((restoredMessages) => {
-            if (connectVersion !== ctx.connectionVersion) return;
+            if (
+              connectVersion !== ctx.connectionVersion
+              || runtimeSyncStarted
+              || get().messages.length > 0
+            ) {
+              return;
+            }
             set({
               messages: restoredMessages,
               agentBrowser: agentBrowserFromMessages(restoredMessages),
@@ -126,6 +133,7 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
             extensionRequest: existing?.extensionRequest ?? null,
             managedFollowUpQueue: ctx.managedFollowUpsByRuntime.get(runtimeId) ?? [],
           }));
+          runtimeSyncStarted = true;
           await ctx.syncSession(connectVersion, true);
           if (connectVersion !== ctx.connectionVersion) return;
           // A new task without a pick of its own starts from the remembered defaults.
@@ -525,8 +533,11 @@ export function createRuntimeSlice(set: SetState, get: GetState, ctx: StoreConte
       const cwd = get().cwd;
       if (!cwd) return;
       try {
-        set({ git: await agent.gitSnapshot(cwd) });
+        const snapshot = await agent.gitSnapshot(cwd);
+        if (get().cwd !== cwd) return;
+        set({ git: snapshot });
       } catch (error) {
+        if (get().cwd !== cwd) return;
         get().appendLog(`读取 Git 更改失败：${describeError(error)}`);
       }
     },

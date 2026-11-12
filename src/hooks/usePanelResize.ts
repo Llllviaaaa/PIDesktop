@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
   clampSize,
@@ -47,9 +47,23 @@ export interface PanelResize {
 export function usePanelResize(options: PanelResizeOptions): PanelResize {
   const { storageKey, bounds, keys, axis, growsWithPointer, resizingClass, scale, maxSize } = options;
   const [size, setSizeState] = useState(() => readStoredSize(storageKey, bounds));
+  const sizeRef = useRef(size);
+  const cleanupDragRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    sizeRef.current = size;
+  }, [size]);
+
+  useEffect(() => () => {
+    cleanupDragRef.current?.();
+  }, []);
 
   const setSize = useCallback(
-    (next: number) => setSizeState(clampSize(next, bounds)),
+    (next: number) => {
+      const clamped = clampSize(next, bounds);
+      sizeRef.current = clamped;
+      setSizeState(clamped);
+    },
     [bounds],
   );
 
@@ -57,34 +71,59 @@ export function usePanelResize(options: PanelResizeOptions): PanelResize {
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
       event.preventDefault();
+      cleanupDragRef.current?.();
+
       const target = event.currentTarget;
       const pointerId = event.pointerId;
       const start = axis === "x" ? event.clientX : event.clientY;
-      const startSize = size;
+      const startSize = sizeRef.current;
       const limit = maxSize();
+      const safeScale = scale > 0 ? scale : 1;
+      let latestSize = startSize;
+      let rafId: number | null = null;
 
       const onMove = (move: PointerEvent) => {
         if (move.pointerId !== pointerId) return;
         const current = axis === "x" ? move.clientX : move.clientY;
-        const travelled = (growsWithPointer ? current - start : start - current) / scale;
-        setSizeState(Math.min(limit, Math.max(bounds.min, startSize + travelled)));
+        const travelled = (growsWithPointer ? current - start : start - current) / safeScale;
+        latestSize = Math.min(limit, Math.max(bounds.min, startSize + travelled));
+        sizeRef.current = latestSize;
+        if (rafId === null) {
+          rafId = window.requestAnimationFrame(() => {
+            rafId = null;
+            setSizeState(latestSize);
+          });
+        }
+      };
+
+      const cleanup = () => {
+        if (rafId !== null) {
+          window.cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        try {
+          if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
+        } catch {
+          // Element may already be detached from DOM.
+        }
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        document.body.classList.remove(resizingClass);
+        cleanupDragRef.current = null;
       };
 
       const onUp = (up: PointerEvent) => {
         if (up.pointerId !== pointerId) return;
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        window.removeEventListener("pointercancel", onUp);
-        if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        document.body.classList.remove(resizingClass);
-        setSizeState((current) => {
-          writeStoredSize(storageKey, current);
-          return current;
-        });
+        cleanup();
+        sizeRef.current = latestSize;
+        setSizeState(latestSize);
+        writeStoredSize(storageKey, latestSize);
       };
 
+      cleanupDragRef.current = cleanup;
       target.setPointerCapture(pointerId);
       document.body.style.cursor = axis === "x" ? "col-resize" : "row-resize";
       document.body.style.userSelect = "none";
@@ -93,22 +132,23 @@ export function usePanelResize(options: PanelResizeOptions): PanelResize {
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onUp);
     },
-    [axis, bounds.min, growsWithPointer, maxSize, resizingClass, scale, size, storageKey],
+    [axis, bounds.min, growsWithPointer, maxSize, resizingClass, scale, storageKey],
   );
 
   const resizeWithKeyboard = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      const next = nextSizeFromKey(event.key, event.shiftKey, size, keys, {
+      const next = nextSizeFromKey(event.key, event.shiftKey, sizeRef.current, keys, {
         min: bounds.min,
         max: maxSize(),
       });
       // A key this panel does not handle must keep its default behaviour.
       if (next === null) return;
       event.preventDefault();
+      sizeRef.current = next;
       setSizeState(next);
       writeStoredSize(storageKey, next);
     },
-    [bounds.min, keys, maxSize, size, storageKey],
+    [bounds.min, keys, maxSize, storageKey],
   );
 
   return { size, setSize, beginResize, resizeWithKeyboard };

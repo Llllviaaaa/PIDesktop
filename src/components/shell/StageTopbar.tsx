@@ -9,9 +9,10 @@ export interface StageTopbarProps {
   newTask: boolean;
   hubView: HubView | null;
   sidebarVisible: boolean;
-  pinPrimarySidebar: () => void;
-  showSidebarHoverPreview: () => void;
-  scheduleSidebarHoverClose: () => void;
+  sidebarRendered: boolean;
+  isNarrowViewport: boolean;
+  toggleSidebarShortcut?: string;
+  togglePrimarySidebar: () => void;
   connected: boolean;
   isStreaming: boolean;
   editingTitle: boolean;
@@ -62,9 +63,10 @@ export function StageTopbar({
   newTask,
   hubView,
   sidebarVisible,
-  pinPrimarySidebar,
-  showSidebarHoverPreview,
-  scheduleSidebarHoverClose,
+  sidebarRendered,
+  isNarrowViewport,
+  toggleSidebarShortcut = "Ctrl+B",
+  togglePrimarySidebar,
   connected,
   isStreaming,
   editingTitle,
@@ -106,16 +108,20 @@ export function StageTopbar({
   revealWorkspaceInExplorer,
   openBottomTerminal,
 }: StageTopbarProps) {
+  const sidebarToggleLabel = isNarrowViewport
+    ? (sidebarRendered ? "隐藏侧栏" : "显示侧栏")
+    : "固定侧栏";
   return (
     <header className={`topbar ${newTask && !hubView ? "topbar-home" : ""}`} data-tauri-drag-region>
       <div className="topbar-left" data-tauri-drag-region>
         {!sidebarVisible && (
           <button
+            type="button"
             className="icon-button"
-            onClick={pinPrimarySidebar}
-            onMouseEnter={showSidebarHoverPreview}
-            onMouseLeave={scheduleSidebarHoverClose}
-            title="显示侧栏"
+            data-sidebar-toggle
+            onClick={togglePrimarySidebar}
+            title={`${sidebarToggleLabel} (${toggleSidebarShortcut})`}
+            aria-label={sidebarToggleLabel}
           >
             <Menu size={17} />
           </button>

@@ -1,14 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ExternalLink, Globe, RefreshCw } from "lucide-react";
+import { ExternalLink, Globe, RefreshCw, ShieldAlert } from "lucide-react";
 import { useSyncOnChange } from "../../hooks/useSyncOnChange";
-import { agentBrowserFromMessages } from "../../lib/toolPanels";
 import { useAppStore } from "../../store";
 import { resolveWorkspacePreviewUrl, useWorkbenchStore } from "../../stores/workbenchStore";
 
 function looksLikeWorkspaceHtmlPath(raw: string): boolean {
   const trimmed = raw.trim();
-  if (!trimmed || /^https?:\/\//i.test(trimmed)) return false;
+  if (!trimmed || /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed)) return false;
   if (/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(trimmed)) return false;
   if (trimmed.startsWith("./") || trimmed.startsWith("../")) return true;
   return /\.(?:html?|svg)(?:[?#].*)?$/i.test(trimmed);
@@ -18,17 +17,60 @@ function normalizePreviewUrl(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  // Preserve explicit non-http(s) schemes so `sanitizePreviewUrl` blocks them instead of mangling.
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed)) return trimmed;
   if (/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(trimmed)) {
     return `http://${trimmed}`;
   }
   return `https://${trimmed}`;
 }
 
+/**
+ * Validate a candidate preview URL before embedding in a `sandbox="allow-scripts allow-same-origin"` iframe.
+ * Allows only `http:` / `https:`, blocks internal Tauri/WebView2 IPC pseudo-hosts, and blocks same-origin with
+ * the Qianji renderer shell so untrusted pages cannot access `window.parent`.
+ */
+export function sanitizePreviewUrl(raw: string, hostOrigin?: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return null;
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (
+    !hostname
+    || hostname === "tauri.localhost"
+    || hostname === "ipc.localhost"
+    || hostname === "asset.localhost"
+    || hostname.endsWith(".tauri.localhost")
+    || hostname.endsWith(".ipc.localhost")
+    || hostname.endsWith(".asset.localhost")
+  ) {
+    return null;
+  }
+  const effectiveHostOrigin = hostOrigin ?? (
+    typeof window !== "undefined" && window.location ? window.location.origin : undefined
+  );
+  if (
+    effectiveHostOrigin
+    && effectiveHostOrigin !== "null"
+    && parsed.origin.toLowerCase() === effectiveHostOrigin.toLowerCase()
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
 export function BrowserPreviewTab({ cwd = "" }: { cwd?: string }) {
   const previewUrl = useWorkbenchStore((state) => state.previewUrl);
   const setPreviewUrl = useWorkbenchStore((state) => state.setPreviewUrl);
-  const messages = useAppStore((state) => state.messages);
-  const agentBrowser = agentBrowserFromMessages(messages);
+  const agentBrowser = useAppStore((state) => state.agentBrowser);
 
   const [draftUrl, setDraftUrl] = useState(() => previewUrl);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -37,9 +79,10 @@ export function BrowserPreviewTab({ cwd = "" }: { cwd?: string }) {
     setDraftUrl(previewUrl);
   });
 
-  const activeUrl = previewUrl || (
-    agentBrowser?.url && /^https?:\/\//i.test(agentBrowser.url) ? agentBrowser.url : ""
-  );
+  const rawCandidate = previewUrl.trim() || (agentBrowser?.url?.trim() ?? "");
+  const activeUrl = sanitizePreviewUrl(rawCandidate) ?? "";
+  const isBlockedCandidate = previewUrl.trim() !== "" && sanitizePreviewUrl(previewUrl) === null;
+  const safeAgentBrowserUrl = agentBrowser?.url ? sanitizePreviewUrl(agentBrowser.url) : null;
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -97,11 +140,11 @@ export function BrowserPreviewTab({ cwd = "" }: { cwd?: string }) {
         <div className="pid-wb-browser-snapshot">
           <div className="pid-wb-section-header">
             <span>Agent 浏览器最新快照：{agentBrowser.title}</span>
-            {/^https?:\/\//i.test(agentBrowser.url) && (
+            {safeAgentBrowserUrl && (
               <button
                 type="button"
                 className="pid-wb-btn small"
-                onClick={() => setPreviewUrl(agentBrowser.url)}
+                onClick={() => setPreviewUrl(safeAgentBrowserUrl)}
               >
                 载入此地址
               </button>
@@ -116,7 +159,12 @@ export function BrowserPreviewTab({ cwd = "" }: { cwd?: string }) {
       )}
 
       <div className="pid-wb-preview-stage">
-        {activeUrl ? (
+        {isBlockedCandidate ? (
+          <div className="pid-wb-empty error">
+            <ShieldAlert size={22} className="pid-wb-empty-icon" />
+            <p>已拦截不安全的预览地址：仅允许独立的 http:// 或 https:// 页面（禁止伪协议、内部 IPC 域名或宿主同源地址）。</p>
+          </div>
+        ) : activeUrl ? (
           <iframe
             key={`${activeUrl}:${reloadNonce}`}
             className="pid-wb-iframe"

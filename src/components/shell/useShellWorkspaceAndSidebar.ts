@@ -4,6 +4,13 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useSyncOnChange } from "../../hooks/useSyncOnChange";
 import { agent } from "../../lib/agent";
 import { describeError } from "../../lib/errors";
+import {
+  isCollapsibleNarrowViewport,
+  readStoredSidebarPinned,
+  resolveEffectiveSidebarVisible,
+  resolveUiScale,
+  writeStoredSidebarPinned,
+} from "../../lib/panelLayout";
 import { sameLocalPath } from "../../lib/pathIdentity";
 import { queryKeys } from "../../lib/queries";
 import { preferredEditorFor, rememberProjectEditor } from "../../lib/workspaceEditors";
@@ -52,7 +59,11 @@ export function useShellWorkspaceAndSidebar({
   setDraftWorkspace,
 }: UseShellWorkspaceAndSidebarOptions) {
   const queryClient = useQueryClient();
-  const [sidebarVisible, setSidebarVisible] = useState(() => window.innerWidth > 900);
+  const layoutScale = resolveUiScale(settings?.uiScale);
+  const [sidebarPinned, setSidebarPinned] = useState(() => readStoredSidebarPinned());
+  const [isNarrowViewport, setIsNarrowViewport] = useState(
+    () => isCollapsibleNarrowViewport(window.innerWidth, window.innerHeight, layoutScale),
+  );
   const [sidebarHoverPreview, setSidebarHoverPreview] = useState(false);
   const sidebarHoverCloseTimerRef = useRef<number | null>(null);
   const [editorChoiceOverride, setEditorChoiceOverride] = useState<{ workspace: string; id: string } | null>(null);
@@ -60,7 +71,26 @@ export function useShellWorkspaceAndSidebar({
   const [quickChat, setQuickChat] = useState(false);
   const [taskEnvironment, setTaskEnvironment] = useState<"local" | "worktree">("local");
 
+  useSyncOnChange([layoutScale], () => {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    if (width <= 0 || height <= 0) return;
+    setIsNarrowViewport(isCollapsibleNarrowViewport(width, height, layoutScale));
+  });
+
+  useEffect(() => {
+    const syncViewport = () => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      if (width <= 0 || height <= 0) return;
+      setIsNarrowViewport(isCollapsibleNarrowViewport(width, height, layoutScale));
+    };
+    window.addEventListener("resize", syncViewport);
+    return () => window.removeEventListener("resize", syncViewport);
+  }, [layoutScale]);
+
   const workspaceCwd = newTask ? draftWorkspace : cwd;
+  const sidebarVisible = resolveEffectiveSidebarVisible(sidebarPinned, isNarrowViewport);
   const sidebarRendered = sidebarVisible || sidebarHoverPreview;
 
   const draftGitQuery = useQuery({
@@ -132,17 +162,30 @@ export function useShellWorkspaceAndSidebar({
     }, 160);
   }, [cancelSidebarHoverClose, sidebarVisible]);
 
-  const togglePrimarySidebar = useCallback(() => {
+  const closeSidebarHoverPreview = useCallback(() => {
     cancelSidebarHoverClose();
     setSidebarHoverPreview(false);
-    setSidebarVisible((value) => !value);
   }, [cancelSidebarHoverClose]);
+
+  const togglePrimarySidebar = useCallback(() => {
+    cancelSidebarHoverClose();
+    if (isNarrowViewport) {
+      setSidebarHoverPreview((value) => !value);
+      return;
+    }
+    setSidebarHoverPreview(false);
+    setSidebarPinned((value) => !value);
+  }, [cancelSidebarHoverClose, isNarrowViewport]);
 
   const pinPrimarySidebar = useCallback(() => {
     cancelSidebarHoverClose();
-    setSidebarHoverPreview(false);
-    setSidebarVisible(true);
-  }, [cancelSidebarHoverClose]);
+    setSidebarPinned(true);
+    setSidebarHoverPreview(isNarrowViewport);
+  }, [cancelSidebarHoverClose, isNarrowViewport]);
+
+  useEffect(() => {
+    writeStoredSidebarPinned(sidebarPinned);
+  }, [sidebarPinned]);
 
   useSyncOnChange([sidebarVisible], () => {
     if (sidebarVisible) setSidebarHoverPreview(false);
@@ -151,6 +194,27 @@ export function useShellWorkspaceAndSidebar({
     if (sidebarVisible) cancelSidebarHoverClose();
   }, [cancelSidebarHoverClose, sidebarVisible]);
   useEffect(() => () => cancelSidebarHoverClose(), [cancelSidebarHoverClose]);
+
+  useEffect(() => {
+    if (!sidebarHoverPreview || sidebarVisible) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest(".primary-sidebar-panel, [data-sidebar-toggle], .sidebar-hover-zone")) return;
+      closeSidebarHoverPreview();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (document.querySelector("[data-escape-layer]")) return;
+      event.preventDefault();
+      closeSidebarHoverPreview();
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [closeSidebarHoverPreview, sidebarHoverPreview, sidebarVisible]);
 
   const defaultTaskEnvironment = settings?.defaultTaskEnvironment;
   const settingsLoaded = Boolean(settings);
@@ -264,11 +328,13 @@ export function useShellWorkspaceAndSidebar({
 
   return {
     sidebarVisible,
-    setSidebarVisible,
+    sidebarPinned,
+    isNarrowViewport,
     sidebarHoverPreview,
     sidebarRendered,
     cancelSidebarHoverClose,
     showSidebarHoverPreview,
+    closeSidebarHoverPreview,
     scheduleSidebarHoverClose,
     togglePrimarySidebar,
     pinPrimarySidebar,

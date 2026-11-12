@@ -77,65 +77,6 @@ impl Drop for AppState {
     }
 }
 
-#[tauri::command]
-fn browser_webview_action(
-    app: AppHandle,
-    label: String,
-    action: String,
-    url: Option<String>,
-) -> Result<(), AppError> {
-    let webview = app
-        .get_webview(&label)
-        .ok_or_else(|| AppError::NotFound("browser webview is not available".to_string()))?;
-    #[cfg(windows)]
-    webview_guard::ensure_child_webview_attached(&app, &webview);
-    match action.as_str() {
-        "navigate" => {
-            let raw =
-                url.ok_or_else(|| AppError::InvalidInput("browser URL is required".to_string()))?;
-            let parsed = tauri::Url::parse(&raw)
-                .map_err(|err| AppError::InvalidInput(format!("invalid browser URL: {err}")))?;
-            if !matches!(parsed.scheme(), "http" | "https") {
-                return Err(AppError::InvalidInput(
-                    "browser only supports HTTP(S) URLs".to_string(),
-                ));
-            }
-            webview
-                .navigate(parsed)
-                .map_err(|err| AppError::Other(err.to_string()))
-        }
-        "back" => webview
-            .eval("history.back()")
-            .map_err(|err| AppError::Other(err.to_string())),
-        "forward" => webview
-            .eval("history.forward()")
-            .map_err(|err| AppError::Other(err.to_string())),
-        "reload" => webview
-            .reload()
-            .map_err(|err| AppError::Other(err.to_string())),
-        // Native webviews float above the page, so a hidden browser tab must hide them.
-        "hide" => webview
-            .hide()
-            .map_err(|err| AppError::Other(err.to_string())),
-        "show" => webview
-            .show()
-            .map_err(|err| AppError::Other(err.to_string())),
-        "devtools" => {
-            // Only the embedded browser gets an inspector, never the app's own UI.
-            if !label.starts_with("workspace-browser-") {
-                return Err(AppError::InvalidInput(
-                    "developer tools are only available for the embedded browser".to_string(),
-                ));
-            }
-            webview.open_devtools();
-            Ok(())
-        }
-        _ => Err(AppError::InvalidInput(
-            "unsupported browser action".to_string(),
-        )),
-    }
-}
-
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
@@ -217,10 +158,8 @@ fn initialize_tray(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-/// The `devtools` feature is on for the embedded browser's inspector, which also
-/// lets WebView2 open DevTools on the app's own windows (F12, or 检查 in its
-/// default context menu). Release builds turn that off for the windows from
-/// tauri.conf.json; the embedded browser's webviews are created later and keep it.
+/// Release builds explicitly disable WebView2 DevTools on application windows
+/// (F12 and the default context-menu inspector) while keeping them enabled in debug builds.
 #[cfg(all(windows, not(debug_assertions)))]
 pub(crate) fn disable_window_devtools(label: &str, window: &tauri::WebviewWindow) {
     let owned_label = label.to_string();
@@ -366,7 +305,6 @@ pub fn run() {
             reveal_path_in_file_manager,
             list_terminal_apps,
             open_workspace_in_terminal_app,
-            browser_webview_action,
             terminal::terminal_shells,
             terminal::terminal_create,
             terminal::terminal_write,

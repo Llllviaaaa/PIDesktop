@@ -1,4 +1,4 @@
-import type { ComponentProps } from "react";
+import { useCallback, useMemo, type ComponentProps } from "react";
 import { findMentionCandidates } from "../../lib/workspaceSearch";
 import type { AppSettings, GitSnapshot, SessionStats } from "../../types";
 import { RegionErrorBoundary } from "../common/ErrorBoundary";
@@ -97,6 +97,17 @@ export function ShellComposer({
   onMoveQueuedMessage,
   onSteerQueuedMessage,
 }: ShellComposerProps) {
+  const handleAttachFiles = useCallback(
+    (files: string[]) => {
+      void onAttachFiles(files);
+    },
+    [onAttachFiles],
+  );
+  const handleSearchFiles = useMemo(
+    () => (workspaceCwd && !quickChat ? (q: string, sig: AbortSignal) => findMentionCandidates(workspaceCwd, q, sig) : undefined),
+    [quickChat, workspaceCwd],
+  );
+
   return (
     <RegionErrorBoundary region="输入栏" resetKey={`${variant}:${sessionFile ?? "draft"}`}>
       <Composer
@@ -132,9 +143,9 @@ export function ShellComposer({
         onSend={onSend}
         onStop={onStop}
         onPickAttachments={onPickAttachments}
-        onAttachFiles={(files) => void onAttachFiles(files)}
+        onAttachFiles={handleAttachFiles}
         onAttachPayloads={onAttachPayloads}
-        onSearchFiles={workspaceCwd && !quickChat ? (q, sig) => findMentionCandidates(workspaceCwd, q, sig) : undefined}
+        onSearchFiles={handleSearchFiles}
         onRemoveAttachment={onRemoveAttachment}
         onModelChange={onModelChange}
         onThinkingChange={onThinkingChange}

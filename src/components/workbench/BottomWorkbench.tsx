@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { Suspense, lazy, useCallback, useState } from "react";
 import { Plus, TerminalSquare, X } from "lucide-react";
 import { usePanelResize } from "../../hooks/usePanelResize";
 import { useClientContributions } from "../../lib/clientContributions";
@@ -10,7 +10,10 @@ import {
 } from "../../lib/panelLayout";
 import { useWorkbenchStore } from "../../stores/workbenchStore";
 import { SlotEntryHost } from "../common/ErrorBoundary";
-import { TerminalPanel } from "./TerminalPanel";
+
+const LazyTerminalPanel = lazy(() =>
+  import("./TerminalPanel").then((mod) => ({ default: mod.TerminalPanel })),
+);
 
 export interface BottomWorkbenchProps {
   cwd: string;
@@ -120,7 +123,9 @@ export function BottomWorkbench({ cwd, sessionFile, layoutScale }: BottomWorkben
       </header>
       <div className="pid-bottom-body">
         <div className="pid-bottom-terminal-pane" hidden={Boolean(activePluginTab)}>
-          <TerminalPanel cwd={cwd} visible={terminalVisible} />
+          <Suspense fallback={<div className="pid-wb-empty">正在加载集成终端…</div>}>
+            <LazyTerminalPanel cwd={cwd} visible={terminalVisible} />
+          </Suspense>
         </div>
         {activePluginTab ? (
           <SlotEntryHost

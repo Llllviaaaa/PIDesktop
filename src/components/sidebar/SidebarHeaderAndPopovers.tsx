@@ -7,6 +7,8 @@ import {
   FolderPlus,
   ListFilter,
   MessageCircleQuestion,
+  PanelLeftClose,
+  Pin,
   Plus,
   Search,
   ShieldCheck,
@@ -43,6 +45,9 @@ export interface SidebarHeaderAndPopoversProps {
   closePopovers: () => void;
   clearProjectMenu: () => void;
   onPickFolder: () => void;
+  toggleSidebarShortcut?: string;
+  onPinSidebar?: () => void;
+  onCloseSidebar?: () => void;
 }
 
 export function SidebarHeaderAndPopovers({
@@ -72,6 +77,9 @@ export function SidebarHeaderAndPopovers({
   closePopovers,
   clearProjectMenu,
   onPickFolder,
+  toggleSidebarShortcut = "Ctrl+B",
+  onPinSidebar,
+  onCloseSidebar,
 }: SidebarHeaderAndPopoversProps) {
   return (
     <>
@@ -91,6 +99,28 @@ export function SidebarHeaderAndPopovers({
         </button>
 
         <div className="sidebar-brand-actions">
+          {onPinSidebar && (
+            <button
+              type="button"
+              className="icon-button sidebar-pin-button"
+              title={`固定侧栏 (${toggleSidebarShortcut})`}
+              aria-label="固定侧栏"
+              onClick={onPinSidebar}
+            >
+              <Pin size={14} strokeWidth={1.75} />
+            </button>
+          )}
+          {!onPinSidebar && onCloseSidebar && (
+            <button
+              type="button"
+              className="icon-button sidebar-pin-button"
+              title={`收起侧栏 (${toggleSidebarShortcut})`}
+              aria-label="收起侧栏"
+              onClick={onCloseSidebar}
+            >
+              <PanelLeftClose size={15} strokeWidth={1.75} />
+            </button>
+          )}
           <button
             type="button"
             className={`icon-button ${searchOpen || query ? "active" : ""}`}

@@ -1,4 +1,4 @@
-import { useCallback, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ChevronDown,
@@ -14,7 +14,7 @@ import {
 import { useSyncOnChange } from "../../hooks/useSyncOnChange";
 import { agent } from "../../lib/agent";
 import { describeError } from "../../lib/errors";
-import { useWorkbenchStore } from "../../stores/workbenchStore";
+import { resolveWorkspaceActiveFilePath, useWorkbenchStore } from "../../stores/workbenchStore";
 import type { WorkspaceDirEntry } from "../../types";
 
 export interface WorkspaceFilesTabProps {
@@ -31,12 +31,18 @@ function sortEntries(entries: readonly WorkspaceDirEntry[]): WorkspaceDirEntry[]
 
 export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) {
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [childEntries, setChildEntries] = useState<Record<string, WorkspaceDirEntry[]>>({});
   const [loadingDirs, setLoadingDirs] = useState<Record<string, boolean>>({});
   const [dirErrors, setDirErrors] = useState<Record<string, string>>({});
   const searchBaseId = useId();
-  const activeFilePath = useWorkbenchStore((state) => state.activeFilePath);
+  const activeFilePath = useWorkbenchStore((state) => resolveWorkspaceActiveFilePath(state, cwd));
+  const cwdRef = useRef(cwd);
+
+  useEffect(() => {
+    cwdRef.current = cwd;
+  }, [cwd]);
 
   useSyncOnChange([cwd], () => {
     setExpanded({});
@@ -44,6 +50,20 @@ export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) 
     setLoadingDirs({});
     setDirErrors({});
   });
+
+  useSyncOnChange([query], () => {
+    if (query.trim() === "") {
+      setDebouncedQuery("");
+    }
+  });
+
+  useEffect(() => {
+    if (query.trim() === "") return;
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   const rootQuery = useQuery({
     queryKey: ["workbench-dir", cwd],
@@ -53,13 +73,26 @@ export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) 
   });
 
   const trimmedQuery = query.trim();
+  const debouncedTrimmedQuery = debouncedQuery.trim();
   const searchQuery = useQuery({
-    queryKey: ["workbench-search", cwd, trimmedQuery],
-    queryFn: async () => {
+    queryKey: ["workbench-search", cwd, debouncedTrimmedQuery],
+    queryFn: async ({ signal }) => {
       const requestId = `${searchBaseId}-${Date.now()}`;
-      return agent.searchWorkspaceFiles(cwd, trimmedQuery, requestId);
+      const abortSearch = () => {
+        void agent.cancelWorkspaceSearch(requestId).catch(() => undefined);
+      };
+      if (signal.aborted) {
+        abortSearch();
+        return [];
+      }
+      signal.addEventListener("abort", abortSearch, { once: true });
+      try {
+        return await agent.searchWorkspaceFiles(cwd, debouncedTrimmedQuery, requestId);
+      } finally {
+        signal.removeEventListener("abort", abortSearch);
+      }
     },
-    enabled: Boolean(cwd) && trimmedQuery.length > 0,
+    enabled: Boolean(cwd) && debouncedTrimmedQuery.length > 0,
     staleTime: 5_000,
   });
 
@@ -74,6 +107,7 @@ export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) 
     const nextOpen = !expanded[dirPath];
     setExpanded((prev) => ({ ...prev, [dirPath]: nextOpen }));
     if (!nextOpen || childEntries[dirPath] !== undefined || !cwd) return;
+    const requestCwd = cwd;
     setLoadingDirs((prev) => ({ ...prev, [dirPath]: true }));
     setDirErrors((prev) => {
       const next = { ...prev };
@@ -81,12 +115,16 @@ export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) 
       return next;
     });
     try {
-      const listed = sortEntries(await agent.listWorkspaceDir(cwd, dirPath));
+      const listed = sortEntries(await agent.listWorkspaceDir(requestCwd, dirPath));
+      if (cwdRef.current !== requestCwd) return;
       setChildEntries((prev) => ({ ...prev, [dirPath]: listed }));
     } catch (error) {
+      if (cwdRef.current !== requestCwd) return;
       setDirErrors((prev) => ({ ...prev, [dirPath]: describeError(error) }));
     } finally {
-      setLoadingDirs((prev) => ({ ...prev, [dirPath]: false }));
+      if (cwdRef.current === requestCwd) {
+        setLoadingDirs((prev) => ({ ...prev, [dirPath]: false }));
+      }
     }
   }, [childEntries, cwd, expanded]);
 
@@ -169,6 +207,8 @@ export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) 
     return <div className="pid-wb-empty">先打开一个项目工作区以浏览文件。</div>;
   }
 
+  const isSearching = trimmedQuery !== debouncedTrimmedQuery || searchQuery.isLoading;
+
   return (
     <div className="pid-wb-pane">
       <div className="pid-wb-subbar">
@@ -194,7 +234,7 @@ export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) 
 
       <div className="pid-wb-scroll">
         {trimmedQuery ? (
-          searchQuery.isLoading ? (
+          isSearching ? (
             <div className="pid-wb-empty">正在搜索文件…</div>
           ) : searchQuery.isError ? (
             <div className="pid-wb-empty error">{describeError(searchQuery.error)}</div>

@@ -14,6 +14,9 @@ import type { AppMenu, NavigationTarget } from "./shellTypes";
 export interface WindowMenubarProps {
   appWindow: TauriWindow | null;
   sidebarVisible: boolean;
+  sidebarRendered: boolean;
+  isNarrowViewport: boolean;
+  toggleSidebarShortcut?: string;
   settingsOpen: boolean;
   setSettingsOpen: (next: boolean) => void;
   canNavigateBack: boolean;
@@ -22,8 +25,6 @@ export interface WindowMenubarProps {
   navigateForward: () => void;
   navigateTo: (target: NavigationTarget) => void;
   togglePrimarySidebar: () => void;
-  showSidebarHoverPreview: () => void;
-  scheduleSidebarHoverClose: () => void;
   appMenu: AppMenu | null;
   setAppMenu: React.Dispatch<React.SetStateAction<AppMenu | null>>;
   draftWorkspace: string;
@@ -47,6 +48,9 @@ export interface WindowMenubarProps {
 export function WindowMenubar({
   appWindow,
   sidebarVisible,
+  sidebarRendered,
+  isNarrowViewport,
+  toggleSidebarShortcut = "Ctrl+B",
   settingsOpen,
   setSettingsOpen,
   canNavigateBack,
@@ -55,8 +59,6 @@ export function WindowMenubar({
   navigateForward,
   navigateTo,
   togglePrimarySidebar,
-  showSidebarHoverPreview,
-  scheduleSidebarHoverClose,
   appMenu,
   setAppMenu,
   draftWorkspace,
@@ -76,16 +78,19 @@ export function WindowMenubar({
   openSettingsPage,
   openDiagnostics,
 }: WindowMenubarProps) {
+  const sidebarToggleLabel = sidebarVisible || sidebarRendered
+    ? "隐藏侧栏"
+    : isNarrowViewport ? "显示侧栏" : "固定侧栏";
   return (
     <div className="window-menubar" data-tauri-drag-region>
       <div className="window-menubar-left" data-tauri-drag-region>
         <button
           type="button"
           className="window-nav-button"
+          data-sidebar-toggle
           onClick={togglePrimarySidebar}
-          onMouseEnter={settingsOpen ? undefined : showSidebarHoverPreview}
-          onMouseLeave={settingsOpen ? undefined : scheduleSidebarHoverClose}
-          title={sidebarVisible ? "隐藏侧栏" : "显示侧栏"}
+          title={`${sidebarToggleLabel} (${toggleSidebarShortcut})`}
+          aria-label={sidebarToggleLabel}
         >
           <PanelLeft size={17} strokeWidth={1.65} />
         </button>
@@ -213,7 +218,7 @@ export function WindowMenubar({
                     togglePrimarySidebar();
                   }}
                 >
-                  {sidebarVisible ? "隐藏侧栏" : "显示侧栏"}
+                  {sidebarVisible || sidebarRendered ? "隐藏侧栏" : "显示侧栏"}
                 </button>
                 {TRANSCRIPT_DENSITY_ORDER.map((value) => (
                   <button

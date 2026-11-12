@@ -263,10 +263,28 @@ export function planFromToolCall(call: UiToolCall): TaskPlanSummary | null {
   return { explanation, steps, completed: steps.filter((step) => step.status === "completed").length };
 }
 
-function latestPlanIn(messages: UiMessage[]): TaskPlanSummary | null {
-  const calls = messages.flatMap((message) => message.toolCalls ?? []);
+const messageLatestPlanCache = new WeakMap<UiMessage, TaskPlanSummary | null>();
+
+function latestPlanInMessage(message: UiMessage): TaskPlanSummary | null {
+  if (messageLatestPlanCache.has(message)) {
+    return messageLatestPlanCache.get(message) ?? null;
+  }
+  const calls = message.toolCalls ?? [];
+  let resolved: TaskPlanSummary | null = null;
   for (let index = calls.length - 1; index >= 0; index -= 1) {
     const plan = planFromToolCall(calls[index]);
+    if (plan) {
+      resolved = plan;
+      break;
+    }
+  }
+  messageLatestPlanCache.set(message, resolved);
+  return resolved;
+}
+
+function latestPlanIn(messages: UiMessage[]): TaskPlanSummary | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const plan = latestPlanInMessage(messages[index]);
     if (plan) return plan;
   }
   return null;
@@ -304,7 +322,7 @@ export function deriveTurnPlans(messages: UiMessage[], skipOpenTurn = false): Ma
       turnPlan = null;
       continue;
     }
-    const plan = latestPlanIn([message]);
+    const plan = latestPlanInMessage(message);
     if (plan) turnPlan = { messageId: message.id, plan };
   }
   if (turnPlan) plans.set(turnPlan.messageId, turnPlan.plan);

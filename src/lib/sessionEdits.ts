@@ -8,19 +8,45 @@ import { classifyToolKind, toolPathFromArgs } from "./toolPresentation";
 
 const normalize = (path: string): string => path.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 
+const EMPTY_PATHS: readonly string[] = [];
+const messageEditedPathsCache = new WeakMap<UiMessage, readonly string[]>();
+const arrayEditedPathsCache = new WeakMap<readonly UiMessage[], string[]>();
+
+function editedPathsForMessage(message: UiMessage): readonly string[] {
+  const cached = messageEditedPathsCache.get(message);
+  if (cached) return cached;
+  const calls = message.toolCalls;
+  if (!calls || calls.length === 0) {
+    messageEditedPathsCache.set(message, EMPTY_PATHS);
+    return EMPTY_PATHS;
+  }
+  const found: string[] = [];
+  for (const call of calls) {
+    if (call.isError || call.running) continue;
+    const kind = classifyToolKind(call.name);
+    if (kind !== "edit" && kind !== "write") continue;
+    const path = toolPathFromArgs(call.args);
+    if (path) found.push(path);
+  }
+  const result = found.length > 0 ? found : EMPTY_PATHS;
+  messageEditedPathsCache.set(message, result);
+  return result;
+}
+
 /** The paths this session's successful edit and write tool calls wrote, as the tools were given them. */
 export function sessionEditedPaths(messages: readonly UiMessage[]): string[] {
+  const cached = arrayEditedPathsCache.get(messages);
+  if (cached) return cached;
   const paths = new Set<string>();
   for (const message of messages) {
-    for (const call of message.toolCalls ?? []) {
-      if (call.isError || call.running) continue;
-      const kind = classifyToolKind(call.name);
-      if (kind !== "edit" && kind !== "write") continue;
-      const path = toolPathFromArgs(call.args);
-      if (path) paths.add(path);
+    const perMessage = editedPathsForMessage(message);
+    for (const path of perMessage) {
+      paths.add(path);
     }
   }
-  return [...paths];
+  const result = [...paths];
+  arrayEditedPathsCache.set(messages, result);
+  return result;
 }
 
 /**

@@ -280,6 +280,30 @@ export function usePluginConfig<T extends object = Record<string, unknown>>(
   return config as T;
 }
 
+const inflightHostRpcQueries = new Map<string, Promise<unknown>>();
+
+function callDedupedHostRpc<T>(
+  queryKey: string,
+  method: string,
+  params: Record<string, unknown> | undefined,
+): Promise<T> {
+  let pending = inflightHostRpcQueries.get(queryKey) as Promise<T> | undefined;
+  if (!pending) {
+    const request = internalHarnessRuntimes.call<T>(method, params).finally(() => {
+      if (inflightHostRpcQueries.get(queryKey) === request) {
+        inflightHostRpcQueries.delete(queryKey);
+      }
+    });
+    pending = request;
+    inflightHostRpcQueries.set(queryKey, request);
+  }
+  return pending;
+}
+
+function isDocumentHidden(): boolean {
+  return typeof document !== "undefined" && document.hidden === true;
+}
+
 /** Read-only reactive RPC query hook against `qianji-harness` JSON-RPC methods. */
 export function useHostRpcQuery<T = unknown>(
   method: string,
@@ -289,6 +313,7 @@ export function useHostRpcQuery<T = unknown>(
   const enabled = options?.enabled !== false;
   const refreshIntervalMs = options?.refreshIntervalMs;
   const serializedParams = JSON.stringify(params ?? null);
+  const queryKey = `${method}::${serializedParams}`;
   const paramsRef = useRef(params);
   useEffect(() => {
     paramsRef.current = params;
@@ -305,14 +330,31 @@ export function useHostRpcQuery<T = unknown>(
   }));
 
   const seqRef = useRef(0);
-  const refetch = useCallback(async () => {
+  const runQuery = useCallback(async (silent: boolean) => {
     if (!enabled) return;
     const seq = ++seqRef.current;
-    setState((prev) => (prev.loading ? prev : { ...prev, loading: true, error: null }));
+    if (!silent) {
+      setState((prev) => (
+        prev.loading && prev.error === null
+          ? prev
+          : { ...prev, loading: prev.data === undefined, error: null }
+      ));
+    }
     try {
-      const result = await internalHarnessRuntimes.call<T>(method, paramsRef.current);
+      const result = await callDedupedHostRpc<T>(queryKey, method, paramsRef.current);
       if (seq !== seqRef.current) return;
-      setState({ data: result, error: null, loading: false });
+      setState((prev) => {
+        if (silent && prev.error === null && !prev.loading && prev.data !== undefined) {
+          try {
+            if (JSON.stringify(prev.data) === JSON.stringify(result)) {
+              return prev;
+            }
+          } catch {
+            // Fall through to state update when non-JSON values are returned.
+          }
+        }
+        return { data: result, error: null, loading: false };
+      });
     } catch (err) {
       if (seq !== seqRef.current) return;
       setState((prev) => ({
@@ -321,7 +363,11 @@ export function useHostRpcQuery<T = unknown>(
         loading: false,
       }));
     }
-  }, [enabled, method]);
+  }, [enabled, method, queryKey]);
+
+  const refetch = useCallback(async () => {
+    await runQuery(false);
+  }, [runQuery]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -329,7 +375,7 @@ export function useHostRpcQuery<T = unknown>(
     const seq = ++seqRef.current;
     void (async () => {
       try {
-        const result = await internalHarnessRuntimes.call<T>(method, paramsRef.current);
+        const result = await callDedupedHostRpc<T>(queryKey, method, paramsRef.current);
         if (cancelled || seq !== seqRef.current) return;
         setState({ data: result, error: null, loading: false });
       } catch (err) {
@@ -343,18 +389,40 @@ export function useHostRpcQuery<T = unknown>(
     })();
 
     let timer: number | undefined;
-    if (typeof refreshIntervalMs === "number" && refreshIntervalMs > 0 && typeof window !== "undefined") {
+    const hasInterval = typeof refreshIntervalMs === "number"
+      && refreshIntervalMs > 0
+      && typeof window !== "undefined"
+      && typeof window.setInterval === "function";
+
+    if (hasInterval) {
       timer = window.setInterval(() => {
-        void refetch();
+        if (isDocumentHidden()) return;
+        void runQuery(true);
       }, refreshIntervalMs);
     }
-    return () => {
-      cancelled = true;
-      if (timer !== undefined && typeof window !== "undefined") {
-        window.clearInterval(timer);
+
+    const handleVisibilityChange = () => {
+      if (!isDocumentHidden()) {
+        void runQuery(true);
       }
     };
-  }, [enabled, method, refetch, refreshIntervalMs, serializedParams]);
+    const canListenVisibility = hasInterval
+      && typeof document !== "undefined"
+      && typeof document.addEventListener === "function";
+    if (canListenVisibility) {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer !== undefined && typeof window !== "undefined" && typeof window.clearInterval === "function") {
+        window.clearInterval(timer);
+      }
+      if (canListenVisibility && typeof document.removeEventListener === "function") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
+    };
+  }, [enabled, method, queryKey, refreshIntervalMs, runQuery]);
 
   return {
     data: state.data,
@@ -369,7 +437,7 @@ export async function callHostRpc<T = unknown>(method: string, params?: Record<s
   return await internalHarnessRuntimes.call<T>(method, params);
 }
 
-/** Open and focus a right workbench tab (`"files"`, `"code"`, `"review"`, `"preview"`, or any custom plugin tab ID). */
+/** Open and focus a right workbench tab (`"files"`, `"editor"` / `"code"`, `"review"`, `"preview"`, or any custom plugin tab ID). */
 export function openWorkbenchTab(target: string): void {
   if (typeof target !== "string" || target.trim() === "") return;
   internalUseWorkbenchStore.getState().openTab(target.trim());

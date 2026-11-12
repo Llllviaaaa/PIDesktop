@@ -71,7 +71,10 @@ export function ConversationMessages({
   }, [displayMessages, isStreaming]);
   const [visibleCount, setVisibleCount] = useState(120);
   const firstVisibleIndex = Math.max(0, displayMessages.length - visibleCount);
-  const visibleMessages = displayMessages.slice(firstVisibleIndex);
+  const visibleMessages = useMemo(
+    () => displayMessages.slice(firstVisibleIndex),
+    [displayMessages, firstVisibleIndex],
+  );
   const userTurns = useMemo(
     () => visibleMessages.filter((msg) => msg.role === "user"),
     [visibleMessages],
@@ -124,7 +127,9 @@ export function ConversationMessages({
       setActiveTurnId(null);
       return;
     }
+    let rafId: number | null = null;
     const updateCurrentTurn = () => {
+      rafId = null;
       const scrollerRect = scroller.getBoundingClientRect();
       const threshold = scrollerRect.top + scrollerRect.height * 0.35;
       let current = userTurns[0]?.id ?? null;
@@ -137,12 +142,17 @@ export function ConversationMessages({
       }
       setActiveTurnId(current);
     };
+    const scheduleUpdateCurrentTurn = () => {
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(updateCurrentTurn);
+    };
     updateCurrentTurn();
-    scroller.addEventListener("scroll", updateCurrentTurn, { passive: true });
-    window.addEventListener("resize", updateCurrentTurn);
+    scroller.addEventListener("scroll", scheduleUpdateCurrentTurn, { passive: true });
+    window.addEventListener("resize", scheduleUpdateCurrentTurn);
     return () => {
-      scroller.removeEventListener("scroll", updateCurrentTurn);
-      window.removeEventListener("resize", updateCurrentTurn);
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      scroller.removeEventListener("scroll", scheduleUpdateCurrentTurn);
+      window.removeEventListener("resize", scheduleUpdateCurrentTurn);
     };
   }, [scrollerRef, userTurns]);
 
@@ -208,32 +218,35 @@ export function ConversationMessages({
           更早的 {Math.min(120, firstVisibleIndex)} 条消息
         </button>
       )}
-      {visibleMessages.map((message) => (
-        <RegionErrorBoundary key={message.id} region="消息卡片" resetKey={message.id} compact>
-          <Message
-            message={message}
-            showThinking={showThinking}
-            expectVisibleThinking={expectVisibleThinking}
-            isLastAssistant={message.id === lastAssistantId}
-            globalStreaming={isStreaming}
-            workingLabel={message.id === lastAssistantId ? statusText : undefined}
-            turnStartedAt={message.id === lastAssistantId ? lastTurnStartedAt : undefined}
-            allowRichContent
-            density={transcriptDensity}
-            editing={editingMessageId === message.id}
-            requireCtrlEnter={requireCtrlEnter}
-            plan={turnPlans.get(message.id)}
-            uiWidgets={intelligentUis?.turnWidgetsByMessageId.get(message.id)}
-            uiGroups={intelligentUis?.groupsById}
-            footer={message.id === lastAssistantId ? lastTurnFooter : undefined}
-            onOpenPlan={message.id === latestPlanMessageId ? onOpenPlan : undefined}
-            onEdit={message.role === "user" ? onEdit : undefined}
-            onRewind={message.role === "user" ? onRewind : undefined}
-            onCancelEdit={onCancelEdit}
-            onSubmitEdit={onSubmitEdit}
-          />
-        </RegionErrorBoundary>
-      ))}
+      {visibleMessages.map((message) => {
+        const turnWidgets = intelligentUis?.turnWidgetsByMessageId.get(message.id);
+        return (
+          <RegionErrorBoundary key={message.id} region="消息卡片" resetKey={message.id} compact>
+            <Message
+              message={message}
+              showThinking={showThinking}
+              expectVisibleThinking={expectVisibleThinking}
+              isLastAssistant={message.id === lastAssistantId}
+              globalStreaming={isStreaming}
+              workingLabel={message.id === lastAssistantId ? statusText : undefined}
+              turnStartedAt={message.id === lastAssistantId ? lastTurnStartedAt : undefined}
+              allowRichContent
+              density={transcriptDensity}
+              editing={editingMessageId === message.id}
+              requireCtrlEnter={requireCtrlEnter}
+              plan={turnPlans.get(message.id)}
+              uiWidgets={turnWidgets}
+              uiGroups={turnWidgets && turnWidgets.length > 0 ? intelligentUis?.groupsById : undefined}
+              footer={message.id === lastAssistantId ? lastTurnFooter : undefined}
+              onOpenPlan={message.id === latestPlanMessageId ? onOpenPlan : undefined}
+              onEdit={message.role === "user" ? onEdit : undefined}
+              onRewind={message.role === "user" ? onRewind : undefined}
+              onCancelEdit={onCancelEdit}
+              onSubmitEdit={onSubmitEdit}
+            />
+          </RegionErrorBoundary>
+        );
+      })}
       {lastTurnFooter && lastAssistantId === null && !isStreaming && (
         <div className="dshc-turn-footer">{lastTurnFooter}</div>
       )}
