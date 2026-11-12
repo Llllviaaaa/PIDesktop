@@ -23,7 +23,7 @@ const RATCHET_SLACK = 50;
 const OVERSIZED_CEILINGS: Record<string, number> = {
   "packages/host/src/plugin-manager.ts": 1229,
   "packages/host/src/plugin-dev-tools.ts": 641,
-  "src/lib/intelligentUi.ts": 1159,
+  "src/lib/intelligentUi.ts": 533,
   "src/lib/clientPluginRuntime.ts": 1154,
   "src/lib/harnessRuntime.ts": 944,
   "packages/protocol/src/methods.ts": 865,
