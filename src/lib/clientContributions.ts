@@ -3,18 +3,42 @@
  *
  * Replaces DSH's multi-tree slot bridge with a single reactive contribution
  * registry shared by Qianji's own React tree and dynamic UI/theme plugins.
- * All contribution types (`pages`, `leftSidebar`, `rightWorkbenchTabs`,
- * `bottomPanelTabs`, `topbarActions`, `composerToolbar`, `composerStatus`,
- * `composerBanners`, `overlays`, `messageActions`, `toolRenderers`,
- * `fileViewers`, `statusBarItems`, `homeQuickActions`, `themes`) are flat
- * registrations returning an idempotent disposer `() => void` for HMR.
+ * Every contribution kind listed in `ClientContributionKinds` is a flat
+ * registration returning an idempotent disposer `() => void` for HMR.
+ * Contribution shapes live in `clientContributionTypes.ts`.
  */
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useSyncExternalStore } from "react";
 import { Context, Service } from "@deepseek-ai/cordis";
 import { CLIENT_SLOT_CATALOG, type ClientSlotMetadata } from "@qianji/protocol";
-import type { UiMessage, UiToolCall } from "../types";
-import type { AppearanceScope, AppearanceThemeDefinition } from "./appearanceCatalog";
+import type { UiMessage } from "../types";
+import type { AppearanceThemeDefinition } from "./appearanceCatalog";
 import { injectPluginScopedStyle, recordClientRenderError, resolveContextPluginId } from "./clientPluginRuntime";
+import type {
+  AppearanceThemeInput,
+  ClientActionContribution,
+  ClientCodeBlockRendererContribution,
+  ClientComposerStatusContribution,
+  ClientContributionKind,
+  ClientContributionKinds,
+  ClientContributionsSnapshot,
+  ClientFileViewerContribution,
+  ClientHomeQuickActionContribution,
+  ClientKeybindingContribution,
+  ClientMenuItemContribution,
+  ClientMessageActionContribution,
+  ClientPageContribution,
+  ClientRewindHandlerContribution,
+  ClientSettingsPageContribution,
+  ClientSettingsSectionContribution,
+  ClientSidebarSectionContribution,
+  ClientSlashInterceptorContribution,
+  ClientStatusBarContribution,
+  ClientToolRendererContribution,
+  ClientWorkbenchTabContribution,
+  WorkbenchSlotContext,
+} from "./clientContributionTypes";
+
+export type * from "./clientContributionTypes";
 
 declare module "@deepseek-ai/cordis" {
   interface Context {
@@ -23,164 +47,16 @@ declare module "@deepseek-ai/cordis" {
   }
 }
 
-export interface WorkbenchSlotContext {
-  cwd: string;
-  sessionFile: string | null;
-  variant?: "task-start" | "follow-up";
-}
-
-export interface MessageActionSlotContext extends WorkbenchSlotContext {
-  message: UiMessage;
-  contentText: string;
-}
-
-export interface ToolRendererSlotContext extends WorkbenchSlotContext {
-  call: UiToolCall;
-  state: "running" | "error" | "ok";
-}
-
-export interface FileViewerSlotContext extends WorkbenchSlotContext {
-  path: string;
-  content: string;
-  isBinary: boolean;
-  mimeType?: string;
-  dataBase64?: string;
-  size: number;
-}
-
-export interface HomeQuickActionSlotContext extends WorkbenchSlotContext {
-  prefillComposer: (prompt: string) => void;
-  sendPrompt: (prompt: string) => void;
-}
-
-export interface ClientPageContribution {
-  id: string;
-  pluginId?: string;
-  label: string;
-  icon?: ReactNode;
-  order?: number;
-  render: (context: WorkbenchSlotContext) => ReactNode;
-}
-
-export interface ClientSidebarSectionContribution {
-  id: string;
-  pluginId?: string;
-  order?: number;
-  render: (context: WorkbenchSlotContext) => ReactNode;
-}
-
-export interface ClientWorkbenchTabContribution {
-  id: string;
-  pluginId?: string;
-  label: string;
-  icon?: ReactNode;
-  order?: number;
-  render: (context: WorkbenchSlotContext) => ReactNode;
-}
-
-export interface ClientActionContribution {
-  id: string;
-  pluginId?: string;
-  order?: number;
-  render: (context: WorkbenchSlotContext) => ReactNode;
-}
-
-export interface ClientComposerStatusContribution {
-  id: string;
-  pluginId?: string;
-  position?: "before-model" | "after-model";
-  order?: number;
-  render: (context: WorkbenchSlotContext) => ReactNode;
-}
-
-export interface ClientMessageActionContribution {
-  id: string;
-  pluginId?: string;
-  role?: "user" | "assistant" | "both";
-  order?: number;
-  render: (context: MessageActionSlotContext) => ReactNode;
-}
-
-export interface ClientToolRendererContribution {
-  id: string;
-  pluginId?: string;
-  /** Exact tool name(s) or prefix wildcard (e.g. `"sqlite_*"`) matched by this card renderer. */
-  toolNames: readonly string[];
-  order?: number;
-  render: (context: ToolRendererSlotContext) => ReactNode;
-}
-
-export interface ClientFileViewerContribution {
-  id: string;
-  pluginId?: string;
-  label?: string;
-  /** File extensions matched case-insensitively (e.g. `[".sqlite", ".db"]` or `["csv"]`). */
-  extensions?: readonly string[];
-  /** Exact or wildcard MIME types (e.g. `["application/vnd.sqlite3", "audio/*"]`). */
-  mimeTypes?: readonly string[];
-  order?: number;
-  render: (context: FileViewerSlotContext) => ReactNode;
-}
-
-export interface ClientStatusBarContribution {
-  id: string;
-  pluginId?: string;
-  align?: "left" | "right";
-  order?: number;
-  render: (context: WorkbenchSlotContext) => ReactNode;
-}
-
-export interface ClientHomeQuickActionContribution {
-  id: string;
-  pluginId?: string;
-  label?: string;
-  icon?: ReactNode;
-  prompt?: string;
-  order?: number;
-  onSelect?: (context: HomeQuickActionSlotContext) => void;
-  render?: (context: HomeQuickActionSlotContext) => ReactNode;
-}
-
-export interface ClientRewindHandlerContribution {
-  id: string;
-  pluginId?: string;
-  order?: number;
-  onRewindMessage: (message: UiMessage) => Promise<boolean> | boolean;
-  onOpenTimeline?: () => void;
-}
-
-export interface ClientSlashInterceptorContribution {
-  id: string;
-  pluginId?: string;
-  order?: number;
-  onSlashCommand: (name: string, rawArgs: string, context: WorkbenchSlotContext) => Promise<boolean> | boolean;
-}
-
-export interface ClientContributionsSnapshot {
-  readonly pages: readonly ClientPageContribution[];
-  readonly leftSidebar: readonly ClientSidebarSectionContribution[];
-  readonly rightWorkbenchTabs: readonly ClientWorkbenchTabContribution[];
-  readonly bottomPanelTabs: readonly ClientWorkbenchTabContribution[];
-  readonly topbarActions: readonly ClientActionContribution[];
-  readonly composerToolbar: readonly ClientActionContribution[];
-  readonly composerStatus: readonly ClientComposerStatusContribution[];
-  readonly composerBanners: readonly ClientActionContribution[];
-  readonly overlays: readonly ClientActionContribution[];
-  readonly messageActions: readonly ClientMessageActionContribution[];
-  readonly toolRenderers: readonly ClientToolRendererContribution[];
-  readonly fileViewers: readonly ClientFileViewerContribution[];
-  readonly statusBarItems: readonly ClientStatusBarContribution[];
-  readonly homeQuickActions: readonly ClientHomeQuickActionContribution[];
-  readonly rewindHandlers: readonly ClientRewindHandlerContribution[];
-  readonly slashInterceptors: readonly ClientSlashInterceptorContribution[];
-  readonly themes: readonly AppearanceThemeDefinition[];
-}
-
-export type AppearanceThemeInput = Omit<AppearanceThemeDefinition, "scope"> & {
-  scope?: AppearanceScope;
-};
-
 export { CLIENT_SLOT_CATALOG, type ClientSlotMetadata };
+
+const CONTRIBUTION_KINDS = [
+  "pages", "leftSidebar", "rightWorkbenchTabs", "bottomPanelTabs", "topbarActions", "composerToolbar",
+  "composerStatus", "composerBanners", "overlays", "messageActions", "toolRenderers", "fileViewers",
+  "statusBarItems", "homeQuickActions", "rewindHandlers", "slashInterceptors", "settingsPages",
+  "settingsSections", "menuItems", "keybindings", "codeBlockRenderers", "themes",
+] as const satisfies readonly ClientContributionKind[];
+
+type ContributionMaps = { [K in ClientContributionKind]: Map<string, ClientContributionKinds[K]> };
 
 function sortByOrder<T extends { id: string; order?: number }>(items: Iterable<T>): T[] {
   return [...items].sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.id.localeCompare(b.id));
@@ -246,47 +122,31 @@ export function matchToolRenderer(
   return undefined;
 }
 
+/** Match the highest-priority registered `ClientCodeBlockRendererContribution` for a fence language. */
+export function matchCodeBlockRenderer(
+  renderers: readonly ClientCodeBlockRendererContribution[],
+  language: string,
+): ClientCodeBlockRendererContribution | undefined {
+  const normalized = language.trim().toLowerCase();
+  if (normalized === "") return undefined;
+  return renderers.find((renderer) => renderer.languages.some((lang) => lang.trim().toLowerCase() === normalized));
+}
+
 export class ClientContributionRegistry {
-  private readonly pages = new Map<string, ClientPageContribution>();
-  private readonly leftSidebar = new Map<string, ClientSidebarSectionContribution>();
-  private readonly rightWorkbenchTabs = new Map<string, ClientWorkbenchTabContribution>();
-  private readonly bottomPanelTabs = new Map<string, ClientWorkbenchTabContribution>();
-  private readonly topbarActions = new Map<string, ClientActionContribution>();
-  private readonly composerToolbar = new Map<string, ClientActionContribution>();
-  private readonly composerStatus = new Map<string, ClientComposerStatusContribution>();
-  private readonly composerBanners = new Map<string, ClientActionContribution>();
-  private readonly overlays = new Map<string, ClientActionContribution>();
-  private readonly messageActions = new Map<string, ClientMessageActionContribution>();
-  private readonly toolRenderers = new Map<string, ClientToolRendererContribution>();
-  private readonly fileViewers = new Map<string, ClientFileViewerContribution>();
-  private readonly statusBarItems = new Map<string, ClientStatusBarContribution>();
-  private readonly homeQuickActions = new Map<string, ClientHomeQuickActionContribution>();
-  private readonly rewindHandlers = new Map<string, ClientRewindHandlerContribution>();
-  private readonly slashInterceptors = new Map<string, ClientSlashInterceptorContribution>();
-  private readonly themes = new Map<string, AppearanceThemeDefinition>();
+  private readonly maps = Object.fromEntries(
+    CONTRIBUTION_KINDS.map((kind) => [kind, new Map()]),
+  ) as unknown as ContributionMaps;
   private readonly listeners = new Set<() => void>();
   private snapshot: ClientContributionsSnapshot = this.buildSnapshot();
 
   private buildSnapshot(): ClientContributionsSnapshot {
-    return {
-      pages: sortByOrder(this.pages.values()),
-      leftSidebar: sortByOrder(this.leftSidebar.values()),
-      rightWorkbenchTabs: sortByOrder(this.rightWorkbenchTabs.values()),
-      bottomPanelTabs: sortByOrder(this.bottomPanelTabs.values()),
-      topbarActions: sortByOrder(this.topbarActions.values()),
-      composerToolbar: sortByOrder(this.composerToolbar.values()),
-      composerStatus: sortByOrder(this.composerStatus.values()),
-      composerBanners: sortByOrder(this.composerBanners.values()),
-      overlays: sortByOrder(this.overlays.values()),
-      messageActions: sortByOrder(this.messageActions.values()),
-      toolRenderers: sortByOrder(this.toolRenderers.values()),
-      fileViewers: sortByOrder(this.fileViewers.values()),
-      statusBarItems: sortByOrder(this.statusBarItems.values()),
-      homeQuickActions: sortByOrder(this.homeQuickActions.values()),
-      rewindHandlers: sortByOrder(this.rewindHandlers.values()),
-      slashInterceptors: sortByOrder(this.slashInterceptors.values()),
-      themes: [...this.themes.values()],
-    };
+    const next: Partial<Record<ClientContributionKind, readonly unknown[]>> = {};
+    for (const kind of CONTRIBUTION_KINDS) {
+      const values = this.maps[kind].values() as Iterable<{ id: string; order?: number }>;
+      // Themes keep registration order so the Appearance picker stays stable.
+      next[kind] = kind === "themes" ? [...values] : sortByOrder(values);
+    }
+    return next as ClientContributionsSnapshot;
   }
 
   private emit(): void {
@@ -294,7 +154,9 @@ export class ClientContributionRegistry {
     for (const listener of this.listeners) listener();
   }
 
-  private insert<T extends { id: string }>(map: Map<string, T>, item: T): () => void {
+  /** Register one contribution of `kind`; the returned disposer only removes this exact entry. */
+  add<K extends ClientContributionKind>(kind: K, item: ClientContributionKinds[K]): () => void {
+    const map = this.maps[kind];
     map.set(item.id, item);
     this.emit();
     return () => {
@@ -306,67 +168,92 @@ export class ClientContributionRegistry {
   }
 
   registerPage(page: ClientPageContribution): () => void {
-    return this.insert(this.pages, page);
+    return this.add("pages", page);
   }
 
   registerLeftSidebar(section: ClientSidebarSectionContribution): () => void {
-    return this.insert(this.leftSidebar, section);
+    return this.add("leftSidebar", section);
   }
 
   registerRightWorkbenchTab(tab: ClientWorkbenchTabContribution): () => void {
-    return this.insert(this.rightWorkbenchTabs, tab);
+    return this.add("rightWorkbenchTabs", tab);
   }
 
   registerBottomPanelTab(tab: ClientWorkbenchTabContribution): () => void {
-    return this.insert(this.bottomPanelTabs, tab);
+    return this.add("bottomPanelTabs", tab);
   }
 
   registerTopbarAction(action: ClientActionContribution): () => void {
-    return this.insert(this.topbarActions, action);
+    return this.add("topbarActions", action);
   }
 
   registerComposerToolbar(item: ClientActionContribution): () => void {
-    return this.insert(this.composerToolbar, item);
+    return this.add("composerToolbar", item);
   }
 
   registerComposerStatus(item: ClientComposerStatusContribution): () => void {
-    return this.insert(this.composerStatus, item);
+    return this.add("composerStatus", item);
   }
 
   registerComposerBanner(item: ClientActionContribution): () => void {
-    return this.insert(this.composerBanners, item);
+    return this.add("composerBanners", item);
   }
 
   registerOverlay(item: ClientActionContribution): () => void {
-    return this.insert(this.overlays, item);
+    return this.add("overlays", item);
   }
 
   registerMessageAction(item: ClientMessageActionContribution): () => void {
-    return this.insert(this.messageActions, item);
+    return this.add("messageActions", item);
   }
 
   registerToolRenderer(item: ClientToolRendererContribution): () => void {
-    return this.insert(this.toolRenderers, item);
+    return this.add("toolRenderers", item);
   }
 
   registerFileViewer(item: ClientFileViewerContribution): () => void {
-    return this.insert(this.fileViewers, item);
+    return this.add("fileViewers", item);
   }
 
   registerStatusBarItem(item: ClientStatusBarContribution): () => void {
-    return this.insert(this.statusBarItems, item);
+    return this.add("statusBarItems", item);
   }
 
   registerHomeQuickAction(item: ClientHomeQuickActionContribution): () => void {
-    return this.insert(this.homeQuickActions, item);
+    return this.add("homeQuickActions", item);
   }
 
   registerRewindHandler(handler: ClientRewindHandlerContribution): () => void {
-    return this.insert(this.rewindHandlers, handler);
+    return this.add("rewindHandlers", handler);
   }
 
   registerSlashInterceptor(interceptor: ClientSlashInterceptorContribution): () => void {
-    return this.insert(this.slashInterceptors, interceptor);
+    return this.add("slashInterceptors", interceptor);
+  }
+
+  registerSettingsPage(page: ClientSettingsPageContribution): () => void {
+    return this.add("settingsPages", page);
+  }
+
+  registerSettingsSection(section: ClientSettingsSectionContribution): () => void {
+    return this.add("settingsSections", section);
+  }
+
+  registerMenuItem(item: ClientMenuItemContribution): () => void {
+    return this.add("menuItems", item);
+  }
+
+  registerKeybinding(binding: ClientKeybindingContribution): () => void {
+    return this.add("keybindings", binding);
+  }
+
+  registerCodeBlockRenderer(renderer: ClientCodeBlockRendererContribution): () => void {
+    return this.add("codeBlockRenderers", renderer);
+  }
+
+  registerTheme(theme: AppearanceThemeInput): () => void {
+    const definition: AppearanceThemeDefinition = { ...theme, scope: theme.scope ?? "user" };
+    return this.add("themes", definition);
   }
 
   findToolRenderer(toolName: string): ClientToolRendererContribution | undefined {
@@ -375,6 +262,10 @@ export class ClientContributionRegistry {
 
   findFileViewer(file: { path: string; mimeType?: string }): ClientFileViewerContribution | undefined {
     return matchFileViewer(this.snapshot.fileViewers, file);
+  }
+
+  findCodeBlockRenderer(language: string): ClientCodeBlockRendererContribution | undefined {
+    return matchCodeBlockRenderer(this.snapshot.codeBlockRenderers, language);
   }
 
   hasRewindHandler(): boolean {
@@ -424,10 +315,6 @@ export class ClientContributionRegistry {
     return false;
   }
 
-  registerTheme(theme: AppearanceThemeInput): () => void {
-    return this.insert(this.themes, { ...theme, scope: theme.scope ?? "user" });
-  }
-
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {
@@ -438,23 +325,7 @@ export class ClientContributionRegistry {
   getSnapshot = (): ClientContributionsSnapshot => this.snapshot;
 
   clear(): void {
-    this.pages.clear();
-    this.leftSidebar.clear();
-    this.rightWorkbenchTabs.clear();
-    this.bottomPanelTabs.clear();
-    this.topbarActions.clear();
-    this.composerToolbar.clear();
-    this.composerStatus.clear();
-    this.composerBanners.clear();
-    this.overlays.clear();
-    this.messageActions.clear();
-    this.toolRenderers.clear();
-    this.fileViewers.clear();
-    this.statusBarItems.clear();
-    this.homeQuickActions.clear();
-    this.rewindHandlers.clear();
-    this.slashInterceptors.clear();
-    this.themes.clear();
+    for (const kind of CONTRIBUTION_KINDS) this.maps[kind].clear();
     this.emit();
   }
 }
@@ -468,10 +339,11 @@ export class ClientContributionService extends Service {
     this.registry = registry;
   }
 
-  private withPluginId<T extends { pluginId?: string }>(item: T): T {
-    if (item.pluginId !== undefined) return item;
-    const pluginId = resolveContextPluginId(this.ctx);
-    return pluginId === undefined ? item : { ...item, pluginId };
+  /** Tag `item` with the calling plugin and tie its disposer to the plugin's Cordis Fiber. */
+  private add<K extends Exclude<ClientContributionKind, "themes">>(kind: K, item: ClientContributionKinds[K]): () => void {
+    const pluginId = item.pluginId ?? resolveContextPluginId(this.ctx);
+    const tagged = pluginId === undefined || item.pluginId !== undefined ? item : { ...item, pluginId };
+    return this.track(this.registry.add(kind, tagged));
   }
 
   private track(dispose: () => void): () => void {
@@ -485,67 +357,87 @@ export class ClientContributionService extends Service {
   }
 
   registerPage(page: ClientPageContribution): () => void {
-    return this.track(this.registry.registerPage(this.withPluginId(page)));
+    return this.add("pages", page);
   }
 
   registerLeftSidebar(section: ClientSidebarSectionContribution): () => void {
-    return this.track(this.registry.registerLeftSidebar(this.withPluginId(section)));
+    return this.add("leftSidebar", section);
   }
 
   registerRightWorkbenchTab(tab: ClientWorkbenchTabContribution): () => void {
-    return this.track(this.registry.registerRightWorkbenchTab(this.withPluginId(tab)));
+    return this.add("rightWorkbenchTabs", tab);
   }
 
   registerBottomPanelTab(tab: ClientWorkbenchTabContribution): () => void {
-    return this.track(this.registry.registerBottomPanelTab(this.withPluginId(tab)));
+    return this.add("bottomPanelTabs", tab);
   }
 
   registerTopbarAction(action: ClientActionContribution): () => void {
-    return this.track(this.registry.registerTopbarAction(this.withPluginId(action)));
+    return this.add("topbarActions", action);
   }
 
   registerComposerToolbar(item: ClientActionContribution): () => void {
-    return this.track(this.registry.registerComposerToolbar(this.withPluginId(item)));
+    return this.add("composerToolbar", item);
   }
 
   registerComposerStatus(item: ClientComposerStatusContribution): () => void {
-    return this.track(this.registry.registerComposerStatus(this.withPluginId(item)));
+    return this.add("composerStatus", item);
   }
 
   registerComposerBanner(item: ClientActionContribution): () => void {
-    return this.track(this.registry.registerComposerBanner(this.withPluginId(item)));
+    return this.add("composerBanners", item);
   }
 
   registerOverlay(item: ClientActionContribution): () => void {
-    return this.track(this.registry.registerOverlay(this.withPluginId(item)));
+    return this.add("overlays", item);
   }
 
   registerMessageAction(item: ClientMessageActionContribution): () => void {
-    return this.track(this.registry.registerMessageAction(this.withPluginId(item)));
+    return this.add("messageActions", item);
   }
 
   registerToolRenderer(item: ClientToolRendererContribution): () => void {
-    return this.track(this.registry.registerToolRenderer(this.withPluginId(item)));
+    return this.add("toolRenderers", item);
   }
 
   registerFileViewer(item: ClientFileViewerContribution): () => void {
-    return this.track(this.registry.registerFileViewer(this.withPluginId(item)));
+    return this.add("fileViewers", item);
   }
 
   registerStatusBarItem(item: ClientStatusBarContribution): () => void {
-    return this.track(this.registry.registerStatusBarItem(this.withPluginId(item)));
+    return this.add("statusBarItems", item);
   }
 
   registerHomeQuickAction(item: ClientHomeQuickActionContribution): () => void {
-    return this.track(this.registry.registerHomeQuickAction(this.withPluginId(item)));
+    return this.add("homeQuickActions", item);
   }
 
   registerRewindHandler(handler: ClientRewindHandlerContribution): () => void {
-    return this.track(this.registry.registerRewindHandler(this.withPluginId(handler)));
+    return this.add("rewindHandlers", handler);
   }
 
   registerSlashInterceptor(interceptor: ClientSlashInterceptorContribution): () => void {
-    return this.track(this.registry.registerSlashInterceptor(this.withPluginId(interceptor)));
+    return this.add("slashInterceptors", interceptor);
+  }
+
+  registerSettingsPage(page: ClientSettingsPageContribution): () => void {
+    return this.add("settingsPages", page);
+  }
+
+  registerSettingsSection(section: ClientSettingsSectionContribution): () => void {
+    return this.add("settingsSections", section);
+  }
+
+  registerMenuItem(item: ClientMenuItemContribution): () => void {
+    return this.add("menuItems", item);
+  }
+
+  registerKeybinding(binding: ClientKeybindingContribution): () => void {
+    return this.add("keybindings", binding);
+  }
+
+  registerCodeBlockRenderer(renderer: ClientCodeBlockRendererContribution): () => void {
+    return this.add("codeBlockRenderers", renderer);
   }
 
   registerTheme(theme: AppearanceThemeInput): () => void {
@@ -584,4 +476,3 @@ export const clientContributions = new ClientContributionRegistry();
 export function useClientContributions(): ClientContributionsSnapshot {
   return useSyncExternalStore(clientContributions.subscribe, clientContributions.getSnapshot, clientContributions.getSnapshot);
 }
-

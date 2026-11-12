@@ -132,6 +132,8 @@ describe("Phase 2: @qianji/client SDK, CSS @scope sandbox, PluginSlot & 6 busine
       "getActiveSessionSnapshot",
       "harnessRuntimes",
       "messageImagesToAttachments",
+      "openPluginPage",
+      "openSettingsPage",
       "openWorkbenchTab",
       "openWorkspaceFile",
       "rewindController",
@@ -154,6 +156,11 @@ describe("Phase 2: @qianji/client SDK, CSS @scope sandbox, PluginSlot & 6 busine
     expect(slotNames).toContain("file.viewer");
     expect(slotNames).toContain("status.bar");
     expect(slotNames).toContain("home.quickActions");
+    expect(slotNames).toContain("settings.pages");
+    expect(slotNames).toContain("settings.sections");
+    expect(slotNames).toContain("menus");
+    expect(slotNames).toContain("keybindings");
+    expect(slotNames).toContain("markdown.codeBlock");
   });
 
   it("enforces @layer ordering and proves in real Chromium CSS engine that plugin `button { background: red }` never leaks to host buttons", async () => {

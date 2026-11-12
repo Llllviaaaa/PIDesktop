@@ -6,8 +6,10 @@ import {
   resolveAppearanceTheme,
   type AppearanceCatalog,
 } from "../../lib/appearanceCatalog";
+import { clientContributions } from "../../lib/clientContributions";
 import { ensureClientPluginRuntime } from "../../lib/clientPluginBootstrap";
 import { applyUiScale } from "../../lib/panelLayout";
+import { installPluginKeybindings } from "../../lib/pluginKeybindings";
 import { scheduleClient } from "../../lib/scheduleClient";
 import { useAppStore } from "../../store";
 import { bindWorkbenchNotifications } from "../../stores/workbenchStore";
@@ -92,7 +94,15 @@ export function useAppearanceAndShellEffects({
 
   useEffect(() => {
     ensureClientPluginRuntime();
-    return bindWorkbenchNotifications(() => ({ cwd: activeWorkspaceRef.current }));
+    const offNotifications = bindWorkbenchNotifications(() => ({ cwd: activeWorkspaceRef.current }));
+    const offKeybindings = installPluginKeybindings({
+      getKeybindings: () => clientContributions.getSnapshot().keybindings,
+      getContext: () => ({ cwd: activeWorkspaceRef.current, sessionFile: useAppStore.getState().sessionFile }),
+    });
+    return () => {
+      offKeybindings();
+      offNotifications();
+    };
   }, []);
 
   useEffect(() => {

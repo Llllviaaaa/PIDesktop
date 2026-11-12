@@ -19,7 +19,9 @@ import { Check, ChevronDown, Copy, Eye, FolderOpen, PanelBottom, Paperclip, Squa
 import { describeError } from "../lib/errors";
 import { agent } from "../lib/agent";
 import { relativeWorkspacePath, resolveWorkspacePath } from "../lib/workspaceEditors";
+import { useAppStore } from "../store";
 import type { TerminalAppInfo, WorkspaceEditorInfo } from "../types";
+import { PluginMenuItems } from "./common/PluginMenuItems";
 
 const ANTIGRAVITY_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAALlSURBVFhH7dbZS1RxGMbxtj8m6q5odNQ0jYLSFipDxDAiqDAvijCihWzDObPokDZaWZGVaEk7XbRDi0EbUUGLF0abZFakjjnOfMOkXzPPzEmjueiiz+X5Pe/7MGc4nDNq1H//KmA0SaK7hwVs0SV/SztsARt1OFm0Kw4wRoeSTTtjABEdsPP25Hi6aibQs2Ey35amQmTEo8e119CkndYbGTw8l86L+kze7cjhS0k2wYJsjdkZ0F5Dk3aars/n1Ll8rjYU8shXyKuyhXQtm0PvrAyNJqS9hgYT8d0qpuLyarxn17P/2GZO12yitXwNL0uX86FoscYT0l5DgyocCbP2Shmrzrsoaalj/ZEGvHUNNLprubZhF09WrCV4/6GOxdFeQ4PKe6+OwjN+FjQ3sujoRYoO3KIk0Mp23xXqy09wYV2Auyu36Vgc7TU0qPLPVjO7qYUZh24wY99TcmvbWbi7nRWVbWxyPaBm6yVayhp1LI72GhpUM5tOknXwNlPrXpJZ3UGW/wszq7qZ5/tEsec9ZRXP8W67o2NxtNfQoMo40Ep6oA2n/yOp3h5SrH6cVogsd4hcdy9LPJ9ZY71my9bHOhpDew0NRpu87ybOQBupVR9xuPtIsQboHxg6m1geYaoVJtfTT1FlN6W+Th2Pob2GBqM5al/g8HcyxR2ktDmsxz9MsyLk+QYo8vcRThz5QXsNDUZzVHfg8PWQ4g7pkbH9PGS7I8ytDFO8xz6nvYYGf0oLvMHp/4rD0z/syyLdFSHHE2Fulf0t0F5Dgz9N2/OZtMo+nG77pdHSXDDdo1d/0V5Dg4Ny67vIqQ6S5rW/pWrSTsiwYLpPT4Zor6HBjq9h8vb2ku0P/cHbdsiUCki3IMcbP6i9hgaXHA6SFwgRjt8xIqkuyPLC0kMxC0Laa0SnBn+xdXFk//nvPOvQKyzS3hiaTjbtS0iHkmicdtnSySQYqx3DApoHv+F00x8YfHYLdO9//5TvWpRbXvydcf8AAAAASUVORK5CYII=";
 
@@ -318,6 +320,7 @@ function FilePathMenu({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const sessionFile = useAppStore((state) => state.sessionFile);
   const { workspace, editors, preferredEditor } = actions;
   const others = editors.filter((editor) => editor.id !== preferredEditor?.id);
   const lineLabel = menu.line ? `（第 ${menu.line} 行）` : "";
@@ -406,6 +409,13 @@ function FilePathMenu({
       <button type="button" role="menuitem" onClick={act(() => copy(relativeWorkspacePath(workspace, menu.path)))}>
         <Copy size={14} /><span>复制相对路径</span>
       </button>
+      <PluginMenuItems
+        location="file.context"
+        context={{ cwd: workspace, sessionFile, path: menu.path, absolutePath: absolute, ...(menu.line ? { line: menu.line } : {}) }}
+        onClose={onClose}
+        separatorClassName="file-context-menu-separator"
+        reserveIconSlot
+      />
     </div>,
     document.body,
   );

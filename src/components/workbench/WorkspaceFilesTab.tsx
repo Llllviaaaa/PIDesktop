@@ -16,6 +16,7 @@ import { agent } from "../../lib/agent";
 import { describeError } from "../../lib/errors";
 import { resolveWorkspaceActiveFilePath, useWorkbenchStore } from "../../stores/workbenchStore";
 import type { WorkspaceDirEntry } from "../../types";
+import { useFileActions } from "../WorkspaceOpeners";
 
 export interface WorkspaceFilesTabProps {
   cwd: string;
@@ -30,6 +31,7 @@ function sortEntries(entries: readonly WorkspaceDirEntry[]): WorkspaceDirEntry[]
 }
 
 export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) {
+  const fileActions = useFileActions();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -147,6 +149,7 @@ export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) 
             <div
               className={`pid-wb-tree-row${isSelected ? " active" : ""}`}
               style={{ paddingLeft: `${8 + depth * 14}px` }}
+              onContextMenu={entry.isDir ? undefined : (event) => fileActions?.showMenu(event, entry.path)}
             >
               <button
                 type="button"
@@ -244,7 +247,10 @@ export function WorkspaceFilesTab({ cwd, onAddToChat }: WorkspaceFilesTabProps) 
             <ul className="pid-wb-tree-list">
               {(searchQuery.data ?? []).map((entry) => (
                 <li key={entry.path} className="pid-wb-tree-item">
-                  <div className={`pid-wb-tree-row${activeFilePath === entry.path ? " active" : ""}`}>
+                  <div
+                    className={`pid-wb-tree-row${activeFilePath === entry.path ? " active" : ""}`}
+                    onContextMenu={(event) => fileActions?.showMenu(event, entry.path)}
+                  >
                     <button
                       type="button"
                       className="pid-wb-tree-main"

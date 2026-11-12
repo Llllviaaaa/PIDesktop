@@ -83,6 +83,7 @@ export function ShellOverlaysAndModals({
                 initialPage={settingsPage}
                 settings={settings}
                 cwd={workspaceCwd || cwd}
+                sessionFile={sessionFile}
                 appearanceCatalog={appearanceCatalog}
                 onSave={saveSettings}
                 onClose={() => setSettingsOpen(false)}

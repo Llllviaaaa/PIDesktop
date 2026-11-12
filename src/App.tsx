@@ -14,6 +14,7 @@ import {
 } from "./lib/panelLayout";
 import { hasActiveStreamingTasks } from "./lib/quitGuard";
 import { rewindController } from "./lib/rewindController";
+import { bindShellNavigation } from "./lib/shellBridge";
 import { changesEditedBy, sessionEditedPaths } from "./lib/sessionEdits";
 import { activeSessionTitle } from "./lib/sessionTitle";
 import { nextTranscriptDensity, normalizeTranscriptDensity } from "./lib/transcriptDensity";
@@ -166,6 +167,10 @@ export default function App() {
     selectWorkspace: ws.selectWorkspace, setDraftWorkspace, setDraftMode, setQuickChat: ws.setQuickChat,
     setTaskEnvironment: ws.setTaskEnvironment, setHubView, setMoreOpen, switchSession,
   });
+  const { navigateTo } = nav;
+  useEffect(() => bindShellNavigation({
+    openSettings: openSettingsPage, openHubPage: (id) => { setSettingsOpen(false); navigateTo({ kind: "hub", view: `plugin:${id}` }); },
+  }), [navigateTo, openSettingsPage]);
 
   const actions = useShellTaskAndGitActions({
     newTask, quickChat: ws.quickChat, defaultWorkspaceDir: ws.defaultWorkspaceDir, draftWorkspace,

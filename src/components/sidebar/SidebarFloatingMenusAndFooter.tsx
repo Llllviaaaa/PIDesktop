@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { sessionTitle } from "../../lib/sessionTitle";
 import type { ProjectConfig, SessionInfo } from "../../types";
+import { PluginMenuItems } from "../common/PluginMenuItems";
 import type { SettingsPage } from "../SettingsModal";
 import {
   relativeTime,
@@ -104,6 +105,12 @@ export function SidebarFloatingMenusAndFooter({
             >
               <Archive size={15} />归档聊天
             </button>
+            <PluginMenuItems
+              location="sidebar.project"
+              context={{ workspace: projectMenu.workspace, sessionFiles: chats.map((chat) => chat.file) }}
+              onClose={() => setProjectMenu(null)}
+              separatorClassName="sidebar-popover-separator"
+            />
             <div className="sidebar-popover-separator" />
             <button type="button" className="danger" onClick={() => void removeProject(projectMenu.workspace)}>
               <X size={15} />移除本地项目

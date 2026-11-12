@@ -26,6 +26,7 @@
 @import "./intelligent-ui.css" layer(components);
 @import "./ui-primitives.css" layer(components);
 @import "./motion.css" layer(components);
+@import "./plugin-extensions.css" layer(components);
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 

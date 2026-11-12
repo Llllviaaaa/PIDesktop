@@ -71,6 +71,11 @@ All methods live on `ctx.contributions` (inject `["contributions"]`) and automat
 | `home.quickActions` | `ctx.contributions.registerHomeQuickAction` | `{ id, label?, icon?, prompt?, order?, onSelect?, render? }` | `{ cwd, sessionFile, prefillComposer, sendPrompt }` |
 | `slashInterceptors` | `ctx.contributions.registerSlashInterceptor` | `{ id, order?, onSlashCommand }` | `(name, rawArgs, { cwd, sessionFile }) => boolean \| Promise<boolean>` |
 | `rewindHandlers` | `ctx.contributions.registerRewindHandler` | `{ id, order?, onRewindMessage, onOpenTimeline? }` | `(message: UiMessage) => boolean \| Promise<boolean>` |
+| `settings.pages` | `ctx.contributions.registerSettingsPage` | `{ id, label, icon?, heading?, subtitle?, order?, wide?, render }` | `{ cwd, sessionFile, page, closeSettings }` |
+| `settings.sections` | `ctx.contributions.registerSettingsSection` | `{ id, page, title?, order?, render }` | `{ cwd, sessionFile, page, closeSettings }` |
+| `menus` | `ctx.contributions.registerMenuItem` | `{ id, location, label, icon?, shortcut?, order?, danger?, when?, disabled?, onSelect }` | depends on `location` (see below) |
+| `keybindings` | `ctx.contributions.registerKeybinding` | `{ id, key, label?, order?, allowInEditable?, run }` | `{ cwd, sessionFile }` |
+| `markdown.codeBlock` | `ctx.contributions.registerCodeBlockRenderer` | `{ id, languages: string[], order?, render }` | `{ cwd, sessionFile, language, code }` |
 | `themes` | `ctx.contributions.registerTheme` | `{ id, label, mode, scope?, sourcePath?, palette? }` | Registers an `AppearanceThemeDefinition` |
 
 ### High-Value Slot Examples
@@ -111,6 +116,79 @@ All methods live on `ctx.contributions` (inject `["contributions"]`) and automat
   }
   ```
 
+### Settings, Menus, Shortcuts & Markdown Fences
+
+- **Settings pages (`settings.pages`)**: Each page gets an entry under the **扩展** group in the Settings sidebar. Its nav id is `plugin:<id>`, and `openSettingsPage("<id>")` opens it. Pages use the narrow column by default; set `wide: true` for card grids.
+- **Settings sections (`settings.sections`)**: Each section is a titled card appended to a page. Set `page` to a built-in page (`"general" | "appearance" | "providers" | "plugins"`) or to the `id` of a plugin settings page. Store values with your plugin's `configSchema` and `usePluginConfig`, or through your own Host RPC methods.
+- **Menu items (`menus`)**: The `location` field picks the menu and the context type:
+
+  | `location` | Menu | Callback context |
+  | :--- | :--- | :--- |
+  | `menubar.file` / `menubar.edit` / `menubar.view` / `menubar.help` | Window menubar | `{ cwd, sessionFile }` |
+  | `menubar.tools` | Extra **工具** menubar menu, shown only while it has items | `{ cwd, sessionFile }` |
+  | `thread.more` | Thread title "…" menu in the top bar | `{ cwd, sessionFile }` |
+  | `sidebar.project` | Project "…" menu in the left sidebar | `{ workspace, sessionFiles }` |
+  | `sidebar.thread` | Right-click menu on a session row in the left sidebar | `{ cwd, sessionFile, title }` (the row's session, not the active one) |
+  | `file.context` | Right-click menu on file paths (transcript links, tool cards, workbench file tree) | `{ cwd, sessionFile, path, absolutePath, line? }` |
+
+  `when` hides an item and `disabled` greys it out. If `when`, `disabled` or `onSelect` throws, the error is reported as the plugin's `clientError`; it never breaks the host menu. `shortcut` is only a hint; pair it with `registerKeybinding`.
+- **Keybindings (`keybindings`)**: `key` takes chords such as `"Ctrl+Shift+K"`, `"Alt+F2"` or `"F6"` (`Cmd`/`Meta` count as `Ctrl`). Built-in shortcuts and keys already handled by the composer, code editor or terminal always win. Bindings also stay quiet in text fields unless `allowInEditable: true`.
+- **Markdown fences (`markdown.codeBlock`)**: `languages` claims fence languages (case-insensitive) in chat Markdown. A plugin renderer runs before the built-in Mermaid/PlantUML diagrams, so it can replace them. `qianji-rich` and `intelligent-ui` fences stay with the host.
+
+```tsx
+import type { Context } from "@deepseek-ai/cordis";
+import { Sparkles } from "lucide-react";
+import { openPluginPage, openSettingsPage, openWorkspaceFile } from "@qianji/client";
+
+export function registerChrome(ctx: Context): void {
+  ctx.contributions.registerSettingsPage({
+    id: "cloud-sync",
+    label: "云同步",
+    icon: <Sparkles size={15} />,
+    subtitle: "跨设备同步会话与偏好",
+    render: ({ closeSettings }) => <button type="button" onClick={closeSettings}>完成</button>,
+  });
+  ctx.contributions.registerSettingsSection({
+    id: "cloud-sync-shortcut",
+    page: "general",
+    title: "云同步",
+    render: () => <button type="button" onClick={() => openSettingsPage("cloud-sync")}>打开云同步设置</button>,
+  });
+  ctx.contributions.registerMenuItem({
+    id: "reveal-line",
+    location: "file.context",
+    label: "在编辑器中跳到该行",
+    when: ({ line }) => line !== undefined,
+    onSelect: ({ path, line }) => openWorkspaceFile(path, line),
+  });
+  ctx.contributions.registerMenuItem({
+    id: "open-board",
+    location: "menubar.tools",
+    label: "任务看板",
+    shortcut: "Ctrl+Alt+K",
+    onSelect: () => { openPluginPage("board"); },
+  });
+  ctx.contributions.registerKeybinding({
+    id: "open-board-key",
+    key: "Ctrl+Alt+K",
+    run: () => { openPluginPage("board"); },
+  });
+  ctx.contributions.registerCodeBlockRenderer({
+    id: "csv-table",
+    languages: ["csv"],
+    render: ({ code }) => (
+      <table>
+        <tbody>
+          {code.split("\n").map((row, index) => (
+            <tr key={index}>{row.split(",").map((cell, col) => <td key={col}>{cell}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+    ),
+  });
+}
+```
+
 ---
 
 ## 3. `@qianji/client` SDK Contract
@@ -130,6 +208,8 @@ Always import hooks and host actions from `@qianji/client` (never internal Zusta
 - `openWorkspaceFile(path, line?)` → Open a file in Right Workbench Code Editor / Custom File Viewer (optionally jumping to 1-based `line`).
 - `sendChatPrompt(text, { prefillOnly?, attachments?, behavior? })` → Prefill Composer or send a message in the active session.
 - `showToast(message, kind?)` → Non-blocking toast (`"info" | "success" | "warning" | "error"`).
+- `openSettingsPage(pageId?)` → Open Settings on a built-in page or a `registerSettingsPage` id. Returns `false` before the shell has mounted.
+- `openPluginPage(pageId)` → Show a `registerPage` page in the main stage (closes Settings if open).
 
 ### `dsh-better-sidebar` Compatibility
 Client-only plugins migrating from DSH can declare `export const inject = ["betterSidebar"]` and call `ctx.betterSidebar.registerTab({ id, title, icon, component })` or `ctx.betterSidebar.registerFileViewer(...)` — Qianji maps them directly into `rightWorkbenchTabs` / `bottomPanelTabs` / `file.viewer`.
