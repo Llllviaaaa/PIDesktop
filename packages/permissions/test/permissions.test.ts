@@ -261,3 +261,17 @@ describe("Self-kill protection (防自杀拦截)", () => {
     expect(asked).toEqual([]);
   });
 });
+
+describe("the powershell tool (ADR 0021)", () => {
+  const decide = (toolName: string, command: string, mode: "ask" | "workspace-write" | "full-access" | "read-only") =>
+    evaluateToolPermission({ mode, rules: rulesFromConfig({}), workspace: "D:/repo", toolName, input: { command } });
+
+  it("is a shell: it gets the same decision as bash in every mode", () => {
+    for (const mode of ["ask", "workspace-write", "full-access", "read-only"] as const) {
+      for (const command of ["Remove-Item -Recurse -Force build", "Get-ChildItem", "git push --force"]) {
+        expect(decide("powershell", command, mode), `${mode}: ${command}`).toEqual(decide("bash", command, mode));
+      }
+    }
+    expect(decide("powershell", "Remove-Item -Recurse build", "workspace-write").action).toBe("confirm");
+  });
+});

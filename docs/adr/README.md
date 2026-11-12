@@ -24,6 +24,7 @@ V2 重构（[REFACTOR_V2_PLAN.md](../archive/REFACTOR_V2_PLAN.md)）期间的架
 | [0018](0018-anthropic-adaptive-thinking-and-caching.md) | Anthropic 适配器：自适应 thinking 与提示词缓存 | 已接受 |
 | [0019](0019-context-pressure.md) | 上下文压力：提前压缩、摘要请求收缩与工具输出上限 | 已接受 |
 | [0020](0020-tool-guards.md) | 工具调用的时限与重复提醒 | 已接受 |
+| [0021](0021-powershell-fallback.md) | Windows 上没有 Git Bash 时改用 PowerShell | 已接受 |
 
 ## 旧名对照
 

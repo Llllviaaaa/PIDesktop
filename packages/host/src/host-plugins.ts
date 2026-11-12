@@ -37,7 +37,7 @@ export const bashSandboxPlugin = {
   apply(ctx: Context) {
     ctx.plugin(toolBash.BashSandbox, { enabled: true });
     ctx.on("tools/pre-execute", async (call, env) => {
-      if (call.name !== "bash") return undefined;
+      if (call.name !== "bash" && call.name !== "powershell") return undefined;
       const permissions = ctx.get("permissions");
       if (permissions !== undefined) {
         const session = await ctx.sessions.get(env.sessionId);
