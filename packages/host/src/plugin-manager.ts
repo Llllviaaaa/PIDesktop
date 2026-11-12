@@ -7,7 +7,7 @@
  * - fiber-isolated fault tolerance with transactional HMR rollback (ADR 0016).
  */
 import { existsSync, watch as fsWatch, type FSWatcher } from "node:fs";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import type { Context, Plugin } from "@deepseek-ai/cordis";
 import {
   WorkspacePluginScope,
@@ -23,7 +23,6 @@ import {
   type PluginClientBundleResult,
   type PluginClientError,
   type PluginInfo,
-  type PluginInstallOrigin,
   type PluginInstallParams,
   type PluginMutationResult,
   type PluginStatus,
@@ -35,13 +34,12 @@ import "@qianji/ui";
 import type { BuiltinPluginDefinition } from "./agent-plugins.ts";
 import { ClientBundleRegistry, createPluginsHttpHandler, type ClientRouteTarget } from "./client-bundles.ts";
 import { importExternalModule, installHostModuleBridge } from "./plugin-bridge.ts";
-import { installPlugin, managedPluginsRoot, removeUserPluginFiles, updateInstalledPlugin } from "./plugin-installer.ts";
+import { installPlugin, removeUserPluginFiles, updateInstalledPlugin } from "./plugin-installer.ts";
 import {
   canonicalPath,
   pathComparisonKey,
   readPluginManifest,
   scanPluginsDirectory,
-  type DiscoveredPluginManifest,
 } from "./plugin-manifest.ts";
 import {
   inspectWorkspaceTrust,
@@ -52,6 +50,16 @@ import {
   updatePluginsStore,
   workspacePluginKey,
 } from "./plugin-store.ts";
+import { resolveCandidates, type ResolvedCandidate } from "./plugin-candidates.ts";
+import {
+  errorDetailWithStack,
+  errorMessage,
+  extractStackFrameComparisonKeys,
+  flushImmediate,
+  resolveCordisPluginExport,
+  shouldIgnoreWatchedPath,
+  signatureOf,
+} from "./plugin-util.ts";
 import "./web-server.ts";
 
 export interface PluginManagerOptions {
@@ -78,34 +86,6 @@ interface MountedFiber {
   provides: string[];
 }
 
-interface ResolvedCandidate {
-  id: string;
-  name: string;
-  version: string;
-  description?: string;
-  tier: PluginTier;
-  enabled: boolean;
-  canDisable: boolean;
-  overridesBuiltin: boolean;
-  removable: boolean;
-  hasHost: boolean;
-  hasClient: boolean;
-  watch: boolean;
-  dir?: string;
-  workspace?: string;
-  workspaceKey?: string;
-  hostEntry?: string;
-  clientEntry?: string;
-  assetsDir?: string;
-  origin?: PluginInstallOrigin;
-  builtinPlugin?: Plugin;
-  effectiveConfig?: unknown;
-  publicConfig?: Record<string, unknown>;
-  configSchema?: Record<string, unknown>;
-  manifestError?: string;
-  inject: string[];
-  provides: string[];
-}
 
 interface PreparedCandidate {
   candidate: ResolvedCandidate;
@@ -125,59 +105,6 @@ interface WatcherEntry {
 
 const WATCH_DEBOUNCE_MS = 120;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function signatureOf(value: unknown): string {
-  return JSON.stringify(value ?? null, (_key, item: unknown) => (typeof item === "function" ? "[function]" : item));
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function errorDetailWithStack(error: unknown): string {
-  if (error instanceof Error) {
-    const msg = error.message || error.name || "Error";
-    const rawStack = error.stack?.trim();
-    if (rawStack !== undefined && rawStack !== "") {
-      const combined = rawStack.includes(msg) ? rawStack : `${error.name || "Error"}: ${msg}\n${rawStack}`;
-      return redactSensitiveText(combined);
-    }
-    return redactSensitiveText(msg);
-  }
-  return redactSensitiveText(String(error));
-}
-
-function flushImmediate(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve));
-}
-
-function shouldIgnoreWatchedPath(filename: string | null | undefined): boolean {
-  if (filename == null || filename === "") return false;
-  const normalized = filename.replace(/\\/g, "/");
-  return normalized === ".git"
-    || normalized.startsWith(".git/")
-    || normalized.startsWith("node_modules/")
-    || normalized === "node_modules"
-    || normalized.endsWith(".tmp")
-    || normalized.endsWith("~");
-}
-
-function resolveCordisPluginExport(mod: Record<string, unknown>, pluginId: string): Plugin {
-  if (typeof mod.apply === "function") {
-    return mod as unknown as Plugin;
-  }
-  const def = mod.default;
-  if (typeof def === "function") {
-    return def as unknown as Plugin;
-  }
-  if (isRecord(def) && typeof def.apply === "function") {
-    return def as unknown as Plugin;
-  }
-  throw new Error(`Plugin "${pluginId}" host entry must export apply(ctx, config) or a default Cordis plugin`);
-}
 
 export class PluginManager {
   readonly bundles = new ClientBundleRegistry();
@@ -925,250 +852,14 @@ export class PluginManager {
       const activeTrustedWs = this.currentTrustedWorkspace;
       const activeWsKey = activeTrustedWs !== undefined ? pathComparisonKey(activeTrustedWs) : undefined;
 
-      const builtins = this.options.builtins?.(activeTrustedWs) ?? [];
-      const builtinsById = new Map(builtins.map((entry) => [entry.id, entry]));
-      const bundledById = new Map<string, DiscoveredPluginManifest>();
-      for (const bundledRoot of this.resolveBundledPluginsDirs()) {
-        const scanned = scanPluginsDirectory(bundledRoot, "builtin");
-        for (const manifest of scanned.manifests) {
-          if (!builtinsById.has(manifest.id) && !bundledById.has(manifest.id)) {
-            bundledById.set(manifest.id, manifest);
-          }
-        }
-        for (const scanErr of scanned.errors) {
-          this.ctx.logger("plugins").warn("skipping invalid bundled plugin %s: %s", scanErr.dir, scanErr.error);
-        }
-      }
-      const hasBuiltinId = (id: string): boolean => builtinsById.has(id) || bundledById.has(id);
-      const store = readPluginsStore(this.options.dataDir);
-
-      // 1. Discover user plugins (`<dataDir>/plugins/*` + linked local dirs in `plugins.json`).
-      const userById = new Map<string, DiscoveredPluginManifest>();
-      const manifestErrors = new Map<string, { tier: PluginTier; dir: string; message: string }>();
-
-      const managedScan = scanPluginsDirectory(managedPluginsRoot(this.options.dataDir), "user");
-      for (const manifest of managedScan.manifests) {
-        userById.set(manifest.id, manifest);
-      }
-      for (const scanErr of managedScan.errors) {
-        this.ctx.logger("plugins").warn("skipping invalid plugin dir %s: %s", scanErr.dir, scanErr.error);
-      }
-
-      for (const [id, patch] of Object.entries(store.plugins)) {
-        if (patch.linkedDir === undefined) continue;
-        try {
-          const manifest = readPluginManifest(patch.linkedDir, "user");
-          userById.set(manifest.id, manifest);
-        } catch (error) {
-          manifestErrors.set(id, { tier: "user", dir: patch.linkedDir, message: errorMessage(error) });
-        }
-      }
-
-      // 2. Discover workspace plugins strictly from the SINGLE active trusted workspace.
-      const workspaceById = new Map<string, DiscoveredPluginManifest>();
-      if (activeTrustedWs !== undefined) {
-        const scanned = scanPluginsDirectory(resolveWorkspacePluginsDir(activeTrustedWs), "workspace", activeTrustedWs);
-        for (const manifest of scanned.manifests) {
-          workspaceById.set(manifest.id, manifest);
-        }
-        for (const scanErr of scanned.errors) {
-          this.ctx.logger("plugins").warn("skipping invalid workspace plugin %s: %s", scanErr.dir, scanErr.error);
-        }
-      }
-
-      // 3. Merge tiers (`workspace` > `user` > `builtin`).
-      const allIds: string[] = [];
-      const seenIds = new Set<string>();
-      const pushId = (id: string): void => {
-        if (seenIds.has(id)) return;
-        seenIds.add(id);
-        allIds.push(id);
-      };
-      for (const id of [...workspaceById.keys()].sort()) pushId(id);
-      for (const id of [...userById.keys()].sort()) pushId(id);
-      for (const id of [...manifestErrors.keys()].sort()) pushId(id);
-      for (const builtin of builtins) pushId(builtin.id);
-      for (const id of [...bundledById.keys()].sort()) pushId(id);
-
-      const candidates: ResolvedCandidate[] = [];
-      for (const id of allIds) {
-        const protectedBuiltin = builtinsById.get(id);
-        if (protectedBuiltin !== undefined && protectedBuiltin.canDisable === false) {
-          const depMeta = extractPluginDependencyMeta(protectedBuiltin.plugin, {
-            ...(protectedBuiltin.inject === undefined ? {} : { inject: protectedBuiltin.inject }),
-            ...(protectedBuiltin.provides === undefined ? {} : { provides: protectedBuiltin.provides }),
-          });
-          candidates.push({
-            id: protectedBuiltin.id,
-            name: protectedBuiltin.name,
-            version: this.options.version,
-            description: protectedBuiltin.description,
-            tier: "builtin",
-            enabled: true,
-            canDisable: false,
-            overridesBuiltin: false,
-            removable: false,
-            hasHost: protectedBuiltin.hasHost,
-            hasClient: protectedBuiltin.hasClient,
-            watch: false,
-            builtinPlugin: protectedBuiltin.plugin,
-            effectiveConfig: protectedBuiltin.config,
-            inject: depMeta.inject,
-            provides: depMeta.provides,
-          });
-          continue;
-        }
-
-        const wsManifest = workspaceById.get(id);
-        if (wsManifest !== undefined && wsManifest.workspace !== undefined) {
-          const wsPatch = store.workspacePlugins[workspacePluginKey(wsManifest.workspace, id)];
-          const mergedConfig = { ...(wsManifest.defaultConfig ?? {}), ...(wsPatch?.config ?? {}) };
-          candidates.push({
-            id,
-            name: wsManifest.name,
-            version: wsManifest.version,
-            ...(wsManifest.description === undefined ? {} : { description: wsManifest.description }),
-            tier: "workspace",
-            enabled: wsPatch?.enabled !== false,
-            canDisable: true,
-            overridesBuiltin: hasBuiltinId(id),
-            removable: false,
-            hasHost: wsManifest.hostEntry !== undefined,
-            hasClient: wsManifest.clientEntry !== undefined,
-            watch: wsPatch?.watch ?? true,
-            dir: wsManifest.dir,
-            workspace: wsManifest.workspace,
-            workspaceKey: pathComparisonKey(wsManifest.workspace),
-            ...(wsManifest.hostEntry === undefined ? {} : { hostEntry: wsManifest.hostEntry }),
-            ...(wsManifest.clientEntry === undefined ? {} : { clientEntry: wsManifest.clientEntry }),
-            ...(wsManifest.assetsDir === undefined ? {} : { assetsDir: wsManifest.assetsDir }),
-            effectiveConfig: mergedConfig,
-            publicConfig: mergedConfig,
-            ...(wsManifest.configSchema === undefined ? {} : { configSchema: wsManifest.configSchema }),
-            inject: [...(wsManifest.inject ?? [])],
-            provides: [...(wsManifest.provides ?? [])],
-          });
-          continue;
-        }
-
-        const userManifest = userById.get(id);
-        if (userManifest !== undefined) {
-          const patch = store.plugins[id];
-          const mergedConfig = { ...(userManifest.defaultConfig ?? {}), ...(patch?.config ?? {}) };
-          candidates.push({
-            id,
-            name: userManifest.name,
-            version: userManifest.version,
-            ...(userManifest.description === undefined ? {} : { description: userManifest.description }),
-            tier: "user",
-            enabled: patch?.enabled !== false,
-            canDisable: true,
-            overridesBuiltin: hasBuiltinId(id),
-            removable: true,
-            hasHost: userManifest.hostEntry !== undefined,
-            hasClient: userManifest.clientEntry !== undefined,
-            watch: patch?.watch === true,
-            dir: userManifest.dir,
-            ...(userManifest.hostEntry === undefined ? {} : { hostEntry: userManifest.hostEntry }),
-            ...(userManifest.clientEntry === undefined ? {} : { clientEntry: userManifest.clientEntry }),
-            ...(userManifest.assetsDir === undefined ? {} : { assetsDir: userManifest.assetsDir }),
-            ...(patch?.origin === undefined ? {} : { origin: patch.origin }),
-            effectiveConfig: mergedConfig,
-            publicConfig: mergedConfig,
-            ...(userManifest.configSchema === undefined ? {} : { configSchema: userManifest.configSchema }),
-            inject: [...(userManifest.inject ?? [])],
-            provides: [...(userManifest.provides ?? [])],
-          });
-          continue;
-        }
-
-        const broken = manifestErrors.get(id);
-        if (broken !== undefined) {
-          const patch = store.plugins[id];
-          candidates.push({
-            id,
-            name: id,
-            version: "0.0.0",
-            tier: broken.tier,
-            enabled: patch?.enabled !== false,
-            canDisable: true,
-            overridesBuiltin: hasBuiltinId(id),
-            removable: true,
-            hasHost: false,
-            hasClient: false,
-            watch: patch?.watch === true,
-            dir: broken.dir,
-            ...(patch?.origin === undefined ? {} : { origin: patch.origin }),
-            manifestError: broken.message,
-            inject: [],
-            provides: [],
-          });
-          continue;
-        }
-
-        const builtin = builtinsById.get(id);
-        if (builtin !== undefined) {
-          const patch = store.plugins[id];
-          const canDisable = builtin.canDisable !== false;
-          const enabled = canDisable ? (patch?.enabled ?? builtin.enabled) : true;
-          const effectiveConfig = patch?.config !== undefined
-            ? (isRecord(builtin.config) ? { ...builtin.config, ...patch.config } : patch.config)
-            : builtin.config;
-          const depMeta = extractPluginDependencyMeta(builtin.plugin, {
-            ...(builtin.inject === undefined ? {} : { inject: builtin.inject }),
-            ...(builtin.provides === undefined ? {} : { provides: builtin.provides }),
-          });
-          candidates.push({
-            id: builtin.id,
-            name: builtin.name,
-            version: this.options.version,
-            description: builtin.description,
-            tier: "builtin",
-            enabled,
-            canDisable,
-            overridesBuiltin: false,
-            removable: patch !== undefined,
-            hasHost: builtin.hasHost,
-            hasClient: builtin.hasClient,
-            watch: false,
-            builtinPlugin: builtin.plugin,
-            effectiveConfig,
-            ...(patch?.config === undefined ? {} : { publicConfig: patch.config }),
-            inject: depMeta.inject,
-            provides: depMeta.provides,
-          });
-          continue;
-        }
-
-        const bundledManifest = bundledById.get(id);
-        if (bundledManifest !== undefined) {
-          const patch = store.plugins[id];
-          const mergedConfig = { ...(bundledManifest.defaultConfig ?? {}), ...(patch?.config ?? {}) };
-          candidates.push({
-            id,
-            name: bundledManifest.name,
-            version: bundledManifest.version,
-            ...(bundledManifest.description === undefined ? {} : { description: bundledManifest.description }),
-            tier: "builtin",
-            enabled: patch?.enabled !== false,
-            canDisable: true,
-            overridesBuiltin: false,
-            removable: patch !== undefined,
-            hasHost: bundledManifest.hostEntry !== undefined,
-            hasClient: bundledManifest.clientEntry !== undefined,
-            watch: false,
-            dir: bundledManifest.dir,
-            ...(bundledManifest.hostEntry === undefined ? {} : { hostEntry: bundledManifest.hostEntry }),
-            ...(bundledManifest.clientEntry === undefined ? {} : { clientEntry: bundledManifest.clientEntry }),
-            ...(bundledManifest.assetsDir === undefined ? {} : { assetsDir: bundledManifest.assetsDir }),
-            effectiveConfig: mergedConfig,
-            publicConfig: mergedConfig,
-            ...(bundledManifest.configSchema === undefined ? {} : { configSchema: bundledManifest.configSchema }),
-            inject: [...(bundledManifest.inject ?? [])],
-            provides: [...(bundledManifest.provides ?? [])],
-          });
-        }
-      }
+      const candidates = resolveCandidates({
+        dataDir: this.options.dataDir,
+        version: this.options.version,
+        builtins: this.options.builtins?.(activeTrustedWs) ?? [],
+        bundledPluginsDirs: this.resolveBundledPluginsDirs(),
+        ...(activeTrustedWs === undefined ? {} : { trustedWorkspace: activeTrustedWs }),
+        warn: (format, ...args) => this.ctx.logger("plugins").warn(format, ...args),
+      });
 
       // 4. Unmount removed, disabled, tier-switched, or inactive-workspace fibers in reverse topological order.
       const changed: string[] = [];
@@ -1535,67 +1226,4 @@ export class PluginManager {
       }
     }
   }
-}
-
-function extractBalancedCallSiteLocation(trimmedLine: string): string | undefined {
-  if (!trimmedLine.endsWith(")")) return undefined;
-  let depth = 0;
-  for (let i = trimmedLine.length - 1; i >= 0; i -= 1) {
-    const ch = trimmedLine[i];
-    if (ch === ")") {
-      depth += 1;
-    } else if (ch === "(") {
-      depth -= 1;
-      if (depth === 0) {
-        const inner = trimmedLine.slice(i + 1, -1).trim();
-        return inner !== "" ? inner : undefined;
-      }
-    }
-  }
-  return undefined;
-}
-
-function addNormalizedLocationKey(rawToken: string, keys: Set<string>): void {
-  const trimmed = rawToken.trim().replace(/^['"`]+|[,;'"`]+$/g, "");
-  if (trimmed === "") return;
-  const withoutLineCol = trimmed.replace(/(?::\d+){1,2}$/, "");
-  if (/^file:\/\//i.test(withoutLineCol)) {
-    try {
-      keys.add(pathComparisonKey(fileURLToPath(new URL(withoutLineCol))));
-    } catch {
-      // Ignore malformed file URLs in arbitrary user error strings.
-    }
-    return;
-  }
-  const withoutQuery = withoutLineCol.split(/[?#]/, 1)[0] ?? withoutLineCol;
-  if (/^[a-zA-Z]:[\\/]/.test(withoutQuery) && withoutQuery.length > 3) {
-    keys.add(pathComparisonKey(withoutQuery));
-  } else if (withoutQuery.startsWith("/") && !withoutQuery.startsWith("//") && withoutQuery.length > 1) {
-    keys.add(pathComparisonKey(withoutQuery));
-  }
-}
-
-function extractStackFrameComparisonKeys(stackText: string): string[] {
-  const keys = new Set<string>();
-  for (const rawLine of stackText.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (line === "") continue;
-    const parenLoc = extractBalancedCallSiteLocation(line);
-    if (parenLoc !== undefined) {
-      addNormalizedLocationKey(parenLoc, keys);
-    }
-    const atMatch = /^at\s+(?:async\s+)?(.+)$/.exec(line);
-    if (atMatch?.[1] !== undefined && !atMatch[1].endsWith(")")) {
-      addNormalizedLocationKey(atMatch[1], keys);
-    }
-    const jscAtIdx = line.indexOf("@");
-    if (jscAtIdx >= 0 && jscAtIdx + 1 < line.length) {
-      addNormalizedLocationKey(line.slice(jscAtIdx + 1), keys);
-    }
-  }
-  for (const match of stackText.matchAll(/file:\/\/\/[^\s"'`<>|]+/gi)) {
-    const token = match[0].replace(/\)+$/, "");
-    addNormalizedLocationKey(token, keys);
-  }
-  return [...keys];
 }
