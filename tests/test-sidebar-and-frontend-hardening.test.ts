@@ -116,7 +116,7 @@ describe("Sidebar Persistence, Minimize Guard & Reversible Narrow Viewport", () 
     expect(formatShortcutChord({ key: "b", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false })).toBeNull();
     expect(formatShortcutChord({ key: "Enter", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false })).toBeNull();
 
-    const settingsSource = readFileSync(resolve(__dirname, "../src/components/SettingsModal.tsx"), "utf8");
+    const settingsSource = readFileSync(resolve(__dirname, "../src/components/settings/AppearanceSettingsPage.tsx"), "utf8");
     const effectsSource = readFileSync(resolve(__dirname, "../src/components/shell/useAppearanceAndShellEffects.ts"), "utf8");
     const modelPickerSource = readFileSync(resolve(__dirname, "../src/components/ModelPicker.tsx"), "utf8");
     expect(settingsSource).toContain("shortcutToggleSidebar");

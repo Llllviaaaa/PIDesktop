@@ -1,15 +1,20 @@
 import type { Window as TauriWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ArrowLeft, ArrowRight, Minus, PanelLeft, Square, X } from "lucide-react";
+import { useClientContributions } from "../../lib/clientContributions";
 import { requestAppQuit } from "../../lib/quitGuard";
 import {
   TRANSCRIPT_DENSITY_LABELS,
   TRANSCRIPT_DENSITY_ORDER,
   type TranscriptDensity,
 } from "../../lib/transcriptDensity";
+import { hasMenuItems, PluginMenuItems } from "../common/PluginMenuItems";
 import type { SettingsPage } from "../SettingsModal";
 import type { WorkspaceEditorInfo } from "../../types";
 import type { AppMenu, NavigationTarget } from "./shellTypes";
+
+const BUILTIN_MENUS: readonly AppMenu[] = ["file", "edit", "view", "help"];
+const MENU_LABELS: Record<AppMenu, string> = { file: "文件", edit: "编辑", view: "视图", help: "帮助", tools: "工具" };
 
 export interface WindowMenubarProps {
   appWindow: TauriWindow | null;
@@ -81,6 +86,10 @@ export function WindowMenubar({
   const sidebarToggleLabel = sidebarVisible || sidebarRendered
     ? "隐藏侧栏"
     : isNarrowViewport ? "显示侧栏" : "固定侧栏";
+  const { menuItems } = useClientContributions();
+  const menus: readonly AppMenu[] = hasMenuItems(menuItems, "menubar.tools") ? [...BUILTIN_MENUS, "tools"] : BUILTIN_MENUS;
+  const pluginMenuContext = { cwd, sessionFile };
+  const closeMenu = () => setAppMenu(null);
   return (
     <div className="window-menubar" data-tauri-drag-region>
       <div className="window-menubar-left" data-tauri-drag-region>
@@ -116,14 +125,14 @@ export function WindowMenubar({
           <ArrowRight size={18} strokeWidth={1.55} />
         </button>
         <div className="app-menu-bar">
-          {(["file", "edit", "view", "help"] as AppMenu[]).map((menu) => (
+          {menus.map((menu) => (
             <button
               type="button"
               key={menu}
               className={`app-menu-trigger ${appMenu === menu ? "active" : ""}`}
               onClick={() => setAppMenu((current) => (current === menu ? null : menu))}
             >
-              {menu === "file" ? "文件" : menu === "edit" ? "编辑" : menu === "view" ? "视图" : "帮助"}
+              {MENU_LABELS[menu]}
             </button>
           ))}
         </div>
@@ -170,6 +179,7 @@ export function WindowMenubar({
                 >
                   导出为 Markdown...
                 </button>
+                <PluginMenuItems location="menubar.file" context={pluginMenuContext} onClose={closeMenu} separatorClassName="menu-separator" />
                 <div className="menu-separator" />
                 <button
                   onClick={() => {
@@ -208,6 +218,7 @@ export function WindowMenubar({
                 >
                   全选
                 </button>
+                <PluginMenuItems location="menubar.edit" context={pluginMenuContext} onClose={closeMenu} separatorClassName="menu-separator" />
               </>
             )}
             {appMenu === "view" && (
@@ -269,6 +280,7 @@ export function WindowMenubar({
                 >
                   外观设置
                 </button>
+                <PluginMenuItems location="menubar.view" context={pluginMenuContext} onClose={closeMenu} separatorClassName="menu-separator" />
               </>
             )}
             {appMenu === "help" && (
@@ -290,7 +302,11 @@ export function WindowMenubar({
                 >
                   诊断日志
                 </button>
+                <PluginMenuItems location="menubar.help" context={pluginMenuContext} onClose={closeMenu} separatorClassName="menu-separator" />
               </>
+            )}
+            {appMenu === "tools" && (
+              <PluginMenuItems location="menubar.tools" context={pluginMenuContext} onClose={closeMenu} />
             )}
           </div>
         )}

@@ -565,6 +565,65 @@ export interface HomeQuickActionSlotContext extends WorkbenchSlotContext {
   sendPrompt: (prompt: string) => void;
 }
 
+export type BuiltinSettingsPageId = "general" | "appearance" | "providers" | "plugins";
+
+export interface SettingsSlotContext extends WorkbenchSlotContext {
+  page: string;
+  closeSettings: () => void;
+}
+
+export interface CodeBlockRendererSlotContext extends WorkbenchSlotContext {
+  language: string;
+  code: string;
+}
+
+export interface FileMenuContext extends WorkbenchSlotContext {
+  path: string;
+  absolutePath: string;
+  line?: number;
+}
+
+export interface ProjectMenuContext {
+  workspace: string;
+  sessionFiles: readonly string[];
+}
+
+export interface SessionMenuContext {
+  cwd: string;
+  sessionFile: string;
+  title: string;
+}
+
+export interface ClientMenuContextMap {
+  "menubar.file": WorkbenchSlotContext;
+  "menubar.edit": WorkbenchSlotContext;
+  "menubar.view": WorkbenchSlotContext;
+  "menubar.help": WorkbenchSlotContext;
+  "menubar.tools": WorkbenchSlotContext;
+  "thread.more": WorkbenchSlotContext;
+  "sidebar.project": ProjectMenuContext;
+  "sidebar.thread": SessionMenuContext;
+  "file.context": FileMenuContext;
+}
+
+export type ClientMenuLocation = keyof ClientMenuContextMap;
+
+export interface ClientMenuItemFor<L extends ClientMenuLocation> {
+  id: string;
+  pluginId?: string;
+  location: L;
+  label: string;
+  icon?: ReactNode;
+  shortcut?: string;
+  order?: number;
+  danger?: boolean;
+  when?: (context: ClientMenuContextMap[L]) => boolean;
+  disabled?: (context: ClientMenuContextMap[L]) => boolean;
+  onSelect: (context: ClientMenuContextMap[L]) => void | Promise<void>;
+}
+
+export type ClientMenuItemContribution = { [L in ClientMenuLocation]: ClientMenuItemFor<L> }[ClientMenuLocation];
+
 export interface ClientPageContribution {
   id: string;
   pluginId?: string;
@@ -665,6 +724,45 @@ export interface ClientSlashInterceptorContribution {
   onSlashCommand: (name: string, rawArgs: string, context: WorkbenchSlotContext) => Promise<boolean> | boolean;
 }
 
+export interface ClientSettingsPageContribution {
+  id: string;
+  pluginId?: string;
+  label: string;
+  icon?: ReactNode;
+  heading?: string;
+  subtitle?: string;
+  order?: number;
+  wide?: boolean;
+  render: (context: SettingsSlotContext) => ReactNode;
+}
+
+export interface ClientSettingsSectionContribution {
+  id: string;
+  pluginId?: string;
+  page: BuiltinSettingsPageId | (string & {});
+  title?: string;
+  order?: number;
+  render: (context: SettingsSlotContext) => ReactNode;
+}
+
+export interface ClientKeybindingContribution {
+  id: string;
+  pluginId?: string;
+  key: string;
+  label?: string;
+  order?: number;
+  allowInEditable?: boolean;
+  run: (context: WorkbenchSlotContext) => void | Promise<void>;
+}
+
+export interface ClientCodeBlockRendererContribution {
+  id: string;
+  pluginId?: string;
+  languages: readonly string[];
+  order?: number;
+  render: (context: CodeBlockRendererSlotContext) => ReactNode;
+}
+
 export type AppearanceScope = "builtin" | "user" | "workspace";
 
 export interface ThemePalette {
@@ -740,6 +838,11 @@ export interface ClientContributionService {
   registerHomeQuickAction(item: ClientHomeQuickActionContribution): () => void;
   registerRewindHandler(handler: ClientRewindHandlerContribution): () => void;
   registerSlashInterceptor(interceptor: ClientSlashInterceptorContribution): () => void;
+  registerSettingsPage(page: ClientSettingsPageContribution): () => void;
+  registerSettingsSection(section: ClientSettingsSectionContribution): () => void;
+  registerMenuItem(item: ClientMenuItemContribution): () => void;
+  registerKeybinding(binding: ClientKeybindingContribution): () => void;
+  registerCodeBlockRenderer(renderer: ClientCodeBlockRendererContribution): () => void;
   registerTheme(theme: AppearanceThemeInput): () => void;
 }
 
@@ -814,6 +917,8 @@ export declare function openWorkbenchTab(target: string): void;
 export declare function openWorkspaceFile(path: string, line?: number): Promise<void>;
 export declare function sendChatPrompt(text: string, options?: SendChatPromptOptions): Promise<boolean>;
 export declare function showToast(message: string, kind?: "info" | "success" | "warning" | "error"): void;
+export declare function openSettingsPage(pageId?: string): boolean;
+export declare function openPluginPage(pageId: string): boolean;
 export declare function useClientContributions(): Record<string, readonly unknown[]>;
 export declare const clientContributions: ClientContributionService;
 export type ClientPluginApply<C = Record<string, unknown>> = (ctx: Context, config: C) => void;

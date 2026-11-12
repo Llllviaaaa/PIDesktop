@@ -5,7 +5,7 @@
  * slot contribution types to dynamic client plugins without coupling external
  * plugins to internal Zustand slices or private host UI components.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { agent as internalAgent } from "../lib/agent";
 import {
@@ -13,23 +13,37 @@ import {
   clientContributions,
   useClientContributions,
   type AppearanceThemeInput,
+  type BuiltinSettingsPageId,
   type ClientActionContribution,
+  type ClientCodeBlockRendererContribution,
   type ClientComposerStatusContribution,
   type ClientContributionsSnapshot,
   type ClientFileViewerContribution,
   type ClientHomeQuickActionContribution,
+  type ClientKeybindingContribution,
+  type ClientMenuContextMap,
+  type ClientMenuItemContribution,
+  type ClientMenuItemFor,
+  type ClientMenuLocation,
   type ClientMessageActionContribution,
   type ClientPageContribution,
   type ClientRewindHandlerContribution,
+  type ClientSettingsPageContribution,
+  type ClientSettingsSectionContribution,
   type ClientSidebarSectionContribution,
   type ClientSlashInterceptorContribution,
   type ClientSlotMetadata,
   type ClientStatusBarContribution,
   type ClientToolRendererContribution,
   type ClientWorkbenchTabContribution,
+  type CodeBlockRendererSlotContext,
+  type FileMenuContext,
   type FileViewerSlotContext,
   type HomeQuickActionSlotContext,
   type MessageActionSlotContext,
+  type ProjectMenuContext,
+  type SessionMenuContext,
+  type SettingsSlotContext,
   type ToolRendererSlotContext,
   type WorkbenchSlotContext,
 } from "../lib/clientContributions";
@@ -40,6 +54,7 @@ import type {
 } from "../lib/appearanceCatalog";
 import { harnessRuntimes as internalHarnessRuntimes } from "../lib/harnessRuntime";
 import { pluginClient } from "../lib/pluginClient";
+import { requestOpenHubPage, requestOpenSettings } from "../lib/shellBridge";
 import {
   messageImagesToAttachments,
   rewindController,
@@ -54,7 +69,9 @@ import {
 import { useAppStore as internalUseAppStore } from "../store";
 import { useWorkbenchStore as internalUseWorkbenchStore } from "../stores/workbenchStore";
 import type { AttachmentPayload, SessionStats, UiMessage, UiToolCall } from "../types";
+import { useHostRpcQuery, type HostRpcQueryOptions, type HostRpcQueryResult } from "./hostRpcQuery";
 export type { SessionStats };
+export { useHostRpcQuery, type HostRpcQueryOptions, type HostRpcQueryResult };
 
 export interface ActiveSessionModelSummary {
   provider: string;
@@ -83,18 +100,6 @@ export interface AppearanceThemeSnapshot {
   themeId: string;
   resolvedScheme: "light" | "dark";
   accentColor: string;
-}
-
-export interface HostRpcQueryOptions {
-  enabled?: boolean;
-  refreshIntervalMs?: number;
-}
-
-export interface HostRpcQueryResult<T> {
-  data: T | undefined;
-  error: string | null;
-  loading: boolean;
-  refetch: () => Promise<void>;
 }
 
 export interface SendChatPromptOptions {
@@ -280,158 +285,6 @@ export function usePluginConfig<T extends object = Record<string, unknown>>(
   return config as T;
 }
 
-const inflightHostRpcQueries = new Map<string, Promise<unknown>>();
-
-function callDedupedHostRpc<T>(
-  queryKey: string,
-  method: string,
-  params: Record<string, unknown> | undefined,
-): Promise<T> {
-  let pending = inflightHostRpcQueries.get(queryKey) as Promise<T> | undefined;
-  if (!pending) {
-    const request = internalHarnessRuntimes.call<T>(method, params).finally(() => {
-      if (inflightHostRpcQueries.get(queryKey) === request) {
-        inflightHostRpcQueries.delete(queryKey);
-      }
-    });
-    pending = request;
-    inflightHostRpcQueries.set(queryKey, request);
-  }
-  return pending;
-}
-
-function isDocumentHidden(): boolean {
-  return typeof document !== "undefined" && document.hidden === true;
-}
-
-/** Read-only reactive RPC query hook against `qianji-harness` JSON-RPC methods. */
-export function useHostRpcQuery<T = unknown>(
-  method: string,
-  params?: Record<string, unknown>,
-  options?: HostRpcQueryOptions,
-): HostRpcQueryResult<T> {
-  const enabled = options?.enabled !== false;
-  const refreshIntervalMs = options?.refreshIntervalMs;
-  const serializedParams = JSON.stringify(params ?? null);
-  const queryKey = `${method}::${serializedParams}`;
-  const paramsRef = useRef(params);
-  useEffect(() => {
-    paramsRef.current = params;
-  }, [params]);
-
-  const [state, setState] = useState<{
-    data: T | undefined;
-    error: string | null;
-    loading: boolean;
-  }>(() => ({
-    data: undefined,
-    error: null,
-    loading: enabled,
-  }));
-
-  const seqRef = useRef(0);
-  const runQuery = useCallback(async (silent: boolean) => {
-    if (!enabled) return;
-    const seq = ++seqRef.current;
-    if (!silent) {
-      setState((prev) => (
-        prev.loading && prev.error === null
-          ? prev
-          : { ...prev, loading: prev.data === undefined, error: null }
-      ));
-    }
-    try {
-      const result = await callDedupedHostRpc<T>(queryKey, method, paramsRef.current);
-      if (seq !== seqRef.current) return;
-      setState((prev) => {
-        if (silent && prev.error === null && !prev.loading && prev.data !== undefined) {
-          try {
-            if (JSON.stringify(prev.data) === JSON.stringify(result)) {
-              return prev;
-            }
-          } catch {
-            // Fall through to state update when non-JSON values are returned.
-          }
-        }
-        return { data: result, error: null, loading: false };
-      });
-    } catch (err) {
-      if (seq !== seqRef.current) return;
-      setState((prev) => ({
-        data: prev.data,
-        error: err instanceof Error ? err.message : String(err),
-        loading: false,
-      }));
-    }
-  }, [enabled, method, queryKey]);
-
-  const refetch = useCallback(async () => {
-    await runQuery(false);
-  }, [runQuery]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    const seq = ++seqRef.current;
-    void (async () => {
-      try {
-        const result = await callDedupedHostRpc<T>(queryKey, method, paramsRef.current);
-        if (cancelled || seq !== seqRef.current) return;
-        setState({ data: result, error: null, loading: false });
-      } catch (err) {
-        if (cancelled || seq !== seqRef.current) return;
-        setState((prev) => ({
-          data: prev.data,
-          error: err instanceof Error ? err.message : String(err),
-          loading: false,
-        }));
-      }
-    })();
-
-    let timer: number | undefined;
-    const hasInterval = typeof refreshIntervalMs === "number"
-      && refreshIntervalMs > 0
-      && typeof window !== "undefined"
-      && typeof window.setInterval === "function";
-
-    if (hasInterval) {
-      timer = window.setInterval(() => {
-        if (isDocumentHidden()) return;
-        void runQuery(true);
-      }, refreshIntervalMs);
-    }
-
-    const handleVisibilityChange = () => {
-      if (!isDocumentHidden()) {
-        void runQuery(true);
-      }
-    };
-    const canListenVisibility = hasInterval
-      && typeof document !== "undefined"
-      && typeof document.addEventListener === "function";
-    if (canListenVisibility) {
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-    }
-
-    return () => {
-      cancelled = true;
-      if (timer !== undefined && typeof window !== "undefined" && typeof window.clearInterval === "function") {
-        window.clearInterval(timer);
-      }
-      if (canListenVisibility && typeof document.removeEventListener === "function") {
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-      }
-    };
-  }, [enabled, method, queryKey, refreshIntervalMs, runQuery]);
-
-  return {
-    data: state.data,
-    error: state.error,
-    loading: state.loading,
-    refetch,
-  };
-}
-
 /** Invoke a JSON-RPC method exposed by `qianji-harness` or a Host plugin (`ctx.rpc.method(...)`). */
 export async function callHostRpc<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
   return await internalHarnessRuntimes.call<T>(method, params);
@@ -464,6 +317,19 @@ export async function sendChatPrompt(text: string, options?: SendChatPromptOptio
   return await internalUseAppStore.getState().sendMessage(trimmed, options?.attachments, options?.behavior);
 }
 
+/**
+ * Open Settings on a category: a built-in id (`"general"`, `"appearance"`, `"providers"`, `"plugins"`)
+ * or the `id` of a page from `registerSettingsPage`. Returns `false` before the shell has mounted.
+ */
+export function openSettingsPage(pageId?: string): boolean {
+  return requestOpenSettings(pageId);
+}
+
+/** Show a page registered with `ctx.contributions.registerPage` in the main stage. */
+export function openPluginPage(pageId: string): boolean {
+  return requestOpenHubPage(pageId);
+}
+
 /** Display a non-blocking toast notification in the bottom-right notification stack. */
 export function showToast(message: string, kind: "info" | "success" | "warning" | "error" = "info"): void {
   internalUseAppStore.getState().showToast(message, kind === "success" ? "info" : kind);
@@ -482,30 +348,44 @@ export type {
   AppearanceThemeDefinition,
   AppearanceThemeInput,
   AttachmentPayload,
+  BuiltinSettingsPageId,
   ClientActionContribution,
+  ClientCodeBlockRendererContribution,
   ClientComposerStatusContribution,
   ClientContributionsSnapshot,
   ClientFileViewerContribution,
   ClientHomeQuickActionContribution,
+  ClientKeybindingContribution,
+  ClientMenuContextMap,
+  ClientMenuItemContribution,
+  ClientMenuItemFor,
+  ClientMenuLocation,
   ClientMessageActionContribution,
   ClientPageContribution,
   ClientRewindHandlerContribution,
+  ClientSettingsPageContribution,
+  ClientSettingsSectionContribution,
   ClientSidebarSectionContribution,
   ClientSlashInterceptorContribution,
   ClientSlotMetadata,
   ClientStatusBarContribution,
   ClientToolRendererContribution,
   ClientWorkbenchTabContribution,
+  CodeBlockRendererSlotContext,
   ComposerDraftSnapshot,
+  FileMenuContext,
   FileViewerSlotContext,
   HomeQuickActionSlotContext,
   MessageActionSlotContext,
   PerformedRewindResult,
+  ProjectMenuContext,
   RewindExecutionResult,
   RewindInspection,
   RewindMode,
   RewindTargetSummary,
   RewindTurnSummary,
+  SessionMenuContext,
+  SettingsSlotContext,
   ThemePalette,
   ToolRendererSlotContext,
   UiMessage,
@@ -545,6 +425,8 @@ export const qianjiClientSdk = {
   callHostRpc,
   openWorkbenchTab,
   openWorkspaceFile,
+  openSettingsPage,
+  openPluginPage,
   sendChatPrompt,
   showToast,
   getActiveSessionSnapshot,

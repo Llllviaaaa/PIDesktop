@@ -27,7 +27,7 @@ Qianji runs across three strictly separated planes that do **not** share memory 
 Before editing core workbench components, check whether the capability belongs in a hot-pluggable plugin or a one-off `render_ui` widget:
 
 - **Ephemeral turn visualization / interactive form**: Use `render_ui`.
-- **Persistent workbench tab, file viewer, message action/card, status bar item, slash command, or custom tool**: Build a Qianji plugin following [`skills/qianji-plugin-development/SKILL.md`](skills/qianji-plugin-development/SKILL.md).
+- **Persistent workbench tab, file viewer, message action/card, status bar item, settings page/section, menu item, keybinding, Markdown fence renderer, slash command, or custom tool**: Build a Qianji plugin following [`skills/qianji-plugin-development/SKILL.md`](skills/qianji-plugin-development/SKILL.md).
 - **5-Step Agent Plugin Loop**:
   1. Read [`skills/qianji-plugin-development/SKILL.md`](skills/qianji-plugin-development/SKILL.md) (plus targeted files in [`skills/qianji-plugin-development/references/`](skills/qianji-plugin-development/references/client-slots-and-sdk.md)).
   2. Call `qianji_inspect` (`readOnly: true`) to query live `services`, `client_slots`, `theme_tokens`, `shared_modules`, `rpc_methods`, or `plugins`.
@@ -39,7 +39,7 @@ Before editing core workbench components, check whether the capability belongs i
 
 **Strict Internal vs. External Decoupling**:
 - **Host-internal UI (`src/components/ui/`)**: Internal primitives (`Button`, `Dialog`, `Tabs`, `Select`, `Switch`, `Input`, `Badge`, `Tooltip`) for host screens only. Feel free to refactor props internally.
-- **External Plugin SDK ([`src/sdk/index.ts`](src/sdk/index.ts) / `@qianji/client`)**: SemVer-stable contract for plugins (`useActiveSession`, `useActiveWorkspace`, `useAppearanceTheme`, `usePluginConfig`, `useHostRpcQuery`, `callHostRpc`, `openWorkbenchTab`, `openWorkspaceFile`, `sendChatPrompt`, `showToast`). Never expose raw internal Zustand slices to new plugins; when changing `src/sdk/index.ts`, update [`scripts/generate-plugin-types.mjs`](scripts/generate-plugin-types.mjs) and run `node scripts/generate-plugin-types.mjs`.
+- **External Plugin SDK ([`src/sdk/index.ts`](src/sdk/index.ts) / `@qianji/client`)**: SemVer-stable contract for plugins (`useActiveSession`, `useActiveWorkspace`, `useAppearanceTheme`, `usePluginConfig`, `useHostRpcQuery`, `callHostRpc`, `openWorkbenchTab`, `openWorkspaceFile`, `openSettingsPage`, `openPluginPage`, `sendChatPrompt`, `showToast`). Never expose raw internal Zustand slices to new plugins; when changing `src/sdk/index.ts`, update [`scripts/generate-plugin-types.mjs`](scripts/generate-plugin-types.mjs) and run `node scripts/generate-plugin-types.mjs`.
 
 ---
 

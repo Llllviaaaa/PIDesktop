@@ -1,5 +1,6 @@
 import { Folder, Menu, MoreHorizontal } from "lucide-react";
 import type { GitSnapshot, SessionInfo, TerminalAppInfo, WorkspaceEditorInfo } from "../../types";
+import { PluginMenuItems } from "../common/PluginMenuItems";
 import { GitActionButton } from "../GitActionButton";
 import { OpenInMenu } from "../WorkspaceOpeners";
 import { WorkbenchTopbarControls } from "../workbench/RightWorkbench";
@@ -228,6 +229,12 @@ export function StageTopbar({
                   >
                     归档任务
                   </button>
+                  <PluginMenuItems
+                    location="thread.more"
+                    context={{ cwd: workspaceCwd || cwd, sessionFile }}
+                    onClose={() => setMoreOpen(false)}
+                    separatorClassName="menu-separator"
+                  />
                   <div className="menu-separator" />
                   <button
                     onClick={() => {

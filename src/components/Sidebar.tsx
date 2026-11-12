@@ -3,6 +3,7 @@ import { SidebarFloatingMenusAndFooter } from "./sidebar/SidebarFloatingMenusAnd
 import { SidebarHeaderAndPopovers } from "./sidebar/SidebarHeaderAndPopovers";
 import type { SidebarProps } from "./sidebar/sidebarHelpers";
 import { SidebarThreadAndProjectLists } from "./sidebar/SidebarThreadAndProjectLists";
+import { SidebarThreadMenu, useSidebarThreadMenu } from "./sidebar/SidebarThreadMenu";
 import { useSidebarState } from "./sidebar/useSidebarState";
 
 export type { SidebarProps };
@@ -53,6 +54,7 @@ export function Sidebar({
     searchRequested,
     onSearchRequestHandled,
   });
+  const { threadMenu, openThreadMenu, closeThreadMenu } = useSidebarThreadMenu(sidebarRef);
 
   return (
     <aside
@@ -133,6 +135,10 @@ export function Sidebar({
         consumeSuppressedProjectClick={state.consumeSuppressedProjectClick}
         startProjectDrag={state.startProjectDrag}
         openProjectMenu={state.openProjectMenu}
+        openThreadMenu={(event, session) => {
+          state.closePopovers();
+          openThreadMenu(event, session);
+        }}
         showThreadPreview={state.showThreadPreview}
         schedulePreviewClose={state.schedulePreviewClose}
         clearThreadPreview={() => state.setThreadPreview(null)}
@@ -164,6 +170,16 @@ export function Sidebar({
         onOpenSettings={onOpenSettings}
         settingsShortcut={settingsShortcut}
       />
+
+      {threadMenu && (
+        <SidebarThreadMenu
+          menu={threadMenu}
+          pinned={state.pinnedSessionFiles.includes(threadMenu.session.file)}
+          onClose={closeThreadMenu}
+          onTogglePinned={state.togglePinnedSession}
+          onArchive={onArchiveSession}
+        />
+      )}
     </aside>
   );
 }

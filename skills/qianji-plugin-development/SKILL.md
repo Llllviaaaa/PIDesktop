@@ -15,6 +15,7 @@ Qianji uses a dual-plane `@deepseek-ai/cordis` microkernel:
 | :--- | :--- |
 | One-off interactive calculator, chart, dashboard, or form inside the current chat | Call **`render_ui`** directly. Do **not** scaffold a plugin. |
 | Persistent workbench tab, status widget, message action, custom tool card, file viewer, slash command, or Host tool | Build a **Qianji Plugin** (`package.json` + `index.ts` and/or `client.tsx`). |
+| Settings page or settings card, menu command (menubar, thread "…", project menu, session or file right-click), global shortcut, or custom Markdown fence renderer | Build a **Qianji Plugin** with `registerSettingsPage` / `registerSettingsSection` / `registerMenuItem` / `registerKeybinding` / `registerCodeBlockRenderer`. |
 | Custom color theme / skin or desktop pet sprite pack | Build an **Appearance Extension** ([references/appearance-and-pets.md](references/appearance-and-pets.md)). |
 
 ## 2. Mandatory 5-Step Workflow
@@ -42,7 +43,7 @@ Qianji uses a dual-plane `@deepseek-ai/cordis` microkernel:
 | Topic | Path |
 | :--- | :--- |
 | Manifest, `configSchema`, Host tools/RPC/commands | [references/manifest-and-host.md](references/manifest-and-host.md) |
-| All 17 contribution APIs & `@qianji/client` SDK | [references/client-slots-and-sdk.md](references/client-slots-and-sdk.md) |
+| All 22 contribution APIs & `@qianji/client` SDK | [references/client-slots-and-sdk.md](references/client-slots-and-sdk.md) |
 | `@layer` + `@scope` rules & `--qj-*` tokens | [references/styling-and-tokens.md](references/styling-and-tokens.md) |
 | Custom themes & desktop pet overlays | [references/appearance-and-pets.md](references/appearance-and-pets.md) |
 | Host tool template | [templates/tool-only/package.json](templates/tool-only/package.json), [templates/tool-only/index.ts](templates/tool-only/index.ts) |

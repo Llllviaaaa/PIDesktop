@@ -1,0 +1,47 @@
+/*
+ * Host chrome for plugin extension points: settings pages and sections,
+ * plugin menu items, and fenced code blocks taken over by a plugin renderer.
+ * Plugin content itself is styled by the plugin inside `@layer plugin-ui`.
+ */
+
+/* Optional "工具" menubar menu, under its trigger (one step right of "帮助"). */
+.codex-shot .app-menu-dropdown.menu-tools {
+  left: 284px;
+}
+
+.qj-plugin-menu-shortcut {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--qj-text-muted);
+  font: inherit;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.qj-plugin-menu-icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+}
+
+/* "扩展" group heading above plugin settings pages in the Settings navigation. */
+.settings-nav-group-label {
+  margin: 12px 0 2px;
+  padding: 0 12px;
+  color: var(--qj-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.settings-plugin-card {
+  padding: 14px 16px;
+  color: var(--qj-text-primary);
+}
+
+.markdown-plugin-block {
+  margin: 0.6em 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}

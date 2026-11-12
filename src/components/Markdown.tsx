@@ -8,9 +8,11 @@ import { Check, Copy, FileText } from "lucide-react";
 import { useAppStore } from "../store";
 import { showToast } from "../notifications";
 import { stripCodeReviewDirectives } from "../lib/codeReview";
+import { matchCodeBlockRenderer, useClientContributions } from "../lib/clientContributions";
 import { isRichContentLanguage, parseRichContent } from "../lib/richContent";
 import { INTELLIGENT_UI_FENCE_LANGUAGE, parseIntelligentUiFence } from "../lib/intelligentUi";
 import { useIntelligentUiStore } from "../stores/intelligentUiStore";
+import { SlotEntryHost } from "./common/ErrorBoundary";
 import { DiagramBlock, diagramKindForLanguage } from "./DiagramBlock";
 import { IntelligentUiCard } from "./IntelligentUiCard";
 import { RichContent } from "./RichContent";
@@ -178,6 +180,9 @@ function CodeFence({ children }: { children?: ReactNode }) {
 function MarkdownPre({ children, allowRichContent = false }: { children?: ReactNode; allowRichContent?: boolean }) {
   const { language, text } = codeFenceDetails(children);
   const intelligentUiEnabled = useIntelligentUiStore((state) => state.pluginEnabled);
+  const { codeBlockRenderers } = useClientContributions();
+  const cwd = useAppStore((state) => state.cwd);
+  const sessionFile = useAppStore((state) => state.sessionFile);
   const richDocument = useMemo(
     () => allowRichContent && isRichContentLanguage(language) ? parseRichContent(text) : null,
     [allowRichContent, language, text],
@@ -189,6 +194,17 @@ function MarkdownPre({ children, allowRichContent = false }: { children?: ReactN
   }, [intelligentUiEnabled, language, text]);
   if (richDocument) return <RichContent document={richDocument} />;
   if (intelligentUiGroup) return <IntelligentUiCard group={intelligentUiGroup} mode="inline" />;
+  const pluginRenderer = matchCodeBlockRenderer(codeBlockRenderers, language);
+  if (pluginRenderer) {
+    return (
+      <SlotEntryHost
+        entry={pluginRenderer}
+        context={{ cwd, sessionFile, language, code: text }}
+        slotName="markdown.codeBlock"
+        className="markdown-plugin-block"
+      />
+    );
+  }
   const diagramKind = diagramKindForLanguage(language);
   if (diagramKind) return <DiagramBlock kind={diagramKind} source={text} />;
   return <CodeFence>{children}</CodeFence>;

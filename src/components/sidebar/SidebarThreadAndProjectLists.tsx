@@ -1,6 +1,5 @@
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
-  Archive,
   ArchiveRestore,
   Check,
   ChevronDown,
@@ -23,6 +22,7 @@ import {
   type ProjectDropTarget,
   type SidebarGroupMode,
 } from "./sidebarHelpers";
+import { SidebarThreadRow } from "./SidebarThreadRow";
 
 export interface SidebarThreadAndProjectListsProps {
   workspaceView: "active" | "archived";
@@ -62,6 +62,7 @@ export interface SidebarThreadAndProjectListsProps {
   consumeSuppressedProjectClick: () => boolean;
   startProjectDrag: (event: ReactPointerEvent<HTMLDivElement>, workspace: string, pinned: boolean) => void;
   openProjectMenu: (event: ReactMouseEvent<HTMLButtonElement>, workspace: string) => void;
+  openThreadMenu: (event: ReactMouseEvent<HTMLElement>, session: SessionInfo) => void;
   showThreadPreview: (session: SessionInfo, element: HTMLElement) => void;
   schedulePreviewClose: () => void;
   clearThreadPreview: () => void;
@@ -111,6 +112,7 @@ export function SidebarThreadAndProjectLists({
   consumeSuppressedProjectClick,
   startProjectDrag,
   openProjectMenu,
+  openThreadMenu,
   showThreadPreview,
   schedulePreviewClose,
   clearThreadPreview,
@@ -122,12 +124,6 @@ export function SidebarThreadAndProjectLists({
   onPickFolder,
 }: SidebarThreadAndProjectListsProps) {
   const renderThreadRow = (session: SessionInfo) => {
-    const running = runningSessionFiles.some((file) => sameLocalPath(file, session.file));
-    const approval = approvalSessionFiles.some((file) => sameLocalPath(file, session.file));
-    const active = !newTaskActive && sameLocalPath(session.file, currentSessionFile);
-    const pinned = pinnedSessionFiles.includes(session.file);
-    const status = approval ? "approval" : running ? "running" : active ? "active" : "idle";
-    const snippet = trimmedQuery ? snippetByFile.get(session.file) : undefined;
     const openTargetSession = () => {
       closePopovers();
       setQuery("");
@@ -135,65 +131,24 @@ export function SidebarThreadAndProjectLists({
       onOpenSession(session);
     };
     return (
-      <div
-        className={`thread-row-shell ${active ? "active" : ""}${snippet ? " has-snippet" : ""}`}
+      <SidebarThreadRow
         key={session.file}
-        onMouseEnter={(event) => showThreadPreview(session, event.currentTarget)}
-        onMouseLeave={schedulePreviewClose}
-      >
-        <button
-          type="button"
-          className={`thread-row ${active ? "active" : ""}`}
-          onClick={openTargetSession}
-          title={sessionTitle(session)}
-        >
-          <span
-            className="thread-status"
-            data-status={status}
-            title={approval ? "等待审批" : running ? "运行中" : undefined}
-          />
-          <span className="thread-title">{sessionTitle(session)}</span>
-          {approval
-            ? <span className="thread-row-time thread-row-badge">待审批</span>
-            : <span className="thread-row-time">{compactRelativeTime(session)}</span>}
-        </button>
-        {snippet && (
-          <button
-            type="button"
-            className="thread-search-snippet"
-            onClick={openTargetSession}
-            title={snippet}
-          >
-            {snippet}
-          </button>
-        )}
-        <div className="thread-row-actions">
-          <button
-            type="button"
-            className={pinned ? "is-pinned" : ""}
-            title={pinned ? "取消置顶" : "置顶对话"}
-            aria-label={pinned ? "取消置顶对话" : "置顶对话"}
-            onClick={(event) => {
-              event.stopPropagation();
-              togglePinnedSession(session.file);
-            }}
-          >
-            <Pin size={14} />
-          </button>
-          <button
-            type="button"
-            title="归档对话"
-            aria-label="归档对话"
-            onClick={(event) => {
-              event.stopPropagation();
-              clearThreadPreview();
-              void onArchiveSession(session);
-            }}
-          >
-            <Archive size={14} />
-          </button>
-        </div>
-      </div>
+        session={session}
+        active={!newTaskActive && sameLocalPath(session.file, currentSessionFile)}
+        running={runningSessionFiles.some((file) => sameLocalPath(file, session.file))}
+        approval={approvalSessionFiles.some((file) => sameLocalPath(file, session.file))}
+        pinned={pinnedSessionFiles.includes(session.file)}
+        snippet={trimmedQuery ? snippetByFile.get(session.file) : undefined}
+        onOpen={openTargetSession}
+        onTogglePinned={() => togglePinnedSession(session.file)}
+        onArchive={() => {
+          clearThreadPreview();
+          void onArchiveSession(session);
+        }}
+        onShowPreview={(element) => showThreadPreview(session, element)}
+        onHidePreview={schedulePreviewClose}
+        onContextMenu={(event) => openThreadMenu(event, session)}
+      />
     );
   };
 
