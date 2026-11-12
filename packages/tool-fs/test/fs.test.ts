@@ -65,6 +65,38 @@ describe("write and edit", () => {
   it("keeps CRLF files CRLF", () => {
     expect(applyEdits("one\r\ntwo\r\n", [{ oldText: "one\ntwo", newText: "1\n2" }])).toBe("1\r\n2\r\n");
   });
+
+  it("falls back to tolerating retyped quotes, dashes, spaces and trailing whitespace", () => {
+    const fuzzy: number[] = [];
+    // The file has curly quotes, an em dash, a no-break space and trailing spaces; the model typed plain ASCII.
+    const original = "const a = \u201Chello\u201D;   \nconst b = 1 \u2014 2;\nconst c = 3\u00A0+ 4;\nkeep \u201Cthis\u201D\n";
+    const updated = applyEdits(original, [
+      { oldText: 'const a = "hello";\nconst b = 1 - 2;', newText: 'const a = "hi";\nconst b = 0;' },
+      { oldText: "const c = 3 + 4;", newText: "const c = 7;" },
+    ], fuzzy);
+    expect(updated).toBe("const a = \"hi\";\nconst b = 0;\nconst c = 7;\nkeep \u201Cthis\u201D\n");
+    expect(fuzzy).toEqual([0, 1]);
+
+    // Exact matches never take the fallback.
+    const exact: number[] = [];
+    applyEdits("x = 1", [{ oldText: "x = 1", newText: "x = 2" }], exact);
+    expect(exact).toEqual([]);
+  });
+
+  it("still requires a unique match and exact indentation when tolerating", () => {
+    expect(() => applyEdits("a \u2014 b\na \u2013 b\n", [{ oldText: "a - b", newText: "c" }])).toThrow("more than once");
+    expect(() => applyEdits("  if (x) {\n", [{ oldText: "    if (x) {", newText: "" }])).toThrow("was not found");
+    expect(() => applyEdits("[a] (b) $c", [{ oldText: "[a] (b) $d", newText: "" }])).toThrow("was not found");
+    expect(applyEdits("f(a[0], 'x')  \n", [{ oldText: "f(a[0], \u2018x\u2019)", newText: "g()" }])).toBe("g()  \n");
+  });
+
+  it("tells the model when an edit matched only after tolerating differences", async () => {
+    writeFileSync(join(cwd, "src", "quotes.ts"), "say(\u201Chi\u201D);\n");
+    const result = await call(edit, { path: "src/quotes.ts", edits: [{ oldText: 'say("hi");', newText: 'say("bye");' }] });
+    expect(result.isError).toBe(false);
+    expect(result.text).toContain("edits[0] matched only after ignoring differences");
+    expect(readFileSync(join(cwd, "src", "quotes.ts"), "utf8")).toBe('say("bye");\n');
+  });
 });
 
 describe("ls, find and grep", () => {
