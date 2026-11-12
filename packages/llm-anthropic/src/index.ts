@@ -27,6 +27,11 @@ export const ANTHROPIC_VERSION = "2023-06-01";
 const DEFAULT_BASE_URL = "https://api.anthropic.com";
 /** The Messages API requires max_tokens; used when neither request nor model sets one. */
 const DEFAULT_MAX_TOKENS = 8_192;
+/**
+ * The default for Claude 4.6 and later, whose adaptive thinking shares max_tokens
+ * with the answer. Requests stream, so a high cap costs nothing until it is used.
+ */
+const ADAPTIVE_DEFAULT_MAX_TOKENS = 64_000;
 const THINKING_BUDGET: Record<string, number> = {
   minimal: 1_024,
   low: 2_048,
@@ -47,6 +52,92 @@ export function resolveThinkingBudget(effort: Effort): number {
     if (Number.isFinite(tokens) && tokens > 0) return Math.max(1_024, Math.round(tokens));
   }
   return THINKING_BUDGET.medium as number;
+}
+
+/**
+ * How a model takes thinking parameters, by Anthropic's per-model rules:
+ *
+ * - `budget`: `thinking: {type: "enabled", budget_tokens}`. Claude 4.5 and older,
+ *   and every id that is not a Claude id (gateways that speak this API implement
+ *   that shape).
+ * - `adaptive`: Claude 4.6 to 4.x. `thinking: {type: "adaptive"}` with
+ *   `output_config.effort`; `budget_tokens` is deprecated on 4.6 and rejected from
+ *   4.7. Leaving `thinking` out runs without thinking.
+ * - `always-on`: Claude 5 and later (Opus, Sonnet, Haiku, Fable, Mythos). Thinking
+ *   always runs and `budget_tokens` is rejected, so effort is the only control.
+ *
+ * From 4.7 on, thinking text comes back empty unless `display: "summarized"` asks
+ * for it, and sampling parameters such as `temperature` are rejected.
+ */
+export interface ThinkingStyle {
+  mode: "budget" | "adaptive" | "always-on";
+  /** The `output_config.effort` levels the model accepts. */
+  efforts: readonly string[];
+  /** Ask for summarized thinking text, which is otherwise omitted. */
+  summarize: boolean;
+  /** Whether `temperature` may be sent. */
+  temperature: boolean;
+}
+
+const EFFORTS_4_6 = ["low", "medium", "high", "max"] as const;
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+
+/**
+ * Claude's version in tenths (`claude-opus-4-6` is 46, `claude-fable-5` is 50), or
+ * undefined for an id that is not a Claude id. Accepts dated, platform-prefixed and
+ * dotted forms: `claude-sonnet-4-5-20250929`, `us.anthropic.claude-opus-4-6-v1:0`,
+ * `claude-opus-4-5@20251101`, `anthropic/claude-opus-4.5`, `claude-3-5-haiku-latest`.
+ */
+export function claudeVersion(modelId: string): number | undefined {
+  const id = modelId.toLowerCase();
+  const match = /claude-[a-z]+-(\d+)(?:[-.](\d)(?!\d))?/.exec(id) ?? /claude-(\d+)(?:-(\d)(?!\d))?-[a-z]/.exec(id);
+  if (match === null) return undefined;
+  return Number(match[1]) * 10 + (match[2] === undefined ? 0 : Number(match[2]));
+}
+
+export function thinkingStyle(modelId: string): ThinkingStyle {
+  const version = claudeVersion(modelId);
+  if (version === undefined || version < 46) return { mode: "budget", efforts: [], summarize: false, temperature: true };
+  if (version < 47) return { mode: "adaptive", efforts: EFFORTS_4_6, summarize: false, temperature: true };
+  if (version < 50) return { mode: "adaptive", efforts: EFFORTS, summarize: true, temperature: false };
+  return { mode: "always-on", efforts: EFFORTS, summarize: true, temperature: false };
+}
+
+/**
+ * The `output_config.effort` for an effort setting on an adaptive model, or
+ * undefined to leave the model's default. Budgets map to the level whose budget
+ * (see THINKING_BUDGET) covers them; `xhigh` falls back to `high` where it is missing.
+ */
+export function resolveAdaptiveEffort(effort: Effort, efforts: readonly string[]): string | undefined {
+  const normalized = effort.trim().toLowerCase();
+  let level: string | undefined;
+  if (normalized === "minimal") level = "low";
+  else if (EFFORTS.some((candidate) => candidate === normalized)) level = normalized;
+  else if (/^(?:budget:)?\d+k?$/.test(normalized)) {
+    const tokens = resolveThinkingBudget(normalized);
+    level = tokens <= 2_048 ? "low" : tokens <= 8_192 ? "medium" : tokens <= 24_576 ? "high" : tokens <= 32_768 ? "xhigh" : "max";
+  }
+  if (level === undefined) return undefined;
+  if (efforts.includes(level)) return level;
+  return level === "xhigh" && efforts.includes("high") ? "high" : undefined;
+}
+
+const EPHEMERAL = { type: "ephemeral" } as const;
+/** Content blocks that may carry `cache_control`; thinking blocks may not. */
+const CACHEABLE_BLOCKS = new Set(["text", "image", "tool_use", "tool_result", "document"]);
+
+/** Put a cache breakpoint on the last block that can take one, so the next request reads the history from cache. */
+function markConversationTail(messages: WireMessage[]): void {
+  for (let m = messages.length - 1; m >= 0; m -= 1) {
+    const content = messages[m]?.content ?? [];
+    for (let b = content.length - 1; b >= 0; b -= 1) {
+      const block = content[b];
+      if (block !== undefined && CACHEABLE_BLOCKS.has(String(block.type))) {
+        content[b] = { ...block, cache_control: EPHEMERAL };
+        return;
+      }
+    }
+  }
 }
 
 export interface ProviderConfig {
@@ -102,24 +193,53 @@ function toWireMessages(messages: Message[]): WireMessage[] {
   return wire;
 }
 
+/**
+ * The Messages API request for `request`.
+ *
+ * Prompt caching is opt-in on this API. Requests that belong to a session are sent
+ * again with a longer history, so they get two breakpoints: one at the end of the
+ * static prefix (tools and system prompt) and one on the last block of the
+ * conversation. One-off calls such as titles and compaction summaries are not sent
+ * again, so they get none; a breakpoint there would only add the cache-write premium.
+ */
 export function buildRequestBody(request: LlmRequest, model?: ModelInfo): Record<string, unknown> {
-  let maxTokens = request.maxTokens ?? model?.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
-  const body: Record<string, unknown> = {
-    model: request.model,
-    messages: toWireMessages(request.messages),
-    stream: true,
-  };
-  if (request.system) body.system = request.system;
-  if (request.tools !== undefined && request.tools.length > 0) {
-    body.tools = request.tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.parameters }));
+  const style = thinkingStyle(request.model);
+  let maxTokens = request.maxTokens ?? model?.maxOutputTokens
+    ?? (style.mode === "budget" ? DEFAULT_MAX_TOKENS : ADAPTIVE_DEFAULT_MAX_TOKENS);
+  const cache = request.sessionId !== undefined;
+  const messages = toWireMessages(request.messages);
+  if (cache) markConversationTail(messages);
+  const body: Record<string, unknown> = { model: request.model, messages, stream: true };
+  if (request.system) {
+    body.system = cache ? [{ type: "text", text: request.system, cache_control: EPHEMERAL }] : request.system;
   }
-  if (request.effort !== undefined && request.effort !== "off" && model?.reasoning !== false) {
-    const budget = resolveThinkingBudget(request.effort);
-    // budget_tokens must stay below max_tokens.
-    if (maxTokens <= budget) maxTokens = budget + DEFAULT_MAX_TOKENS;
-    body.thinking = { type: "enabled", budget_tokens: budget };
-  } else if (request.temperature !== undefined) {
-    // Extended thinking does not accept a temperature.
+  if (request.tools !== undefined && request.tools.length > 0) {
+    const tools: WireBlock[] = request.tools.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.parameters }));
+    const lastTool = tools.at(-1);
+    if (cache && !request.system && lastTool !== undefined) tools[tools.length - 1] = { ...lastTool, cache_control: EPHEMERAL };
+    body.tools = tools;
+  }
+
+  const effort = request.effort;
+  const thinks = effort !== undefined && effort !== "off" && model?.reasoning !== false;
+  if (style.mode === "budget") {
+    if (thinks) {
+      const budget = resolveThinkingBudget(effort);
+      // budget_tokens must stay below max_tokens.
+      if (maxTokens <= budget) maxTokens = budget + DEFAULT_MAX_TOKENS;
+      body.thinking = { type: "enabled", budget_tokens: budget };
+    } else if (request.temperature !== undefined) {
+      // Extended thinking does not accept a temperature.
+      body.temperature = request.temperature;
+    }
+  } else if (thinks) {
+    body.thinking = style.summarize ? { type: "adaptive", display: "summarized" } : { type: "adaptive" };
+    const level = resolveAdaptiveEffort(effort, style.efforts);
+    if (level !== undefined) body.output_config = { effort: level };
+  } else if (style.mode === "always-on") {
+    // Thinking cannot be turned off on these models; the lowest effort comes closest.
+    body.output_config = { effort: "low" };
+  } else if (request.temperature !== undefined && style.temperature) {
     body.temperature = request.temperature;
   }
   body.max_tokens = maxTokens;

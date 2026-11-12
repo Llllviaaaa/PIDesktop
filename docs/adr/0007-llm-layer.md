@@ -1,6 +1,6 @@
 # 0007 LLM 层：统一词汇、适配器与密钥引用
 
-- 状态：已接受
+- 状态：已接受；`llm-anthropic` 的 thinking 预算一条由 [0018](0018-anthropic-adaptive-thinking-and-caching.md) 修订
 - 日期：2026-10-28
 
 ## 背景
