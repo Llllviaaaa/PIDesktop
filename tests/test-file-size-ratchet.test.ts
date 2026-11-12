@@ -22,7 +22,7 @@ const RATCHET_SLACK = 50;
 /** Physical line counts on 2026-11-12. Lower these as the files get split; never raise them. */
 const OVERSIZED_CEILINGS: Record<string, number> = {
   "packages/host/src/plugin-manager.ts": 1229,
-  "packages/host/src/plugin-dev-tools.ts": 1170,
+  "packages/host/src/plugin-dev-tools.ts": 641,
   "src/lib/intelligentUi.ts": 1159,
   "src/lib/clientPluginRuntime.ts": 1154,
   "src/lib/harnessRuntime.ts": 944,
