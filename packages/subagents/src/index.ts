@@ -12,8 +12,10 @@ import type { Effort } from "@qianji/llm";
 import type { Session } from "@qianji/session";
 import { textOutput, type ToolDefinition, type ToolEnv } from "@qianji/tools";
 import { normalizeSubagentTasks, subagentPrompt, type SubagentPermission, type SubagentRole, type SubagentTask } from "./core.ts";
+import { readStructuredAnswer, structuredInstruction, structuredRetry, type JsonSchema } from "./structured.ts";
 
 export * from "./core.ts";
+export * from "./structured.ts";
 
 export const name = "qianji-subagents";
 export const inject = ["sessions", "tools", "agents"];
@@ -33,6 +35,8 @@ export interface SubagentResult extends SubagentTask {
   sessionId: string;
   ok: boolean;
   output: string;
+  /** The parsed answer, when the call passed an `outputSchema` and the answer matched it. */
+  structured?: unknown;
   error: string;
 }
 
@@ -57,8 +61,20 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (it
   return results;
 }
 
-/** Run one task in a child session of `parent` and wait for it to settle. */
-export async function runSubagent(ctx: Context, parent: Session, task: SubagentTask, permission: SubagentPermission, env: ToolEnv, config: Config): Promise<SubagentResult> {
+/**
+ * Run one task in a child session of `parent` and wait for it to settle. With
+ * `schema`, the answer must be JSON matching it; a reply that is not gets one
+ * request to correct it in the same session.
+ */
+export async function runSubagent(
+  ctx: Context,
+  parent: Session,
+  task: SubagentTask,
+  permission: SubagentPermission,
+  env: ToolEnv,
+  config: Config,
+  schema?: JsonSchema,
+): Promise<SubagentResult> {
   const model = config.model ?? parent.state().model;
   const child = ctx.sessions.create({ cwd: parent.header.cwd, parent: { sessionId: parent.id, callId: env.callId ?? "" } });
   const base = { ...task, sessionId: child.id };
@@ -77,14 +93,30 @@ export async function runSubagent(ctx: Context, parent: Session, task: SubagentT
     const off = ctx.on("agent/settled", async (session, result) => {
       if (session === child) outcome = result;
     });
-    try {
-      ctx.agents.prompt(child, [{ type: "text", text: subagentPrompt(task) }]);
+    const ask = async (text: string): Promise<string> => {
+      ctx.agents.prompt(child, [{ type: "text", text }]);
       await ctx.agents.idle(child.id);
+      return finalText(child);
+    };
+    let output: string;
+    let structured: ReturnType<typeof readStructuredAnswer> | undefined;
+    try {
+      output = await ask(schema === undefined ? subagentPrompt(task) : `${subagentPrompt(task)}\n\n${structuredInstruction(schema)}`);
+      if (schema !== undefined && outcome === "done") {
+        structured = readStructuredAnswer(output, schema);
+        if (!structured.ok && !env.signal.aborted) {
+          output = await ask(structuredRetry(structured.error));
+          if (outcome === "done") structured = readStructuredAnswer(output, schema);
+        }
+      }
     } finally {
       off();
     }
-    const output = finalText(child);
-    if (outcome === "done" && output !== "") return { ...base, ok: true, output, error: "" };
+    if (outcome === "done" && output !== "") {
+      if (structured === undefined) return { ...base, ok: true, output, error: "" };
+      if (structured.ok) return { ...base, ok: true, output, structured: structured.value, error: "" };
+      return { ...base, ok: false, output, error: `Structured result rejected: ${structured.error}` };
+    }
     const error = outcome === "done" ? "Subagent returned no assistant text" : `Subagent ended: ${outcome}`;
     return { ...base, ok: false, output, error };
   } finally {
@@ -93,7 +125,13 @@ export async function runSubagent(ctx: Context, parent: Session, task: SubagentT
   }
 }
 
-export function delegateTool(ctx: Context, config: Config): ToolDefinition<{ task?: string; role?: SubagentRole; tasks?: Array<Partial<SubagentTask>>; permission?: SubagentPermission }> {
+export function delegateTool(ctx: Context, config: Config): ToolDefinition<{
+  task?: string;
+  role?: SubagentRole;
+  tasks?: Array<Partial<SubagentTask>>;
+  permission?: SubagentPermission;
+  outputSchema?: JsonSchema;
+}> {
   const concurrency = Math.max(1, Math.min(4, config.concurrency ?? 3));
   return {
     name: "delegate_task",
@@ -104,6 +142,7 @@ export function delegateTool(ctx: Context, config: Config): ToolDefinition<{ tas
       "Use it only when an isolated context or independent parallel investigation materially helps.",
       "Default to read-only. Request workspace-write only for a worker that must implement changes (it can read, edit and write, but not run commands).",
       "Parallel tasks must be independent and self-contained. Synthesize their outputs before acting.",
+      "Pass outputSchema (a JSON Schema) when you need the answers as data: each subagent then replies with JSON matching it.",
     ].join(" "),
     parameters: {
       type: "object",
@@ -125,9 +164,13 @@ export function delegateTool(ctx: Context, config: Config): ToolDefinition<{ tas
           },
         },
         permission: { type: "string", enum: ["read-only", "workspace-write"] },
+        outputSchema: { type: "object", description: "JSON Schema every subagent's final answer must match; the answers then come back as JSON" },
       },
     },
-    async execute({ task, role, tasks: many, permission: requested }, env) {
+    async execute({ task, role, tasks: many, permission: requested, outputSchema }, env) {
+      if (outputSchema !== undefined && (typeof outputSchema !== "object" || outputSchema === null || Array.isArray(outputSchema))) {
+        return textOutput("outputSchema must be a JSON Schema object.", true);
+      }
       const parent = await ctx.sessions.get(env.sessionId);
       if (parent === undefined) return textOutput("No session to delegate from.", true);
       const raw = many?.length ? many : task ? [{ label: role ?? "subagent", task, role: role ?? "explorer" }] : [];
@@ -149,15 +192,19 @@ export function delegateTool(ctx: Context, config: Config): ToolDefinition<{ tas
       const results = await mapWithConcurrency(tasks, concurrency, async (item, index) => {
         statuses[index] = "running";
         publish();
-        const result = await runSubagent(ctx, parent, item, permission, env, config);
+        const result = await runSubagent(ctx, parent, item, permission, env, config, outputSchema);
         sessions[index] = result.sessionId;
         statuses[index] = result.ok ? "completed" : "failed";
         publish();
         return result;
       });
       const successful = results.filter((result) => result.ok).length;
+      const answer = (result: SubagentResult): string => {
+        if (!result.ok) return result.error;
+        return result.structured === undefined ? result.output : `\`\`\`json\n${JSON.stringify(result.structured, null, 2)}\n\`\`\``;
+      };
       const text = results
-        .map((result) => `### ${result.label} (${result.role}) - ${result.ok ? "completed" : "failed"}\n\n${result.ok ? result.output : result.error}`)
+        .map((result) => `### ${result.label} (${result.role}) - ${result.ok ? "completed" : "failed"}\n\n${answer(result)}`)
         .join("\n\n---\n\n");
       return {
         content: [{ type: "text", text: `${successful}/${results.length} subagents completed.\n\n${text}` }],
