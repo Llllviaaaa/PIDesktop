@@ -25,7 +25,7 @@ const OVERSIZED_CEILINGS: Record<string, number> = {
   "packages/host/src/plugin-dev-tools.ts": 641,
   "src/lib/intelligentUi.ts": 533,
   "src/lib/clientPluginRuntime.ts": 636,
-  "src/lib/harnessRuntime.ts": 944,
+  "src/lib/harnessRuntime.ts": 858,
   "packages/protocol/src/methods.ts": 865,
   "packages/browser/src/driver.ts": 860,
   "src/components/SettingsModal.tsx": 857,
