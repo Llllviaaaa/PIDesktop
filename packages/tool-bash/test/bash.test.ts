@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import type { ToolEnv } from "@qianji/tools";
 import { bashTool, chooseShell, findPowerShell, findShell, isPowerShell, powershellTool, shellArgs } from "../src/index.ts";
@@ -128,7 +128,9 @@ describe.skipIf(powershell === undefined)("powershell tool (ADR 0021)", () => {
     expect(output.isError).toBe(false);
     const text = textOf(output);
     expect(text).toContain("héllo 千机");
-    expect(text.toLowerCase()).toContain(cwd.toLowerCase());
+    // Compare the folder mkdtemp created: Windows may spell the rest of the path with 8.3 short names
+    // (C:\Users\RUNNER~1) where PowerShell prints the long ones.
+    expect(text.toLowerCase()).toContain(basename(cwd).toLowerCase());
   });
 
   it("reports a failing command as an error", async () => {
