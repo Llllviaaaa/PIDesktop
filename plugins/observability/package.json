@@ -1,0 +1,52 @@
+{
+  "name": "observability",
+  "version": "1.0.0",
+  "description": "官方全链路可观测与诊断插件：捕获桌面端异常终止、Sidecar 崩溃、WebView 故障与插件加载/渲染堆栈，提供状态栏健康胶囊、右侧观测面板、/logs 命令与 Agent 自诊断工具。",
+  "qianji": {
+    "id": "observability",
+    "name": "系统可观测与诊断",
+    "description": "全链路闪退取证、三端日志实时观测与插件健康诊断：捕获桌面端异常终止、Sidecar 崩溃、WebView 故障与插件加载/渲染堆栈，提供状态栏健康胶囊、右侧观测面板、/logs 命令与 Agent 自诊断工具。",
+    "host": "./host.ts",
+    "client": "./client.tsx",
+    "inject": ["hostInfo", "tools", "commands"],
+    "defaultConfig": {
+      "showStatusBarPill": true,
+      "autoRefreshMs": 3000,
+      "defaultTailLines": 200,
+      "dedupeMirroredStderr": true
+    },
+    "configSchema": {
+      "type": "object",
+      "properties": {
+        "showStatusBarPill": {
+          "type": "boolean",
+          "title": "显示状态栏健康胶囊",
+          "description": "是否在底部状态栏展示系统崩溃告警、插件故障与日志快捷入口",
+          "default": true
+        },
+        "autoRefreshMs": {
+          "type": "integer",
+          "title": "自动轮询间隔 (ms)",
+          "description": "可观测面板与状态栏健康指标的自动刷新间隔（1000 ~ 30000 毫秒）",
+          "default": 3000,
+          "minimum": 1000,
+          "maximum": 30000
+        },
+        "defaultTailLines": {
+          "type": "integer",
+          "title": "默认日志尾部条数",
+          "description": "实时日志流单次默认拉取的最大记录条数（50 ~ 1000 条）",
+          "default": 200,
+          "minimum": 50,
+          "maximum": 1000
+        },
+        "dedupeMirroredStderr": {
+          "type": "boolean",
+          "title": "去重 Sidecar 镜像日志",
+          "description": "同时加载 desktop 与 host 日志时自动过滤 desktop 日志中重复的 Sidecar stderr 行",
+          "default": true
+        }
+      }
+    }
+  }
+}

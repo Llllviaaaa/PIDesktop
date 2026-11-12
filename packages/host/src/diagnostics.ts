@@ -105,7 +105,7 @@ export function diagnosticsEntries(dataDir: string, about: Record<string, unknow
   if (existsSync(config)) entries.push({ name: "harness.json", data: redacted(readFileSync(config, "utf8")) });
   const logs = join(dataDir, "logs");
   if (existsSync(logs)) {
-    for (const file of readdirSync(logs).filter((name) => name.endsWith(".log")).sort()) {
+    for (const file of readdirSync(logs).filter((name) => name.endsWith(".log") || name.endsWith(".jsonl")).sort()) {
       entries.push({ name: `logs/${file}`, data: redacted(readFileSync(join(logs, file), "utf8")) });
     }
   }

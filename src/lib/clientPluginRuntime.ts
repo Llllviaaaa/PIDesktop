@@ -11,6 +11,11 @@ import type {
   PluginInfo,
   PluginReportClientErrorParams,
 } from "@qianji/protocol";
+import {
+  reportFrontendError,
+  type CrashLogLimiter,
+  type FrontendLogSink,
+} from "./crashLogger";
 
 export type ModuleFactory = (require: (specifier: string) => unknown) => unknown;
 
@@ -410,6 +415,8 @@ const clientErrorListeners = new Set<() => void>();
 
 let activeErrorReporter: ((params: PluginReportClientErrorParams) => Promise<unknown>) | undefined;
 let activeErrorClearer: ((params: PluginClearClientErrorParams) => Promise<unknown>) | undefined;
+let activeFrontendErrorSink: FrontendLogSink | undefined;
+let activeFrontendErrorLimiter: CrashLogLimiter | undefined;
 
 function getPluginReloadEpoch(id: string): number {
   return pluginReloadEpochs.get(id) ?? runtimeMetaSnapshot[id]?.reloadEpoch ?? 0;
@@ -527,6 +534,11 @@ function setClientActivationError(
 
   if (error !== undefined) {
     if (current !== nextMessage || prevDetail?.failedEtag !== nextDetail?.failedEtag) {
+      void reportFrontendError(`plugin-load:${id}`, error.message, {
+        ...(error.stack === undefined ? {} : { extraStack: error.stack }),
+        ...(activeFrontendErrorSink === undefined ? {} : { sink: activeFrontendErrorSink }),
+        ...(activeFrontendErrorLimiter === undefined ? {} : { limiter: activeFrontendErrorLimiter }),
+      }).catch(() => undefined);
       void activeErrorReporter?.({
         id,
         phase: "load",
@@ -718,6 +730,8 @@ export interface ClientPluginRuntimeOptions {
   transport: ClientPluginTransport;
   modules: Record<string, () => Promise<unknown>>;
   executeScript?: (code: string, pluginId: string) => Promise<void>;
+  frontendErrorSink?: FrontendLogSink;
+  frontendErrorLimiter?: CrashLogLimiter;
   targetGlobal?: {
     __ModuleLoader__?: ModuleLoaderGlobal;
     __qianjiInjectPluginStyle?: (pluginId: string, css: string, styleKey?: string) => () => void;
@@ -773,6 +787,8 @@ export function createClientPluginRuntime<P = unknown>(
   if (transport.clearClientError !== undefined) {
     activeErrorClearer = (params) => transport.clearClientError?.(params) ?? Promise.resolve();
   }
+  activeFrontendErrorSink = options.frontendErrorSink;
+  activeFrontendErrorLimiter = options.frontendErrorLimiter;
 
   const resolvedModules = new Map<string, unknown>();
   let preloadPromise: Promise<void> | undefined;
@@ -1127,6 +1143,12 @@ export function createClientPluginRuntime<P = unknown>(
         pluginReloadEpochs.delete(id);
       }
       seenPluginIds.clear();
+      if (activeFrontendErrorSink === options.frontendErrorSink) {
+        activeFrontendErrorSink = undefined;
+      }
+      if (activeFrontendErrorLimiter === options.frontendErrorLimiter) {
+        activeFrontendErrorLimiter = undefined;
+      }
     },
   };
 }

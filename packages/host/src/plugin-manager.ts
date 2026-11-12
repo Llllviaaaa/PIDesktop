@@ -17,18 +17,19 @@ import {
   reverseTopologicalOrder,
   topologicalSortPlugins,
 } from "@qianji/kernel";
-import type {
-  PluginChangedNotification,
-  PluginClientBundleResult,
-  PluginClientError,
-  PluginInfo,
-  PluginInstallOrigin,
-  PluginInstallParams,
-  PluginMutationResult,
-  PluginStatus,
-  PluginTier,
-  WorkspaceTrustChangedNotification,
-  WorkspaceTrustListResult,
+import {
+  redactSensitiveText,
+  type PluginChangedNotification,
+  type PluginClientBundleResult,
+  type PluginClientError,
+  type PluginInfo,
+  type PluginInstallOrigin,
+  type PluginInstallParams,
+  type PluginMutationResult,
+  type PluginStatus,
+  type PluginTier,
+  type WorkspaceTrustChangedNotification,
+  type WorkspaceTrustListResult,
 } from "@qianji/protocol";
 import "@qianji/ui";
 import type { BuiltinPluginDefinition } from "./agent-plugins.ts";
@@ -136,6 +137,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function errorDetailWithStack(error: unknown): string {
+  if (error instanceof Error) {
+    const msg = error.message || error.name || "Error";
+    const rawStack = error.stack?.trim();
+    if (rawStack !== undefined && rawStack !== "") {
+      const combined = rawStack.includes(msg) ? rawStack : `${error.name || "Error"}: ${msg}\n${rawStack}`;
+      return redactSensitiveText(combined);
+    }
+    return redactSensitiveText(msg);
+  }
+  return redactSensitiveText(String(error));
+}
+
 function flushImmediate(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
@@ -171,6 +185,7 @@ export class PluginManager {
   private readonly errors = new Map<string, string>();
   private readonly circuitBroken = new Set<string>();
   private readonly clientErrors = new Map<string, PluginClientError>();
+  private readonly loggedClientErrorKeys = new Set<string>();
   private readonly clientEtags = new Map<string, string>();
   private readonly extraBundledDirs = new Set<string>();
   private readonly watchers = new Map<string, WatcherEntry>();
@@ -283,7 +298,7 @@ export class PluginManager {
 
   private notifyUserWarning(message: string): void {
     const ui = this.ctx.get("ui");
-    ui?.notify(message, "warning");
+    ui?.notify(undefined, message, "warning");
   }
 
   /**
@@ -303,16 +318,21 @@ export class PluginManager {
     let bestMatch: { id: string; len: number } | undefined;
     for (const candidate of this.latestCandidates) {
       if (!candidate.enabled || candidate.dir === undefined || candidate.builtinPlugin !== undefined) continue;
-      const fsDir = candidate.dir;
+      const fsDir = candidate.dir.replace(/[\\/]+$/, "");
+      if (fsDir === "") continue;
       const slashDir = fsDir.replace(/\\/g, "/");
-      const fileUrl = pathToFileURL(fsDir).href;
-      const needles = [fsDir, slashDir, fileUrl].map((item) => (process.platform === "win32" ? item.toLowerCase() : item));
+      const rawFileUrl = pathToFileURL(fsDir).href.replace(/\/+$/, "");
+      const boundaryNeedles = [
+        `${slashDir}/`,
+        `${rawFileUrl}/`,
+        ...(process.platform === "win32" ? [`${fsDir}\\`] : []),
+      ].map((item) => (process.platform === "win32" ? item.toLowerCase() : item));
       let matched = false;
-      for (const needle of needles) {
-        if (needle !== "" && haystack.includes(needle)) {
+      for (const needle of boundaryNeedles) {
+        if (needle.length > 1 && haystack.includes(needle)) {
           matched = true;
-          if (bestMatch === undefined || needle.length > bestMatch.len) {
-            bestMatch = { id: candidate.id, len: needle.length };
+          if (bestMatch === undefined || fsDir.length > bestMatch.len) {
+            bestMatch = { id: candidate.id, len: fsDir.length };
           }
         }
       }
@@ -336,7 +356,7 @@ export class PluginManager {
       return { pluginId, alreadyCircuitBroken: true };
     }
 
-    this.errors.set(pluginId, `Unhandled async error: ${errorMessage(reason)}`);
+    this.errors.set(pluginId, `Unhandled async error: ${errorDetailWithStack(reason)}`);
     this.latestSnapshot = this.buildSnapshot(this.latestCandidates);
     const snapshot = this.activeWorkspace !== undefined
       ? this.withUntrustedWorkspaceOverlay(this.latestSnapshot, this.activeWorkspace)
@@ -350,6 +370,19 @@ export class PluginManager {
       });
     });
     return { pluginId, alreadyCircuitBroken: false };
+  }
+
+  private clearLoggedClientErrorKeys(id?: string): void {
+    if (id === undefined) {
+      this.loggedClientErrorKeys.clear();
+      return;
+    }
+    const prefix = `${id}\0`;
+    for (const key of [...this.loggedClientErrorKeys]) {
+      if (key.startsWith(prefix)) {
+        this.loggedClientErrorKeys.delete(key);
+      }
+    }
   }
 
   /** Circuit-break a rogue plugin that triggered an uncaught exception storm without killing the Host. */
@@ -381,7 +414,7 @@ export class PluginManager {
           });
         }
       }
-      this.errors.set(pluginId, `Circuit-broken after uncaught exception storm: ${errorMessage(reason)}`);
+      this.errors.set(pluginId, `Circuit-broken after uncaught exception storm: ${errorDetailWithStack(reason)}`);
       this.latestSnapshot = this.buildSnapshot(this.latestCandidates);
       this.notifyUserWarning(`插件 ${pluginId} 因高频未捕获异常已被自动熔断隔离`);
       const snapshot = this.activeWorkspace !== undefined
@@ -399,6 +432,24 @@ export class PluginManager {
     await this.enqueue(async () => {
       if (this.latestCandidates.length === 0 && !this.disposed) {
         await this.syncNow(workspace === undefined ? {} : { workspace });
+      }
+      const dedupeKey = `${id}\0${err.phase}\0${err.etag ?? ""}\0${err.message}`;
+      if (!this.loggedClientErrorKeys.has(dedupeKey)) {
+        if (this.loggedClientErrorKeys.size >= 500) {
+          this.loggedClientErrorKeys.clear();
+        }
+        this.loggedClientErrorKeys.add(dedupeKey);
+        const cleanMessage = redactSensitiveText(err.message);
+        const cleanStack = err.stack !== undefined && err.stack.trim() !== ""
+          ? `\n${redactSensitiveText(err.stack.trim())}`
+          : "";
+        this.ctx.logger("plugins").error(
+          "[client:%s] plugin=%s: %s%s",
+          err.phase,
+          id,
+          cleanMessage,
+          cleanStack,
+        );
       }
       this.clientErrors.set(id, err);
       if (this.latestCandidates.length > 0) {
@@ -420,6 +471,7 @@ export class PluginManager {
 
   async clearClientError(id: string, workspace?: string): Promise<PluginMutationResult> {
     await this.enqueue(async () => {
+      this.clearLoggedClientErrorKeys(id);
       const removed = this.clientErrors.delete(id);
       if (removed && this.latestCandidates.length > 0) {
         this.latestSnapshot = this.buildSnapshot(this.latestCandidates);
@@ -534,6 +586,7 @@ export class PluginManager {
       if (!enabled) {
         this.errors.delete(id);
         this.clientErrors.delete(id);
+        this.clearLoggedClientErrorKeys(id);
       }
       await this.syncNow({ reason: "toggled", forceIds: new Set([id]), ...(options.workspace === undefined ? {} : { workspace: options.workspace }) });
     });
@@ -573,6 +626,7 @@ export class PluginManager {
         });
       }
       this.clientErrors.delete(id);
+      this.clearLoggedClientErrorKeys(id);
       await this.syncNow({ reason: "configured", forceIds: new Set([id]), ...(options.workspace === undefined ? {} : { workspace: options.workspace }) });
     });
     const plugins = await this.list(options.workspace);
@@ -588,6 +642,7 @@ export class PluginManager {
         this.circuitBroken.delete(id);
         this.errors.delete(id);
         this.clientErrors.delete(id);
+        this.clearLoggedClientErrorKeys(id);
         const forceIds = this.isProtectedBuiltin(id) ? undefined : new Set([id]);
         await this.syncNow({
           reason: "reloaded",
@@ -599,6 +654,7 @@ export class PluginManager {
         this.circuitBroken.clear();
         this.errors.clear();
         this.clientErrors.clear();
+        this.clearLoggedClientErrorKeys();
         const reloadableIds = new Set(
           this.latestSnapshot
             .filter((entry) => entry.canDisable !== false)
@@ -621,6 +677,7 @@ export class PluginManager {
       this.circuitBroken.delete(installedId);
       this.errors.delete(installedId);
       this.clientErrors.delete(installedId);
+      this.clearLoggedClientErrorKeys(installedId);
       await this.syncNow({ reason: "installed", forceIds: new Set([installedId]) });
     });
     const plugins = await this.list();
@@ -646,6 +703,7 @@ export class PluginManager {
         this.circuitBroken.delete(updated.manifest.id);
         this.errors.delete(updated.manifest.id);
         this.clientErrors.delete(updated.manifest.id);
+        this.clearLoggedClientErrorKeys(updated.manifest.id);
         updatedIds.add(updated.manifest.id);
         targetId ??= updated.manifest.id;
       }
@@ -664,6 +722,7 @@ export class PluginManager {
       this.circuitBroken.delete(id);
       this.errors.delete(id);
       this.clientErrors.delete(id);
+      this.clearLoggedClientErrorKeys(id);
       this.clientEtags.delete(id);
       await this.syncNow({ reason: "removed", forceIds: new Set([id]), ...(workspace === undefined ? {} : { workspace }) });
     });
@@ -680,7 +739,17 @@ export class PluginManager {
     if (target === undefined || target.clientEntry === undefined) {
       throw new Error(`No active client bundle for plugin "${id}"`);
     }
-    const compiled = await this.bundles.compile(target.id, target.dir, target.clientEntry);
+    let compiled: { etag: string; code: string };
+    try {
+      compiled = await this.bundles.compile(target.id, target.dir, target.clientEntry);
+    } catch (error) {
+      this.ctx.logger("plugins").error(
+        "plugin=%s client bundle compile failed: %s",
+        target.id,
+        errorDetailWithStack(error),
+      );
+      throw error;
+    }
     if (options.ifNoneMatch !== undefined && options.ifNoneMatch === compiled.etag) {
       return { notModified: true, etag: compiled.etag };
     }
@@ -730,6 +799,7 @@ export class PluginManager {
       await this.httpRouteFiber.dispose();
       this.bundles.clear();
       this.clientErrors.clear();
+      this.clearLoggedClientErrorKeys();
       this.latestCandidates = [];
       this.latestSnapshot = [];
     });
@@ -1190,10 +1260,16 @@ export class PluginManager {
             const compiled = await this.bundles.compile(candidate.id, candidate.dir, candidate.clientEntry);
             clientEtag = compiled.etag;
           } catch (error) {
-            const msg = errorMessage(error);
+            const msg = redactSensitiveText(errorMessage(error));
+            const detail = errorDetailWithStack(error);
             if (current !== undefined && force) {
-              const rollbackMsg = `Client bundle error (kept previous state): ${msg}`;
+              const rollbackMsg = `Client bundle error (kept previous state): ${detail}`;
               this.errors.set(candidate.id, rollbackMsg);
+              this.ctx.logger("plugins").error(
+                "plugin=%s client bundle compile failed (kept previous state): %s",
+                candidate.id,
+                detail,
+              );
               this.notifyUserWarning(`插件 ${candidate.name} 前端热更新失败：${msg}`);
               changed.push(candidate.id);
               candidate.inject = current.inject;
@@ -1205,7 +1281,8 @@ export class PluginManager {
               await current.fiber?.dispose();
               this.mounted.delete(candidate.id);
             }
-            this.errors.set(candidate.id, msg);
+            this.errors.set(candidate.id, detail);
+            this.ctx.logger("plugins").error("plugin=%s client bundle compile failed: %s", candidate.id, detail);
             this.notifyUserWarning(`插件 ${candidate.name} 前端编译失败：${msg}`);
             changed.push(candidate.id);
             preparedList.push({ candidate, sourceKey, signature: sig, needsMount: false, skippedDueToError: true });
@@ -1241,10 +1318,15 @@ export class PluginManager {
           candidate.inject = depMeta.inject;
           candidate.provides = depMeta.provides;
         } catch (error) {
-          const msg = errorMessage(error);
+          const msg = redactSensitiveText(errorMessage(error));
+          const detail = errorDetailWithStack(error);
           if (current !== undefined && current.plugin !== undefined) {
-            this.errors.set(candidate.id, `HMR reload failed (rolled back): ${msg}`);
-            this.ctx.logger("plugins").warn("plugin %s reload failed, keeping previous fiber: %s", candidate.id, msg);
+            this.errors.set(candidate.id, `HMR reload failed (rolled back): ${detail}`);
+            this.ctx.logger("plugins").error(
+              "plugin=%s reload import failed, keeping previous fiber: %s",
+              candidate.id,
+              detail,
+            );
             this.notifyUserWarning(`插件 ${candidate.name} 热重载失败（已回滚旧版本）：${msg}`);
             changed.push(candidate.id);
             candidate.inject = current.inject;
@@ -1256,8 +1338,8 @@ export class PluginManager {
             await current.fiber?.dispose();
             this.mounted.delete(candidate.id);
           }
-          this.errors.set(candidate.id, msg);
-          this.ctx.logger("plugins").error("plugin %s import failed: %s", candidate.id, msg);
+          this.errors.set(candidate.id, detail);
+          this.ctx.logger("plugins").error("plugin=%s import failed: %s", candidate.id, detail);
           this.notifyUserWarning(`插件 ${candidate.name} 加载失败：${msg}`);
           changed.push(candidate.id);
           preparedList.push({ candidate, sourceKey, signature: sig, needsMount: false, skippedDueToError: true });
@@ -1311,6 +1393,7 @@ export class PluginManager {
           if (clientEtag !== undefined) {
             if (this.clientEtags.get(candidate.id) !== clientEtag) {
               this.clientErrors.delete(candidate.id);
+              this.clearLoggedClientErrorKeys(candidate.id);
             }
             this.clientEtags.set(candidate.id, clientEtag);
           }
@@ -1344,30 +1427,40 @@ export class PluginManager {
           if (clientEtag !== undefined) {
             if (this.clientEtags.get(candidate.id) !== clientEtag) {
               this.clientErrors.delete(candidate.id);
+              this.clearLoggedClientErrorKeys(candidate.id);
             }
             this.clientEtags.set(candidate.id, clientEtag);
           }
           this.errors.delete(candidate.id);
           if (!changed.includes(candidate.id)) changed.push(candidate.id);
         } catch (error) {
-          const msg = errorMessage(error);
+          const msg = redactSensitiveText(errorMessage(error));
+          const detail = errorDetailWithStack(error);
           await nextFiber?.dispose();
           if (candidate.tier !== "builtin" && previous?.plugin !== undefined) {
             try {
               const restored = previous.ctx.plugin(previous.plugin, previous.config);
               await restored;
               this.mounted.set(candidate.id, { ...previous, fiber: restored });
-              this.errors.set(candidate.id, `HMR reload failed (rolled back): ${msg}`);
-              this.ctx.logger("plugins").warn("plugin %s apply failed, restored previous fiber: %s", candidate.id, msg);
+              this.errors.set(candidate.id, `HMR reload failed (rolled back): ${detail}`);
+              this.ctx.logger("plugins").error(
+                "plugin=%s apply failed, restored previous fiber: %s",
+                candidate.id,
+                detail,
+              );
               this.notifyUserWarning(`插件 ${candidate.name} 热重载失败（已回滚旧版本）：${msg}`);
               if (!changed.includes(candidate.id)) changed.push(candidate.id);
               continue;
             } catch (restoreError) {
-              this.ctx.logger("plugins").error("plugin %s rollback failed: %s", candidate.id, restoreError);
+              this.ctx.logger("plugins").error(
+                "plugin=%s rollback failed: %s",
+                candidate.id,
+                errorDetailWithStack(restoreError),
+              );
             }
           }
-          this.errors.set(candidate.id, msg);
-          this.ctx.logger("plugins").error("plugin %s apply failed: %s", candidate.id, msg);
+          this.errors.set(candidate.id, detail);
+          this.ctx.logger("plugins").error("plugin=%s apply failed: %s", candidate.id, detail);
           if (candidate.tier !== "builtin") {
             this.notifyUserWarning(`插件 ${candidate.name} 启动失败：${msg}`);
           }
@@ -1444,30 +1537,65 @@ export class PluginManager {
   }
 }
 
-function extractStackFrameComparisonKeys(stackText: string): string[] {
-  const keys = new Set<string>();
-  for (const match of stackText.matchAll(/file:\/\/\/[^\s):"'`]+/gi)) {
-    const cleaned = match[0].replace(/(?::\d+){1,2}$/, "");
-    try {
-      keys.add(pathComparisonKey(fileURLToPath(cleaned)));
-    } catch {
-      // Ignore malformed file URLs in user error messages.
-    }
-  }
-  for (const match of stackText.matchAll(/[a-zA-Z]:[\\/][^\r\n\t*?"<>|)]+/g)) {
-    const cleaned = match[0].replace(/[,;'"`]+$/, "").replace(/(?::\d+){1,2}$/, "");
-    if (cleaned.length > 3) {
-      keys.add(pathComparisonKey(cleaned));
-    }
-  }
-  for (const match of stackText.matchAll(/(?:^|[\s(])(\/[^\s):"'`]+)/gm)) {
-    const raw = match[1];
-    if (raw !== undefined) {
-      const cleaned = raw.replace(/[,;'"`]+$/, "").replace(/(?::\d+){1,2}$/, "");
-      if (cleaned.length > 1) {
-        keys.add(pathComparisonKey(cleaned));
+function extractBalancedCallSiteLocation(trimmedLine: string): string | undefined {
+  if (!trimmedLine.endsWith(")")) return undefined;
+  let depth = 0;
+  for (let i = trimmedLine.length - 1; i >= 0; i -= 1) {
+    const ch = trimmedLine[i];
+    if (ch === ")") {
+      depth += 1;
+    } else if (ch === "(") {
+      depth -= 1;
+      if (depth === 0) {
+        const inner = trimmedLine.slice(i + 1, -1).trim();
+        return inner !== "" ? inner : undefined;
       }
     }
+  }
+  return undefined;
+}
+
+function addNormalizedLocationKey(rawToken: string, keys: Set<string>): void {
+  const trimmed = rawToken.trim().replace(/^['"`]+|[,;'"`]+$/g, "");
+  if (trimmed === "") return;
+  const withoutLineCol = trimmed.replace(/(?::\d+){1,2}$/, "");
+  if (/^file:\/\//i.test(withoutLineCol)) {
+    try {
+      keys.add(pathComparisonKey(fileURLToPath(new URL(withoutLineCol))));
+    } catch {
+      // Ignore malformed file URLs in arbitrary user error strings.
+    }
+    return;
+  }
+  const withoutQuery = withoutLineCol.split(/[?#]/, 1)[0] ?? withoutLineCol;
+  if (/^[a-zA-Z]:[\\/]/.test(withoutQuery) && withoutQuery.length > 3) {
+    keys.add(pathComparisonKey(withoutQuery));
+  } else if (withoutQuery.startsWith("/") && !withoutQuery.startsWith("//") && withoutQuery.length > 1) {
+    keys.add(pathComparisonKey(withoutQuery));
+  }
+}
+
+function extractStackFrameComparisonKeys(stackText: string): string[] {
+  const keys = new Set<string>();
+  for (const rawLine of stackText.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line === "") continue;
+    const parenLoc = extractBalancedCallSiteLocation(line);
+    if (parenLoc !== undefined) {
+      addNormalizedLocationKey(parenLoc, keys);
+    }
+    const atMatch = /^at\s+(?:async\s+)?(.+)$/.exec(line);
+    if (atMatch?.[1] !== undefined && !atMatch[1].endsWith(")")) {
+      addNormalizedLocationKey(atMatch[1], keys);
+    }
+    const jscAtIdx = line.indexOf("@");
+    if (jscAtIdx >= 0 && jscAtIdx + 1 < line.length) {
+      addNormalizedLocationKey(line.slice(jscAtIdx + 1), keys);
+    }
+  }
+  for (const match of stackText.matchAll(/file:\/\/\/[^\s"'`<>|]+/gi)) {
+    const token = match[0].replace(/\)+$/, "");
+    addNormalizedLocationKey(token, keys);
   }
   return [...keys];
 }
