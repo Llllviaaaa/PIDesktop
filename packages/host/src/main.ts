@@ -32,6 +32,7 @@ import { PluginManager } from "./plugin-manager.ts";
 import * as pluginsRpc from "./plugins-rpc.ts";
 import { readDefaultModel } from "./providers.ts";
 import { dpapiCodec } from "./secrets.ts";
+import { watchEventLoopStalls } from "./stall-watch.ts";
 
 declare const QIANJI_HOST_VERSION: string | undefined;
 
@@ -126,12 +127,17 @@ export async function main(argv: readonly string[]): Promise<void> {
   // Settings → 日志等级, which every desktop message (the first arrives at start) carries.
   const fileLog = logFileExporter(activeLogsDir);
   host.ctx.logger.exporter(fileLog);
+  let stopStallWatch = (): void => undefined;
 
   try {
     await host.start();
 
     // Built-in plugins + dynamic user/workspace plugins managed uniformly by PluginManager.
     const logger = host.ctx.logger("harness");
+    // Plugins share this event loop, so a synchronous hang in one freezes every session (ADR 0017).
+    stopStallWatch = watchEventLoopStalls({
+      onStall: (blockedMs) => logger.warn("event loop blocked for %dms; every session and RPC waited", blockedMs),
+    });
     const initialBundledRoots = resolveDesktopBundledPluginRoots();
     if (initialBundledRoots.length > 0) {
       for (const note of cleanupLegacySeededPlugins(dataDir, initialBundledRoots)) {
@@ -188,6 +194,7 @@ export async function main(argv: readonly string[]): Promise<void> {
     const shutdown = (): void => {
       if (stopping) return;
       stopping = true;
+      stopStallWatch();
       void pluginManager
         .dispose()
         .then(() => host.stop())
@@ -224,6 +231,7 @@ export async function main(argv: readonly string[]): Promise<void> {
       process.stdin.on("end", shutdown);
     }
   } catch (error) {
+    stopStallWatch();
     crashGuard.dispose();
     await fileLog.close().catch(() => undefined);
     throw error;

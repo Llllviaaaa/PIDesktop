@@ -1,0 +1,14 @@
+{
+  "name": "@qianji/tool-output",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Caps oversized tool output and keeps the full text on disk (ADR 0019)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@qianji/tools": "*"
+  }
+}

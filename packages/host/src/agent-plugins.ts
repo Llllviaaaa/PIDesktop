@@ -10,7 +10,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Context, Plugin } from "@deepseek-ai/cordis";
+import type { Plugin } from "@deepseek-ai/cordis";
 import { AgentLoop } from "@qianji/agent-loop";
 import * as browser from "@qianji/browser";
 import * as checkpoints from "@qianji/checkpoints";
@@ -37,11 +37,14 @@ import * as subagents from "@qianji/subagents";
 import { SystemPrompt } from "@qianji/system-prompt";
 import * as toolBash from "@qianji/tool-bash";
 import * as toolFs from "@qianji/tool-fs";
+import * as toolGuards from "@qianji/tool-guards";
+import * as toolOutput from "@qianji/tool-output";
 import { Tools } from "@qianji/tools";
 import { Ui } from "@qianji/ui";
 import * as commandsRpc from "./commands-rpc.ts";
 import { resolveDesktopBundledSkillRoots, resolveDesktopPluginTypesDir } from "./control.ts";
 import * as diagnostics from "./diagnostics.ts";
+import { bashSandboxPlugin, configRpcPlugin, secretStore } from "./host-plugins.ts";
 import type { HarnessConfig } from "./harness-config.ts";
 import type { PluginEntry } from "./host.ts";
 import * as llmRpc from "./llm-rpc.ts";
@@ -51,7 +54,7 @@ import * as providerAdmin from "./provider-admin.ts";
 import * as providers from "./providers.ts";
 import type { ReloadableEntry } from "./reloadable.ts";
 import { RpcGateway } from "./rpc.ts";
-import { fileSecretResolver, readSecretFile, type McpServerSecrets, type SecretCodec } from "./secrets.ts";
+import { readSecretFile, type McpServerSecrets, type SecretCodec } from "./secrets.ts";
 import * as sessionsRpc from "./sessions-rpc.ts";
 import * as uiRpc from "./ui-rpc.ts";
 import { WebServer } from "./web-server.ts";
@@ -61,48 +64,6 @@ export interface CoreOptions {
   /** DPAPI, when the host runs in Bun on Windows; `{ secret }` refs then resolve against secrets.dat. */
   codec?: SecretCodec;
 }
-
-/** Registers secrets.dat as the store for `{ secret }` refs. */
-const secretStore = {
-  name: "qianji-secret-store",
-  inject: ["credentials"],
-  apply(ctx: Context, config: { file: string; codec: SecretCodec }) {
-    ctx.effect(() => ctx.credentials.registerStore(fileSecretResolver(config.file, config.codec)), "secret store: secrets.dat");
-  },
-};
-
-/** Exposes `config.reload` when an RPC gateway is attached. */
-const configRpcPlugin = {
-  name: "qianji-config-rpc",
-  inject: ["rpc"],
-  apply(ctx: Context, config: { reload: () => Promise<string[]> }) {
-    ctx.effect(
-      () => ctx.rpc.method("config.reload", async () => ({ reloaded: await config.reload() })),
-      "config.reload",
-    );
-  },
-};
-
-/** Reloadable lightweight sandbox policy for `bash` (M4.3). */
-const bashSandboxPlugin = {
-  name: "qianji-bash-sandbox",
-  inject: ["tools", "sessions"],
-  apply(ctx: Context) {
-    ctx.plugin(toolBash.BashSandbox, { enabled: true });
-    ctx.on("tools/pre-execute", async (call, env) => {
-      if (call.name !== "bash") return undefined;
-      const permissions = ctx.get("permissions");
-      if (permissions !== undefined) {
-        const session = await ctx.sessions.get(env.sessionId);
-        const effective = session === undefined ? permissions.defaultModes().effective : permissions.modes(session).effective;
-        if (effective === "full-access") return undefined;
-      }
-      const command = typeof call.args.command === "string" ? call.args.command : "";
-      const violation = toolBash.inspectSandboxedCommand(command);
-      return violation === undefined ? undefined : { deny: true, reason: violation };
-    });
-  },
-};
 
 /**
  * Minimal pure in-memory Core spine. Contains zero business/vendor logic,
@@ -251,6 +212,28 @@ export function builtinFeatureDefinitions(dataDir: string, config: HarnessConfig
         manager: options.pluginManager ?? (() => undefined),
         pluginTypesDir: options.pluginTypesDir ?? (() => resolveDesktopPluginTypesDir()),
       },
+    },
+    {
+      id: "tool-output",
+      name: "工具输出上限 (tool-output)",
+      description: "截断超长的工具输出，全文存到 spill 目录，避免一次工具调用撑爆上下文",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: toolOutput,
+      inject: ["tools"],
+      config: { spillDir: join(dataDir, "spill") },
+    },
+    {
+      id: "tool-guards",
+      name: "工具调用保护 (tool-guards)",
+      description: "给工具调用设时限，并在模型连续重复完全相同的调用时提醒它换个办法",
+      enabled: true,
+      hasHost: true,
+      hasClient: false,
+      plugin: toolGuards,
+      inject: ["tools"],
+      config: {},
     },
     {
       id: "plan",

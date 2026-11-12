@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import type { ToolEnv } from "@qianji/tools";
-import { bashTool, findShell } from "../src/index.ts";
+import { bashTool, chooseShell, findPowerShell, findShell, isPowerShell, powershellTool, shellArgs } from "../src/index.ts";
 
 const shell = findShell();
 const cwd = mkdtempSync(join(tmpdir(), "pid-tool-bash-"));
@@ -75,5 +75,72 @@ describe.skipIf(shell === undefined)("bash tool", () => {
       expect(output.isError, command).toBe(true);
       expect(textOf(output), command).toMatch(/已拦截针对千机自身进程/);
     }
+  });
+});
+
+describe("shell choice (ADR 0021)", () => {
+  const none = () => undefined;
+  it("uses bash where it exists and PowerShell only on Windows without it", () => {
+    expect(chooseShell({}, "linux", {}, { bash: () => "/bin/bash" })).toEqual({ kind: "bash", path: "/bin/bash" });
+    expect(chooseShell({}, "win32", {}, { bash: () => String.raw`C:\Git\bin\bash.exe`, powershell: () => "pwsh.exe" }).kind).toBe("bash");
+    expect(chooseShell({}, "win32", {}, { bash: none, powershell: () => String.raw`C:\pwsh.exe` })).toEqual({ kind: "powershell", path: String.raw`C:\pwsh.exe` });
+    expect(chooseShell({}, "win32", {}, { bash: none, powershell: none })).toEqual({ kind: "bash" });
+    expect(chooseShell({ shell: String.raw`C:\Program Files\PowerShell\7\pwsh.exe` }, "win32").kind).toBe("powershell");
+    expect(chooseShell({ shell: "/usr/bin/zsh" }, "linux").kind).toBe("bash");
+  });
+
+  it("prefers PowerShell 7 on PATH, then in Program Files, then Windows PowerShell", () => {
+    const only = (...paths: string[]) => (path: string) => paths.includes(path);
+    const env = { PATH: String.raw`C:\tools;C:\ps7`, ProgramFiles: String.raw`C:\Program Files`, SystemRoot: String.raw`C:\Windows` };
+    const legacy = String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`;
+    const onPath = String.raw`C:\ps7\pwsh.exe`;
+    const installed = String.raw`C:\Program Files\PowerShell\7\pwsh.exe`;
+    expect(findPowerShell(env, only(onPath, legacy))).toBe(onPath);
+    expect(findPowerShell(env, only(installed, legacy))).toBe(installed);
+    expect(findPowerShell(env, only(legacy))).toBe(legacy);
+    expect(findPowerShell(env, only())).toBeUndefined();
+  });
+
+  it("passes PowerShell the command encoded, with UTF-8 output and the 5.1 exit fix", () => {
+    expect(shellArgs("/bin/bash", "echo hi")).toEqual(["-c", "echo hi"]);
+    const decode = (args: string[]) => Buffer.from(args.at(-1) ?? "", "base64").toString("utf16le");
+    const pwsh = shellArgs(String.raw`C:\ps7\pwsh.exe`, 'Write-Output "a \'b\' c"');
+    expect(pwsh.slice(0, -1)).toEqual(["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand"]);
+    expect(decode(pwsh)).toContain("[Console]::OutputEncoding");
+    expect(decode(pwsh)).toContain('Write-Output "a \'b\' c"');
+    expect(decode(pwsh)).not.toContain("NativeCommandError");
+    expect(decode(shellArgs("powershell.exe", "git push 2>&1"))).toContain("NativeCommandError");
+    expect(decode(shellArgs("powershell.exe", "Get-ChildItem `"))).not.toContain("NativeCommandError");
+    expect(isPowerShell(String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\PowerShell.EXE`)).toBe(true);
+    expect(isPowerShell("/bin/bash")).toBe(false);
+  });
+});
+
+const powershell = process.platform === "win32" ? findPowerShell() : undefined;
+
+describe.skipIf(powershell === undefined)("powershell tool (ADR 0021)", () => {
+  const tool = powershellTool({}, undefined, powershell);
+
+  it("is named powershell and runs PowerShell in the session cwd with UTF-8 output", async () => {
+    expect(tool.name).toBe("powershell");
+    expect(tool.description).toContain("There is no bash on this machine");
+    const output = await tool.execute({ command: 'Write-Output "héllo 千机"; (Get-Location).Path' }, env());
+    expect(output.isError).toBe(false);
+    const text = textOf(output);
+    expect(text).toContain("héllo 千机");
+    // Compare the folder mkdtemp created: Windows may spell the rest of the path with 8.3 short names
+    // (C:\Users\RUNNER~1) where PowerShell prints the long ones.
+    expect(text.toLowerCase()).toContain(basename(cwd).toLowerCase());
+  });
+
+  it("reports a failing command as an error", async () => {
+    const output = await tool.execute({ command: "exit 3" }, env());
+    expect(output.isError).toBe(true);
+  });
+
+  it("does not count a native command's redirected stderr as failure", async () => {
+    const output = await tool.execute({ command: 'cmd /c "echo warn 1>&2 & exit 0" 2>&1' }, env());
+    expect(textOf(output)).toContain("warn");
+    expect(output.isError).toBe(false);
   });
 });

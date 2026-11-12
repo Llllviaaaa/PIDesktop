@@ -32,14 +32,16 @@ import type {
   SessionSubscribeResult,
   UiRequestNotification,
 } from "@qianji/protocol";
-import type { AttachmentPayload, ExtensionUIRequest, ForkPoint, ModelInfo, SessionStats, SlashCommand, UiMessage } from "../types";
+import type { ExtensionUIRequest, ForkPoint, ModelInfo, SessionStats, SlashCommand, UiMessage } from "../types";
 import type { SessionTreeNode } from "./sessionTree";
 import { connectHarness, harnessEndpoint, isRpcMethodNotFound, type HarnessConnection } from "./harnessClient";
-import { HARNESS_THINKING_LEVELS, effortForLevel, forkPointsOf, sessionTreeOf } from "./hostSessions";
-import { guessModelProfile, inferModelThinkingLevels } from "./modelProviders";
+import { effortForLevel, forkPointsOf, sessionTreeOf } from "./hostSessions";
 import { TranscriptTranslator, historyToUi, interruptTurn, type TranscriptEvent } from "./transcript";
 
+import { thinkingLevelsFor, toModelInfo } from "./harnessModels";
+import { promptContent, uiRequestEvent, type PromptInput } from "./harnessPayloads";
 export { isRpcMethodNotFound };
+export { buildPromptPayload, parseLeadingSlashCommand, promptContent, uiRequestEvent, type PromptInput } from "./harnessPayloads";
 
 
 export const HARNESS_RUNTIME_PREFIX = "harness:";
@@ -339,17 +341,7 @@ export class HarnessRuntimes {
   }
 
   thinkingLevels(model?: ModelInfo | null): string[] {
-    if (model === undefined) return [...HARNESS_THINKING_LEVELS];
-    if (model === null) return [];
-    if (model.thinkingLevels && model.thinkingLevels.length > 0) {
-      return model.thinkingLevels.includes("off")
-        ? [...model.thinkingLevels]
-        : ["off", ...model.thinkingLevels];
-    }
-    if (model.reasoning === false) return ["off"];
-    if (model.reasoning === true) return inferModelThinkingLevels(model.id, true);
-    const inferred = inferModelThinkingLevels(model.id);
-    return inferred.length > 0 ? inferred : ["off"];
+    return thinkingLevelsFor(model);
   }
 
   /** Slash commands registered by the Host, active feature plugins, and workspace skills. */
@@ -619,32 +611,7 @@ export class HarnessRuntimes {
       const lists = await Promise.all(providers.map(async (provider) => {
         try {
           const { models: found } = await rpc.call<ModelListResult>("model.list", { provider: provider.id });
-          return found.map((model): ModelInfo => {
-            const inferredProfile = model.reasoning === undefined ? guessModelProfile(model.id) : null;
-            const reasoning = model.reasoning ?? (inferredProfile?.reasoning ? true : undefined);
-            const thinkingLevel = model.thinkingLevel ?? (reasoning ? inferredProfile?.thinkingLevel : undefined);
-            const rawLevels = model.thinkingLevels && model.thinkingLevels.length > 0
-              ? model.thinkingLevels
-              : reasoning
-                ? inferModelThinkingLevels(model.id, true)
-                : undefined;
-            const thinkingLevels = rawLevels && thinkingLevel && thinkingLevel !== "off" && !rawLevels.includes(thinkingLevel)
-              ? [...rawLevels, thinkingLevel]
-              : rawLevels;
-            return {
-              id: model.id,
-              name: model.name ?? model.id,
-              provider: provider.id,
-              api: provider.api,
-              ...(reasoning === undefined ? {} : { reasoning }),
-              ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
-              ...(thinkingLevels === undefined || thinkingLevels.length === 0 ? {} : { thinkingLevels }),
-              ...(model.input === undefined ? {} : { input: model.input }),
-              ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
-              ...(model.maxOutputTokens === undefined ? {} : { maxTokens: model.maxOutputTokens }),
-              ...(model.cost === undefined ? {} : { cost: { ...model.cost } }),
-            };
-          });
+          return found.map((model) => toModelInfo(provider, model));
         } catch {
           return [];
         }
@@ -876,12 +843,6 @@ function errorText(error: unknown): string {
   return String(error);
 }
 
-/** A prompt as the composer builds it: its text and attached images. */
-export interface PromptInput {
-  message: string;
-  images: Array<{ type?: "image"; data: string; mimeType: string }>;
-}
-
 /** What `state` reports about a runtime. */
 export interface RuntimeStateInfo {
   sessionFile?: string;
@@ -891,53 +852,6 @@ export interface RuntimeStateInfo {
   isCompacting: boolean;
   thinkingLevel?: string;
   model?: ModelInfo;
-}
-
-/** What the composer sends: the text, local file references, and attached images. */
-export function buildPromptPayload(text: string, attachments: AttachmentPayload[]): PromptInput {
-  const trimmed = text.trim();
-  const fileReferences = attachments
-    .filter((item) => item.kind !== "image")
-    .map((item) => `- ${item.fileName}: ${item.path}`);
-  const message = fileReferences.length
-    ? `${trimmed}\n\n附加的本地文件：\n${fileReferences.join("\n")}`.trim()
-    : trimmed;
-  const images = attachments.flatMap((item) => (item.kind === "image" && item.data ? [{ type: "image" as const, data: item.data, mimeType: item.mimeType }] : []));
-  return { message, images };
-}
-
-/** A prompt as Host prompt content. */
-export function promptContent(input: PromptInput): Array<{ type: "text"; text: string } | { type: "image"; mimeType: string; data: string }> {
-  const content: Array<{ type: "text"; text: string } | { type: "image"; mimeType: string; data: string }> = [];
-  if (input.message !== "") content.push({ type: "text", text: input.message });
-  for (const image of input.images) content.push({ type: "image", mimeType: image.mimeType, data: image.data });
-  return content;
-}
-
-/** A Host `ui/request` as Pi's extension UI request. */
-export function uiRequestEvent(request: UiRequestNotification): ExtensionUIRequest | undefined {
-  const id = request.requestId ?? `harness-notify-${Date.now()}`;
-  switch (request.kind) {
-    case "confirm":
-      return { type: "extension_ui_request", id, method: "confirm", title: request.title, message: request.message };
-    case "select":
-      return { type: "extension_ui_request", id, method: "select", title: request.title, options: request.options };
-    case "input":
-      return { type: "extension_ui_request", id, method: "input", title: request.title, ...(request.placeholder === undefined ? {} : { placeholder: request.placeholder }) };
-    case "notify":
-      return { type: "extension_ui_request", id, method: "notify", message: request.message, notifyType: request.level };
-    default:
-      return undefined;
-  }
-}
-
-/** Parse a leading `/command [args]` line, or null when the input is not a slash command. */
-export function parseLeadingSlashCommand(text: string): { name: string; rawArgs: string } | null {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("/")) return null;
-  const match = /^\/([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?:\s+([\s\S]*))?$/.exec(trimmed);
-  if (match?.[1] === undefined) return null;
-  return { name: match[1], rawArgs: (match[2] ?? "").trim() };
 }
 
 /** The app's one adapter. */

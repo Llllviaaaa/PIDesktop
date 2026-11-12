@@ -10,7 +10,7 @@ import { COMPACTION_PREFIX, Sessions, type Session } from "@qianji/session";
 import { SystemPrompt } from "@qianji/system-prompt";
 import { ScriptedProvider, errorReply, goldenLog, textReply, toolReply, useScriptedProvider, type ScriptedOptions, type ScriptedReply } from "@qianji/testkit";
 import { Tools, textOutput } from "@qianji/tools";
-import { AgentLoop, COMPACTION_REQUEST, type AgentLoopConfig } from "../src/index.ts";
+import { AgentLoop, COMPACTION_REQUEST, shrinkForSummary, type AgentLoopConfig } from "../src/index.ts";
 
 interface Harness {
   ctx: Context;
@@ -220,6 +220,92 @@ describe("agent loop", () => {
       { role: "user", content: text("Second") },
       { role: "assistant", content: text("Two.") },
     ]);
+  });
+
+  it("compacts early once a call used most of the model's context window, keeping the new prompt", async () => {
+    const harness = await setup([
+      textReply("One.", { inputTokens: 85_000, outputTokens: 5 }),
+      textReply("Summary of one."),
+      textReply("Two."),
+    ]);
+    let lookups = 0;
+    Object.assign(harness.provider, {
+      listModels: async () => {
+        lookups += 1;
+        return [{ id: "test-model", contextWindow: 100_000 }];
+      },
+    });
+    await run(harness, "First");
+    await run(harness, "Second");
+    const [, summaryCall, answer] = harness.provider.requests;
+    expect(summaryCall?.messages.at(-1)).toEqual({ role: "user", content: text(COMPACTION_REQUEST) });
+    expect(summaryCall?.messages.some((message) => JSON.stringify(message).includes("Second"))).toBe(false);
+    expect(answer?.messages).toEqual([
+      { role: "user", content: text(`${COMPACTION_PREFIX}Summary of one.`) },
+      { role: "user", content: text("Second") },
+    ]);
+    // The window is looked up once and remembered.
+    expect(lookups).toBe(1);
+  });
+
+  it("does not compact early when the window is unknown or the ratio is off", async () => {
+    const unknown = await setup([textReply("One.", { inputTokens: 1_000_000, outputTokens: 5 }), textReply("Two.")]);
+    await run(unknown, "First");
+    await run(unknown, "Second");
+    expect(unknown.provider.requests).toHaveLength(2);
+
+    const off = await setup([textReply("One.", { inputTokens: 85_000, outputTokens: 5 }), textReply("Two.")], { loop: { compactAtContextRatio: 0 } });
+    Object.assign(off.provider, { listModels: async () => [{ id: "test-model", contextWindow: 100_000 }] });
+    await run(off, "First");
+    await run(off, "Second");
+    expect(off.provider.requests).toHaveLength(2);
+
+    // A small context is never compacted, so its window is not even looked up.
+    const small = await setup([textReply("One."), textReply("Two.")]);
+    let lookups = 0;
+    Object.assign(small.provider, { listModels: async () => { lookups += 1; return [{ id: "test-model", contextWindow: 100 }]; } });
+    await run(small, "First");
+    await run(small, "Second");
+    expect(small.provider.requests).toHaveLength(2);
+    expect(lookups).toBe(0);
+  });
+
+  it("clips the history further when even the summary request is too long", async () => {
+    const tooLong = errorReply({ kind: "context-length", message: "too long", status: 400, retryable: false });
+    const huge = "x".repeat(50_000);
+    const harness = await setup([
+      toolReply([{ id: "call-1", name: "echo", args: { text: huge } }]),
+      tooLong,
+      tooLong,
+      textReply("Summary."),
+      textReply("Done."),
+    ]);
+    await run(harness, "Go");
+    const [, , verbatim, clipped, retry] = harness.provider.requests;
+    const size = (request: typeof verbatim) => JSON.stringify(request?.messages ?? []).length;
+    expect(size(verbatim)).toBeGreaterThan(100_000);
+    expect(size(clipped)).toBeLessThan(30_000);
+    expect(JSON.stringify(clipped?.messages)).toContain("characters omitted");
+    expect(retry?.messages).toEqual([{ role: "user", content: text(`${COMPACTION_PREFIX}Summary.`) }]);
+    expect(harness.deltas.at(-1)).toEqual({ type: "agent-end", outcome: "done" });
+  });
+
+  it("shrinks long text, tool arguments and images for a summary, but not the model's own text", () => {
+    const long = "a".repeat(5_000);
+    const shrunk = shrinkForSummary([
+      { role: "user", content: [{ type: "text", text: long }, { type: "image", mimeType: "image/png", data: "AAAA" }] },
+      { role: "assistant", content: [{ type: "text", text: long }, { type: "tool-call", id: "c", name: "write", arguments: { path: "a.ts", content: long, edits: [{ newText: long }] } }] },
+      { role: "tool-result", callId: "c", content: [{ type: "text", text: "short" }], isError: false },
+    ], 1_000);
+    expect(shrunk[0]?.content).toEqual([
+      { type: "text", text: `${"a".repeat(500)}\n[… 4000 characters omitted …]\n${"a".repeat(500)}` },
+      { type: "text", text: "[image omitted]" },
+    ]);
+    const assistant = shrunk[1]?.content;
+    expect(assistant?.[0]).toEqual({ type: "text", text: long });
+    expect(JSON.stringify(assistant?.[1]).length).toBeLessThan(3_000);
+    expect(assistant?.[1]).toMatchObject({ type: "tool-call", arguments: { path: "a.ts" } });
+    expect(shrunk[2]?.content).toEqual([{ type: "text", text: "short" }]);
   });
 
   it("stops after the turn limit", async () => {

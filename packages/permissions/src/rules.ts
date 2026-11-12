@@ -266,7 +266,7 @@ export function evaluateToolPermission(options: {
   const { mode, rules, workspace, input } = options;
   const tool = options.toolName.toLowerCase();
   const isWrite = tool === "write" || tool === "edit" || tool === "apply_patch";
-  const isShell = tool === "bash" || tool === "shell" || tool === "exec";
+  const isShell = tool === "bash" || tool === "powershell" || tool === "shell" || tool === "exec";
   const action = typeof input.action === "string" ? input.action.toLowerCase() : "";
   const isBrowserTool = tool === "browser" || tool.startsWith("browser_");
   const isComputerTool = tool === "computer" || tool.startsWith("computer_");
@@ -355,7 +355,7 @@ export function evaluateToolPermission(options: {
     || isDeclaredReadOnly
     || knownReadOnlyTools.has(tool);
 
-  if (options.quickChat && (["read", "write", "edit", "apply_patch", "grep", "find", "bash", "shell", "exec", "plugin_manager"].includes(tool) || isSubagent)) {
+  if (options.quickChat && (["read", "write", "edit", "apply_patch", "grep", "find", "bash", "powershell", "shell", "exec", "plugin_manager"].includes(tool) || isSubagent)) {
     return { action: "block", reason: "Quick chat does not use local project files or shell commands" };
   }
 

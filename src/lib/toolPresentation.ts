@@ -265,6 +265,7 @@ export function classifyToolKind(name: string): ToolKind {
   ) return "edit";
   if (
     normalized === "bash"
+    || normalized === "powershell"
     || normalized === "exec"
     || normalized === "shell"
     || normalized === "run_command"

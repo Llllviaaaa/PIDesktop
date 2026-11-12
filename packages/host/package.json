@@ -40,6 +40,8 @@
     "@qianji/system-prompt": "*",
     "@qianji/tool-bash": "*",
     "@qianji/tool-fs": "*",
+    "@qianji/tool-guards": "*",
+    "@qianji/tool-output": "*",
     "@qianji/tools": "*",
     "@qianji/ui": "*",
     "ws": "^8.18.3"

@@ -92,18 +92,60 @@ interface Edit {
   newText: string;
 }
 
-/** Apply exact, unique replacements; throws with the reason the model needs to fix its call. */
-export function applyEdits(original: string, edits: readonly Edit[]): string {
+/** Characters models swap for one another; each group matches any of its members. */
+const LOOKALIKES = [
+  "'\u2018\u2019\u201A\u201B",
+  "\"\u201C\u201D\u201E\u201F",
+  "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212",
+  " \u00A0\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000",
+] as const;
+const TRAILING_SPACE = /[ \t\u00A0\u2002-\u200A\u202F\u205F\u3000]+$/;
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+
+function charPattern(char: string): string {
+  const group = LOOKALIKES.find((members) => members.includes(char));
+  return group === undefined ? escapeRegExp(char) : `[${escapeRegExp(group)}]`;
+}
+
+/**
+ * A pattern for `text` that tolerates the differences models introduce when
+ * they retype code: curly or straight quotes, Unicode dashes and spaces,
+ * trailing whitespace at line ends, and CRLF or LF. Indentation and every
+ * other character must still match exactly. The pattern is literals,
+ * character classes and `[ \t]*\r?\n` only, so it cannot backtrack badly.
+ */
+export function tolerantPattern(text: string): RegExp {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const body = lines.map((line) => [...line.replace(TRAILING_SPACE, "")].map(charPattern).join("")).join("[ \\t\\u00A0\\u3000]*\\r?\\n");
+  return new RegExp(body, "g");
+}
+
+/**
+ * Apply unique replacements; throws with the reason the model needs to fix its
+ * call. Each `oldText` is looked up exactly first; only when that fails is it
+ * matched with `tolerantPattern`, and the indices of such edits are pushed to
+ * `fuzzy` when given.
+ */
+export function applyEdits(original: string, edits: readonly Edit[], fuzzy?: number[]): string {
   const crlf = original.includes("\r\n");
   const toFile = (text: string) => (crlf && !text.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text);
   const spans: Array<{ start: number; end: number; text: string; index: number }> = [];
   edits.forEach((edit, index) => {
     const oldText = toFile(edit.oldText);
     if (oldText === "") throw new Error(`edits[${index}].oldText is empty`);
-    const start = original.indexOf(oldText);
-    if (start < 0) throw new Error(`edits[${index}].oldText was not found; read the file and copy the text exactly`);
-    if (original.indexOf(oldText, start + 1) >= 0) throw new Error(`edits[${index}].oldText occurs more than once; include more surrounding lines`);
-    spans.push({ start, end: start + oldText.length, text: toFile(edit.newText), index });
+    let start = original.indexOf(oldText);
+    let end = start + oldText.length;
+    if (start >= 0 && original.indexOf(oldText, start + 1) >= 0) throw new Error(`edits[${index}].oldText occurs more than once; include more surrounding lines`);
+    if (start < 0) {
+      const matches = edit.oldText.trim() === "" ? [] : [...original.matchAll(tolerantPattern(edit.oldText))];
+      if (matches.length > 1) throw new Error(`edits[${index}].oldText occurs more than once; include more surrounding lines`);
+      const match = matches[0];
+      if (match === undefined) throw new Error(`edits[${index}].oldText was not found; read the file and copy the text exactly`);
+      start = match.index;
+      end = start + match[0].length;
+      fuzzy?.push(index);
+    }
+    spans.push({ start, end, text: toFile(edit.newText), index });
   });
   spans.sort((a, b) => a.start - b.start);
   for (let index = 1; index < spans.length; index += 1) {
@@ -152,13 +194,17 @@ export const edit: ToolDefinition<{ path: string; edits: Edit[] }> = {
     }
     const original = readFileSync(file, "utf8");
     let updated: string;
+    const fuzzy: number[] = [];
     try {
-      updated = applyEdits(original, edits);
+      updated = applyEdits(original, edits, fuzzy);
     } catch (error) {
       return textOutput(`No changes made to ${path}: ${(error as Error).message}.`, true);
     }
     writeFileSync(file, updated);
-    return textOutput(`Applied ${edits.length} edit(s) to ${path}.`);
+    const note = fuzzy.length === 0
+      ? ""
+      : ` ${fuzzy.map((index) => `edits[${index}]`).join(", ")} matched only after ignoring differences in quotes, dashes, spaces or trailing whitespace.`;
+    return textOutput(`Applied ${edits.length} edit(s) to ${path}.${note}`);
   },
 };
 

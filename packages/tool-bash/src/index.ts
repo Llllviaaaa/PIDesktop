@@ -1,11 +1,19 @@
 /**
- * The `bash` tool: run a command in the session's cwd. On Windows it uses
- * Git Bash (never WSL's System32\bash.exe); `Config.shell` overrides the
- * choice. Output is stdout and stderr interleaved, keeping the tail.
+ * The shell tool: run a command in the session's cwd. Output is stdout and
+ * stderr interleaved, keeping the tail.
+ *
+ * - `bash`: /bin/bash elsewhere; on Windows Git Bash (never WSL's
+ *   System32\bash.exe).
+ * - `powershell`: on Windows without Git Bash, the tool is registered under
+ *   this name instead, running PowerShell 7 when installed or Windows
+ *   PowerShell 5.1, which ships with Windows (ADR 0021).
+ *
+ * `Config.shell` overrides the choice; a PowerShell executable there selects
+ * the `powershell` tool.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve as resolvePath } from "node:path";
+import { dirname, join, resolve as resolvePath, win32 } from "node:path";
 import { Service, type Context } from "@deepseek-ai/cordis";
 import { ErrorCode, type SandboxConfigKind, type SandboxGenerateConfigResult } from "@qianji/protocol";
 import { RpcError } from "@qianji/rpc";
@@ -39,7 +47,7 @@ export const name = "qianji-tool-bash";
 export const inject = ["tools"];
 
 export interface Config {
-  /** Shell executable taking `-c <command>`. */
+  /** Shell executable: one taking `-c <command>`, or `pwsh.exe` / `powershell.exe`. */
   shell?: string;
   /** Upper bound for the `timeout` argument, in seconds. */
   maxTimeoutSeconds?: number;
@@ -74,6 +82,70 @@ function gitBashCandidates(env: NodeJS.ProcessEnv): string[] {
 export function findShell(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): string | undefined {
   if (platform === "win32") return gitBashCandidates(env).find((candidate) => existsSync(candidate));
   return existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh";
+}
+
+export type ShellKind = "bash" | "powershell";
+
+export function isPowerShell(shell: string): boolean {
+  return /^(?:pwsh|powershell)(?:\.exe)?$/.test(win32.basename(shell).toLowerCase());
+}
+
+/** PowerShell 7 when installed, else Windows PowerShell 5.1; undefined when neither exists. */
+export function findPowerShell(env: NodeJS.ProcessEnv = process.env, exists: (path: string) => boolean = existsSync): string | undefined {
+  const pathValue = env.PATH ?? env.Path ?? "";
+  for (const dir of pathValue.split(";").filter(Boolean)) {
+    const candidate = win32.join(dir, "pwsh.exe");
+    if (exists(candidate)) return candidate;
+  }
+  const programFiles = env.ProgramFiles ?? env.PROGRAMFILES;
+  if (programFiles) {
+    const pwsh = win32.join(programFiles, "PowerShell", "7", "pwsh.exe");
+    if (exists(pwsh)) return pwsh;
+  }
+  const legacy = win32.join(env.SystemRoot ?? env.SYSTEMROOT ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  return exists(legacy) ? legacy : undefined;
+}
+
+/**
+ * Which shell tool to register: `Config.shell` when set; otherwise bash, except
+ * on Windows without Git Bash, where PowerShell takes its place.
+ */
+export function chooseShell(
+  config: Config = {},
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  find: { bash?: typeof findShell; powershell?: typeof findPowerShell } = {},
+): { kind: ShellKind; path?: string } {
+  if (config.shell !== undefined) return { kind: isPowerShell(config.shell) ? "powershell" : "bash", path: config.shell };
+  const bash = (find.bash ?? findShell)(platform, env);
+  if (bash !== undefined || platform !== "win32") return bash === undefined ? { kind: "bash" } : { kind: "bash", path: bash };
+  const powershell = (find.powershell ?? findPowerShell)(env);
+  return powershell === undefined ? { kind: "bash" } : { kind: "powershell", path: powershell };
+}
+
+/** Make PowerShell write UTF-8, so the output decodes the same on every code page. */
+const POWERSHELL_UTF8 = "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}\n";
+/**
+ * Windows PowerShell 5.1 turns a native command's redirected stderr into error
+ * records and sets `$?` to false, so `git push 2>&1` looks failed although git
+ * exited 0 (PowerShell 7 does not). Exit 0 when the last error is only such a
+ * record and the native command succeeded; otherwise the usual -Command rule.
+ * The lone `;` keeps an unfinished last statement (`Get-ChildItem |`) a parse
+ * error rather than running into this suffix. The idea follows Pi's PowerShell tool.
+ */
+const POWERSHELL_5_EXIT = "\n;\nif ($?) { exit 0 }\nif ($LASTEXITCODE -eq 0 -and \"$($Error[0].FullyQualifiedErrorId)\".StartsWith('NativeCommandError')) { exit 0 }\nexit 1";
+
+/**
+ * The argv after the executable. PowerShell gets the command as
+ * `-EncodedCommand` (UTF-16LE in base64), which no quoting can break.
+ */
+export function shellArgs(shell: string, command: string): string[] {
+  if (!isPowerShell(shell)) return ["-c", command];
+  const legacy = win32.basename(shell).toLowerCase().startsWith("powershell");
+  // A trailing backtick would continue the command's last line into the suffix.
+  const suffix = legacy && !command.trimEnd().endsWith("`") ? POWERSHELL_5_EXIT : "";
+  const script = `${POWERSHELL_UTF8}${command}${suffix}`;
+  return ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
 }
 
 function killTree(pid: number): void {
@@ -111,7 +183,7 @@ export function runCommand(
   return new Promise((resolve, reject) => {
     const baseEnv = options.env ?? process.env;
     const childEnv = options.sandbox === true ? buildSandboxedEnv(baseEnv, cwd) : baseEnv;
-    const child = spawn(shell, ["-c", command], {
+    const child = spawn(shell, shellArgs(shell, command), {
       cwd,
       env: childEnv,
       windowsHide: true,
@@ -211,18 +283,33 @@ function tail(text: string): { text: string; truncated: boolean } {
   return { text: kept.reverse().join("\n"), truncated: false };
 }
 
-export function bashTool(
+function powershellLabel(shell: string | undefined): string {
+  if (shell === undefined) return "PowerShell";
+  return win32.basename(shell).toLowerCase().startsWith("pwsh") ? "PowerShell 7" : "Windows PowerShell 5.1";
+}
+
+/** The shell tool for `kind`; `shellPath` is its executable when already known. */
+export function shellTool(
+  kind: ShellKind,
   config: Config = {},
   isSandboxed?: () => boolean,
+  shellPath?: string,
 ): ToolDefinition<{ command: string; timeout?: number }> {
   const maxTimeout = config.maxTimeoutSeconds ?? 600;
-  let shell = config.shell;
+  let shell = shellPath ?? config.shell;
+  const limits = `the last ${MAX_OUTPUT_LINES} lines or ${MAX_OUTPUT_BYTES / 1024} KB`;
+  const timing = `Times out after \`timeout\` seconds (default ${DEFAULT_TIMEOUT_SECONDS}, at most ${maxTimeout}).`;
+  const description = kind === "bash"
+    ? `Run a bash command in the working directory and return its combined stdout and stderr (${limits}). ${timing}`
+    : `Run a PowerShell command in the working directory and return its combined output (${limits}). There is no bash on this machine: write ${powershellLabel(shell)} syntax (Get-ChildItem, Select-String, $env:NAME, ; between commands). ${timing}`;
   const protectedPids = new Set<number>(
     [process.pid, process.ppid].filter((pid): pid is number => Number.isInteger(pid) && pid > 1),
   );
   return {
-    name: "bash",
-    description: `Run a bash command in the working directory and return its combined stdout and stderr (the last ${MAX_OUTPUT_LINES} lines or ${MAX_OUTPUT_BYTES / 1024} KB). Times out after \`timeout\` seconds (default ${DEFAULT_TIMEOUT_SECONDS}, at most ${maxTimeout}).`,
+    name: kind,
+    // Bounded by its own `timeout` argument (ADR 0020).
+    timeoutMs: 0,
+    description,
     parameters: {
       type: "object",
       properties: {
@@ -234,8 +321,10 @@ export function bashTool(
     async execute({ command, timeout }, env) {
       const selfKillReason = inspectSelfKillCommand(command, protectedPids);
       if (selfKillReason !== undefined) return textOutput(selfKillReason, true);
-      shell ??= findShell();
-      if (shell === undefined) return textOutput("No bash found. Install Git for Windows or set the bash tool's shell.", true);
+      shell ??= kind === "bash" ? findShell() : findPowerShell();
+      if (shell === undefined) {
+        return textOutput(kind === "bash" ? "No bash found. Install Git for Windows or set the bash tool's shell." : "No PowerShell found.", true);
+      }
       const seconds = Math.min(Math.max(1, timeout ?? DEFAULT_TIMEOUT_SECONDS), maxTimeout);
       const sandbox = config.sandbox === true || isSandboxed?.() === true;
       const result = await runCommand(shell, command, env.cwd, seconds * 1000, env.signal, { sandbox });
@@ -255,10 +344,20 @@ export function bashTool(
   };
 }
 
+export function bashTool(config: Config = {}, isSandboxed?: () => boolean): ToolDefinition<{ command: string; timeout?: number }> {
+  return shellTool("bash", config, isSandboxed);
+}
+
+export function powershellTool(config: Config = {}, isSandboxed?: () => boolean, shellPath?: string): ToolDefinition<{ command: string; timeout?: number }> {
+  return shellTool("powershell", config, isSandboxed, shellPath);
+}
+
 export function apply(ctx: Context, config: Config = {}): void {
+  // Decided once per load: a machine that gains Git Bash gets the bash tool on the next reload.
+  const chosen = chooseShell(config);
   ctx.effect(
-    () => ctx.tools.register(bashTool(config, () => ctx.get("bashSandbox")?.enabled === true)),
-    `${name}: bash`,
+    () => ctx.tools.register(shellTool(chosen.kind, config, () => ctx.get("bashSandbox")?.enabled === true, chosen.path)),
+    `${name}: ${chosen.kind}`,
   );
 
   ctx.inject(["rpc"], (rpcCtx) => {
