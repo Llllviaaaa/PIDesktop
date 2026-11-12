@@ -221,8 +221,14 @@ describe("anthropic adapter", () => {
 
   it("lists models with display names", async () => {
     const { ctx, server } = await setup();
-    server.reply({ status: 200, json: { data: [{ id: "claude-sonnet-4-5", display_name: "Claude Sonnet 4.5", type: "model" }] } });
-    expect(await ctx.llm.listModels("anthropic")).toEqual([{ id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" }]);
+    server.reply({ status: 200, json: { data: [
+      { id: "claude-sonnet-4-5", display_name: "Claude Sonnet 4.5", type: "model" },
+      { id: "claude-opus-5-5", display_name: "Claude Opus 5.5", type: "model", max_input_tokens: 1_000_000, max_tokens: 128_000 },
+    ] } });
+    expect(await ctx.llm.listModels("anthropic")).toEqual([
+      { id: "claude-opus-5-5", name: "Claude Opus 5.5", contextWindow: 1_000_000, maxOutputTokens: 128_000 },
+      { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
+    ]);
     expect(server.requests[0].path).toBe("/v1/models?limit=1000");
   });
 });

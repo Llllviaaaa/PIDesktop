@@ -366,10 +366,17 @@ export class AnthropicAdapter implements LlmAdapter {
     let discovered: ModelInfo[] = [];
     try {
       const body = await getJson(joinUrl(this.baseUrl, "v1/models?limit=1000"), await this.headers(), this.provider.id, signal) as {
-        data?: Array<{ id?: unknown; display_name?: unknown }>;
+        data?: Array<{ id?: unknown; display_name?: unknown; max_input_tokens?: unknown; max_tokens?: unknown }>;
       };
+      const positive = (value: unknown): value is number => typeof value === "number" && value > 0;
       discovered = (body.data ?? []).flatMap((model) => (typeof model.id === "string"
-        ? [{ id: model.id, ...(typeof model.display_name === "string" ? { name: model.display_name } : {}) }]
+        ? [{
+          id: model.id,
+          ...(typeof model.display_name === "string" ? { name: model.display_name } : {}),
+          // The context window (ADR 0019 compacts by it) and output cap, where the API reports them.
+          ...(positive(model.max_input_tokens) ? { contextWindow: model.max_input_tokens } : {}),
+          ...(positive(model.max_tokens) ? { maxOutputTokens: model.max_tokens } : {}),
+        }]
         : []));
     } catch (error) {
       if (configured.length === 0) throw error;

@@ -19,19 +19,30 @@ import {
   type Agents,
   type RunOutcome,
 } from "@qianji/agent";
-import { BlockAssembler, type LlmRequest, type StreamChunk, type ToolCallBlock, type UserContent } from "@qianji/llm";
+import { BlockAssembler, type LlmRequest, type Message, type StreamChunk, type ToolCallBlock, type UserContent } from "@qianji/llm";
 import { compactionPoint, deriveState, type EventOf, type ModelRef, type Session } from "@qianji/session";
 import "@qianji/system-prompt";
 import "@qianji/tools";
+import { SUMMARY_CLIP_LEVELS, shrinkForSummary } from "./summary-input.ts";
+
+export { SUMMARY_CLIP_LEVELS, shrinkForSummary } from "./summary-input.ts";
 
 export interface AgentLoopConfig {
   /** Model calls per run before it stops with `max-turns`. */
   maxTurns?: number;
   /**
    * Compact before a turn once the previous call used more tokens than this
-   * (input, cached input and output together). Off by default.
+   * (input, cached input and output together). Takes precedence over
+   * `compactAtContextRatio`.
    */
   compactAboveTokens?: number;
+  /**
+   * Without `compactAboveTokens`: compact before a turn once the previous call
+   * used this share of the model's context window, as the provider's model list
+   * reports it (ADR 0019). Models without a known window are not compacted
+   * early. Default 0.8; 0 turns it off.
+   */
+  compactAtContextRatio?: number;
   /** Output budget of the compaction summary call. */
   summaryMaxTokens?: number;
 }
@@ -56,6 +67,12 @@ interface Run {
 }
 
 const IDLE_QUEUE = { steer: 0, followUp: 0 };
+const DEFAULT_COMPACT_RATIO = 0.8;
+/** A context this small is never worth summarizing, so its model's window is not even looked up. */
+const MIN_COMPACT_TOKENS = 8_192;
+/** How long a model's context window is remembered, and how long its lookup may take. */
+const WINDOW_TTL_MS = 10 * 60_000;
+const WINDOW_LOOKUP_TIMEOUT_MS = 5_000;
 
 function totalTokens(usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }): number {
   return usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
@@ -66,6 +83,7 @@ export class AgentLoop extends Service implements Agents {
 
   private readonly runs = new Map<string, Run>();
   private readonly maxTurns: number;
+  private readonly windows = new Map<string, { at: number; window: Promise<number | undefined> }>();
 
   constructor(ctx: Context, private readonly config: AgentLoopConfig = {}) {
     super(ctx, "agents");
@@ -177,7 +195,9 @@ export class AgentLoop extends Service implements Agents {
     for (let turn = 1; ; turn += 1) {
       if (signal.aborted) return "aborted";
       if (turn > this.maxTurns) return "max-turns";
-      await this.compactIfLarge(session, signal);
+      // Before the first call the latest turn is only the new prompt, so it stays verbatim;
+      // later in the run it holds the tool results that grew the context (ADR 0008).
+      await this.compactIfLarge(session, signal, turn === 1);
 
       this.delta(session, { type: "turn-start", turn });
       await this.ctx.serial("agent/turn-start", session, turn);
@@ -281,14 +301,40 @@ export class AgentLoop extends Service implements Agents {
     }
   }
 
-  private async compactIfLarge(session: Session, signal: AbortSignal): Promise<void> {
-    const limit = this.config.compactAboveTokens;
-    if (limit === undefined) return;
+  private async compactIfLarge(session: Session, signal: AbortSignal, keepLatestTurn: boolean): Promise<void> {
     const state = session.state();
     const last = session.events.findLast((event) => event.type === "assistant");
-    if (last?.type !== "assistant" || totalTokens(last.data.usage) <= limit) return;
+    if (last?.type !== "assistant" || state.model === undefined) return;
     if (state.compactedThrough !== undefined && state.compactedThrough > last.seq) return;
-    await this.summarize(session, signal);
+    const used = totalTokens(last.data.usage);
+    const explicit = this.config.compactAboveTokens;
+    if (explicit === undefined && used <= MIN_COMPACT_TOKENS) return;
+    const limit = explicit ?? await this.contextLimit(state.model);
+    if (limit === undefined || used <= limit) return;
+    await this.summarize(session, signal, keepLatestTurn);
+  }
+
+  /** The token count past which `model`'s context counts as full, when its window is known. */
+  private async contextLimit(model: ModelRef): Promise<number | undefined> {
+    const ratio = this.config.compactAtContextRatio ?? DEFAULT_COMPACT_RATIO;
+    if (!(ratio > 0)) return undefined;
+    const window = await this.contextWindow(model);
+    return window === undefined ? undefined : Math.floor(window * ratio);
+  }
+
+  /** `model`'s context window from its provider's model list, cached; undefined when unknown. */
+  private contextWindow(model: ModelRef): Promise<number | undefined> {
+    const key = `${model.provider}\u0000${model.model}`;
+    const cached = this.windows.get(key);
+    if (cached !== undefined && Date.now() - cached.at < WINDOW_TTL_MS) return cached.window;
+    const window = this.ctx.llm.listModels(model.provider, AbortSignal.timeout(WINDOW_LOOKUP_TIMEOUT_MS))
+      .then((models) => {
+        const found = models.find((candidate) => candidate.id === model.model)?.contextWindow;
+        return found !== undefined && found > 0 ? found : undefined;
+      })
+      .catch(() => undefined);
+    this.windows.set(key, { at: Date.now(), window });
+    return window;
   }
 
   /**
@@ -302,18 +348,24 @@ export class AgentLoop extends Service implements Agents {
     if (model === undefined || throughSeq === undefined) return undefined;
     this.delta(session, { type: "compaction-start" });
     const head = deriveState(session.events.filter((event) => event.seq <= throughSeq));
-    const response = await (async () => {
+    const ask = async (messages: Message[]) => {
       const assembler = new BlockAssembler();
       const request: LlmRequest = {
         provider: model.provider,
         model: model.model,
         system: COMPACTION_SYSTEM,
-        messages: [...head.messages, { role: "user", content: [{ type: "text", text: COMPACTION_REQUEST }] }],
+        messages: [...messages, { role: "user", content: [{ type: "text", text: COMPACTION_REQUEST }] }],
         maxTokens: this.config.summaryMaxTokens ?? 8_192,
       };
       for await (const chunk of this.ctx.llm.stream(request, signal)) assembler.push(chunk);
       return assembler.result();
-    })();
+    };
+    // The history verbatim first; when even the summary request is too long, clip it further (ADR 0019).
+    let response = await ask(head.messages);
+    for (const level of SUMMARY_CLIP_LEVELS) {
+      if (response.reason !== "error" || response.error?.kind !== "context-length" || signal.aborted) break;
+      response = await ask(shrinkForSummary(head.messages, level));
+    }
     const summary = response.message.content
       .flatMap((block) => (block.type === "text" ? [block.text] : []))
       .join("")
