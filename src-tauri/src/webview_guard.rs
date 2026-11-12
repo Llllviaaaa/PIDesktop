@@ -106,6 +106,28 @@ pub(crate) fn reason_name(code: i32) -> &'static str {
     }
 }
 
+pub(crate) fn format_webview_crash_record(
+    label: &str,
+    kind_code: i32,
+    reason_code: i32,
+    exit_code: i32,
+    process_description: &str,
+    action: RecoveryAction,
+) -> (String, String) {
+    let kind_str = kind_name(kind_code);
+    let reason_str = reason_name(reason_code);
+    let exit_desc = crate::desktop_log::format_exit_code(exit_code);
+    let summary = format!(
+        "WebView2 子进程异常 ({label}): {kind_str} / {reason_str} -> {}",
+        action.as_str()
+    );
+    let detail = format!(
+        "label={label}\nkind={kind_str} ({kind_code})\nreason={reason_str} ({reason_code})\nexit_code={exit_desc}\nprocess_description={process_description}\nrecovery_action={}",
+        action.as_str()
+    );
+    (summary, detail)
+}
+
 #[derive(Default)]
 struct LabelHistory {
     heavy_recoveries: VecDeque<Instant>,
@@ -384,13 +406,31 @@ fn register_process_failed_handler(
             guard.decide(&label, kind_code, reason_code, Instant::now())
         };
 
+        let exit_desc = crate::desktop_log::format_exit_code(exit_code);
         log_line!(
-            "[webview] ProcessFailed label={label} kind={}({kind_code}) reason={}({reason_code}) exit_code={exit_code} desc={:?} action={}",
+            "[webview] ProcessFailed label={label} kind={}({kind_code}) reason={}({reason_code}) exit_code={exit_desc} desc={:?} action={}",
             kind_name(kind_code),
             reason_name(reason_code),
             process_description,
             action.as_str()
         );
+        let (crash_summary, crash_detail) = format_webview_crash_record(
+            &label,
+            kind_code,
+            reason_code,
+            exit_code,
+            &process_description,
+            action,
+        );
+        crate::desktop_log::append_crash_record(crate::desktop_log::CrashRecordParams {
+            plane: "webview",
+            kind: "webview_process_failed",
+            summary: &crash_summary,
+            detail: Some(&crash_detail),
+            plugin_id: None,
+            exit_code: Some(exit_code),
+            pid: Some(std::process::id()),
+        });
 
         let payload = WebviewProcessFailedPayload {
             label: label.clone(),
@@ -607,5 +647,21 @@ mod tests {
         assert!(!should_attach_webview(&mut map, "main", (0x1000, 0x2000)));
         // Recreated webview with same label and new COM pointers re-attaches
         assert!(should_attach_webview(&mut map, "main", (0x3000, 0x4000)));
+    }
+
+    #[test]
+    fn formats_webview_crash_record_with_ntstatus_decode() {
+        let (summary, detail) = format_webview_crash_record(
+            "main",
+            KIND_RENDER_PROCESS_EXITED,
+            REASON_CRASHED,
+            0xC000_0005u32 as i32,
+            "renderer",
+            RecoveryAction::Reload,
+        );
+        assert!(summary.contains("WebView2 子进程异常 (main)"));
+        assert!(summary.contains("render_process_exited"));
+        assert!(detail.contains("0xC0000005 Access Violation"));
+        assert!(detail.contains("recovery_action=reload"));
     }
 }

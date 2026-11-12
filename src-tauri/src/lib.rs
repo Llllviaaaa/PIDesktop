@@ -90,6 +90,7 @@ fn show_main_window(app: &AppHandle) {
 fn exit_app_cleanly(app: &AppHandle) {
     log_line!("[desktop] exiting application on explicit request");
     EXPLICIT_EXIT.store(true, Ordering::SeqCst);
+    desktop_log::mark_session_clean_exit("explicit_request");
     app.exit(0);
 }
 
@@ -240,6 +241,9 @@ pub fn run() {
         })
         .manage(harness_host::HarnessHost::default())
         .setup(|app| {
+            // Recorded inside `.setup` (after `tauri_plugin_single_instance`) so a second
+            // launch that hands off focus and exits never overwrites `desktop-lifecycle.json`.
+            desktop_log::mark_session_start(env!("CARGO_PKG_VERSION"));
             initialize_tray(app)?;
             #[cfg(all(windows, not(debug_assertions)))]
             disable_app_devtools(app);
@@ -323,8 +327,8 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Qianji");
 
-    app.run(|_app_handle, event| {
-        if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+    app.run(|_app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { code, api, .. } => {
             if code.is_none() && !EXPLICIT_EXIT.load(Ordering::SeqCst) {
                 api.prevent_exit();
                 log_line!(
@@ -332,6 +336,12 @@ pub fn run() {
                 );
             }
         }
+        tauri::RunEvent::Exit => {
+            if EXPLICIT_EXIT.load(Ordering::SeqCst) {
+                desktop_log::mark_session_clean_exit("event_loop_exit");
+            }
+        }
+        _ => {}
     });
 }
 

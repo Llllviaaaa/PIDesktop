@@ -31,6 +31,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::config::{
     app_config_dir, migrate_legacy_dir_if_needed, without_mcp_secrets, AppSettings,
 };
+use crate::desktop_log::{append_crash_record, format_exit_code, CrashRecordParams};
 use crate::error::AppError;
 
 /// The page origins the host answers for: Tauri's on Windows (http, or
@@ -206,10 +207,20 @@ fn restart_delay(crashes: usize) -> Option<Duration> {
 }
 
 fn start(app: &AppHandle) -> Result<Running, AppError> {
-    let executable = locate_harness_host()
-        .ok_or_else(|| AppError::NotFound("the Harness Host is not installed".to_string()))?;
+    let Some(executable) = locate_harness_host() else {
+        log_line!("[harness] failed to start Harness Host: executable not found");
+        return Err(AppError::NotFound(
+            "the Harness Host is not installed".to_string(),
+        ));
+    };
     let data_dir = harness_data_dir();
-    std::fs::create_dir_all(&data_dir)?;
+    if let Err(error) = std::fs::create_dir_all(&data_dir) {
+        log_line!(
+            "[harness] failed to create Harness Host data dir ({}): {error}",
+            data_dir.display()
+        );
+        return Err(AppError::from(error));
+    }
     let token = new_token()?;
 
     let mut command = Command::new(&executable);
@@ -234,13 +245,20 @@ fn start(app: &AppHandle) -> Result<Running, AppError> {
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let mut child = command
-        .spawn()
-        .map_err(|error| AppError::Process(format!("failed to start the Harness Host: {error}")))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| AppError::Process("failed to read the Harness Host".to_string()))?;
+    let mut child = command.spawn().map_err(|error| {
+        log_line!(
+            "[harness] failed to spawn Harness Host ({}): {error}",
+            executable.display()
+        );
+        AppError::Process(format!("failed to start the Harness Host: {error}"))
+    })?;
+    let Some(stdout) = child.stdout.take() else {
+        log_line!("[harness] failed to capture Harness Host stdout pipe");
+        let _ = child.kill();
+        return Err(AppError::Process(
+            "failed to read the Harness Host".to_string(),
+        ));
+    };
     if let Some(stderr) = child.stderr.take() {
         std::thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
@@ -259,12 +277,17 @@ fn start(app: &AppHandle) -> Result<Running, AppError> {
     let line = match receiver.recv_timeout(START_TIMEOUT) {
         Ok(Ok(line)) => line,
         Ok(Err(error)) => {
+            log_line!("[harness] Harness Host failed during startup port handshake: {error}");
             let _ = child.kill();
             return Err(AppError::Process(format!(
                 "the Harness Host did not start: {error}"
             )));
         }
         Err(_) => {
+            log_line!(
+                "[harness] Harness Host timed out after {}s waiting for startup port handshake",
+                START_TIMEOUT.as_secs()
+            );
             let _ = child.kill();
             return Err(AppError::Process(
                 "the Harness Host did not start in time".to_string(),
@@ -276,6 +299,17 @@ fn start(app: &AppHandle) -> Result<Running, AppError> {
         .and_then(|value| value.get("port")?.as_u64())
         .filter(|port| (1..=u64::from(u16::MAX)).contains(port));
     let Some(port) = port else {
+        let exit_note = match child.try_wait() {
+            Ok(Some(status)) => match status.code() {
+                Some(code) => format!(" (exit={})", format_exit_code(code)),
+                None => format!(" (status={status})"),
+            },
+            _ => String::new(),
+        };
+        log_line!(
+            "[harness] Harness Host reported no valid port{exit_note}: {:?}",
+            line.trim()
+        );
         let _ = child.kill();
         return Err(AppError::Process(format!(
             "the Harness Host reported no port: {}",
@@ -300,6 +334,8 @@ fn ensure_running(app: &AppHandle, host: &HarnessHost) -> Result<HarnessEndpoint
         .lock()
         .map_err(|_| AppError::locked("harness host"))?;
     let now = Instant::now();
+    let mut crashed_exit_code: Option<i32> = None;
+    let mut crashed_pid: Option<u32> = None;
     if let Some(current) = state.running.as_mut() {
         match current.child.try_wait() {
             Ok(None) => {
@@ -309,14 +345,29 @@ fn ensure_running(app: &AppHandle, host: &HarnessHost) -> Result<HarnessEndpoint
                 });
             }
             Ok(Some(status)) => {
-                let code_desc = match status.code() {
-                    Some(code) => format!("{code} (0x{:08X})", code as u32),
+                let pid = current.child.id();
+                let exit_code = status.code();
+                let code_desc = match exit_code {
+                    Some(code) => format_exit_code(code),
                     None => status.to_string(),
                 };
+                let prior_crashes = state.crashes.len();
                 log_line!(
-                    "[harness] Harness Host exited unexpectedly with code {code_desc}; scheduling restart (prior crashes in window: {})",
-                    state.crashes.len()
+                    "[harness] Harness Host exited unexpectedly with code {code_desc} (pid={pid}); scheduling restart (prior crashes in window: {prior_crashes})"
                 );
+                append_crash_record(CrashRecordParams {
+                    plane: "desktop",
+                    kind: "harness_unexpected_exit",
+                    summary: &format!("Harness Host 后台进程异常退出: {code_desc}"),
+                    detail: Some(&format!(
+                        "pid={pid}\nexit={code_desc}\nprior_crashes_in_60s={prior_crashes}"
+                    )),
+                    plugin_id: None,
+                    exit_code,
+                    pid: Some(pid),
+                });
+                crashed_exit_code = exit_code;
+                crashed_pid = Some(pid);
             }
             Err(err) => {
                 log_line!("[harness] failed to poll Harness Host child status: {err}");
@@ -328,6 +379,23 @@ fn ensure_running(app: &AppHandle, host: &HarnessHost) -> Result<HarnessEndpoint
     let crashes = &mut state.crashes;
     crashes.retain(|crash| now.duration_since(*crash) <= CRASH_WINDOW);
     let Some(delay) = restart_delay(crashes.len()) else {
+        let crash_count = crashes.len();
+        log_line!(
+            "[harness] {KEEPS_CRASHING} (KEEPS_CRASHING circuit breaker tripped after {crash_count} crashes in {}s)",
+            CRASH_WINDOW.as_secs()
+        );
+        append_crash_record(CrashRecordParams {
+            plane: "desktop",
+            kind: "harness_crash_loop",
+            summary: "Harness Host 连续崩溃触发熔断保护（60 秒内崩溃 5 次，已暂停自动重启）",
+            detail: Some(&format!(
+                "{KEEPS_CRASHING}\ncrashes_in_window={crash_count}\nwindow_secs={}",
+                CRASH_WINDOW.as_secs()
+            )),
+            plugin_id: None,
+            exit_code: crashed_exit_code,
+            pid: crashed_pid,
+        });
         return Err(AppError::Process(KEEPS_CRASHING.to_string()));
     };
     std::thread::sleep(delay);
