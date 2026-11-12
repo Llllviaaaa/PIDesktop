@@ -1,7 +1,7 @@
 /**
  * The RPC gateway (`rpc`): JSON-RPC 2.0 over a WebSocket at `/rpc` (ADR 0002).
  *
- * The client offers `pid.v1` and `pid.token.<token>` in Sec-WebSocket-Protocol;
+ * The client offers `qianji.v1` and `qianji.token.<token>` in Sec-WebSocket-Protocol;
  * the upgrade is refused unless the token matches the one the desktop app
  * handed this process. Every connection then has to `initialize` before any
  * other method is answered.

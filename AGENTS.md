@@ -12,9 +12,13 @@ Qianji runs across three strictly separated planes that do **not** share memory 
 2. **Harness Host (`packages/*`)**: Bun-compiled sidecar (`qianji-harness`) running Cordis services (`@qianji/tools`, `@qianji/commands`, `@qianji/permissions`, `@qianji/prompt-context`, `@qianji/system-prompt`, `@qianji/session`, `@qianji/agent`, `@qianji/host`).
 3. **React 19 Renderer (`src/`)**: Vite webview UI communicating with Harness Host over JSON-RPC / WebSocket.
 
-**Hard Import Invariant (enforced by [`eslint.config.js`](eslint.config.js))**:
-- Code under `src/` may **only** import `@qianji/protocol` from `@qianji/*` and must **never** import `packages/*` by path.
-- Host packages under `packages/*` must never import `src/*`.
+**Hard Import Invariants**:
+- Code under `src/` may **only** import `@qianji/protocol` from `@qianji/*` and must **never** import `packages/*` by path (enforced by [`eslint.config.js`](eslint.config.js)).
+- Package layering inside `packages/*` (enforced by [`tests/test-package-boundaries.test.ts`](tests/test-package-boundaries.test.ts)):
+  - Contract packages (`agent`, `commands`, `kernel`, `llm`, `protocol`, `rpc`, `session`, `system-prompt`, `tools`, `ui`) import only other contract packages.
+  - Implementation/feature packages import contracts only; a dependency on another implementation must be added to `IMPLEMENTATION_EDGES` in that test with its reason.
+  - Only `@qianji/host` imports `@qianji/agent-loop`; `@qianji/testkit` is for `test/` only.
+  - Every `@qianji/*` imported from a package's `src/` is listed in its `dependencies`, relative imports in `src/` never leave the package, nothing under `packages/` imports `src/` or `src-tauri/` by path, and the package graph has no cycles.
 
 ---
 
@@ -30,6 +34,8 @@ Before editing core workbench components, check whether the capability belongs i
   3. Activate `plugin_manager` (`activate_tools`) and `scaffold` from `tool-only`, `ui-slot-widget`, or `fullstack-panel`.
   4. Run `plugin_manager(action: "verify")` (validates manifest, Host imports, and `ClientBundleRegistry.compile` with zero config side effects) and `tsc --noEmit` against generated `plugin-types/`.
   5. Run `plugin_manager(action: "install_local")` (`link: true, watch: true`) and inspect `qianji_inspect(topic: "plugins")` to confirm `clientError` and `error` are empty.
+
+**Plugin Trust Model ([ADR 0017](docs/adr/0017-plugin-trust-model.md))**: An enabled plugin is fully trusted. It runs in the Host process and event loop (or in the main WebView), with no sandbox and no capability allowlist. The manifest has **no** `permissions` field; do not add one or describe one as a protection. Fiber isolation contains thrown errors only, not synchronous hangs.
 
 **Strict Internal vs. External Decoupling**:
 - **Host-internal UI (`src/components/ui/`)**: Internal primitives (`Button`, `Dialog`, `Tabs`, `Select`, `Switch`, `Input`, `Badge`, `Tooltip`) for host screens only. Feel free to refactor props internally.
@@ -49,6 +55,7 @@ Before editing core workbench components, check whether the capability belongs i
 3. **Component Size Budgets**:
    - The 7 top-level shell/panel entry files (`src/App.tsx`, `PluginsSettingsPanel.tsx`, `ModelsPage.tsx`, `IntelligentUiCard.tsx`, `Sidebar.tsx`, `Message.tsx`, `Composer.tsx`) must remain **`<= 350` physical lines** each.
    - Modular subdirectories (`src/components/{ui,plugins,models,shell,intelligent-ui,sidebar,message,composer}/**`) enforce ESLint **`max-lines: 400`** (excluding blank lines and comments).
+   - Every other `.ts`/`.tsx` file under `src/` and `packages/*/src` stays within **500 physical lines**. Files that were already larger are frozen at their ceilings in [`tests/test-file-size-ratchet.test.ts`](tests/test-file-size-ratchet.test.ts). Split them instead of growing them, and lower the ceiling (or drop the entry) when they shrink.
 4. **React Hooks & TypeScript Hygiene (`eslint.config.js`)**:
    - Zero `!` non-null assertions (`@typescript-eslint/no-non-null-assertion: "error"`).
    - Strict `===` equality (`eqeqeq: ["error", "always", { null: "ignore" }]`).
