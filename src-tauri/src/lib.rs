@@ -336,10 +336,8 @@ pub fn run() {
                 );
             }
         }
-        tauri::RunEvent::Exit => {
-            if EXPLICIT_EXIT.load(Ordering::SeqCst) {
-                desktop_log::mark_session_clean_exit("event_loop_exit");
-            }
+        tauri::RunEvent::Exit if EXPLICIT_EXIT.load(Ordering::SeqCst) => {
+            desktop_log::mark_session_clean_exit("event_loop_exit");
         }
         _ => {}
     });

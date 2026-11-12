@@ -315,7 +315,10 @@ fn read_latest_desktop_log_tail(dir: &Path, max_lines: usize) -> Option<String> 
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if let Some(date) = log_date(&name) {
-            if latest.as_ref().is_none_or(|(best_date, _)| date >= *best_date) {
+            if latest
+                .as_ref()
+                .is_none_or(|(best_date, _)| date >= *best_date)
+            {
                 latest = Some((date, entry.path()));
             }
         }
