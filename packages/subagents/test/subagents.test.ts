@@ -95,3 +95,75 @@ describe("delegate_task", () => {
     expect(output).toEqual(textOutput("At least one delegated task is required", true));
   });
 });
+
+describe("structured subagent results", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      files: { type: "array", items: { type: "string" }, minItems: 1 },
+      risk: { type: "string", enum: ["low", "high"] },
+    },
+    required: ["files", "risk"],
+    additionalProperties: false,
+  };
+  const lastUserText = (request: LlmRequest): string => {
+    const last = request.messages.findLast((message) => message.role === "user");
+    const block = last?.role === "user" ? last.content[0] : undefined;
+    return block?.type === "text" ? block.text : "";
+  };
+  const outputText = (output: Awaited<ReturnType<Context["tools"]["execute"]>>) => (output.content[0]?.type === "text" ? output.content[0].text : "");
+
+  it("asks for JSON matching the schema and returns it as data", async () => {
+    const prompts: string[] = [];
+    const { ctx: c, parent } = await setup((request) => {
+      prompts.push(lastUserText(request));
+      return textReply('```json\n{"files": ["a.ts"], "risk": "low"}\n```');
+    });
+    const output = await c.tools.execute({ id: "call-1", name: "delegate_task", args: { task: "list risky files", outputSchema: schema } }, env(parent.id));
+    expect(output.isError).toBe(false);
+    expect(prompts[0]).toContain("matches this JSON Schema");
+    expect(prompts[0]).toContain('"additionalProperties": false');
+    expect(outputText(output)).toContain('```json\n{\n  "files": [\n    "a.ts"\n  ],\n  "risk": "low"\n}\n```');
+    const details = output.details as { results: Array<{ structured?: unknown }> };
+    expect(details.results[0]?.structured).toEqual({ files: ["a.ts"], risk: "low" });
+  });
+
+  it("gives the subagent one chance to fix a reply that does not fit", async () => {
+    const prompts: string[] = [];
+    const { ctx: c, parent } = await setup((request) => {
+      prompts.push(lastUserText(request));
+      return textReply(prompts.length === 1 ? "The risky file is a.ts." : '{"files": ["a.ts"], "risk": "high"}');
+    });
+    const output = await c.tools.execute({ id: "call-1", name: "delegate_task", args: { task: "list risky files", outputSchema: schema } }, env(parent.id));
+    expect(output.isError).toBe(false);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("was not valid JSON");
+    expect((output.details as { results: Array<{ structured?: unknown }> }).results[0]?.structured).toEqual({ files: ["a.ts"], risk: "high" });
+  });
+
+  it("fails the task when the corrected reply still does not fit", async () => {
+    const { ctx: c, parent } = await setup(() => textReply('{"files": [], "risk": "medium"}'));
+    const output = await c.tools.execute({ id: "call-1", name: "delegate_task", args: { task: "list risky files", outputSchema: schema } }, env(parent.id));
+    expect(output.isError).toBe(true);
+    expect(outputText(output)).toContain("Structured result rejected: it did not match the schema: $.files should have at least 1 items");
+  });
+
+  it("rejects an outputSchema that is not an object", async () => {
+    const { ctx: c, parent } = await setup(() => textReply("x"));
+    const output = await c.tools.execute({ id: "call-1", name: "delegate_task", args: { task: "x", outputSchema: ["nope"] } }, env(parent.id));
+    expect(output.isError).toBe(true);
+  });
+
+  it("checks the schema subset tools use", () => {
+    expect(subagents.schemaProblem(schema, { files: ["a"], risk: "low" })).toBeUndefined();
+    expect(subagents.schemaProblem(schema, { files: ["a"] })).toBe("$.risk is missing");
+    expect(subagents.schemaProblem(schema, { files: [1], risk: "low" })).toBe("$.files[0] should be string, not integer");
+    expect(subagents.schemaProblem(schema, { files: ["a"], risk: "low", extra: true })).toBe("$.extra is not allowed");
+    expect(subagents.schemaProblem({ type: ["number", "null"] }, null)).toBeUndefined();
+    expect(subagents.schemaProblem({ type: "number" }, 3)).toBeUndefined();
+    expect(subagents.schemaProblem({ type: "integer" }, 2.5)).toBe("$ should be integer, not number");
+    expect(subagents.schemaProblem({ const: "x" }, "y")).toBe('$ should be "x"');
+    expect(subagents.parseJsonAnswer("  ```\n[1, 2]\n```  ")).toEqual({ ok: true, value: [1, 2] });
+    expect(subagents.parseJsonAnswer("")).toEqual({ ok: false, error: "the reply was empty" });
+  });
+});
