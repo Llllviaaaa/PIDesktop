@@ -4,8 +4,8 @@ version = "0.3.0"
 description = "Qianji (千机) - a local-first desktop environment fusing Agent Workbench, autonomous Bot, and IDE"
 authors = ["Qianji"]
 license = "Apache-2.0"
-repository = "https://github.com/Llllviaaaa/PIDesktop"
-homepage = "https://github.com/Llllviaaaa/PIDesktop"
+repository = "https://github.com/Llllviaaaa/Qianji"
+homepage = "https://github.com/Llllviaaaa/Qianji"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

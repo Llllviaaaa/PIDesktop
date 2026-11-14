@@ -7,12 +7,12 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Llllviaaaa/PIDesktop.git"
+    "url": "git+https://github.com/Llllviaaaa/Qianji.git"
   },
   "bugs": {
-    "url": "https://github.com/Llllviaaaa/PIDesktop/issues"
+    "url": "https://github.com/Llllviaaaa/Qianji/issues"
   },
-  "homepage": "https://github.com/Llllviaaaa/PIDesktop#readme",
+  "homepage": "https://github.com/Llllviaaaa/Qianji#readme",
   "engines": {
     "node": ">=22"
   },
