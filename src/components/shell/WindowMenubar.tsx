@@ -288,7 +288,7 @@ export function WindowMenubar({
                 <button
                   onClick={() => {
                     setAppMenu(null);
-                    void openUrl("https://github.com/Llllviaaaa/PIDesktop");
+                    void openUrl("https://github.com/Llllviaaaa/Qianji");
                   }}
                 >
                   项目主页
